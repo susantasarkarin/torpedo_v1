@@ -2242,6 +2242,22 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
     Returns True on success, False on any error (does not raise).
     """
     try:
+        # Global send-layer kill switch — independent of any campaign's
+        # is_active flag, checked here (inside the actual send call) so
+        # pausing takes effect immediately without a deploy or restart,
+        # and can't be bypassed by re-activating a campaign without also
+        # clearing this. Fails safe: missing/unreadable doc = paused.
+        try:
+            _kill_doc = db["outreach_kill_switch"].find_one({"_id": "global"})
+        except Exception:
+            _kill_doc = None
+        if not _kill_doc or _kill_doc.get("paused", True):
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": "paused", "updated_at": datetime.utcnow()}}
+            )
+            return False
+
         campaign = db["outreach_campaigns_v2"].find_one(
             {"campaign_id": lead_record["campaign_id"]}
         )
@@ -2298,6 +2314,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 }}
             )
             return False
+
+        # Deliverability gate: role account / disposable domain / no MX.
+        # Runs for every send, not just pattern-derived ones — the domain
+        # bounce-risk guard further below only fires for emails tagged
+        # pattern_derived/guessed, so this is the only check that catches a
+        # fabricated or dead company_domain regardless of email_source.
+        try:
+            try:
+                from app.services.outreach.email_validator import EmailValidator
+            except ImportError:
+                from backend.app.services.outreach.email_validator import EmailValidator
+            _valid, _reason = EmailValidator(db).validate_before_send(email)
+            if not _valid:
+                logger.warning(f"[Outreach] Skipping {email}: deliverability check failed ({_reason})")
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {
+                        "workflow_status": "skipped_high_bounce_risk",
+                        "last_send_error": f"Deliverability check failed: {_reason}",
+                        "last_send_error_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow(),
+                    }}
+                )
+                return False
+        except Exception as _validator_err:
+            logger.debug(f"[Outreach] deliverability gate skipped: {_validator_err}")
 
         business = campaign.get("business", "sfw")
         sender_config = _resolve_sender_for_campaign(db, campaign)
@@ -2764,6 +2806,15 @@ def process_due_outreach_sends() -> dict:
                 "campaign_id": cid,
                 "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
                 "next_send_at": {"$lte": now},
+                # Verification gate (Part 3, 2026-08-28 recovery plan):
+                # an address is only pickable once it's explicitly been
+                # marked sendable — syntax + MX + disposable + role-account
+                # + a real-time verification call all returned "valid".
+                # Enforced here in the query itself, not left to caller
+                # discipline. See scripts/verification_gate.py for what
+                # sets this flag. Absence of the field (the default for
+                # every existing/legacy row) means NOT sendable.
+                "sendable": True,
             }).limit(2))
             due.extend(camp_due)
 

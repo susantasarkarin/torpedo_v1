@@ -59,6 +59,11 @@ LEAD_FIELD_SCHEMA = {
     "company_revenue_range": None,
     "company_domain": None,
     "company_website": None,
+    # Citations (2026-08-28: previously nothing was recorded, so a
+    # produced address could never be checked against what the model
+    # actually saw — see HALT_AND_VERIFY_PLAN_2026-08-28.md Part 2)
+    "email_source_url": None,
+    "company_domain_source_url": None,
     # Metadata
     "enriched_at": None,
     "enrichment_source": "claude_websearch",
@@ -67,22 +72,29 @@ LEAD_FIELD_SCHEMA = {
 _EXTRACTION_PROMPT = """From the research notes below, extract structured company/lead data.
 
 Company searched: {company}
+Sources available (cite one of these URLs for company_domain and email, or
+use null for either field if none of these sources actually state it):
+{sources_list}
+
 Research notes:
 {answer}
 
-Return ONLY valid JSON with exactly this shape (use null when unknown, never invent):
+Return ONLY valid JSON with exactly this shape (use null when unknown, never
+invent — a plausible-looking value with no source is worse than null):
 {{
   "lead_information": {{
     "lead_name": "<key decision-maker full name or null>",
     "title": "<their job title or null>",
     "linkedin_url": "<their LinkedIn profile URL or null>",
-    "email": "<verified contact email or null>",
+    "email": "<verified contact email or null — ONLY if literally present in the research notes>",
+    "email_source_url": "<the exact URL from the sources list where this email appears, or null>",
     "location": "<lead's location or null>",
     "seniority_level": "<C-Level|VP|Director|Manager or null>",
     "department": "<Sales|Marketing|Operations|Research or null>"
   }},
   "company_details": {{
-    "company_domain": "<primary website domain, e.g. acme.com>",
+    "company_domain": "<primary website domain, e.g. acme.com — ONLY if stated or directly visible in a source URL>",
+    "company_domain_source_url": "<the exact URL from the sources list that supports this domain, or null>",
     "company_website": "<https URL or null>",
     "company_headquarters": "<city, country or null>",
     "company_founded": "<year or null>",
@@ -115,6 +127,24 @@ def get_db_connection():
 
 def get_enrichment_logs_collection():
     return _db()["lead_enrichment_logs"]
+
+
+def _domain_is_real(domain: str) -> bool:
+    """
+    True if `domain` has MX or A/AAAA records, i.e. could plausibly receive
+    mail. Fails open (returns True) if dnspython isn't installed, so a
+    missing dependency degrades to "no check" rather than dropping every
+    domain.
+    """
+    try:
+        try:
+            from app.services.outreach.email_validator import EmailValidator
+        except ImportError:
+            from backend.app.services.outreach.email_validator import EmailValidator
+        return EmailValidator(_db()).domain_exists(domain)
+    except Exception as e:
+        logger.debug(f"[Enrichment] domain existence check skipped: {e}")
+        return True
 
 
 def _log_attempt(company: str, success: bool, latency_ms: int,
@@ -184,15 +214,18 @@ def enrich_company_with_websearch(
         search = gateway.web_search(query, num_results=5,
                                     caller="lead_enrichment")
         answer = (search or {}).get("answer", "")
+        source_urls = [s["url"] for s in (search or {}).get("sources", []) if s.get("url")]
         if not answer:
             _log_attempt(company_name, False,
                          int((time.time() - start_time) * 1000), "empty_search")
             return {"company": company_name, "success": False,
                     "error": "web search returned no data"}
 
+        sources_list = "\n".join(f"- {u}" for u in source_urls) or "(none retrieved)"
         parsed = gateway.generate_json(
             _EXTRACTION_PROMPT.format(company=company_name,
-                                      answer=answer[:6000]),
+                                      answer=answer[:6000],
+                                      sources_list=sources_list),
             task_type="enrichment", caller="lead_enrichment")
         if not isinstance(parsed, dict):
             _log_attempt(company_name, False,
@@ -212,11 +245,46 @@ def enrich_company_with_websearch(
             for key, value in (parsed.get(section) or {}).items():
                 if key in enriched_record and value and value != "Unknown":
                     enriched_record[key] = value
+
+        # Enforce the citation requirement server-side — don't just trust
+        # the model followed the prompt. An email or domain whose cited
+        # source_url isn't one of the URLs the web_search tool actually
+        # retrieved gets nulled out rather than kept. This is the concrete
+        # form of "return null rather than a constructed guess when it
+        # can't cite one" — a prompt instruction alone is not a guarantee.
+        email_src = enriched_record.get("email_source_url")
+        if enriched_record.get("email") and email_src not in source_urls:
+            logger.info(f"[Enrichment] Dropping uncited email for '{company_name}' "
+                        f"(claimed source {email_src!r} not in retrieved results)")
+            enriched_record["email"] = None
+            enriched_record["email_source_url"] = None
+
+        domain_src = enriched_record.get("company_domain_source_url")
+        if enriched_record.get("company_domain") and domain_src not in source_urls:
+            logger.info(f"[Enrichment] Dropping uncited company_domain for '{company_name}' "
+                        f"(claimed source {domain_src!r} not in retrieved results)")
+            enriched_record["company_domain"] = None
+            enriched_record["company_domain_source_url"] = None
         # Normalise the domain (strip scheme/www/path).
         dom = enriched_record.get("company_domain") or ""
         if dom:
             dom = re.sub(r"^https?://", "", str(dom)).split("/")[0]
-            enriched_record["company_domain"] = dom.removeprefix("www.").lower()
+            dom = dom.removeprefix("www.").lower()
+            # The model sometimes fabricates a domain from the company name
+            # (e.g. turns a job-title snippet into
+            # "pwcwithadegreeininformationsystemsand.com"). A domain that
+            # doesn't resolve at all can never receive mail, so don't let a
+            # fabricated one flow into email prediction downstream — drop it
+            # and let this enrichment be retried/flagged instead of quietly
+            # producing a guaranteed-bounce email.
+            if _domain_is_real(dom):
+                enriched_record["company_domain"] = dom
+            else:
+                logger.warning(
+                    f"[Enrichment] Discarding fabricated/non-resolving "
+                    f"company_domain '{dom}' for '{company_name}'")
+                enriched_record["company_domain"] = None
+                enriched_record["company_domain_rejected"] = dom
         enriched_record["confidence_score"] = float(parsed.get("confidence_score") or 0)
         enriched_record["summary"] = parsed.get("summary", "")
         # Alias for consumers that read company_employee_count (scheduler merge)

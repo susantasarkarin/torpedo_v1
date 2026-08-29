@@ -155,7 +155,24 @@ class ClaudeGateway:
         )
         _log_usage("web_search", model, response.usage, caller)
         text = " ".join(b.text for b in response.content if b.type == "text").strip()
-        return {"query": query, "answer": text, "success": True,
+        # Preserve what the server-side web_search tool actually retrieved —
+        # previously discarded entirely, which is why nothing downstream
+        # could ever cite a source for a claim. web_search_tool_result
+        # blocks carry the URL/title of each page the tool looked at;
+        # citation annotations on text blocks (when present) tie a
+        # specific sentence back to one of those URLs.
+        sources = []
+        for block in response.content:
+            if getattr(block, "type", None) == "web_search_tool_result":
+                content = getattr(block, "content", None) or []
+                for item in content:
+                    url = getattr(item, "url", None)
+                    if url:
+                        sources.append({
+                            "url": url,
+                            "title": getattr(item, "title", None),
+                        })
+        return {"query": query, "answer": text, "sources": sources, "success": True,
                 "searched_at": datetime.utcnow().isoformat()}
 
 

@@ -15,9 +15,14 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from ..deliverability.domain_health import DomainHealthService
-from ..campaigns.rate_limiter import RateLimitService
-from ..database import get_database
+try:
+    from deliverability.domain_health import DomainHealthService
+    from campaigns.rate_limiter import RateLimitService
+    from database import get_database
+except ImportError:
+    from backend.deliverability.domain_health import DomainHealthService
+    from backend.campaigns.rate_limiter import RateLimitService
+    from backend.database import get_database
 
 logger = logging.getLogger(__name__)
 
