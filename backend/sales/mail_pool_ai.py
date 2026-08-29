@@ -44,6 +44,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Cheap trigger, not a classifier: "does anything about this sender's mail
+# look worth a deep RFQ scan" (see process_sender()). The AI still decides
+# what's actually an RFQ — this only decides whether to look at all.
+_RFQ_SIGNAL_REGEX = re.compile(
+    r"\b(rfq|rfp|request\s+for\s+(quote|quotation|proposal)|"
+    r"quot(e|ation)|pricing\s+(request|proposal)|tender)\b",
+    re.IGNORECASE,
+)
+
 MAIL_DB = "torpedo_gmail"
 MAIL_COLLECTION = "email_metadata"
 FOLLOWUP_COLLECTION = "mail_followup_drafts"  # stored in email_automation
@@ -809,6 +818,7 @@ Return exactly this JSON shape:
   "emails": [
     {{
       "index": <integer, matching the index above>,
+      "summary": "<1-2 sentences: what THIS specific email says, not a description of the sender in general>",
       "category": "rfq|client_inquiry|vendor|reply|promotional|transactional|internal|bank|gov_tax|other",
       "category_confidence": "high|medium|low",
       "evidence": "<up to 12 words from this email that justify the category>",
@@ -849,6 +859,10 @@ For any email where category is "rfq", replace that email's "rfq": null with:
   }}
 
 Rules:
+- Each email's own "summary" must describe what THAT email says (its actual
+  request/content/ask), not a general description of who the sender is —
+  the sender-level "summary" below is separate and covers the sender as a
+  whole; do not just repeat it for every email.
 - "rfq" means the sender is asking US to quote or propose for research work
   (sample, surveys, panel, fieldwork, translations, tabulation, incentives).
   An email SELLING us something is "vendor" or "promotional", never "rfq".
@@ -1172,7 +1186,31 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     # An RFQ anywhere in the sample forces the human/deep-scan path even when
     # the sender's overall type reads as newsletter/automated — this is the
     # actual fix for "an RFQ behind three newsletters" getting missed.
-    is_human = flat["sender_type"] in _HUMAN_SENDER_TYPES or bool(flat["rfq_emails"])
+    # BUT the sample is only the newest MAX_SAMPLE_EMAILS_PER_SENDER (3) —
+    # if none of those 3 happen to be the RFQ, and the model reads the
+    # sender's overall type as e.g. "automated"/"newsletter"/"bank" from
+    # just those 3, is_human was False and this sender's ENTIRE mailbox
+    # (including any older email that literally says "RFQ"/"quote") got
+    # stamped "analyzed" via the update_many below and never looked at
+    # again. Widen the trigger: a cheap keyword pre-screen across every
+    # UNANALYZED email from this sender (not just the sample) forces the
+    # full deep-scan whenever any of them look RFQ-shaped. This doesn't
+    # violate "no keyword-based RFQ classification" (mail_pool_ai.py's own
+    # docstring, by design) — the AI in deep_scan_sender_rfqs still makes
+    # the actual is-this-really-an-RFQ call; keywords only decide whether
+    # it's worth looking.
+    has_rfq_signal_words = bool(col.count_documents({
+        **base_query,
+        "$or": [
+            {"subject": _RFQ_SIGNAL_REGEX},
+            {"body_plain": _RFQ_SIGNAL_REGEX},
+            {"body": _RFQ_SIGNAL_REGEX},
+            {"snippet": _RFQ_SIGNAL_REGEX},
+        ],
+    }, limit=1))
+    is_human = (flat["sender_type"] in _HUMAN_SENDER_TYPES
+                or bool(flat["rfq_emails"])
+                or has_rfq_signal_words)
     if is_human:
         # Real correspondent: read their FULL history for RFQs and outcomes.
         # This supersedes the sample-based rfq field (which would only
@@ -1230,15 +1268,51 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
             "meta": analysis.get("meta"),   # model_id + tokens for cost auditing
             "segment_ai_raw": segment_ai_raw,
             "override_applied": override_applied}
+
+    # The sampled emails were each individually read by the model and have
+    # their own "summary" (what THAT email actually says) — write it back
+    # per-doc instead of blanket-overwriting every email from this sender
+    # with the one generic sender-level summary. Previously ai_summary was
+    # set identically on every email from a sender via a single
+    # update_many, so a sender with 50 emails showed the same "who this
+    # sender is" blurb on all 50 instead of each mail's own content.
+    per_email_by_index = {
+        e.get("index"): e for e in (analysis.get("emails") or [])
+        if isinstance(e, dict)
+    }
+    sampled_ids = []
+    for idx, doc in enumerate(sample, start=1):
+        sampled_ids.append(doc["_id"])
+        e = per_email_by_index.get(idx)
+        own_summary = (e or {}).get("summary") or flat.get("summary")
+        own_category = (e or {}).get("category") or flat.get("category")
+        own_segment, own_segment_source = derive_segment(own_category, None)
+        col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"ai_analysis": {**stub, "own_summary": True,
+                                       "category": own_category},
+                      "ai_summary": own_summary,
+                      "segment": own_segment,
+                      "segment_source": own_segment_source,
+                      "ai_processed_at": datetime.utcnow()}})
+
+    # The rest of this sender's mail was never individually read (only the
+    # newest MAX_SAMPLE_EMAILS_PER_SENDER were) — stamp those with the
+    # sender-level rollup as a triage approximation, not a per-email
+    # summary. RFQ coverage for this remainder is NOT lost: the deep-scan
+    # safety net above (is_human, widened by the RFQ keyword pre-screen)
+    # reads every one of a sender's emails chronologically regardless of
+    # whether they were in this sample.
     marked = col.update_many(
-        base_query,
+        {**base_query, "_id": {"$nin": sampled_ids}},
         {"$set": {"ai_analysis": stub,
                   "ai_summary": flat.get("summary"),
                   "segment": segment,
                   "segment_source": segment_source,
                   "ai_processed_at": datetime.utcnow()}}).modified_count
 
-    return {"success": True, "analysis": analysis, "emails_marked": marked}
+    return {"success": True, "analysis": analysis,
+            "emails_marked": marked + len(sampled_ids)}
 
 
 def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
