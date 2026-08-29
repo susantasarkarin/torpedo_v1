@@ -57,9 +57,20 @@ _ROLE_RE = re.compile(
 )
 
 
+# Confirmed-by-hand real company names that happen to match the pattern
+# above (a legitimate descriptive parenthetical, not a person's employer)
+# — checked against all 14 "company suffix before the paren" cases found
+# live on 2026-08-29; these were the only two that were actually real
+# companies, not a contact/role identity in different clothing.
+_CONFIRMED_REAL_COMPANIES = frozenset({
+    "Points2Shop LLC (A Cint Group Company)",
+    "Dipsticks Research Ltd (Panel Base)",
+})
+
+
 def is_contact_identity(name: str) -> bool:
     name = (name or "").strip()
-    if not name:
+    if not name or name in _CONFIRMED_REAL_COMPANIES:
         return False
     return bool(_PAREN_SUFFIX_RE.search(name) or _ROLE_RE.match(name))
 
