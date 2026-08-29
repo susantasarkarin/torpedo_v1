@@ -43,9 +43,21 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
 
 def find_candidates(crm, finance):
+    """
+    Two join directions, because either can be the only one that resolves:
+    account.metadata.source_id -> customer (the account's original creator),
+    and customer.crm_account_id -> account (covers a customer that got
+    *relinked* onto a pre-existing account of the same name during a
+    reconcile run, rather than creating its own — the account's own
+    metadata.source_id then still points at whichever customer created it
+    originally, missing the mail_pool_ai one entirely; found live when
+    "Susanta Sarkar" survived the first cleanup pass this way).
+    """
     accounts = crm["accounts"]
     customers = finance["customers"]
+    seen_account_ids = set()
     candidates = []
+
     for acct in accounts.find({"metadata.source": "finance_client"},
                               {"name": 1, "metadata": 1}):
         source_id = (acct.get("metadata") or {}).get("source_id")
@@ -56,11 +68,30 @@ def find_candidates(crm, finance):
         except Exception:
             continue
         if cust and cust.get("source") == "mail_pool_ai" and not (cust.get("email") or "").strip():
+            seen_account_ids.add(str(acct["_id"]))
             candidates.append({
                 "account_id": str(acct["_id"]),
                 "account_name": acct.get("name"),
                 "customer_id": str(cust["_id"]),
             })
+
+    for cust in customers.find(
+        {"source": "mail_pool_ai", "customer_type": "business",
+         "$or": [{"email": ""}, {"email": {"$exists": False}}]},
+        {"name": 1, "crm_account_id": 1},
+    ):
+        account_id = cust.get("crm_account_id")
+        if not account_id or account_id in seen_account_ids:
+            continue
+        acct = accounts.find_one({"_id": ObjectId(account_id)}, {"name": 1})
+        if not acct:
+            continue
+        seen_account_ids.add(account_id)
+        candidates.append({
+            "account_id": account_id,
+            "account_name": acct.get("name"),
+            "customer_id": str(cust["_id"]),
+        })
     return candidates
 
 
