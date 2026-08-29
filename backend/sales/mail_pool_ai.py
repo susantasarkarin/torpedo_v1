@@ -549,20 +549,6 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         if c.get("company"):
             sender_company = c["company"]
             break
-    # The AI only fills in `company` when it's confident (correctly cautious
-    # per the extraction prompt's "never invent" rule), so this was empty for
-    # 13,052 of 13,059 logged RFQs (99.9%) — meaning almost no RFQ ever got
-    # an account_id at all, so it could never show up on that account's
-    # overview page (routers/sales_accounts.py's RFQ rollup queries
-    # opportunities by account_id — see HALT_AND_VERIFY_PLAN-style
-    # investigation notes). Falling back to a domain-derived name keeps
-    # every RFQ linked to SOME account instead of silently orphaned; a free
-    # email provider gives no company signal, so those are left unlinked
-    # rather than creating a nonsense "Gmail" account.
-    if not sender_company and from_email and "@" in from_email:
-        domain = from_email.split("@", 1)[1]
-        if domain and domain not in _RFQ_FALLBACK_SKIP_DOMAINS:
-            sender_company = domain.split(".")[0].replace("-", " ").title()
     title = rfq.get("title") or f"RFQ: {email_doc.get('subject', 'email request')}"
     budget = rfq.get("budget") or 0
 
@@ -575,10 +561,32 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
 
         account_id = None
         if sender_company:
+            # AI-extracted company name — high confidence (the extraction
+            # prompt is explicitly told never to invent one), safe to
+            # create a new account from.
             account, _ = crm_service.get_or_create_account(
                 sender_company, defaults={"account_type": "client",
                                           "metadata": {"source": "mail_pool_ai"}})
             account_id = account["_id"]
+        elif from_email and "@" in from_email:
+            # No AI-extracted company: LOOK UP only, never fabricate one.
+            # A domain-derived name ("bellsouth.net" -> "Bellsouth",
+            # "mailersend.com" -> "Mailersend") produced hundreds of
+            # placeholder "prospect" accounts for personal ISP webmail and
+            # SaaS notification senders that were never a real client —
+            # see scripts/cleanup_rfq_backfill_accounts.py. The RFQ stays
+            # correctly unlinked here rather than manufacturing an
+            # account; link it manually once a real account exists.
+            domain = from_email.split("@", 1)[1]
+            if domain and domain not in _RFQ_FALLBACK_SKIP_DOMAINS:
+                candidate_name = domain.split(".")[0].replace("-", " ").title()
+                existing = crm_service._col("accounts").find_one(
+                    {"name": {"$regex": f"^{re.escape(candidate_name)}$", "$options": "i"},
+                     "metadata.hidden_from_accounts_list": {"$ne": True}},
+                    {"_id": 1},
+                )
+                if existing:
+                    account_id = str(existing["_id"])
         contact_id = None
         if from_email:
             contact, _ = crm_service.get_or_create_contact(

@@ -82,6 +82,11 @@ def _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats):
         # doesn't silently re-adopt what was just cleaned off the Accounts
         # page.
         "metadata.is_likely_person": {"$ne": True},
+        # Set by scripts/cleanup_rfq_backfill_accounts.py — a placeholder
+        # account manufactured from an RFQ sender's email domain (personal
+        # ISP webmail, SaaS notification senders), not a reviewed
+        # prospect. Same reasoning as is_likely_person above.
+        "metadata.hidden_from_accounts_list": {"$ne": True},
     }
 
     # Sort newest-first: with no sort, Mongo's natural order is roughly

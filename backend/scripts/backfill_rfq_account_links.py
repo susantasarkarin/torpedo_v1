@@ -1,6 +1,6 @@
 """
 Backfill account_id on crm_db.opportunities (RFQs) that were logged before
-sales/mail_pool_ai.py's domain-fallback fix — 13,052 of 13,059 RFQ
+sales/mail_pool_ai.py's account-linking fix — 13,052 of 13,059 RFQ
 opportunities (99.9%) had no account_id at all, because the old code only
 linked an account when the AI explicitly extracted a company name, which
 was rare. Without account_id, an RFQ can never appear on that account's
@@ -8,16 +8,24 @@ overview page (routers/sales_accounts.py queries opportunities by
 account_id) — this is the root cause behind "RFQs not showing up along
 with accounts/contacts."
 
-Deterministic only: resolves the RFQ's account via the same domain-derived
-naming as the live fix (sender's email domain -> title-cased company name),
-skipping free-email-provider domains and RFQs with no traceable sender
-email at all. Nothing is guessed beyond what the live code now does for
-new RFQs — this makes old data consistent with new behavior, not a new
-heuristic.
+LINK-ONLY BY DEFAULT: resolves each RFQ's sender-email domain to an
+EXISTING account by name and links it there; never fabricates a new one.
+An earlier version of this script auto-created a "client" account from
+whoever's domain sent one email — which produced real research-industry
+names (Ogilvy, Dupont) sitting next to personal ISP webmail (Bellsouth,
+Bigpond, Embarqmail) and SaaS notification domains (Mailersend,
+Zohomeeting, Sproutsocial) that were never a real client relationship.
+See scripts/cleanup_rfq_backfill_accounts.py, which undid that batch.
+Pass --allow-create to restore the old create-if-missing behavior (not
+recommended without also reviewing the result before it's visible on the
+Accounts page — accounts it creates are flagged
+metadata.hidden_from_accounts_list so they aren't, until you promote one
+you've actually verified).
 
 Usage:
-    python backfill_rfq_account_links.py            # dry run, report only
-    python backfill_rfq_account_links.py --apply     # write account_id
+    python backfill_rfq_account_links.py                    # dry run, link-only
+    python backfill_rfq_account_links.py --apply             # write account_id (link-only)
+    python backfill_rfq_account_links.py --apply --allow-create  # also create new accounts (flagged hidden)
 """
 
 import argparse
@@ -65,6 +73,9 @@ def _resolve_sender_email(opp: dict, gmail_col) -> Optional[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--allow-create", action="store_true",
+                         help="Create a new (flagged-hidden) account when no existing one "
+                              "matches the sender domain, instead of leaving the RFQ unlinked.")
     args = parser.parse_args()
     dry_run = not args.apply
 
@@ -101,22 +112,34 @@ def main() -> int:
         company = _company_from_domain(domain)
         if company not in accounts_cache:
             existing = accounts.find_one(
-                {"name": {"$regex": f"^{company}$", "$options": "i"}}, {"_id": 1})
+                {"name": {"$regex": f"^{company}$", "$options": "i"},
+                 "metadata.hidden_from_accounts_list": {"$ne": True}}, {"_id": 1})
             if existing:
                 accounts_cache[company] = str(existing["_id"])
-            elif not dry_run:
-                from datetime import datetime
-                now = datetime.utcnow()
-                ins = accounts.insert_one({
-                    "name": company, "account_type": "client",
-                    "metadata": {"source": "rfq_backfill"},
-                    "created_at": now, "updated_at": now,
-                })
-                accounts_cache[company] = str(ins.inserted_id)
+            elif args.allow_create:
+                # Off by default — see module docstring. A domain-derived
+                # name manufactures a "client" out of whoever happened to
+                # send one email (personal ISP webmail, SaaS notification
+                # senders), not a reviewed prospect. Only creates when you
+                # explicitly pass --allow-create, and even then flagged so
+                # it's excluded from the default Accounts list, requiring
+                # a human to promote it once confirmed real.
+                if not dry_run:
+                    from datetime import datetime
+                    now = datetime.utcnow()
+                    ins = accounts.insert_one({
+                        "name": company, "account_type": "client",
+                        "metadata": {"source": "rfq_backfill",
+                                     "hidden_from_accounts_list": True},
+                        "created_at": now, "updated_at": now,
+                    })
+                    accounts_cache[company] = str(ins.inserted_id)
+                else:
+                    accounts_cache[company] = "<would-create>"
                 accounts_created += 1
             else:
-                accounts_cache[company] = "<would-create>"
-                accounts_created += 1
+                unresolvable += 1
+                continue
 
         linked += 1
         if not dry_run:
@@ -124,13 +147,14 @@ def main() -> int:
                 {"_id": opp["_id"]}, {"$set": {"account_id": accounts_cache[company]}})
 
     print(f"Resolvable via sender domain: {linked}")
-    print(f"  Accounts {'that would be ' if dry_run else ''}created: {accounts_created}")
-    print(f"Unresolvable (no sender email on record): {unresolvable}")
+    print(f"  Accounts {'that would be ' if dry_run else ''}created: {accounts_created} "
+          f"{'(--allow-create was off, so this should be 0)' if not args.allow_create else ''}")
+    print(f"Unresolvable (no sender email on record, or no existing account matched "
+          f"and --allow-create was off): {unresolvable}")
     print(f"Skipped (free email provider / our own domain): {skipped_free_provider}")
 
     if dry_run:
-        print("\nNo writes made. Re-run with --apply to write account_id "
-              "and create any missing accounts.")
+        print("\nNo writes made. Re-run with --apply to write account_id.")
     return 0
 
 
