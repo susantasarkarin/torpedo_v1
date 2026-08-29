@@ -78,7 +78,16 @@ def _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats):
         "metadata.source_deleted": {"$ne": True},
     }
 
-    for account in accounts.find(query).limit(5000):
+    # Sort newest-first: with no sort, Mongo's natural order is roughly
+    # insertion order, so once matching accounts passed the limit, newly
+    # created ones (the ones most likely to actually be missing from
+    # sales_accounts, and most urgent to adopt) were silently never
+    # reached at all — found via a live count: 5,749 accounts matched the
+    # query but only the oldest ~5,000 were ever visited, permanently
+    # starving anything created after that point. Newest-first plus a
+    # limit padded well above current volume means growth has headroom
+    # before this recurs.
+    for account in accounts.find(query).sort("_id", -1).limit(20000):
         spine_id = str(account["_id"])
         if spine_id in existing_ids:
             continue
