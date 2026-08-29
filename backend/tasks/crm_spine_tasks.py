@@ -24,6 +24,8 @@ import os
 import re as _re
 from datetime import datetime
 
+from bson import ObjectId
+
 try:
     from backend.celery_app import celery_app
 except ImportError:
@@ -117,13 +119,108 @@ def _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats):
         stats["sales_accounts_adopted"] = stats.get("sales_accounts_adopted", 0) + 1
 
 
+# Company-suffix words that mean a name is almost certainly an
+# organisation, not a person — used only to widen the skip below to
+# pre-existing docs that predate the name_is_person_fallback flag.
+_COMPANY_SUFFIX_WORDS = _re.compile(
+    r"\b(inc|ltd|llc|llp|corp|co|company|gmbh|pvt|plc|group|solutions|"
+    r"consulting|research|technologies|technology|associates|partners|"
+    r"industries|enterprises|international|global|services)\b",
+    _re.IGNORECASE,
+)
+
+
+def _adopt_spine_contacts_into_legacy(legacy_contacts, crm_service, stats):
+    """
+    Spine contacts -> email_automation.contacts, so the Contacts page (which
+    reads the legacy collection — routers/legacy_contacts.py — not the spine)
+    shows contacts created any other way, including lead conversion
+    (crm_service.convert_lead -> crm_db.contacts) and mail_pool_ai. Mirrors
+    _adopt_spine_accounts_into_sales's pattern. Before this, crm_db.contacts
+    held 2,779 real records while email_automation.contacts had 0 — the
+    Contacts page had no working sync at all, unlike accounts (which at
+    least had a periodic, if often-stale, one).
+    """
+    contacts = crm_service._col("contacts")
+    accounts = crm_service._col("accounts")
+
+    existing_ids = set(
+        doc["crm_contact_id"]
+        for doc in legacy_contacts.find(
+            {"crm_contact_id": {"$exists": True}}, {"crm_contact_id": 1}
+        )
+        if doc.get("crm_contact_id")
+    )
+
+    for contact in contacts.find({"metadata.source_deleted": {"$ne": True}}).limit(5000):
+        spine_id = str(contact["_id"])
+        if spine_id in existing_ids:
+            continue
+
+        name = (contact.get("name") or "").strip()
+        email = (contact.get("email") or "").strip()
+        if not name and not email:
+            continue
+
+        company_name = None
+        account_id = contact.get("account_id")
+        if account_id:
+            try:
+                account = accounts.find_one({"_id": ObjectId(account_id)}, {"name": 1})
+            except Exception:
+                account = None
+            if account:
+                company_name = account.get("name")
+
+        now = datetime.utcnow()
+        legacy_contacts.insert_one({
+            "name": name or email,
+            "email": email,
+            "phone": contact.get("phone"),
+            "title": contact.get("title"),
+            "companyName": company_name,
+            "stage": "Contact",
+            "crm_contact_id": spine_id,
+            "crm_account_id": str(account_id) if account_id else None,
+            "source": (contact.get("metadata") or {}).get("source") or "crm_spine",
+            "createdAt": contact.get("created_at") or now,
+            "updatedAt": now,
+        })
+        stats["legacy_contacts_adopted"] = stats.get("legacy_contacts_adopted", 0) + 1
+
+
+def _looks_like_person_not_company(name: str) -> bool:
+    """True when `name` reads as a bare human name (2-4 capitalised words,
+    no company-suffix word, no digits) rather than an organisation."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    if _COMPANY_SUFFIX_WORDS.search(name):
+        return False
+    words = name.replace(",", " ").split()
+    return 1 < len(words) <= 4 and not any(ch.isdigit() for ch in name)
+
+
 def _reconcile_party_collection(collection, party, crm_service, spine_connector,
                                 stats):
     """Backfill + rename-sync one finance party collection (customers/vendors)."""
-    # 1. Backfill docs that never got a back-reference.
+    # 1. Backfill docs that never got a back-reference. Skip ones that are
+    # recorded as a person rather than a business — mirroring those into
+    # crm_db.accounts is how a contact's own name ends up listed as a
+    # "company" on the Accounts page. name_is_person_fallback is the
+    # explicit flag (set at the point of creation, see
+    # sales/mail_pool_ai.py::_log_rfq_and_estimate); the name-shape check
+    # is a fallback for docs that predate that flag.
     for doc in collection.find({"crm_account_id": {"$exists": False},
                                 "is_deleted": {"$ne": True}},
-                               {"name": 1}).limit(2000):
+                               {"name": 1, "customer_type": 1,
+                                "name_is_person_fallback": 1}).limit(2000):
+        if doc.get("name_is_person_fallback") or doc.get("customer_type") == "individual":
+            stats["skipped_person_name"] = stats.get("skipped_person_name", 0) + 1
+            continue
+        if _looks_like_person_not_company(doc.get("name") or ""):
+            stats["skipped_person_name"] = stats.get("skipped_person_name", 0) + 1
+            continue
         spine_id = spine_connector.mirror_finance_party_to_spine(
             doc.get("name"), party, source_id=str(doc["_id"]))
         if spine_id:
@@ -187,6 +284,11 @@ def reconcile_crm_spine(self):
         # ...and the reverse, so accounts the mail pipeline discovered show up
         # on the Sales Account page instead of only on the spine.
         _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats)
+
+        # Contacts: same reverse-adoption, into the Contacts page's legacy
+        # collection — see _adopt_spine_contacts_into_legacy's docstring.
+        legacy_contacts = get_db("email_automation")["contacts"]
+        _adopt_spine_contacts_into_legacy(legacy_contacts, crm_service, stats)
 
         # Operations projects: backfill ones that predate the inline mirror.
         ops_projects = get_db("torpedo_settings")["projects"]

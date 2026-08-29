@@ -53,6 +53,15 @@ _RFQ_SIGNAL_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+# Domains that give no real company signal — an RFQ from one of these stays
+# unlinked rather than fabricating an account named "Gmail"/"Yahoo"/etc.
+_RFQ_FALLBACK_SKIP_DOMAINS = frozenset({
+    "gmail.com", "yahoo.com", "yahoo.co.in", "hotmail.com", "outlook.com",
+    "live.com", "aol.com", "icloud.com", "mail.com", "protonmail.com",
+    "zoho.com", "yandex.com", "gmx.com", "rediffmail.com", "googlemail.com",
+    "cogentixresearch.com", "surveyfieldwork.com",  # our own domains
+})
+
 MAIL_DB = "torpedo_gmail"
 MAIL_COLLECTION = "email_metadata"
 FOLLOWUP_COLLECTION = "mail_followup_drafts"  # stored in email_automation
@@ -540,6 +549,20 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         if c.get("company"):
             sender_company = c["company"]
             break
+    # The AI only fills in `company` when it's confident (correctly cautious
+    # per the extraction prompt's "never invent" rule), so this was empty for
+    # 13,052 of 13,059 logged RFQs (99.9%) — meaning almost no RFQ ever got
+    # an account_id at all, so it could never show up on that account's
+    # overview page (routers/sales_accounts.py's RFQ rollup queries
+    # opportunities by account_id — see HALT_AND_VERIFY_PLAN-style
+    # investigation notes). Falling back to a domain-derived name keeps
+    # every RFQ linked to SOME account instead of silently orphaned; a free
+    # email provider gives no company signal, so those are left unlinked
+    # rather than creating a nonsense "Gmail" account.
+    if not sender_company and from_email and "@" in from_email:
+        domain = from_email.split("@", 1)[1]
+        if domain and domain not in _RFQ_FALLBACK_SKIP_DOMAINS:
+            sender_company = domain.split(".")[0].replace("-", " ").title()
     title = rfq.get("title") or f"RFQ: {email_doc.get('subject', 'email request')}"
     budget = rfq.get("budget") or 0
 
@@ -597,12 +620,22 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         estimates = finance_db["estimates"]
         now = datetime.utcnow()
 
+        # No extracted company name -> this is a person, not a business, and
+        # must never be recorded as one. Previously fell back to from_name
+        # (or from_email) with customer_type "business" unconditionally,
+        # which is how a personal name ends up mirrored into crm_db.accounts
+        # and shown on the Accounts page as if it were a company (a finance
+        # customer with no crm_account_id gets backfilled by
+        # tasks/crm_spine_tasks.py's periodic reconcile regardless of what
+        # kind of name it holds).
         customer_name = sender_company or email_doc.get("from_name") or from_email
+        is_person_fallback = not sender_company
         customer = customers.find_one({"name": customer_name})
         if not customer:
             ins = customers.insert_one({
                 "name": customer_name,
-                "customer_type": "business",
+                "customer_type": "individual" if is_person_fallback else "business",
+                "name_is_person_fallback": is_person_fallback,
                 "email": from_email,
                 "status": "active",
                 "source": "mail_pool_ai",
