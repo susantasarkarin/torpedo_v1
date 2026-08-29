@@ -76,6 +76,12 @@ def _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats):
             {"account_type": {"$exists": False}},
         ],
         "metadata.source_deleted": {"$ne": True},
+        # Set by scripts/cleanup_person_fallback_accounts.py — a person's
+        # own name stored as a "company" (see mail_pool_ai.py's finance
+        # customer_name fallback fix). Excluded here so a future reconcile
+        # doesn't silently re-adopt what was just cleaned off the Accounts
+        # page.
+        "metadata.is_likely_person": {"$ne": True},
     }
 
     # Sort newest-first: with no sort, Mongo's natural order is roughly
