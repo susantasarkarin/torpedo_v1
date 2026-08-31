@@ -120,8 +120,33 @@ def move_lead_to_contacts(
         contact_data["companyName"] = (lead.get("company_name")
                                        or lead.get("company") or None)
 
-    result = leads_repo.insert_contact(contacts_col, contact_data)
-    contact_data["_id"] = str(result.inserted_id)
+    # `contacts` has a UNIQUE index on email, so a blind insert raised
+    # DuplicateKeyError (surfacing as a 500) whenever the lead's address was
+    # already a contact — which is common now that the CRM spine's 2,779
+    # contacts are mirrored into this collection. Upsert on email instead, so
+    # converting an already-known person updates and links that contact
+    # rather than failing, and clicking Convert twice is harmless.
+    email = (contact_data.get("email") or "").strip().lower()
+    if email:
+        contact_data["email"] = email
+        existing = contacts_col.find_one({"email": email}, {"_id": 1})
+        if existing:
+            # Don't clobber an established contact wholesale — only fill in
+            # what the conversion actually establishes.
+            contacts_col.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {k: v for k, v in contact_data.items()
+                          if k in ("stage", "movedFromLeadAt", "updatedAt",
+                                   "companyName", "title", "phone", "name")
+                          and v is not None}},
+            )
+            contact_data["_id"] = str(existing["_id"])
+        else:
+            contact_data["_id"] = str(
+                leads_repo.insert_contact(contacts_col, contact_data).inserted_id)
+    else:
+        contact_data["_id"] = str(
+            leads_repo.insert_contact(contacts_col, contact_data).inserted_id)
 
     if source_col is enriched:
         source_col.update_one(
