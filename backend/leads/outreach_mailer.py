@@ -336,6 +336,15 @@ def cap_status() -> Dict[str, Any]:
     }
 
 
+def _facade_send(**kwargs):
+    """Thin indirection so tests can patch the facade at this module's level."""
+    try:
+        from messaging import send as _send
+    except ImportError:
+        from backend.messaging import send as _send
+    return _send(**kwargs)
+
+
 def cap_blocked() -> Optional[str]:
     status = cap_status()
     if status["daily_remaining"] <= 0:
@@ -503,23 +512,50 @@ def run(send: bool = False, bucket: Optional[str] = None,
             logger.info("lead=%s bucket=%s preview=%s", lead_id, lead_bucket, path)
             continue
 
-        try:
-            message_id = dispatch(build_message(lead, subject, body))
+        # Every send goes through the shared facade (TOR-06): one suppression
+        # list, one budget spanning all thirteen send paths, one log. The
+        # module-local cap_blocked() above is now a fast pre-check only — the
+        # facade is what actually enforces, because it can see the panel and
+        # campaign senders' volume too, which cap_blocked() never could.
+        result = _facade_send(
+            to_email=lead["email"],
+            subject=subject,
+            message=build_message(lead, subject, body),
+            transport=dispatch,
+            identity=SENDER_EMAIL,
+            channel="cold_outreach",
+            metadata={"lead_id": lead_id, "bucket": lead_bucket,
+                      "transport": SEND_TRANSPORT},
+        )
+        if result.delivered:
+            # Keep writing outreach_send_logs as well: it is this module's
+            # historical record and cap_status()/the ops reports still read it.
             send_log.insert_one({
                 "sent_at": datetime.utcnow(),
                 "lead_id": lead_id,
                 "email": lead["email"].lower().strip(),
                 "bucket": lead_bucket,
                 "subject": subject,
-                "message_id": message_id,
+                "message_id": result.provider_message_id,
                 "transport": SEND_TRANSPORT,
             })
             stats["sent"] += 1
             logger.info("lead=%s bucket=%s subject=%r message_id=%s SENT",
-                        lead_id, lead_bucket, subject, message_id)
-        except Exception as e:
+                        lead_id, lead_bucket, subject, result.provider_message_id)
+        elif result.category in ("budget", "disabled"):
+            # A global stop, not a per-lead problem — everything after this
+            # would be refused too, so stop rather than burn the queue.
+            logger.warning("stopping: %s", result.reason)
+            stats["cap_stopped"] += 1
+            break
+        elif result.category == "suppressed":
+            stats.setdefault("suppressed", 0)
+            stats["suppressed"] += 1
+            logger.info("lead=%s skipped: %s", lead_id, result.reason)
+            continue
+        else:
             stats["send_errors"] += 1
-            logger.error("lead=%s send failed: %s", lead_id, e)
+            logger.error("lead=%s send failed: %s", lead_id, result.reason)
             continue
 
         delay = random.uniform(SEND_MIN_SPACING_SECONDS, SEND_MAX_SPACING_SECONDS)

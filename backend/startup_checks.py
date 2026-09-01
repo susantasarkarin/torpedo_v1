@@ -159,6 +159,32 @@ def _audit_indexes() -> None:
                     sum(len(v) for v in expected.values()))
 
 
+def _ensure_messaging_indexes() -> None:
+    """
+    The two indexes the send facade genuinely needs (TOR-06): the unique
+    constraint that stops duplicate suppression rows, and the compound index
+    the per-identity budget counts against on every single send.
+
+    Created inline rather than left to the manual index run, because a budget
+    query doing a collection scan on every send is a self-inflicted outage —
+    and these two collections are small enough that the build is instant.
+    """
+    for module in ("suppression", "log"):
+        try:
+            try:
+                mod = __import__(f"messaging.{module}", fromlist=["ensure_indexes"])
+            except ImportError:
+                mod = __import__(f"backend.messaging.{module}",
+                                 fromlist=["ensure_indexes"])
+            mod.ensure_indexes()
+        except Exception:
+            logger.warning("messaging.%s index setup failed", module, exc_info=True)
+
+
 def audit_indexes_async() -> None:
-    """Kick the index audit onto a daemon thread; never blocks startup."""
-    threading.Thread(target=_audit_indexes, name="index-audit", daemon=True).start()
+    """Kick the index work onto a daemon thread; never blocks startup."""
+    def _run():
+        _ensure_messaging_indexes()
+        _audit_indexes()
+
+    threading.Thread(target=_run, name="index-audit", daemon=True).start()
