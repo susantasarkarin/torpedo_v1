@@ -436,7 +436,17 @@ async def login(request: Request, data: PanelistLoginRequest):
     if not panelist:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    if not verify_password(data.password, panelist.get("password_hash", "")):
+    # verify_password raises ValueError on a hash it refuses to interpret (a
+    # genuine legacy plaintext value). Admin login catches that and migrates;
+    # this one did not, so it escaped as a 500. A failed credential check is a
+    # 401 whatever the stored hash looks like — never a server error, and never
+    # a distinguishable response that tells an attacker the account exists.
+    try:
+        password_ok = verify_password(data.password, panelist.get("password_hash", ""))
+    except ValueError:
+        logger.warning("panelist %s has an uninterpretable password hash", data.email.lower())
+        password_ok = False
+    if not password_ok:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     # "confirmed" is what verify-email / mark_double_opt_in_completed /

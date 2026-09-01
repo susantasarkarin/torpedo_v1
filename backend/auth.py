@@ -69,6 +69,14 @@ def verify_password(password: str, hashed: str) -> bool:
     Raises:
         ValueError: If password hash is in plaintext format
     """
+    # A MISSING hash is not a plaintext hash. 223,951 of 224,002 panelists have
+    # no password_hash at all (registration happens on the SFW panel), so
+    # panel.py's `panelist.get("password_hash", "")` passed "" here on every
+    # such login attempt and this raised — turning "wrong email" into a 500,
+    # ~200 times a day. Absent credentials simply fail to verify.
+    if not hashed:
+        return False
+
     # Reject plaintext passwords - this is a security violation
     if not hashed.startswith('$2') and not hashed.startswith('pbkdf2:'):
         raise ValueError(f"❌ SECURITY VIOLATION: Found plaintext password hash. All passwords must be hashed with bcrypt or PBKDF2. "

@@ -235,3 +235,22 @@ def test_budget_reserve_is_withheld_from_bulk(monkeypatch):
             # 85 sent, 100 daily: transactional may proceed, bulk may not.
             assert budget_mod.allows("id@example.com", transactional=True) is None
             assert budget_mod.allows("id@example.com", transactional=False) is not None
+
+
+# ---------------------------------------------------------------------------
+# Regression: panelist login returned 500 for the 223,951 panelists who have
+# no password_hash at all (registration happens on the SFW panel). An absent
+# credential is a failed check, not a "security violation".
+# ---------------------------------------------------------------------------
+def test_missing_password_hash_fails_verification_without_raising():
+    from auth import verify_password
+    assert verify_password("anything", "") is False
+    assert verify_password("anything", None or "") is False
+
+
+def test_genuinely_plaintext_hash_still_raises():
+    """The security check must survive the fix above — a real plaintext value
+    stored where a hash belongs is still refused loudly."""
+    from auth import verify_password
+    with pytest.raises(ValueError):
+        verify_password("anything", "hunter2")
