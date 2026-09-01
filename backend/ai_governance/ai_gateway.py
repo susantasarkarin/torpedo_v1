@@ -139,9 +139,34 @@ class AIGateway:
         return self._client
 
     def _call_llm(self, prompt: str, model: str = None, max_tokens: int = 1024,
-                  temperature: float = 0.3) -> str:
+                  temperature: float = 0.3, role: str = "cheap") -> str:
         """
-        Internal method — call the Bedrock Mantle chat-completions API. Enforces daily limit.
+        Internal method — one governed model call. Enforces the daily limit.
+
+        Routed through leads.bedrock_client (boto3 `bedrock-runtime.Converse`),
+        which is the path that actually authenticates on this deployment and
+        the one the runbook designates as the only permitted Bedrock client.
+
+        WHY THIS CHANGED (2026-09-01)
+        -----------------------------
+        This used to build an `openai.OpenAI` client pointed at
+        BEDROCK_MANTLE_BASE_URL and authenticate with a bearer token resolved
+        from settings/env. On production that token resolution fell through to
+        ANTHROPIC_API_KEY — a genuine `sk-ant-...` Anthropic key — which was
+        then presented to an AWS endpoint. AWS rejected it:
+
+            401 invalid_api_key: "Invalid bearer token"
+
+        Every gateway call failed, which is why lead classification had been
+        writing classification_status="Failed" for months while mail
+        segregation (which uses leads.bedrock_client directly) worked fine.
+        The two paths were never the same "Bedrock".
+
+        Using boto3 needs no new secret: AWS_ACCESS_KEY_ID/SECRET are already
+        present and verified working against bedrock-runtime in ap-south-1.
+
+        The bearer-token path is kept below as an explicit opt-in for anyone
+        who does have a real AWS Bedrock API key (AWS_BEARER_TOKEN_BEDROCK).
         """
         if not check_ai_daily_limit():
             raise AIDailyLimitExceeded(
@@ -149,17 +174,37 @@ class AIGateway:
             )
         increment_ai_daily_usage()
 
+        if os.getenv("AI_GATEWAY_USE_BEARER_TOKEN", "false").lower() in ("1", "true", "yes"):
+            try:
+                client = self._get_client()
+                response = client.chat.completions.create(
+                    model=model or ANTHROPIC_MODEL,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                logger.error(f"Bedrock (bearer-token path) failed: {e}. NO AUTOMATIC RETRY.")
+                raise
+
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=model or ANTHROPIC_MODEL,
+            from leads.bedrock_client import converse
+        except ImportError:  # pragma: no cover
+            from backend.leads.bedrock_client import converse
+        try:
+            # The gateway's callers put everything in one prompt; Converse wants
+            # a system/user split, so the instruction goes in system and the
+            # payload in user.
+            return converse(
+                role,
+                "You are a precise assistant. Follow the user's instructions exactly.",
+                prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return response.choices[0].message.content.strip()
+            ).strip()
         except Exception as e:
-            logger.error(f"Bedrock API call failed: {e}. NO AUTOMATIC RETRY.")
+            logger.error(f"Bedrock Converse call failed: {e}. NO AUTOMATIC RETRY.")
             raise
 
     def complete(self, prompt: str, model: str = None, max_tokens: int = 1024,
