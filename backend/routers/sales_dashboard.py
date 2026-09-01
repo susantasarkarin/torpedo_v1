@@ -683,7 +683,7 @@ def calculate_forecast_vs_actual(date_filter: Dict, target: float) -> Dict[str, 
 # ============== MAIN DASHBOARD ENDPOINT (CACHED) ==============
 
 @router.get("/dashboard", response_model=SalesDashboardResponse)
-async def get_sales_dashboard(
+def get_sales_dashboard(
     start_date: str = Query(
         default=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
         description="Start date YYYY-MM-DD"
@@ -842,7 +842,7 @@ async def get_sales_dashboard(
 # ============== FUNNEL DRILL-DOWN ENDPOINT ==============
 
 @router.get("/funnel/{stage}")
-async def get_funnel_stage_details(
+def get_funnel_stage_details(
     stage: FunnelStage,
     start_date: str = Query(default=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")),
     end_date: str = Query(default=datetime.utcnow().strftime("%Y-%m-%d")),
@@ -895,7 +895,7 @@ async def get_funnel_stage_details(
 # ============================================
 
 @router.post("/async/dashboard")
-async def start_async_dashboard_generation(
+def start_async_dashboard_generation(
     date_range: str = Query("30d", description="Date range: 7d, 30d, 90d"),
     force_refresh: bool = Query(False, description="Force cache refresh")
 ):
@@ -920,7 +920,7 @@ async def start_async_dashboard_generation(
 
 
 @router.post("/async/pipeline-report")
-async def start_async_pipeline_report(
+def start_async_pipeline_report(
     date_range: str = Query("30d", description="Date range: 7d, 30d, 90d")
 ):
     """
@@ -943,7 +943,7 @@ async def start_async_pipeline_report(
 
 
 @router.get("/async/reports/{report_id}")
-async def get_sales_report(report_id: str):
+def get_sales_report(report_id: str):
     """
     Get a generated sales report by ID.
     """

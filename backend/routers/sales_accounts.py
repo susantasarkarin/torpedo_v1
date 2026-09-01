@@ -98,7 +98,7 @@ class SalesAccountUpdate(BaseModel):
 # ========================
 
 @router.get("/accounts")
-async def get_all_sales_accounts(
+def get_all_sales_accounts(
     status: Optional[str] = Query(None, description="Filter by status"),
     search: Optional[str] = Query(None, description="Search by name/company"),
     limit: int = Query(0, ge=0, le=1000, description="Chunk size (0 = all, for legacy callers)"),
@@ -126,7 +126,7 @@ async def get_all_sales_accounts(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/accounts/{account_id}")
-async def get_sales_account(account_id: str):
+def get_sales_account(account_id: str):
     """Get a single sales account by ID"""
     try:
         account = accounts_collection.find_one({"_id": ObjectId(account_id)})
@@ -137,7 +137,7 @@ async def get_sales_account(account_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/accounts")
-async def create_sales_account(account: SalesAccountCreate):
+def create_sales_account(account: SalesAccountCreate):
     """Create a new sales account"""
     try:
         account_data = account.dict()
@@ -168,7 +168,7 @@ async def create_sales_account(account: SalesAccountCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/accounts/{account_id}")
-async def update_sales_account(account_id: str, account: SalesAccountUpdate):
+def update_sales_account(account_id: str, account: SalesAccountUpdate):
     """Update a sales account"""
     try:
         update_data = {k: v for k, v in account.dict().items() if v is not None}
@@ -188,7 +188,7 @@ async def update_sales_account(account_id: str, account: SalesAccountUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/accounts/{account_id}")
-async def delete_sales_account(account_id: str):
+def delete_sales_account(account_id: str):
     """Delete a sales account"""
     try:
         result = accounts_collection.delete_one({"_id": ObjectId(account_id)})
@@ -203,7 +203,7 @@ async def delete_sales_account(account_id: str):
 # ========================
 
 @router.post("/accounts/{account_id}/link-operations-client")
-async def link_operations_client(account_id: str, client_id: str = Body(..., embed=True)):
+def link_operations_client(account_id: str, client_id: str = Body(..., embed=True)):
     """Link a sales account to an operations client"""
     try:
         result = accounts_collection.update_one(
@@ -220,7 +220,7 @@ async def link_operations_client(account_id: str, client_id: str = Body(..., emb
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/accounts/{account_id}/link-finance-customer")
-async def link_finance_customer(account_id: str, customer_id: str = Body(..., embed=True)):
+def link_finance_customer(account_id: str, customer_id: str = Body(..., embed=True)):
     """Link a sales account to a finance customer"""
     try:
         result = accounts_collection.update_one(
@@ -237,7 +237,7 @@ async def link_finance_customer(account_id: str, customer_id: str = Body(..., em
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/accounts/{account_id}/unlink-operations-client")
-async def unlink_operations_client(account_id: str):
+def unlink_operations_client(account_id: str):
     """Unlink operations client from sales account"""
     try:
         result = accounts_collection.update_one(
@@ -254,7 +254,7 @@ async def unlink_operations_client(account_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/accounts/{account_id}/unlink-finance-customer")
-async def unlink_finance_customer(account_id: str):
+def unlink_finance_customer(account_id: str):
     """Unlink finance customer from sales account"""
     try:
         result = accounts_collection.update_one(
@@ -359,7 +359,7 @@ def _account_contacts(account: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 @router.get("/accounts/{account_id}/overview")
-async def get_account_overview(account_id: str):
+def get_account_overview(account_id: str):
     """
     Account 360: the account plus everything hanging off it — contacts, RFQs
     from the CRM spine, the finance rollup, and operations projects.
@@ -539,7 +539,7 @@ async def get_account_overview(account_id: str):
 # ========================
 
 @router.get("/accounts/{account_id}/contacts")
-async def get_account_contacts(account_id: str):
+def get_account_contacts(account_id: str):
     """Get all contacts (leads) linked to a sales account"""
     try:
         account = accounts_collection.find_one({"_id": ObjectId(account_id)})
@@ -572,7 +572,7 @@ async def get_account_contacts(account_id: str):
 
 
 @router.post("/accounts/{account_id}/contacts/{contact_id}")
-async def add_contact_to_account(account_id: str, contact_id: str):
+def add_contact_to_account(account_id: str, contact_id: str):
     """Add a contact (lead) to a sales account"""
     try:
         # Verify account exists
@@ -604,7 +604,7 @@ async def add_contact_to_account(account_id: str, contact_id: str):
 
 
 @router.delete("/accounts/{account_id}/contacts/{contact_id}")
-async def remove_contact_from_account(account_id: str, contact_id: str):
+def remove_contact_from_account(account_id: str, contact_id: str):
     """Remove a contact from a sales account"""
     try:
         result = accounts_collection.update_one(

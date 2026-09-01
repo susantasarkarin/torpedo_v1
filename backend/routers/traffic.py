@@ -2322,7 +2322,7 @@ async def cpx_callback(
 
 
 @router.get("/api/cpx-callback-logs")
-async def get_cpx_callback_logs(
+def get_cpx_callback_logs(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Records per page"),
@@ -2420,7 +2420,7 @@ async def get_cpx_callback_logs(
 
 
 @router.delete("/api/cpx-callback-logs")
-async def clear_cpx_callback_logs(request: Request):
+def clear_cpx_callback_logs(request: Request):
     """
     Clear all CPX callback logs
     Requires authentication
@@ -2457,7 +2457,7 @@ async def clear_cpx_callback_logs(request: Request):
 # ===================================================================================
 
 @router.get("/api/prefetch-ip")
-async def prefetch_client_ip(request: Request):
+def prefetch_client_ip(request: Request):
     """
     Instantly capture client IP from server headers on page load.
     
@@ -3374,7 +3374,7 @@ async def get_all_surveys_traffic_stats(request: Request):
 
 
 @router.post("/api/traffic/assign-survey")
-async def assign_survey_batch(
+def assign_survey_batch(
     request: Request,
     data: Dict[str, Any] = Body(...)
 ):
@@ -3428,7 +3428,7 @@ async def assign_survey_batch(
 
 
 @router.get("/api/traffic/new-batch")
-async def get_new_traffic_batch(
+def get_new_traffic_batch(
     request: Request,
     batch_size: int = Query(100, ge=1, le=1000, description="Batch size (1-1000)")
 ):
@@ -3518,7 +3518,7 @@ async def list_traffic_records(
 
 
 @router.delete("/api/traffic/delete")
-async def delete_traffic_records(
+def delete_traffic_records(
     request: Request,
     data: Dict[str, Any] = Body(...)
 ):
@@ -3574,7 +3574,7 @@ async def delete_traffic_records(
 # These endpoints return immediately with operation_id for long-running tasks
 
 @router.post("/api/traffic/async/batch-assign")
-async def start_async_batch_assign(
+def start_async_batch_assign(
     request: Request,
     data: Dict[str, Any] = Body(...)
 ):
@@ -3623,7 +3623,7 @@ async def start_async_batch_assign(
 
 
 @router.post("/api/traffic/async/bulk-delete")
-async def start_async_bulk_delete(
+def start_async_bulk_delete(
     request: Request,
     data: Dict[str, Any] = Body(...)
 ):
@@ -3672,7 +3672,7 @@ async def start_async_bulk_delete(
 
 
 @router.post("/api/traffic/async/generate-stats")
-async def start_async_generate_stats(
+def start_async_generate_stats(
     request: Request,
     data: Dict[str, Any] = Body(default={})
 ):
@@ -3715,7 +3715,7 @@ async def start_async_generate_stats(
 
 
 @router.get("/api/traffic/async/reports/{report_id}")
-async def get_traffic_report(
+def get_traffic_report(
     request: Request,
     report_id: str
 ):
@@ -3750,7 +3750,7 @@ async def get_traffic_report(
 
 
 @router.get("/api/traffic/export")
-async def export_traffic_records(
+def export_traffic_records(
     request: Request,
     status: Optional[str] = Query(None, description="Filter by status"),
     survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
@@ -3875,7 +3875,7 @@ async def export_traffic_records(
 
 
 @router.get("/api/traffic/export/csv")
-async def export_traffic_csv(
+def export_traffic_csv(
     request: Request,
     status: Optional[str] = Query(None, description="Filter by status"),
     survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
@@ -4018,7 +4018,7 @@ async def export_traffic_csv(
 # ============================================
 
 @router.get("/api/debug/cpx-test")
-async def test_cpx_multi_country(
+def test_cpx_multi_country(
     request: Request,
     countries: str = Query("IN,US,GB,CA", description="Comma-separated ISO2 country codes to test"),
     test_ip: Optional[str] = Query(None, description="Optional test IP (defaults to request IP)"),
@@ -4167,7 +4167,7 @@ async def test_cpx_multi_country(
 
 
 @router.get("/api/debug/entry-guard-stats")
-async def get_entry_guard_stats(
+def get_entry_guard_stats(
     request: Request,
     hours: int = Query(24, ge=1, le=168, description="Hours to look back (1-168)"),
 ):
@@ -4248,7 +4248,7 @@ async def get_entry_guard_stats(
 
 
 @router.get("/api/debug/cpx-diagnostic-logs")
-async def get_cpx_diagnostic_logs(
+def get_cpx_diagnostic_logs(
     request: Request,
     hours: int = Query(24, ge=1, le=168, description="Hours to look back (1-168)"),
     country: Optional[str] = Query(None, description="Filter by country code (e.g., IN, US)"),

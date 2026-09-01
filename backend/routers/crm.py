@@ -53,7 +53,7 @@ def _check_resource(resource: str):
 # ----------------------- cross-object flows (specific first) -----------------------
 
 @router.get("/timeline/{object_type}/{object_id}")
-async def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_read)):
+def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_read)):
     """Activities + tasks linked to one canonical object (account/contact/opportunity/project)."""
     try:
         return crm_service.timeline(object_type, object_id)
@@ -62,13 +62,13 @@ async def get_timeline(object_type: str, object_id: str, _user: str = Depends(re
 
 
 @router.post("/rfq")
-async def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
+def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
     """RFQ -> creates an Opportunity and a Project stub, cross-linked."""
     return crm_service.create_rfq(payload)
 
 
 @router.post("/opportunities/{opp_id}/win")
-async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
+def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
     """Mark Opportunity Won -> activate Project and create Invoice stub."""
     result = crm_service.mark_opportunity_won(opp_id)
     if result is None:
@@ -77,7 +77,7 @@ async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
 
 
 @router.post("/opportunities/{opp_id}/stage")
-async def move_opportunity_stage(
+def move_opportunity_stage(
     opp_id: str,
     payload: Dict[str, Any] = Body(...),
     _user: str = Depends(require_write),
@@ -97,7 +97,7 @@ async def move_opportunity_stage(
 
 
 @router.post("/leads/{lead_id}/convert")
-async def convert_lead(
+def convert_lead(
     lead_id: str,
     payload: Dict[str, Any] = Body(default={}),
     _user: str = Depends(require_write),
@@ -116,7 +116,7 @@ async def convert_lead(
 
 
 @router.get("/search")
-async def global_search(q: str = Query(..., min_length=2),
+def global_search(q: str = Query(..., min_length=2),
                         limit: int = Query(10, le=50),
                         _user: str = Depends(require_read)):
     """Global search across accounts, contacts, leads and opportunities."""
@@ -124,20 +124,20 @@ async def global_search(q: str = Query(..., min_length=2),
 
 
 @router.get("/reports/pipeline")
-async def report_pipeline(_user: str = Depends(require_read)):
+def report_pipeline(_user: str = Depends(require_read)):
     """Pipeline value by stage, weighted forecast, win rate, velocity."""
     return crm_service.pipeline_report()
 
 
 @router.get("/reports/activity")
-async def report_activity(days: int = Query(30, ge=1, le=365),
+def report_activity(days: int = Query(30, ge=1, le=365),
                           _user: str = Depends(require_read)):
     """Activity volume by type over the trailing window."""
     return crm_service.activity_report(days=days)
 
 
 @router.get("/spine-health")
-async def spine_health(_user: str = Depends(require_read)):
+def spine_health(_user: str = Depends(require_read)):
     """
     Mirror health (TOR-13).
 
@@ -156,13 +156,13 @@ async def spine_health(_user: str = Depends(require_read)):
 
 
 @router.get("/duplicates/accounts")
-async def duplicate_accounts(_user: str = Depends(require_read)):
+def duplicate_accounts(_user: str = Depends(require_read)):
     """Groups of accounts whose names collapse to the same dedupe key."""
     return crm_service.find_duplicate_accounts()
 
 
 @router.post("/accounts/merge")
-async def merge_accounts(payload: Dict[str, Any] = Body(...),
+def merge_accounts(payload: Dict[str, Any] = Body(...),
                          _user: str = Depends(require_write)):
     """Merge duplicate accounts into a primary; re-points all references."""
     try:
@@ -175,7 +175,7 @@ async def merge_accounts(payload: Dict[str, Any] = Body(...),
 
 
 @router.post("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: str, _user: str = Depends(require_write)):
+def mark_notification_read(notif_id: str, _user: str = Depends(require_write)):
     doc = crm_service.update("notifications", notif_id, {"read": True})
     if not doc:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -183,7 +183,7 @@ async def mark_notification_read(notif_id: str, _user: str = Depends(require_wri
 
 
 @router.post("/contacts/{contact_id}/draft-email")
-async def draft_email_for_contact(
+def draft_email_for_contact(
     contact_id: str,
     payload: Dict[str, Any] = Body(default={}),
     _user: str = Depends(require_write),
@@ -245,7 +245,7 @@ async def draft_email_for_contact(
 
 
 @router.post("/web-to-lead", dependencies=[Depends(web_lead_rate_limit)])
-async def web_to_lead(payload: Dict[str, Any] = Body(...)):
+def web_to_lead(payload: Dict[str, Any] = Body(...)):
     """
     Public inbound lead capture for website forms.
 
@@ -339,7 +339,7 @@ def _build_list_query(resource: str, account_id, contact_id, owner, stage,
 
 
 @router.get("/{resource}/export.csv")
-async def export_resource_csv(resource: str,
+def export_resource_csv(resource: str,
                               limit: int = Query(100000, ge=1, le=1000000),
                               _user: str = Depends(require_read)):
     """
@@ -403,7 +403,7 @@ async def export_resource_csv(resource: str,
 
 
 @router.get("/{resource}")
-async def list_resource(
+def list_resource(
     resource: str,
     limit: int = Query(200, le=1000),
     skip: int = Query(0, ge=0),
@@ -426,7 +426,7 @@ async def list_resource(
 
 
 @router.post("/{resource}")
-async def create_resource(
+def create_resource(
     resource: str,
     payload: Dict[str, Any] = Body(...),
     _user: str = Depends(require_write),
@@ -442,7 +442,7 @@ async def create_resource(
 
 
 @router.get("/{resource}/{doc_id}")
-async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_read)):
+def get_resource(resource: str, doc_id: str, _user: str = Depends(require_read)):
     _check_resource(resource)
     try:
         doc = crm_service.get(resource, doc_id)
@@ -454,7 +454,7 @@ async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_
 
 
 @router.put("/{resource}/{doc_id}")
-async def update_resource(
+def update_resource(
     resource: str,
     doc_id: str,
     payload: Dict[str, Any] = Body(...),
@@ -472,7 +472,7 @@ async def update_resource(
 
 
 @router.delete("/{resource}/{doc_id}")
-async def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
+def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
     """Soft delete: the row is flagged and hidden, not removed (TOR-18)."""
     _check_resource(resource)
     try:
@@ -486,7 +486,7 @@ async def delete_resource(resource: str, doc_id: str, _user: str = Depends(requi
 
 
 @router.post("/{resource}/{doc_id}/purge")
-async def purge_resource(resource: str, doc_id: str,
+def purge_resource(resource: str, doc_id: str,
                          _user: str = Depends(require_approve)):
     """
     Permanently remove a document and clear references to it.

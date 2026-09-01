@@ -383,7 +383,7 @@ def _build_panelist_query(
 # ============== STATS ==============
 
 @router.get("/stats/")
-async def get_panel_stats(request: Request):
+def get_panel_stats(request: Request):
     """Get aggregate panel statistics"""
     verify_admin_session(request)
 
@@ -425,7 +425,7 @@ async def get_panel_stats(request: Request):
 # ============== PANELISTS ==============
 
 @router.get("/panelists/countries")
-async def list_panelist_countries(request: Request):
+def list_panelist_countries(request: Request):
     """Get distinct country values from panelists collection"""
     verify_admin_session(request)
 
@@ -440,7 +440,7 @@ async def list_panelist_countries(request: Request):
 
 
 @router.get("/panelists/")
-async def list_panelists(
+def list_panelists(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
@@ -478,7 +478,7 @@ async def list_panelists(
 
 
 @router.get("/panelists/with-email-status")
-async def list_panelists_with_email_status(
+def list_panelists_with_email_status(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
@@ -560,7 +560,7 @@ async def list_panelists_with_email_status(
 
 
 @router.get("/panelist-leads/")
-async def list_panelist_leads(
+def list_panelist_leads(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
@@ -608,7 +608,7 @@ async def list_panelist_leads(
 
 
 @router.get("/panelist-leads/countries")
-async def list_panelist_lead_countries(request: Request):
+def list_panelist_lead_countries(request: Request):
     """Get distinct country codes from parsing-page leads that have an email."""
     verify_admin_session(request)
 
@@ -780,7 +780,7 @@ async def import_panelists_from_link(
 # ============== REWARDS ==============
 
 @router.get("/rewards/")
-async def list_rewards(
+def list_rewards(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
@@ -816,7 +816,7 @@ async def list_rewards(
 
 
 @router.get("/rewards/redemptions")
-async def list_redemptions(
+def list_redemptions(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
@@ -855,7 +855,7 @@ async def list_redemptions(
 # ============== DASHBOARD ==============
 
 @router.get("/dashboard/daily-stats")
-async def get_daily_email_stats(
+def get_daily_email_stats(
     request: Request,
     days: int = Query(30, ge=1, le=365),
 ):
@@ -1003,7 +1003,7 @@ async def get_conversion_funnel(
 
 
 @router.get("/dashboard/drip-status")
-async def get_drip_status(request: Request, days: int = Query(30, ge=1, le=365)):
+def get_drip_status(request: Request, days: int = Query(30, ge=1, le=365)):
     """Per-stage re-engagement send volume over the last N days."""
     verify_admin_session(request)
 
@@ -1073,7 +1073,7 @@ async def run_drips(
 
 
 @router.get("/dashboard/registrations-by-country")
-async def get_registrations_by_country(
+def get_registrations_by_country(
     request: Request,
 ):
     """Get panelists registered (double opt-in confirmed) by country"""
@@ -1168,7 +1168,7 @@ def _sfw_write(method, path, payload=None):
 # rather than by curling the SFW API by hand.
 
 @router.get("/suppliers")
-async def list_suppliers(request: Request):
+def list_suppliers(request: Request):
     """Suppliers with their signup/conversion counts and tracked links."""
     verify_admin_session(request)
     try:
@@ -1187,26 +1187,26 @@ async def list_suppliers(request: Request):
 
 
 @router.post("/suppliers")
-async def create_supplier(request: Request, payload: Dict[str, Any] = Body(...)):
+def create_supplier(request: Request, payload: Dict[str, Any] = Body(...)):
     verify_admin_session(request)
     return _sfw_write("POST", "/suppliers", payload)
 
 
 @router.patch("/suppliers/{slug}")
-async def update_supplier(request: Request, slug: str, payload: Dict[str, Any] = Body(...)):
+def update_supplier(request: Request, slug: str, payload: Dict[str, Any] = Body(...)):
     verify_admin_session(request)
     return _sfw_write("PATCH", f"/suppliers/{slug}", payload)
 
 
 @router.post("/suppliers/{slug}/rotate-token")
-async def rotate_supplier_token(request: Request, slug: str):
+def rotate_supplier_token(request: Request, slug: str):
     """Invalidate a supplier's dashboard link and issue a new one."""
     verify_admin_session(request)
     return _sfw_write("POST", f"/suppliers/{slug}/rotate-token")
 
 
 @router.get("/dashboard/sfwpanel-overview")
-async def get_sfwpanel_overview(request: Request):
+def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""
     verify_admin_session(request)
     try:
@@ -1240,7 +1240,7 @@ async def get_sfwpanel_overview(request: Request):
 
 
 @router.get("/dashboard/sfwpanel-countries")
-async def get_sfwpanel_countries(request: Request):
+def get_sfwpanel_countries(request: Request):
     """SFW panel country breakdown — proxied from panel.surveyfieldwork.com"""
     verify_admin_session(request)
     try:
@@ -1262,7 +1262,7 @@ async def get_sfwpanel_countries(request: Request):
 
 
 @router.get("/sfwpanel-panelists")
-async def get_sfwpanel_panelists(
+def get_sfwpanel_panelists(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -1286,7 +1286,7 @@ async def get_sfwpanel_panelists(
 
 
 @router.get("/sfwpanel-panelists/{user_id}")
-async def get_sfwpanel_panelist_detail(request: Request, user_id: str):
+def get_sfwpanel_panelist_detail(request: Request, user_id: str):
     """Detail for a single SFW panelist — proxied from panel.surveyfieldwork.com"""
     verify_admin_session(request)
     try:
