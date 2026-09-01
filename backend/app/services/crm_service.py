@@ -99,8 +99,21 @@ def serialize(doc: Optional[dict]) -> Optional[dict]:
 
 # --------------------------- generic CRUD ----------------------------
 
+# Sentinel for "caller did not supply this field", so an explicit None can mean
+# "clear this field" (TOR-16). update() used to strip every None, which made it
+# impossible to null anything through the API — and silently broke the service's
+# own set_opportunity_stage(), where clearing loss_reason on a reopened deal
+# just vanished.
+class _Unset:
+    def __repr__(self):  # pragma: no cover - debug aid
+        return "<unset>"
+
+
+UNSET = _Unset()
+
+
 def create(collection: str, data: Dict[str, Any]) -> dict:
-    data = {k: v for k, v in data.items() if v is not None}
+    data = {k: v for k, v in data.items() if v is not None and v is not UNSET}
     now = datetime.utcnow()
     data.setdefault("created_at", now)
     data["updated_at"] = now
@@ -133,7 +146,12 @@ def list_docs(
 
 def update(collection: str, id_str: str, data: Dict[str, Any],
            changed_by: Optional[str] = None) -> Optional[dict]:
-    update_data = {k: v for k, v in data.items() if v is not None}
+    """
+    Patch a document. A key present with value None CLEARS that field; use the
+    UNSET sentinel (or simply omit the key) to leave a field alone. Before
+    TOR-16 every None was stripped, so nothing could ever be cleared.
+    """
+    update_data = {k: v for k, v in data.items() if v is not UNSET}
     update_data["updated_at"] = datetime.utcnow()
 
     # Field-change history: diff before/after and put the changes on the
@@ -142,7 +160,12 @@ def update(collection: str, id_str: str, data: Dict[str, Any],
     if collection in _TRACKED_COLLECTIONS:
         old = _col(collection).find_one({"_id": _oid(id_str)})
 
-    result = _col(collection).update_one({"_id": _oid(id_str)}, {"$set": update_data})
+    to_set = {k: v for k, v in update_data.items() if v is not None}
+    to_unset = {k: "" for k, v in update_data.items() if v is None}
+    ops: Dict[str, Any] = {"$set": to_set}
+    if to_unset:
+        ops["$unset"] = to_unset
+    result = _col(collection).update_one({"_id": _oid(id_str)}, ops)
     if result.matched_count == 0:
         return None
 
@@ -187,9 +210,51 @@ def _jsonable(v):
     return v
 
 
-def delete(collection: str, id_str: str) -> bool:
+def delete(collection: str, id_str: str, changed_by: Optional[str] = None) -> bool:
+    """
+    SOFT delete: flag the document and hide it from lists, keep the row.
+
+    A hard delete_one() here orphaned every reference to the document —
+    contacts, opportunities, invoices, projects and activities kept a dangling
+    account_id, disappeared from the account view, and still counted in every
+    report (TOR-18). The spine's own nightly reconcile already refuses to hard
+    delete for exactly this reason ("they anchor historical activities"), so
+    the API handing out a hard delete contradicted it.
+
+    Use purge() for a genuine, cascading removal.
+    """
+    result = _col(collection).update_one(
+        {"_id": _oid(id_str)},
+        {"$set": {"status": "deleted",
+                  "deleted_at": datetime.utcnow(),
+                  "deleted_by": changed_by,
+                  "updated_at": datetime.utcnow()}},
+    )
+    return result.matched_count > 0
+
+
+def purge(collection: str, id_str: str) -> Dict[str, Any]:
+    """
+    Hard delete WITH reference cleanup. Admin-only path; `delete` is what the
+    generic API exposes.
+
+    Re-points nothing — there is nothing to re-point to — so referencing docs
+    have the dead id cleared rather than left dangling.
+    """
+    ref_field = {"accounts": "account_id", "contacts": "contact_id",
+                 "opportunities": "opportunity_id", "projects": "project_id",
+                 "leads": "lead_id"}.get(collection)
+    cleared: Dict[str, int] = {}
+    if ref_field:
+        for other in _ACCOUNT_REF_COLLECTIONS:
+            if other == collection:
+                continue
+            res = _col(other).update_many(
+                {ref_field: id_str}, {"$set": {ref_field: None}})
+            if res.modified_count:
+                cleared[other] = res.modified_count
     result = _col(collection).delete_one({"_id": _oid(id_str)})
-    return result.deleted_count > 0
+    return {"deleted": result.deleted_count > 0, "references_cleared": cleared}
 
 
 # --------------------------- account dedupe --------------------------
@@ -326,7 +391,13 @@ def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
     if not opportunity:
         return None
 
-    update("opportunities", opp_id, {"stage": "won", "status": "won"})
+    # closed_at is the real close timestamp. The pipeline report used to derive
+    # days-to-close from updated_at, which any later edit — a note, an owner
+    # change, the nightly reconcile — pushed forward, inflating the sales-cycle
+    # metric indefinitely (TOR-17).
+    now = datetime.utcnow()
+    update("opportunities", opp_id,
+           {"stage": "won", "status": "won", "closed_at": now})
 
     project_id = opportunity.get("project_id")
     if project_id:
@@ -385,9 +456,13 @@ def set_opportunity_stage(opp_id: str, stage: str,
             raise ValueError("loss_reason is required when marking an opportunity lost")
         fields["status"] = "lost"
         fields["loss_reason"] = loss_reason.strip()
+        fields["closed_at"] = datetime.utcnow()
     elif opportunity.get("status") in ("won", "lost"):
         fields["status"] = "open"       # reopening a closed deal
+        # Explicit None now genuinely clears these (TOR-16) — a reopened deal
+        # used to keep showing the reason it was lost.
         fields["loss_reason"] = None
+        fields["closed_at"] = None
 
     update("opportunities", opp_id, fields, changed_by=changed_by)
     log_activity({
@@ -497,7 +572,12 @@ def find_duplicate_accounts() -> List[Dict[str, Any]]:
     """Group non-merged accounts whose names collapse to the same dedupe key
     (e.g. 'Acme Corp' / 'Acme Corporation' / 'acme corp.')."""
     groups: Dict[str, List[dict]] = {}
-    for doc in _col("accounts").find({"status": {"$ne": "merged"}}):
+    # Project only the fields the dedupe key and the UI row need. This used to
+    # pull every field of every account into memory to compute a name key
+    # (TOR-20).
+    projection = {"name": 1, "status": 1, "owner": 1, "account_type": 1,
+                  "created_at": 1}
+    for doc in _col("accounts").find({"status": {"$ne": "merged"}}, projection):
         key = _dedupe_key(doc.get("name", ""))
         if not key:
             continue
@@ -588,32 +668,72 @@ def search(q: str, limit: int = 10) -> Dict[str, List[dict]]:
 # ------------------------------ reports ------------------------------
 
 def pipeline_report() -> Dict[str, Any]:
-    """Pipeline value by stage, win rate, weighted forecast, velocity."""
+    """
+    Pipeline value by stage, win rate, weighted forecast, velocity.
+
+    Computed with a $group aggregation rather than by pulling every
+    opportunity into Python (TOR-20). The old loop read the whole collection
+    on every dashboard load — unbounded memory, and under a 1 GB cgroup on a
+    single-worker event loop it blocked every other request while it ran.
+    """
     stages: Dict[str, Dict[str, Any]] = {
         s: {"stage": s, "count": 0, "value": 0.0, "weighted": 0.0}
         for s in OPPORTUNITY_STAGES
     }
-    won = lost = 0
-    close_days: List[float] = []
-    for o in _col("opportunities").find({}):
-        stage = o.get("stage") or "new"
-        row = stages.setdefault(
-            stage, {"stage": stage, "count": 0, "value": 0.0, "weighted": 0.0})
-        amount = float(o.get("amount") or 0)
-        prob = o.get("probability")
-        prob = float(prob) if prob is not None else STAGE_PROBABILITY.get(stage, 0.1)
-        row["count"] += 1
-        row["value"] += amount
-        if o.get("status") == "open":
-            row["weighted"] += amount * prob
-        if stage == "won":
-            won += 1
-            if o.get("created_at") and o.get("updated_at"):
-                close_days.append((o["updated_at"] - o["created_at"]).total_seconds() / 86400)
-        elif stage == "lost":
-            lost += 1
 
-    open_rows = [r for s, r in stages.items() if s not in ("won", "lost")]
+    # Weighted forecast uses the opportunity's own probability when set,
+    # otherwise the stage default — expressed as a $switch so Mongo does it.
+    prob_expr = {
+        "$ifNull": [
+            "$probability",
+            {"$switch": {
+                "branches": [{"case": {"$eq": ["$stage", st]}, "then": pr}
+                             for st, pr in STAGE_PROBABILITY.items()],
+                "default": 0.1,
+            }},
+        ]
+    }
+
+    pipeline = [
+        {"$group": {
+            "_id": {"$ifNull": ["$stage", "new"]},
+            "count": {"$sum": 1},
+            "value": {"$sum": {"$ifNull": [{"$toDouble": "$amount"}, 0]}},
+            "weighted": {"$sum": {"$cond": [
+                {"$eq": ["$status", "open"]},
+                {"$multiply": [{"$ifNull": [{"$toDouble": "$amount"}, 0]}, prob_expr]},
+                0,
+            ]}},
+        }},
+    ]
+    for row in _col("opportunities").aggregate(pipeline):
+        stage = row["_id"] or "new"
+        stages.setdefault(
+            stage, {"stage": stage, "count": 0, "value": 0.0, "weighted": 0.0})
+        stages[stage].update(
+            count=row["count"],
+            value=float(row.get("value") or 0),
+            weighted=float(row.get("weighted") or 0),
+        )
+
+    won = stages.get("won", {}).get("count", 0)
+    lost = stages.get("lost", {}).get("count", 0)
+
+    # Velocity: measured from created_at to closed_at, the timestamp stamped
+    # when the deal actually closed. Previously this used updated_at, so any
+    # later edit to a won deal inflated the average forever (TOR-17). Rows
+    # closed before closed_at existed simply don't contribute.
+    velocity = list(_col("opportunities").aggregate([
+        {"$match": {"stage": "won",
+                    "closed_at": {"$ne": None},
+                    "created_at": {"$ne": None}}},
+        {"$group": {"_id": None, "avg_ms": {"$avg": {
+            "$subtract": ["$closed_at", "$created_at"]}}}},
+    ]))
+    avg_days = (round(velocity[0]["avg_ms"] / 86_400_000, 1)
+                if velocity and velocity[0].get("avg_ms") else None)
+
+    open_rows = [r for st, r in stages.items() if st not in ("won", "lost")]
     return {
         "stages": [stages[s] for s in OPPORTUNITY_STAGES if s in stages]
                   + [r for s, r in stages.items() if s not in OPPORTUNITY_STAGES],
@@ -623,7 +743,7 @@ def pipeline_report() -> Dict[str, Any]:
         "won_count": won,
         "lost_count": lost,
         "win_rate": round(won / (won + lost), 3) if (won + lost) else None,
-        "avg_days_to_close": round(sum(close_days) / len(close_days), 1) if close_days else None,
+        "avg_days_to_close": avg_days,
     }
 
 

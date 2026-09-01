@@ -21,11 +21,13 @@ try:
     from .session_state import (
         serializer, SESSION_TTL_SECONDS, sessions,
         get_session_store_instance, verify_session,
+        issue_token, revoke_session, bump_epoch, current_epoch,
     )
 except ImportError:
     from session_state import (
         serializer, SESSION_TTL_SECONDS, sessions,
         get_session_store_instance, verify_session,
+        issue_token, revoke_session, bump_epoch, current_epoch,
     )
 
 try:
@@ -96,7 +98,9 @@ async def login(credentials: Dict[str, str] = Body(...)):
                 logger.exception("Password rehash failed for user %s", username)
 
         role = user.get("role", "admin")
-        session_id = serializer.dumps(username)
+        # Token carries the user's session epoch so bump_epoch() can invalidate
+        # every token they hold without enumerating them (TOR-02).
+        session_id = issue_token(username, user.get("session_epoch") or 0)
 
         store = await get_session_store_instance()
         await store.create(session_id, {"username": username, "role": role}, SESSION_TTL_SECONDS)
@@ -123,9 +127,10 @@ async def login(credentials: Dict[str, str] = Body(...)):
 async def logout(request: Request):
     session_id = request.headers.get("Authorization")
     if session_id:
-        store = await get_session_store_instance()
-        await store.delete(session_id)
-        sessions.pop(session_id, None)
+        # revoke_session drops the token from the local cache AND the store.
+        # verify_session now treats "absent from a reachable store" as revoked,
+        # so this actually ends the session instead of being cosmetic (TOR-02).
+        await revoke_session(session_id.strip())
     return {"message": "Logged out successfully"}
 
 
@@ -138,8 +143,7 @@ async def get_profile(request: Request):
     """Get current user's profile (audit-safe fields only)."""
     users_col = _get_users_collection()
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
         user = users_col.find_one({"username": username})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -161,8 +165,7 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
     """Update user profile (audit-safe fields: email, displayName)."""
     users_col = _get_users_collection()
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
 
         update_data: Dict[str, Any] = {}
         if "display_name" in profile_data:
@@ -191,8 +194,7 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
     """Change password (requires current password verification)."""
     users_col = _get_users_collection()
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
 
         current_password = password_data.get("current_password")
         new_password = password_data.get("new_password")
@@ -215,7 +217,12 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="User not found")
-        return {"message": "Password changed successfully"}
+        # Every token issued before this moment is now invalid (TOR-02): a
+        # password change that leaves old sessions alive is not a password
+        # change. The caller re-authenticates like everyone else.
+        bump_epoch(username)
+        return {"message": "Password changed successfully",
+                "reauth_required": True}
     except HTTPException:
         raise
     except Exception as e:

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/crm", tags=["CRM Spine"])
 # Coarse capability gates (enforced only when RBAC_ENABLED=true).
 require_read = require("read")
 require_write = require("write")
+require_approve = require("approve")
 
 # Map a URL resource to its canonical Pydantic model for create-time validation.
 _MODELS = {
@@ -279,7 +280,12 @@ def _build_list_query(resource: str, account_id, contact_id, owner, stage,
     if status:
         query["status"] = status
     elif resource == "accounts":
-        query["status"] = {"$ne": "merged"}   # hide merged dupes by default
+        # hide merged dupes AND soft-deleted rows by default
+        query["status"] = {"$nin": ["merged", "deleted"]}
+    else:
+        # Soft-deleted docs stay in the collection so they keep anchoring
+        # historical activities (TOR-18), but they must not appear in lists.
+        query["status"] = {"$ne": "deleted"}
     if unread is not None and resource == "notifications":
         query["read"] = not unread
     if linked_object_type:
@@ -297,35 +303,66 @@ def _build_list_query(resource: str, account_id, contact_id, owner, stage,
 
 
 @router.get("/{resource}/export.csv")
-async def export_resource_csv(resource: str, _user: str = Depends(require_read)):
-    """Export a canonical collection as CSV (flat top-level fields)."""
+async def export_resource_csv(resource: str,
+                              limit: int = Query(100000, ge=1, le=1000000),
+                              _user: str = Depends(require_read)):
+    """
+    Export a canonical collection as CSV (flat top-level fields).
+
+    Genuinely streamed (TOR-20): the previous version materialised every
+    document AND the entire rendered file as one string before handing it to
+    StreamingResponse, so a large export was a single unbounded allocation
+    that also blocked the event loop for its duration.
+
+    The header needs a stable column set, so a bounded first pass samples the
+    field names; rows are then streamed straight off the cursor.
+    """
     import csv
-    import io
+    import io as _io
     import re as _re
     from fastapi.responses import StreamingResponse
     _check_resource(resource)
-    docs = crm_service.list_docs(resource, limit=100000)
-    # Union of scalar top-level fields, stable order (common fields first).
+
     preferred = ["_id", "name", "title", "email", "company", "stage", "status",
                  "amount", "owner", "account_id", "contact_id", "created_at"]
+
+    # Header discovery: sample rather than scan. Documents in a canonical
+    # collection are homogeneous enough that 500 rows settle the columns.
     keys: list = []
-    for d in docs:
+    for d in crm_service.list_docs(resource, limit=500):
         for k, v in d.items():
             if isinstance(v, (dict, list)):
                 continue
             if k not in keys:
                 keys.append(k)
     keys.sort(key=lambda k: preferred.index(k) if k in preferred else 999)
-    out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=keys, extrasaction="ignore")
-    writer.writeheader()
-    for d in docs:
-        writer.writerow({k: v for k, v in d.items()
-                         if not isinstance(v, (dict, list))})
-    out.seek(0)
+
+    def _rows():
+        buf = _io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=keys, extrasaction="ignore")
+        writer.writeheader()
+        yield buf.getvalue()
+        buf.seek(0), buf.truncate(0)
+
+        CHUNK = 1000
+        sent = 0
+        while sent < limit:
+            batch = crm_service.list_docs(
+                resource, limit=min(CHUNK, limit - sent), skip=sent)
+            if not batch:
+                break
+            for d in batch:
+                writer.writerow({k: v for k, v in d.items()
+                                 if not isinstance(v, (dict, list))})
+            yield buf.getvalue()
+            buf.seek(0), buf.truncate(0)
+            sent += len(batch)
+            if len(batch) < CHUNK:
+                break
+
     fname = _re.sub(r"[^A-Za-z0-9_-]", "", resource) or "export"
     return StreamingResponse(
-        iter([out.getvalue()]), media_type="text/csv",
+        _rows(), media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=crm_{fname}.csv"})
 
 
@@ -400,11 +437,32 @@ async def update_resource(
 
 @router.delete("/{resource}/{doc_id}")
 async def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
+    """Soft delete: the row is flagged and hidden, not removed (TOR-18)."""
     _check_resource(resource)
     try:
-        ok = crm_service.delete(resource, doc_id)
+        ok = crm_service.delete(resource, doc_id,
+                                changed_by=str(_user) if _user else None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail=f"{resource[:-1]} not found")
-    return {"message": "deleted"}
+    return {"message": "deleted", "soft": True}
+
+
+@router.post("/{resource}/{doc_id}/purge")
+async def purge_resource(resource: str, doc_id: str,
+                         _user: str = Depends(require_approve)):
+    """
+    Permanently remove a document and clear references to it.
+
+    Deliberately separate from DELETE and behind the stronger 'approve'
+    capability: this is the operation that cannot be undone.
+    """
+    _check_resource(resource)
+    try:
+        result = crm_service.purge(resource, doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result["deleted"]:
+        raise HTTPException(status_code=404, detail=f"{resource[:-1]} not found")
+    return result

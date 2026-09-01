@@ -8,8 +8,11 @@ package's coarse capability helper (rbac.can: read/write/approve). Provides a
 SAFE-BY-DEFAULT: enforcement is OPT-IN via the RBAC_ENABLED env var (default
 off). When off, any authenticated user passes — so adding these checks to a live
 system never locks anyone out. Enable it (RBAC_ENABLED=true) once user roles are
-seeded. The full permission system (rbac.permissions / RBACService) remains
-available for finer-grained control later.
+seeded with scripts/seed_rbac_roles.py. The full permission system
+(rbac.permissions / RBACService) remains available for finer-grained control.
+
+The flag is read from rbac.flags — the SAME reader rbac/decorators.py uses.
+They used to have opposite defaults for the same variable (TOR-04).
 """
 
 import os
@@ -20,14 +23,20 @@ from fastapi import Request, HTTPException
 try:
     from ..database import get_database
     from ..rbac import can
+    from ..rbac.flags import rbac_enabled as _rbac_enabled
 except ImportError:  # pragma: no cover - absolute import fallback
     from database import get_database
     from rbac import can
+    from rbac.flags import rbac_enabled as _rbac_enabled
 
 
 def rbac_enabled() -> bool:
-    """Read at call time so tests / runtime can toggle it."""
-    return os.getenv("RBAC_ENABLED", "false").lower() in ("1", "true", "yes")
+    """Read at call time so tests / runtime can toggle it.
+
+    Delegates to rbac.flags so this module and rbac/decorators.py can never
+    disagree about what RBAC_ENABLED means again.
+    """
+    return _rbac_enabled()
 
 
 def is_allowed(user: dict, capability: Optional[str], enabled: Optional[bool] = None) -> bool:

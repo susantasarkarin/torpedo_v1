@@ -58,29 +58,32 @@ load_dotenv()
 # ----------------------------
 # Router Setup
 # ----------------------------
-# SAFE-BY-DEFAULT session gate, same opt-in shape as RBAC_ENABLED in
-# app/security.py. This router has always been unauthenticated: every finance
-# endpoint (customers, vendors, invoices, estimates, payments) is world-readable,
-# so customer PII can be pulled with a plain unauthenticated GET.
+# Session auth on every /finance/* route.
 #
-# It cannot simply be switched on: several finance pages send no Authorization
-# header at all (PaymentsPage 12 calls/0, VendorsPage 9/0, PurchaseOrdersPage
-# 8/0, ItemsPage 6/0, ExpensesPage 6/0), so enabling this before they are
-# migrated onto the shared api.js client would 401 most of the finance UI.
+# This shipped OFF behind FINANCE_AUTH_ENABLED while several finance pages sent
+# no Authorization header (PaymentsPage, VendorsPage, PurchaseOrdersPage,
+# ItemsPage, ExpensesPage). Verified 2026-09-01: all twelve finance pages now go
+# through utils/api.js `authFetch`, and the three remaining raw fetches
+# (Finance.jsx dashboard, ClientsPage delete, RFQ customer list) set the header
+# themselves. The migration is done, so the gate is ON by default (TOR-03).
 #
-# Sequence: ship this OFF -> migrate the pages -> set FINANCE_AUTH_ENABLED=true.
-# Flipping it back is an env change plus a restart, not a redeploy.
-FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
+# The env var remains as an escape hatch: FINANCE_AUTH_ENABLED=false restores
+# the old open behaviour with a restart, no redeploy. Do not leave it off — the
+# whole ledger, including customer PII, is world-readable in that state.
+FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
 
 _finance_deps = []
 if FINANCE_AUTH_ENABLED:
-    from session_state import verify_session
+    try:
+        from ..session_state import verify_session
+    except ImportError:
+        from session_state import verify_session
     _finance_deps.append(Depends(verify_session))
-    logger.warning("[finance] session auth ENABLED on /finance/*")
+    logger.info("[finance] session auth enabled on /finance/*")
 else:
-    logger.warning(
-        "[finance] session auth DISABLED - /finance/* is publicly readable. "
-        "Set FINANCE_AUTH_ENABLED=true once all finance pages send a session token."
+    logger.error(
+        "[finance] session auth DISABLED - /finance/* is publicly readable, "
+        "including customer PII. Unset FINANCE_AUTH_ENABLED to restore the gate."
     )
 
 router = APIRouter(prefix="/finance", tags=["Finance"], dependencies=_finance_deps)

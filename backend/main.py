@@ -1,4 +1,4 @@
-﻿import os
+import os
 import traceback
 import re
 import logging
@@ -130,17 +130,11 @@ CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "http://139.5
 # Default to localhost if not provided
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
-# CORS Origins - comma-separated list
-CORS_ORIGINS = os.getenv(
-    "CORS_ORIGINS", 
-    "*"
-)
-
-# Handle wildcard or list of origins
-if CORS_ORIGINS == "*":
-    CORS_ORIGINS = ["*"]
-else:
-    CORS_ORIGINS = CORS_ORIGINS.split(",")
+# CORS origins come from config.py (imported above), which parses the env var
+# AND refuses "*" outright. This block used to re-read the same variable with a
+# "*" default and shadow the imported name, so the guard in config.py protected
+# nothing and an unset CORS_ORIGINS silently opened the API to every origin
+# with allow_credentials=True. Deleted (TOR-31) — config.py is the only reader.
 
 # ----------------------------
 # MongoDB connection (pooled singleton — shared across all modules)
@@ -195,93 +189,26 @@ except Exception as e:
 # The router is mounted both at `/` and `/api` for backward compatibility
 # with legacy tests and the frontend client.
 # ----------------------------
+# Session infrastructure lives in ONE place (TOR-19). main.py used to define
+# its own serializer, its own 500-entry cache and its own verify_session
+# alongside session_state's copies; login wrote to one and verification read
+# the other, so the cache never hit and logout could not purge what
+# verification consulted. Import, don't duplicate.
 try:
-    from .config import SESSION_SECRET as SECRET_KEY, SESSION_TTL_SECONDS
-except Exception:
-    from config import SESSION_SECRET as SECRET_KEY, SESSION_TTL_SECONDS
+    from .session_state import (
+        serializer, sessions, SESSION_TTL_SECONDS,
+        get_session_store_instance, verify_session,
+        issue_token, revoke_session, bump_epoch,
+    )
+    from .config import SESSION_SECRET as SECRET_KEY
+except ImportError:
+    from session_state import (
+        serializer, sessions, SESSION_TTL_SECONDS,
+        get_session_store_instance, verify_session,
+        issue_token, revoke_session, bump_epoch,
+    )
+    from config import SESSION_SECRET as SECRET_KEY
 
-serializer = URLSafeTimedSerializer(SECRET_KEY)
-
-# In-memory sessions dict for backward compatibility during Redis initialization
-# Uses OrderedDict with max size to prevent memory leaks
-from collections import OrderedDict
-
-class BoundedSessionCache(OrderedDict):
-    """LRU-style session cache with max size limit."""
-    MAX_SIZE = 500
-    
-    def __setitem__(self, key, value):
-        if key in self:
-            self.move_to_end(key)
-        super().__setitem__(key, value)
-        if len(self) > self.MAX_SIZE:
-            self.popitem(last=False)
-
-sessions = BoundedSessionCache()
-
-# Global session store reference (initialized on first use)
-_session_store = None
-
-async def get_session_store_instance():
-    """Get or initialize the session store singleton."""
-    global _session_store
-    if _session_store is None:
-        _session_store = await get_session_store()
-    return _session_store
-
-async def verify_session(request: Request):
-    """
-    Verify session token from Authorization header.
-    Uses Redis store for session persistence, with fallback to in-memory.
-    """
-    session_id = request.headers.get("Authorization")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="Missing session token")
-    
-    # Strip any whitespace (headers can sometimes have trailing spaces)
-    session_id = session_id.strip()
-
-    try:
-        # Check in-memory cache first (fastest path - avoids Redis round-trip)
-        cached = sessions.get(session_id)
-        if cached and cached.get("expires_at") and cached["expires_at"] > datetime.utcnow():
-            return cached["username"]
-        
-        # Deserialize and validate token (already checks expiration via max_age)
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
-        
-        # Update in-memory cache immediately for subsequent requests
-        sessions[session_id] = {
-            "username": username,
-            "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
-        }
-        
-        # Extend Redis session in background (non-blocking for the response)
-        try:
-            store = await get_session_store_instance()
-            session_data = await store.get(session_id)
-            if session_data:
-                await store.extend(session_id, SESSION_TTL_SECONDS)
-            else:
-                await store.create(
-                    session_id,
-                    {"username": username},
-                    SESSION_TTL_SECONDS
-                )
-        except Exception:
-            pass  # Redis failures shouldn't block authenticated requests
-
-        return username
-    except SignatureExpired:
-        print(f"Token expired: {session_id[:20]}...")
-        raise HTTPException(status_code=401, detail="Session expired - please login again")
-    except BadSignature:
-        print(f"Invalid token signature: {session_id[:20]}...")
-        raise HTTPException(status_code=401, detail="Invalid session token - please login again")
-    except Exception as e:
-        print(f"Session verification error: {type(e).__name__}: {str(e)}")
-        print(f"   Token (first 30 chars): {session_id[:30]}...")
-        raise HTTPException(status_code=401, detail=f"Session verification failed: {str(e)}")
 
 
 # ----------------------------
@@ -634,13 +561,29 @@ try:
     app.include_router(auth_handler_router.router, prefix="/api")
     print("✅ Auth router included at / and /api")
 except Exception as e:
-    print(f"⚠️ Auth router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Auth router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 try:
     app.include_router(finance_router.router)
     print("✅ Finance router included")
 except Exception as e:
-    print(f"⚠️ Finance router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Finance router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 def get_cpx_config() -> Dict[str, Any]:
     """Load CPX configuration from app settings with env fallbacks."""
@@ -812,14 +755,30 @@ try:
     app.include_router(settings_router.router)
     print("✅ Settings router included")
 except Exception as e:
-    print(f"⚠️ Settings router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Settings router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Health router for system monitoring
 try:
     app.include_router(health_router.router)
     print("✅ Health router included")
 except Exception as e:
-    print(f"⚠️ Health router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Health router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Health router v2 — overview, deliverability, alerts
 try:
@@ -827,7 +786,15 @@ try:
     app.include_router(health_router_v2)
     print("✅ Health router v2 included")
 except Exception as e:
-    print(f"⚠️ Health router v2 not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Health router v2. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Performance monitoring router
 try:
@@ -835,21 +802,45 @@ try:
     app.include_router(performance_router.router)
     print("✅ Performance router included")
 except Exception as e:
-    print(f"⚠️ Performance router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Performance router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Gmail router for Gmail API integration (legacy - IMAP based)
 try:
     app.include_router(gmail_router.router)
     print("✅ Gmail router included (legacy)")
 except Exception as e:
-    print(f"⚠️ Gmail router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Gmail router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # New Gmail API router (OAuth + metadata-only storage + AI classification)
 try:
     app.include_router(gmail_api_router.router)
     print("✅ Gmail API router included (new)")
 except Exception as e:
-    print(f"⚠️ Gmail API router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Gmail API router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Gmail Workspace router (Service Account with Domain-Wide Delegation)
 try:
@@ -857,14 +848,30 @@ try:
     app.include_router(gmail_workspace_router.router)
     print("✅ Gmail Workspace router included (Service Account)")
 except Exception as e:
-    print(f"⚠️ Gmail Workspace router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Gmail Workspace router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Survey Allocation & Quality Control Engine router
 try:
     app.include_router(survey_allocation_router.router)
     print("✅ Survey Allocation router included")
 except Exception as e:
-    print(f"⚠️ Survey Allocation router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Survey Allocation router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Survey Pool Management router (sync/activate surveys from CPX/CINT)
 try:
@@ -872,14 +879,30 @@ try:
     app.include_router(survey_pool_router.router, prefix="/api")
     print("✅ Survey Pool router included")
 except Exception as e:
-    print(f"⚠️ Survey Pool router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Survey Pool router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Leads AI Classification router
 try:
     app.include_router(leads_router.router)
     print("✅ Leads AI Classification router included")
 except Exception as e:
-    print(f"⚠️ Leads router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Leads router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Classified Gmail router (Email classification and move to leads)
 try:
@@ -891,7 +914,15 @@ try:
     app.include_router(classified_gmail_router.router)
     print("✅ Classified Gmail router included")
 except Exception as e:
-    print(f"⚠️ Classified Gmail router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Classified Gmail router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Email Patterns Discovery router
 try:
@@ -903,7 +934,15 @@ try:
     app.include_router(email_patterns_router.router)
     print("✅ Email Patterns router included")
 except Exception as e:
-    print(f"⚠️ Email Patterns router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Email Patterns router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Company Cache router
 try:
@@ -915,7 +954,15 @@ try:
     app.include_router(company_cache_router.router)
     print("✅ Company Cache router included")
 except Exception as e:
-    print(f"⚠️ Company Cache router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Company Cache router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Lead Generation Agents router
 try:
@@ -923,7 +970,15 @@ try:
     app.include_router(agent_router)
     print("✅ Lead Generation Agents router included")
 except Exception as e:
-    print(f"⚠️ Lead Agents router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Lead Agents router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Multi-Agent System router (Phase 3-6 agents + Orchestrator)
 try:
@@ -935,14 +990,30 @@ try:
     app.include_router(multi_agent_router)
     print("✅ Multi-Agent System router included")
 except Exception as e:
-    print(f"⚠️ Multi-Agent System router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Multi-Agent System router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Automation System router (Autonomous lead routing, email optimization, schedule optimization)
 try:
     app.include_router(automation_router.router)
     print("✅ Automation System router included")
 except Exception as e:
-    print(f"⚠️ Automation System router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Automation System router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Panel (Survey Panel User Portal) router
 try:
@@ -956,7 +1027,15 @@ try:
     app.include_router(panel_router.router, prefix="/api")
     print("✅ Panel (Survey Panel) router included (/panel and /api/panel)")
 except Exception as e:
-    print(f"⚠️ Panel router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Panel router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Clay-Level Features router (List building, enrichment, workbooks)
 try:
@@ -968,28 +1047,60 @@ try:
     app.include_router(clay_routes)
     print("✅ Clay-Level Features router included")
 except Exception as e:
-    print(f"⚠️ Clay router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Clay router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # RFQ (Request for Quote) router
 try:
     app.include_router(rfq_router.router, prefix="/api")
     print("✅ RFQ router included")
 except Exception as e:
-    print(f"⚠️ RFQ router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: RFQ router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Mail Operations router (Mail segregation, summaries, contact extraction)
 try:
     app.include_router(mail_operations_router.router, prefix="/api")
     print("✅ Mail Operations router included")
 except Exception as e:
-    print(f"⚠️ Mail Operations router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Mail Operations router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Prompt Management router (AI agent prompt management)
 try:
     app.include_router(prompt_management_router.router, prefix="/api")
     print("✅ Prompt Management router included")
 except Exception as e:
-    print(f"⚠️ Prompt Management router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Prompt Management router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Email Campaigns router (Bulk email sending with templates and signatures)
 try:
@@ -997,7 +1108,15 @@ try:
     app.include_router(email_campaigns_router.router)
     print("✅ Email Campaigns router included")
 except Exception as e:
-    print(f"⚠️ Email Campaigns router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Email Campaigns router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Campaign Automation router is mounted once, further down (see "automated outreach with tracking")
 
@@ -1010,14 +1129,30 @@ try:
     app.include_router(deliverability_router.router)
     print("✅ Deliverability router included")
 except Exception as e:
-    print(f"⚠️ Deliverability router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Deliverability router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Operations router (Operations-Finance integration)
 try:
     app.include_router(operations_router.router)
     print("✅ Operations router included")
 except Exception as e:
-    print(f"⚠️ Operations router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Operations router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Mystery Shopping router
 try:
@@ -1028,7 +1163,15 @@ try:
     app.include_router(mystery_shopping_router.router)
     print("✅ Mystery Shopping router included")
 except Exception as e:
-    print(f"⚠️ Mystery Shopping router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Mystery Shopping router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Sales Dashboard router
 try:
@@ -1039,7 +1182,15 @@ try:
     app.include_router(sales_dashboard_router.router)
     print("✅ Sales Dashboard router included")
 except Exception as e:
-    print(f"⚠️ Sales Dashboard router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Sales Dashboard router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Sales Accounts router
 try:
@@ -1050,7 +1201,15 @@ try:
     app.include_router(sales_accounts_router.router)
     print("✅ Sales Accounts router included")
 except Exception as e:
-    print(f"⚠️ Sales Accounts router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Sales Accounts router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Unified Vendors router
 try:
@@ -1061,7 +1220,15 @@ try:
     app.include_router(unified_vendors_router.router)
     print("✅ Unified Vendors router included")
 except Exception as e:
-    print(f"⚠️ Unified Vendors router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Unified Vendors router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Vendor Leads router (for vendor qualification workflow)
 try:
@@ -1072,7 +1239,15 @@ try:
     app.include_router(vendor_leads_router.router)
     print("✅ Vendor Leads router included")
 except Exception as e:
-    print(f"⚠️ Vendor Leads router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Vendor Leads router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Email Sync router
 try:
@@ -1083,7 +1258,15 @@ try:
     app.include_router(email_sync_router, prefix="/api/v1")
     print("✅ Email Sync router included")
 except Exception as e:
-    print(f"⚠️ Email Sync router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Email Sync router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Unified Inbox router (aggregated email view)
 try:
@@ -1094,7 +1277,15 @@ try:
     app.include_router(unified_inbox_router.router, prefix="/api")
     print("✅ Unified Inbox router included")
 except Exception as e:
-    print(f"⚠️ Unified Inbox router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Unified Inbox router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Campaigns router (cold outreach sequences)
 try:
@@ -1105,7 +1296,15 @@ try:
     app.include_router(campaigns_router.router)
     print("✅ Campaigns router included")
 except Exception as e:
-    print(f"⚠️ Campaigns router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Campaigns router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Campaign Automation router (automated outreach with tracking)
 try:
@@ -1116,7 +1315,15 @@ try:
     app.include_router(campaign_automation_router.router)
     print("✅ Campaign Automation router included")
 except Exception as e:
-    print(f"⚠️ Campaign Automation router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Campaign Automation router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Sales Outreach router (Business Unit configs, AI settings)
 try:
@@ -1127,7 +1334,15 @@ try:
     app.include_router(sales_outreach_router.router)
     print("✅ Sales Outreach router included")
 except Exception as e:
-    print(f"⚠️ Sales Outreach router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Sales Outreach router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Cold Outreach router (campaigns, lead enrollment, send processor)
 try:
@@ -1138,7 +1353,15 @@ try:
     app.include_router(cold_outreach_router_module.router)
     print("✅ Cold Outreach router included")
 except Exception as e:
-    print(f"⚠️ Cold Outreach router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Cold Outreach router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # LinkedIn Automation router (connection requests and messaging)
 try:
@@ -1149,7 +1372,15 @@ try:
     app.include_router(linkedin_router.router)
     print("✅ LinkedIn Automation router included")
 except Exception as e:
-    print(f"⚠️ LinkedIn Automation router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: LinkedIn Automation router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Email Classification router (AI batch classification)
 try:
@@ -1160,7 +1391,15 @@ try:
     app.include_router(classification_router.router)
     print("✅ Email Classification router included")
 except Exception as e:
-    print(f"⚠️ Email Classification router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Email Classification router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Gemini router removed - using OpenAI for all AI tasks
 
@@ -1173,7 +1412,15 @@ try:
     app.include_router(audit_router.router)
     print("✅ Audit Trail router included")
 except Exception as e:
-    print(f"⚠️ Audit Trail router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Audit Trail router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # P1.6: AI Review Queue router
 try:
@@ -1184,26 +1431,58 @@ try:
     app.include_router(review_queue_router.router)
     print("✅ AI Review Queue router included")
 except Exception as e:
-    print(f"⚠️ AI Review Queue router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: AI Review Queue router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- RBAC Routers ---
 try:
     app.include_router(users_router.router)
     print("✅ Users router included")
 except Exception as e:
-    print(f"⚠️ Users router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Users router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 try:
     app.include_router(roles_router.router)
     print("✅ Roles router included")
 except Exception as e:
-    print(f"⚠️ Roles router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Roles router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 try:
     app.include_router(approvals_router.router)
     print("✅ Approvals router included")
 except Exception as e:
-    print(f"⚠️ Approvals router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Approvals router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- CRM Spine Router (canonical /api/crm/* layer) ---
 try:
@@ -1214,7 +1493,15 @@ try:
     app.include_router(crm_router.router)
     print("✅ CRM Spine router included")
 except Exception as e:
-    print(f"⚠️ CRM Spine router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: CRM Spine router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- AI Engine Router (decision engine, action queue, approvals) ---
 try:
@@ -1225,7 +1512,15 @@ try:
     app.include_router(ai_router.router)
     print("✅ AI Engine router included")
 except Exception as e:
-    print(f"⚠️ AI Engine router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: AI Engine router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- MCP Action Router ---
 try:
@@ -1236,7 +1531,15 @@ try:
     app.include_router(mcp_router.router)
     print("✅ MCP Action Router included")
 except Exception as e:
-    print(f"⚠️ MCP Action Router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: MCP Action Router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- Projects Router ---
 try:
@@ -1247,7 +1550,15 @@ try:
     app.include_router(projects_router.router)
     print("✅ Projects router included")
 except Exception as e:
-    print(f"⚠️ Projects router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Projects router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # --- Support/Tickets Router ---
 try:
@@ -1258,7 +1569,15 @@ try:
     app.include_router(support_router.router)
     print("✅ Support router included")
 except Exception as e:
-    print(f"⚠️ Support router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Support router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # Panel Admin router (admin controls for survey panel module)
 try:
@@ -1270,7 +1589,15 @@ try:
     app.include_router(panel_admin_router.router, prefix="/api")
     print("✅ Panel Admin router included")
 except Exception as e:
-    print(f"⚠️ Panel Admin router not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Panel Admin router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 try:
     from routers import panel_invitations as panel_invitations_router
@@ -1282,7 +1609,15 @@ try:
     app.include_router(panel_join_router.router, prefix="/api")
     print("✅ Panel mailing routers included")
 except Exception as e:
-    print(f"⚠️ Panel mailing routers not included: {e}")
+    # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a
+    # warning and let the process come up "healthy" — /docs still returned
+    # 200, the deploy health poll passed, and an entire module was simply
+    # missing until a user hit a 404. systemd Restart=always plus the
+    # previous release still serving is a strictly better outcome.
+    raise RuntimeError(
+        f"Router mount failed: Panel mailing routers. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
 
 # ----------------------------
 # APScheduler for CPX refresh job
@@ -1623,10 +1958,25 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
 
-    # NOTE: setup_indexes() is intentionally NOT called on every startup.
-    # On MongoDB 4.2+ the background=True flag is ignored, so 130+ foreground
-    # index builds would lock collections for minutes on large datasets.
-    # Run `python indexes.py` manually on first deploy or after schema changes.
+    # Prove the app came up whole BEFORE anything else runs (TOR-05). Mount
+    # failures now raise at import, but two mount sites stay deliberately
+    # tolerant because they also do DB setup, and a router can mount while
+    # registering no routes. This is the check that catches both — and the
+    # only one that does, since the deploy health poll hits /docs, which
+    # answers 200 on a half-loaded app.
+    try:
+        from startup_checks import assert_routes_mounted, audit_indexes_async
+    except ImportError:
+        from .startup_checks import assert_routes_mounted, audit_indexes_async
+    assert_routes_mounted(app)
+
+    # Index visibility (TOR-09). setup_indexes() is still NOT called inline:
+    # on MongoDB 4.2+ background=True is ignored, so 130+ foreground builds
+    # would lock collections for minutes on every boot. Instead this reports
+    # missing indexes on a background thread; creation is opt-in via
+    # AUTO_CREATE_INDEXES=true. Run `python indexes.py` in a maintenance
+    # window to actually build them.
+    audit_indexes_async()
 
     # Initialize Clay-Level Features
     try:
@@ -2234,8 +2584,7 @@ async def logout(request: Request):
 async def get_profile(request: Request):
     """Get current user's profile information (audit-safe fields only)"""
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
         
         user = users_collection.find_one({"username": username})
         if not user:
@@ -2259,8 +2608,7 @@ async def get_profile(request: Request):
 async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(...)):
     """Update user's profile (audit-safe fields only - email and display_name)"""
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
         
         # Only allow updating audit-safe fields
         # Accept both snake_case (from frontend) and camelCase for compatibility
@@ -2301,8 +2649,7 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
 async def change_password(request: Request, password_data: Dict[str, str] = Body(...)):
     """Change user's password (requires current password verification)"""
     try:
-        session_id = request.headers.get("Authorization")
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
         
         current_password = password_data.get("current_password")
         new_password = password_data.get("new_password")
@@ -2372,14 +2719,14 @@ AVAILABLE_ROLES = {
 }
 
 
-def check_admin_role(request: Request) -> str:
+async def check_admin_role(request: Request) -> str:
     """Verify user has admin role. Returns username if authorized."""
     session_id = request.headers.get("Authorization")
     if not session_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     try:
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        username = await verify_session(request)
         user = users_collection.find_one({"username": username})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -2398,7 +2745,7 @@ def check_admin_role(request: Request) -> str:
 @app.get("/admin/users/", dependencies=[Depends(verify_session)])
 async def list_all_users(request: Request):
     """List all users (admin only)"""
-    check_admin_role(request)
+    await check_admin_role(request)
     
     try:
         all_users = list(users_collection.find({}, {"password": 0}))  # Exclude password
@@ -2425,7 +2772,7 @@ async def list_all_users(request: Request):
 @app.get("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
 async def get_user_by_id(request: Request, user_id: str):
     """Get a specific user by ID (admin only)"""
-    check_admin_role(request)
+    await check_admin_role(request)
     
     try:
         user = users_collection.find_one({"_id": ObjectId(user_id)}, {"password": 0})
@@ -2451,7 +2798,7 @@ async def get_user_by_id(request: Request, user_id: str):
 @app.post("/admin/users/", dependencies=[Depends(verify_session)])
 async def create_new_user(request: Request, user_data: Dict[str, Any] = Body(...)):
     """Create a new user (admin only)"""
-    admin_username = check_admin_role(request)
+    admin_username = await check_admin_role(request)
     
     try:
         username = user_data.get("username") or user_data.get("email")
@@ -2512,7 +2859,7 @@ async def create_new_user(request: Request, user_data: Dict[str, Any] = Body(...
 @app.put("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
 async def update_user_by_id(request: Request, user_id: str, user_data: Dict[str, Any] = Body(...)):
     """Update an existing user (admin only)"""
-    admin_username = check_admin_role(request)
+    admin_username = await check_admin_role(request)
     
     try:
         # Find user
@@ -2574,7 +2921,7 @@ async def update_user_by_id(request: Request, user_id: str, user_data: Dict[str,
 @app.delete("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
 async def delete_user_by_id(request: Request, user_id: str):
     """Delete a user (admin only)"""
-    admin_username = check_admin_role(request)
+    admin_username = await check_admin_role(request)
     
     try:
         # Find user first
@@ -2608,7 +2955,7 @@ async def delete_user_by_id(request: Request, user_id: str):
 @app.get("/admin/roles/", dependencies=[Depends(verify_session)])
 async def list_available_roles(request: Request):
     """List all available roles and their permissions"""
-    check_admin_role(request)
+    await check_admin_role(request)
     
     roles_list = []
     for code, role_info in AVAILABLE_ROLES.items():
@@ -2625,7 +2972,7 @@ async def list_available_roles(request: Request):
 @app.put("/admin/users/{user_id}/role", dependencies=[Depends(verify_session)])
 async def change_user_role(request: Request, user_id: str, role_data: Dict[str, str] = Body(...)):
     """Change a user's role (admin only)"""
-    admin_username = check_admin_role(request)
+    admin_username = await check_admin_role(request)
     
     try:
         role = role_data.get("role")
@@ -2661,7 +3008,7 @@ async def change_user_role(request: Request, user_id: str, role_data: Dict[str, 
 @app.put("/admin/users/{user_id}/reset-password", dependencies=[Depends(verify_session)])
 async def admin_reset_password(request: Request, user_id: str, password_data: Dict[str, str] = Body(...)):
     """Admin reset user password (no current password required)"""
-    admin_username = check_admin_role(request)
+    admin_username = await check_admin_role(request)
     
     try:
         new_password = password_data.get("new_password")
