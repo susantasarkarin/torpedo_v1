@@ -26,12 +26,16 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(
-    MONGO_URI,
-    serverSelectionTimeoutMS=5000,
-    connectTimeoutMS=5000,
-    socketTimeoutMS=8000,
-)
+# Shared pooled client (TOR-12). This module built its own MongoClient at
+# import time with socketTimeoutMS=8000; the shared pool uses 20000, which is
+# more forgiving, not less. Everything else (serverSelection/connect timeouts)
+# matches, and the pool is capped at maxPoolSize=30 instead of pymongo's
+# default 100 — which is the whole point on a 2 GB box shared with mongod.
+try:
+    from ..database import get_client
+except ImportError:
+    from database import get_client
+mongo_client = get_client()
 settings_db = mongo_client["torpedo_settings"]
 app_settings_collection = settings_db["app_settings"]
 survey_filter_collection = settings_db["survey_filters"]

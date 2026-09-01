@@ -22,6 +22,16 @@ from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 # Configure logging
@@ -30,7 +40,10 @@ logger = logging.getLogger(__name__)
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 db = client['email_automation']
 gmail_db = client['torpedo_gmail']
 

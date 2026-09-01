@@ -55,7 +55,12 @@ except ImportError:
 logger = logging.getLogger("outreach_mailer")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-_db = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)["email_automation"]
+# Shared pooled client (TOR-12): was its own MongoClient at import time.
+try:
+    from ..database import get_client as _get_client
+except ImportError:
+    from database import get_client as _get_client
+_db = _get_client()["email_automation"]
 send_log = _db["outreach_send_logs"]
 
 MAX_SUBJECT_CHARS = 60

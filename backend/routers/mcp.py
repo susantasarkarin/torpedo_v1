@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field
 from pymongo import MongoClient
 import os
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 # MCP imports
 try:
     from ..mcp import (
@@ -47,7 +57,10 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 
 
 def get_router() -> MCPActionRouter:

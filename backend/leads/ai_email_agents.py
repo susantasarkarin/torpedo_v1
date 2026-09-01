@@ -31,6 +31,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 # Import AI governance gateway for API calls
 try:
     from ai_governance.ai_gateway import get_ai_gateway
@@ -85,7 +95,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 # Stage 2 standardization: AI pipeline data lives in campaign_platform.
 ai_db = client['campaign_platform']
 

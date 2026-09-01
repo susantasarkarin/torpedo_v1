@@ -19,6 +19,16 @@ load_dotenv()
 # Import name extraction utility
 from leads.gmail_leads_service import extract_name_from_email
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +40,10 @@ router = APIRouter(
 
 # MongoDB connections
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+mongo_client = _get_pooled_client()
 
 # Databases
 email_db = mongo_client["email_automation"]

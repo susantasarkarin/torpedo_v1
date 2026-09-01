@@ -15,6 +15,15 @@ import io
 import logging
 from dotenv import load_dotenv
 
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 logger = logging.getLogger(__name__)
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated from
@@ -92,7 +101,10 @@ router = APIRouter(prefix="/finance", tags=["Finance"], dependencies=_finance_de
 # MongoDB Connection
 # ----------------------------
 MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 finance_db = client["finance_db"]
 
 # Collections
@@ -262,6 +274,9 @@ def generate_vendor_number(offset: int = 0) -> str:
 # Validation Helpers
 # ----------------------------
 import re
+
+
+
 
 def validate_email(email: str) -> bool:
     """Validate email format"""

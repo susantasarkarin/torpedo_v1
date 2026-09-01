@@ -37,6 +37,15 @@ from .models import (
 #     build_system_prompt, JSON_ONLY_INSTRUCTION
 # )
 # Uses OpenAI via AI governance gateway
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 try:
     from ai_governance.ai_gateway import get_ai_gateway
 except ImportError:
@@ -93,7 +102,10 @@ TEMPERATURE = 0.1  # Low temperature for deterministic output
 
 # MongoDB connection for loading prompts from DB
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_settings_client = _get_pooled_client()
 _settings_db = _settings_client['torpedo_settings']
 _ai_prompts_collection = _settings_db['ai_prompts']
 
@@ -375,7 +387,10 @@ async def classify_leads_batch(leads: list[LeadRaw], batch_size: int = 5) -> lis
 # ============== COMPANY ENRICHMENT CACHE ==============
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-_mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_mongo_client = _get_pooled_client()
 _enrichment_db = _mongo_client['email_automation']
 _company_cache = _enrichment_db['company_enrichment_cache']
 

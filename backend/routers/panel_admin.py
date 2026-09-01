@@ -30,6 +30,15 @@ from urllib.parse import urlparse
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 try:
     from ..utils import serialize_doc, serialize_docs
 except ImportError:  # pragma: no cover - flat import when run from backend/
@@ -40,7 +49,10 @@ logger = logging.getLogger(__name__)
 # ============== CONFIGURATION ==============
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 
 # campaign_platform DB (panelists, rewards)
 cp_db = client["campaign_platform"]
@@ -1127,6 +1139,9 @@ def get_registrations_by_country(
 # on sfw-api. auth.js on sfw-api checks the X-Internal-Key header.
 
 import requests as _http
+
+
+
 
 _SFW_API = os.getenv("SFW_PANEL_API_BASE", "https://panel.surveyfieldwork.com/api/admin")
 _SFW_KEY = os.getenv("SFW_INTERNAL_KEY", "")

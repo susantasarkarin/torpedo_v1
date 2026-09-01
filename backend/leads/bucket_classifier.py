@@ -39,6 +39,16 @@ from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 from pymongo import MongoClient
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    return get_client()
+
+
 try:
     from .outreach_config import (
         BUCKETS,
@@ -84,7 +94,10 @@ except ImportError:
 logger = logging.getLogger("bucket_classifier")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_client = _get_pooled_client()
 _db = _client["email_automation"]
 leads_raw = _db["leads_raw"]
 
