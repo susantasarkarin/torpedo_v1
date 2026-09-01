@@ -96,8 +96,49 @@ def _render_format(template: str, first: str, last: str, domain: str) -> str:
     return template.format(first=first, last=last, f=f, l=l, domain=domain)
 
 
+# Domains an outreach address can never legitimately have. Two distinct
+# families, both observed in the 11,508 recorded bounces:
+#
+#   placeholders  — "domain.com" (119 bounces) and "company.com" (26) are the
+#                   TEMPLATE's own placeholder text. A pattern like
+#                   "{first}.{last}@{domain}" was rendered with the literal
+#                   sample domain instead of the company's, so every one of
+#                   those sends was guaranteed to bounce before it left.
+#   social/webmail — "linkedin.com" (76) came from taking the domain out of the
+#                   lead's LinkedIn PROFILE URL rather than their employer.
+#                   Nobody receives mail at @linkedin.com. Free webmail is
+#                   excluded separately: a guessed first.last@gmail.com is a
+#                   stranger's mailbox, which is worse than a bounce.
+UNSENDABLE_DOMAINS = frozenset({
+    "domain.com", "example.com", "example.org", "example.net", "company.com",
+    "yourcompany.com", "test.com", "email.com", "undefined", "null", "none",
+    "linkedin.com", "www.linkedin.com", "facebook.com", "twitter.com", "x.com",
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "hotmail.com",
+    "outlook.com", "live.com", "aol.com", "icloud.com", "protonmail.com",
+    "mail.com", "rediffmail.com",
+})
+
+
+def is_unsendable_domain(email: str) -> bool:
+    """True when the address's domain can never be a real corporate mailbox."""
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return domain in UNSENDABLE_DOMAINS
+
+
 def _is_valid_email(email: str) -> bool:
-    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
+    """
+    Syntactic validity AND a sendable domain.
+
+    The syntax check alone passed `first.last@domain.com`, which is why 145
+    placeholder addresses were generated and sent. A guessed address is only
+    worth sending if the domain is a real employer.
+    """
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email or ""):
+        return False
+    if is_unsendable_domain(email):
+        logger.info("refusing generated address %s — unsendable domain", email)
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
