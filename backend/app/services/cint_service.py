@@ -14,7 +14,10 @@ import hashlib
 import json
 import httpx
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
+# `timedelta` was missing while cleanup_unclicked_surveys() used it at the
+# bottom of this file, so that job raised NameError on every run — it has been
+# failing every 30 minutes and logging at ERROR where nothing reads it.
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import logging
 import base64
