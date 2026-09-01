@@ -3,7 +3,7 @@ AGENT 4 — BACKEND API ENGINEER
 FastAPI Router for Lead Management
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form, Body
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form, Body, Depends
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel
@@ -51,7 +51,45 @@ def _get_pooled_client():
 
 load_dotenv()
 
-router = APIRouter(prefix="/leads", tags=["Leads"])
+import logging
+logger = logging.getLogger(__name__)
+
+# Session auth on every /leads/* route.
+#
+# This router shipped with NO authentication of any kind — the third instance
+# of the same defect after finance (TOR-03) and deliverability. It is the worst
+# of the three, because /leads is not just readable but destructively writable:
+#
+#   GET    /leads                     every lead: name, title, company,
+#                                     LinkedIn URL, email — publicly readable
+#   DELETE /leads/all                 wipe the entire lead database
+#   DELETE /leads/ai-database/clear   same, by another name
+#   DELETE /leads/by-source/{source}  wipe a whole acquisition source
+#   DELETE /leads/{lead_id}           delete any single lead
+#   POST   /leads/bulk-classify       spend model budget on demand
+#
+# Verified unauthenticated against production on 2026-09-01: an anonymous
+# DELETE /leads/<bogus-id> from the internet reached the handler body and
+# returned 400 "Invalid lead ID format" rather than 401.
+#
+# All 76 frontend call sites already send the session header (the one that
+# looked bare uses an AUTH() helper), so gating breaks nothing.
+LEADS_AUTH_ENABLED = os.getenv("LEADS_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
+_leads_deps = []
+if LEADS_AUTH_ENABLED:
+    try:
+        from ..session_state import verify_session as _verify_session
+    except ImportError:
+        from session_state import verify_session as _verify_session
+    _leads_deps.append(Depends(_verify_session))
+    logger.info("[leads] session auth enabled on /leads/*")
+else:
+    logger.error(
+        "[leads] session auth DISABLED - the entire lead database is publicly "
+        "readable AND deletable. Unset LEADS_AUTH_ENABLED to restore the gate."
+    )
+
+router = APIRouter(prefix="/leads", tags=["Leads"], dependencies=_leads_deps)
 
 
 # ============== MONGODB CONNECTION FOR JOBS ==============
