@@ -716,10 +716,7 @@ async def _get_icps():
     """
     docs = list(icp_segments_col.find({}, {"_id": 0}).sort("slug", 1))
     if not docs:
-        try:
-            from .schemas import setup_icp_segments_collection
-        except ImportError:
-            from schemas import setup_icp_segments_collection
+        from schemas import setup_icp_segments_collection
         setup_icp_segments_collection(_db)
         docs = list(icp_segments_col.find({}, {"_id": 0}).sort("slug", 1))
     return {"icps": docs}

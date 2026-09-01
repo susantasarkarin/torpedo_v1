@@ -131,12 +131,7 @@ def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
 
     # --- Bedrock path ----------------------------------------------------
     if os.getenv("DISABLE_AI_CALLS", "false").lower() != "true":
-        try:
-            from .bedrock_client import (
-                BedrockError, JSONParseError, converse_string_list)
-        except ImportError:
-            from backend.leads.bedrock_client import (
-                BedrockError, JSONParseError, converse_string_list)
+        from leads.bedrock_client import BedrockError, JSONParseError, converse_string_list
 
         prompt = USER_PROMPT.format(
             count=count,
@@ -179,10 +174,7 @@ def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
         logger.info("icp=%s fallback disabled, returning nothing", slug)
         return []
 
-    try:
-        from .scheduler import generate_search_queries
-    except ImportError:
-        from backend.leads.scheduler import generate_search_queries
+    from leads.scheduler import generate_search_queries
 
     config = {
         "designations": icp.get("designations", []),

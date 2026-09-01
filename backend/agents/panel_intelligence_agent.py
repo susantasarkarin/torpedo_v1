@@ -20,12 +20,8 @@ import argparse
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-try:
-    from ..app.services import crm_service, ai_engine
-    from ..database import get_database
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from app.services import crm_service, ai_engine
-    from database import get_database
+from app.services import crm_service, ai_engine
+from database import get_database
 
 AGENT_NAME = "panel_intelligence_agent"
 MIRROR_COLLECTION = "panel_mirror"

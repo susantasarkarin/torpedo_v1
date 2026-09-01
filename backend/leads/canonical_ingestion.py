@@ -1,4 +1,4 @@
-﻿"""
+"""
 CANONICAL LEAD INGESTION MODULE
 ================================
 Single entry point for ALL lead sources.
@@ -16,12 +16,22 @@ from pymongo import MongoClient, ASCENDING, UpdateOne
 from pymongo.errors import DuplicateKeyError, BulkWriteError
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 logger = logging.getLogger(__name__)
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_client = _get_pooled_client()
 _db = _client['email_automation']
 leads_raw = _db['leads_raw']
 leads_enriched = _db['leads_enriched']  # Also update enriched collection for full display
@@ -395,7 +405,7 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
             low *= 1000
         return low >= min_m
 
-    # "C-Level" is how the data actually arrives â€” include it alongside c-suite
+    # "C-Level" is how the data actually arrives — include it alongside c-suite
     HIGH_TITLES = {
         "vp", "vice president", "c-suite", "c-level", "ceo", "cto", "cfo", "coo",
         "cmo", "cro", "chro", "cio", "cpo", "director", "svp", "evp",
@@ -694,11 +704,11 @@ def _strip_guessed_email_if_unverified(normalized: Dict[str, Any]) -> None:
             if existing.get("high_bounce_risk"):
                 pass  # Fall through to strip
             elif existing.get("confidence", 0) >= 0.65:
-                return  # Good pattern â€” keep the email
+                return  # Good pattern — keep the email
     except Exception:
         pass  # If pattern system unavailable, strip to be safe
 
-    # No verified pattern â€” strip the guessed email
+    # No verified pattern — strip the guessed email
     logger.info(f"Stripping guessed email {email} (no verified pattern for {domain})")
     normalized['email'] = None
     normalized['email_status'] = 'pending_pattern'
@@ -721,7 +731,7 @@ def _store_csv_email_pattern(normalized: Dict[str, Any]) -> None:
     try:
         from .email_pattern_system import get_pattern_system
         ps = get_pattern_system()
-        # Only run CSV analysis â€” do NOT guess/discover
+        # Only run CSV analysis — do NOT guess/discover
         pattern = ps._analyze_patterns_from_known_emails(domain)
         if pattern:
             ps._store_pattern(pattern)
@@ -907,7 +917,7 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
             return
         campaign = campaigns_col.find_one({'business': biz, 'is_active': True})
         if not campaign:
-            logger.debug(f"No active campaign for basket {basket} ({biz}) â€” skipping auto-enrollment")
+            logger.debug(f"No active campaign for basket {basket} ({biz}) — skipping auto-enrollment")
             return
         cid = campaign['campaign_id']
 
@@ -1009,11 +1019,11 @@ def ingest_lead(
             logger.info("Lead skipped: unknown company value")
             return result
 
-        # Step 2a: For CSV leads â€” store the email pattern from known emails
+        # Step 2a: For CSV leads — store the email pattern from known emails
         if source == 'csv' and normalized.get('email'):
             _store_csv_email_pattern(normalized)
 
-        # Step 2b: For websearch leads â€” strip guessed emails unless verified
+        # Step 2b: For websearch leads — strip guessed emails unless verified
         if source == 'websearch' and normalized.get('email'):
             _strip_guessed_email_if_unverified(normalized)
 
@@ -1122,7 +1132,7 @@ def ingest_lead(
         logger.info(f"Lead {result['action']}: {_log_email} (source={source})")
         
     except DuplicateKeyError:
-        # Race condition â€” another process inserted this lead
+        # Race condition — another process inserted this lead
         result['action'] = 'skipped'
         result['success'] = True
         _dup_id = (normalized.get('email') or normalized.get('linkedin_url') or
@@ -1206,7 +1216,7 @@ SKIP_EMAIL_PATTERNS = [
 
 INTERNAL_DOMAINS = ['surveyfieldwork.com', 'cogentixresearch.com']
 
-# Personal email providers â€” don't derive company name from these
+# Personal email providers — don't derive company name from these
 PERSONAL_EMAIL_PROVIDERS = {
     'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
     'icloud.com', 'mail.com', 'protonmail.com', 'zoho.com', 'yandex.com',
@@ -1317,8 +1327,8 @@ def _parse_signature_fields(body: str):
     # Title patterns
     title_patterns = [
         r'(?:title|position|role|designation)\s*[:\-]\s*([^\n]+)',
-        # "John Smith | VP of Sales | Acme Corp" â€” grab middle segment
-        r'^[A-Z][a-z]+\s+[A-Z][a-z]+\s*[|â€“\-]\s*([^|â€“\-\n]+)\s*[|â€“\-]',
+        # "John Smith | VP of Sales | Acme Corp" — grab middle segment
+        r'^[A-Z][a-z]+\s+[A-Z][a-z]+\s*[|–\-]\s*([^|–\-\n]+)\s*[|–\-]',
     ]
     for pat in title_patterns:
         m = re.search(pat, signature_area, re.IGNORECASE | re.MULTILINE)
@@ -1603,10 +1613,7 @@ def ingest_leads_bulk(
 
     # --- CRM spine mirror: bulk (best-effort) -------------------------------
     try:
-        try:
-            from app.services.spine_connector import mirror_leads_bulk
-        except ImportError:
-            from backend.app.services.spine_connector import mirror_leads_bulk
+        from app.services.spine_connector import mirror_leads_bulk
         mirror_leads_bulk([(d, str(d['_id'])) for d in ok_docs], source)
     except Exception as spine_err:
         logger.debug(f"bulk spine mirror skipped: {spine_err}")

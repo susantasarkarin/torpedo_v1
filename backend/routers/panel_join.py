@@ -45,10 +45,7 @@ def _verify_signature(raw_body: bytes, provided_signature: str) -> bool:
 async def panel_invite_join(token: str = Query("", min_length=1)):
     """Track invite click and redirect user to panel signup page."""
     try:
-        try:
-            from ..services.panel_bounce_handler import mark_invite_clicked
-        except ImportError:
-            from services.panel_bounce_handler import mark_invite_clicked
+        from services.panel_bounce_handler import mark_invite_clicked
 
         mark_invite_clicked(token)
     except Exception as e:
@@ -100,20 +97,14 @@ async def panel_invite_confirm(
         metadata.update(extra)
 
     try:
-        try:
-            from ..services.panel_bounce_handler import mark_double_opt_in_completed
-        except ImportError:
-            from services.panel_bounce_handler import mark_double_opt_in_completed
+        from services.panel_bounce_handler import mark_double_opt_in_completed
 
         updated = mark_double_opt_in_completed(email=email, invite_token=token, metadata=metadata)
 
         # Mirror the registration into the canonical CRM spine (best-effort)
         if updated and email:
             try:
-                try:
-                    from ..app.services.spine_connector import mirror_panelist_registration_to_spine
-                except ImportError:
-                    from app.services.spine_connector import mirror_panelist_registration_to_spine
+                from app.services.spine_connector import mirror_panelist_registration_to_spine
                 mirror_panelist_registration_to_spine(email, country=metadata.get("country"))
             except Exception as _spine_err:
                 logger.debug(f"spine mirror skipped: {_spine_err}")

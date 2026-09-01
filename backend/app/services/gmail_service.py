@@ -112,7 +112,7 @@ def _trigger_mail_ai(new_count: int, mailbox_email: Optional[str] = None) -> Non
         from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
     except ImportError:  # pragma: no cover
         try:
-            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+            from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
         except ImportError:
             logger.debug("[mail-ai] task module unavailable; leaving mail to the beat")
             return

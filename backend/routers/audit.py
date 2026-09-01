@@ -5,12 +5,8 @@ Provides access to entity history, user activity, and recent changes.
 from fastapi import APIRouter, Query
 from typing import Optional, List
 
-try:
-    from ..audit import get_audit_logger, AuditEntry
-    from ..database import get_database
-except ImportError:
-    from audit import get_audit_logger, AuditEntry
-    from database import get_database
+from audit import get_audit_logger, AuditEntry
+from database import get_database
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 

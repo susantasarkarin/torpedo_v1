@@ -23,28 +23,10 @@ from app.services.cpx_service import CPXService
 # Load environment
 load_dotenv()
 
-try:
-    from ...database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 # Import models
-try:
-    from ..models.survey_allocation import (
-        Respondent, RespondentCreate, RespondentStatus, RespondentUpdate,
-        Survey, SurveyCreate, SurveyStatus, SurveyUpdate,
-        SurveyMetrics, AllocationSettings,
-        AllocationRequest, AllocationResponse,
-        CallbackEvent, CallbackResponse
-    )
-except ImportError:
-    from app.models.survey_allocation import (
-        Respondent, RespondentCreate, RespondentStatus, RespondentUpdate,
-        Survey, SurveyCreate, SurveyStatus, SurveyUpdate,
-        SurveyMetrics, AllocationSettings,
-        AllocationRequest, AllocationResponse,
-        CallbackEvent, CallbackResponse
-    )
+from app.models.survey_allocation import Respondent, RespondentCreate, RespondentStatus, RespondentUpdate, Survey, SurveyCreate, SurveyStatus, SurveyUpdate, SurveyMetrics, AllocationSettings, AllocationRequest, AllocationResponse, CallbackEvent, CallbackResponse
 
 
 class SurveyAllocationService:

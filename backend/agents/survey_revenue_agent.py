@@ -22,12 +22,8 @@ Usage:
 import argparse
 from typing import Optional, Dict, Any, List
 
-try:
-    from ..app.services import ai_engine
-    from ..database import get_database
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from app.services import ai_engine
-    from database import get_database
+from app.services import ai_engine
+from database import get_database
 
 AGENT_NAME = "survey_revenue_agent"
 DEFAULT_P_COMPLETE = 0.30  # conservative fallback when no rate data exists

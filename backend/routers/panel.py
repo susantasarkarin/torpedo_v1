@@ -34,13 +34,16 @@ from pymongo import MongoClient
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 # Auth utilities
-try:
-    from ..auth import hash_password, verify_password
-    from ..session_store import get_session_store
-except ImportError:
-    from auth import hash_password, verify_password
-    from session_store import get_session_store
+from auth import hash_password, verify_password
+from session_store import get_session_store
 
 # ============== LOGGING ==============
 logger = logging.getLogger(__name__)
@@ -52,7 +55,10 @@ limiter = Limiter(key_func=get_remote_address)
 # ============== CONFIGURATION ==============
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 db = client["campaign_platform"]
 
 # Collections
@@ -86,14 +92,7 @@ def _send_verification(panelist_id: str, email: str, first_name: str) -> bool:
     from the login screen — so failures are logged, not surfaced as a 500.
     """
     try:
-        try:
-            from ..services.panel_transactional_email import (
-                new_token, verification_expiry, send_verification_email,
-            )
-        except ImportError:
-            from services.panel_transactional_email import (
-                new_token, verification_expiry, send_verification_email,
-            )
+        from services.panel_transactional_email import new_token, verification_expiry, send_verification_email
 
         token = new_token()
         panelists_collection.update_one(
@@ -395,10 +394,7 @@ async def verify_email(token: str = Query("", min_length=1)):
     # Stop the invite cron chasing someone who has now confirmed, and let the
     # funnel report the conversion.
     try:
-        try:
-            from ..services.panel_bounce_handler import mark_double_opt_in_completed
-        except ImportError:
-            from services.panel_bounce_handler import mark_double_opt_in_completed
+        from services.panel_bounce_handler import mark_double_opt_in_completed
         mark_double_opt_in_completed(
             email=panelist.get("email", ""),
             invite_token="",
@@ -489,10 +485,7 @@ async def logout(request: Request):
 
 async def _resolve_unsubscribe_email(request: Request) -> Optional[str]:
     """Find the address to opt out, from a signed token, body, query or session."""
-    try:
-        from ..services.panel_unsubscribe import read_token
-    except ImportError:
-        from services.panel_unsubscribe import read_token
+    from services.panel_unsubscribe import read_token
 
     token = request.query_params.get("token")
     email = request.query_params.get("email")
@@ -534,10 +527,7 @@ async def unsubscribe(request: Request):
     actually consult — and no email ever linked here anyway, so in practice it
     had never run. It now writes the suppression entry too.
     """
-    try:
-        from ..services.panel_unsubscribe import unsubscribe_email
-    except ImportError:
-        from services.panel_unsubscribe import unsubscribe_email
+    from services.panel_unsubscribe import unsubscribe_email
 
     email = await _resolve_unsubscribe_email(request)
     if email:
@@ -557,10 +547,7 @@ async def unsubscribe_one_click(request: Request):
     so this must opt the address out on the first request and always answer
     200 — a non-200 makes the mailbox provider treat the unsubscribe as broken.
     """
-    try:
-        from ..services.panel_unsubscribe import unsubscribe_email
-    except ImportError:
-        from services.panel_unsubscribe import unsubscribe_email
+    from services.panel_unsubscribe import unsubscribe_email
 
     try:
         email = await _resolve_unsubscribe_email(request)
@@ -587,14 +574,7 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
     if not panelist:
         return {"message": "If the email exists, a password reset link will be sent"}
     
-    try:
-        from ..services.panel_transactional_email import (
-            new_token, reset_expiry, send_password_reset_email,
-        )
-    except ImportError:
-        from services.panel_transactional_email import (
-            new_token, reset_expiry, send_password_reset_email,
-        )
+    from services.panel_transactional_email import new_token, reset_expiry, send_password_reset_email
 
     reset_token = new_token()
 

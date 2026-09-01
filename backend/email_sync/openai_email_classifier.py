@@ -35,10 +35,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from bson import ObjectId
 from pymongo import MongoClient
 
-try:
-    from ..database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -506,10 +503,7 @@ class OpenAIEmailClassifier:
         # Rule-based confidence too low — fall through to AI
         logger.info(f"Rule-based low confidence ({rule_result['confidence_score']}) for {email.get('_id')}, falling through to AI")
         
-        try:
-            from ..ai_governance.claude_gateway import chat_completion_with_escalation
-        except ImportError:
-            from ai_governance.claude_gateway import chat_completion_with_escalation
+        from ai_governance.claude_gateway import chat_completion_with_escalation
         
         # Build prompt
         user_prompt = EMAIL_PROMPT_TEMPLATE.format(
@@ -637,10 +631,7 @@ class OpenAIEmailClassifier:
         Returns:
             Tier 2 analysis result or None
         """
-        try:
-            from ..ai_governance.claude_gateway import chat_completion, PREMIUM_MODEL
-        except ImportError:
-            from ai_governance.claude_gateway import chat_completion, PREMIUM_MODEL
+        from ai_governance.claude_gateway import chat_completion, PREMIUM_MODEL
         
         from_email = self._extract_email_address(email.get("from_address"))
         to_email = self._extract_email_address(email.get("to_addresses", [{}])[0] if email.get("to_addresses") else {})
@@ -815,10 +806,7 @@ class OpenAIEmailClassifier:
                 "notes": f"Auto-extracted from {classification.get('category')} email",
             }
 
-            try:
-                from ..leads.canonical_ingestion import ingest_lead
-            except ImportError:
-                from leads.canonical_ingestion import ingest_lead
+            from leads.canonical_ingestion import ingest_lead
 
             ingest_result = ingest_lead(
                 payload=payload,

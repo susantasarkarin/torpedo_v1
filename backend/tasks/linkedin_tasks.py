@@ -7,10 +7,10 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from backend.celery_app import celery_app
-from backend.linkedin_automation.service import LinkedInService
-from backend.linkedin_automation.job import LinkedInBotFactory
-from backend.linkedin_automation.models import (
+from celery_app import celery_app
+from linkedin_automation.service import LinkedInService
+from linkedin_automation.job import LinkedInBotFactory
+from linkedin_automation.models import (
     TaskType,
     JobStatus,
     LinkedInBotConfig
@@ -190,7 +190,7 @@ def cleanup_old_jobs(days=30):
     """
     try:
         from datetime import datetime, timedelta
-        from backend.database import DatabaseManager
+        from database import DatabaseManager
         from bson import ObjectId
         
         db_manager = DatabaseManager()

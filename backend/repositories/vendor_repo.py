@@ -11,10 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
-try:
-    from .database import get_client, get_database
-except ImportError:
-    from database import get_client, get_database
+from database import get_client, get_database
 
 logger = logging.getLogger(__name__)
 

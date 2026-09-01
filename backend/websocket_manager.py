@@ -144,7 +144,7 @@ class ConnectionManager:
             logger.warning(f"Channel '{channel}' at capacity ({current_conns}/{max_conns}), rejecting connection")
             try:
                 await websocket.close(code=1013, reason="Channel at capacity")
-            except:
+            except Exception:
                 pass
             return False
         

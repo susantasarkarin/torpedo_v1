@@ -678,18 +678,7 @@ class HistoricalClassifier:
         use_escalation: bool
     ) -> Dict[str, Any]:
         """Classify emails using AI"""
-        try:
-            from ..ai_governance.claude_gateway import (
-                chat_completion,
-                chat_completion_with_escalation,
-                ANTHROPIC_DEFAULT_MODEL,
-            )
-        except ImportError:
-            from ai_governance.claude_gateway import (
-                chat_completion,
-                chat_completion_with_escalation,
-                ANTHROPIC_DEFAULT_MODEL,
-            )
+        from ai_governance.claude_gateway import chat_completion, chat_completion_with_escalation, ANTHROPIC_DEFAULT_MODEL
         
         result = {
             "classified": 0,

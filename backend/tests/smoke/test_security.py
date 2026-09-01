@@ -12,7 +12,7 @@ pytestmark = pytest.mark.smoke
 security = None
 _import_error = None
 try:
-    from backend.app import security as _sec
+    from app import security as _sec
     security = _sec
 except Exception as e:  # pragma: no cover
     _import_error = e

@@ -1,5 +1,5 @@
-﻿"""
-MODULE 2 â€” EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY â€” NO AI)
+"""
+MODULE 2 — EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY — NO AI)
 ======================================================================
 Scans the Gmail mail pool (email_metadata collection) and extracts structured
 lead records using regex and code-based parsing ONLY. No LLMs used here.
@@ -27,13 +27,10 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
-# Canonical ingestion â€” the ONLY way leads should enter the system
+# Canonical ingestion — the ONLY way leads should enter the system
 def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
-    try:
-        from leads.canonical_ingestion import ingest_lead
-    except ImportError:
-        from backend.leads.canonical_ingestion import ingest_lead
+    from leads.canonical_ingestion import ingest_lead
 
     payload = {
         "email": lead_data.get("email"),
@@ -56,10 +53,7 @@ def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _is_duplicate_in_enriched(email: str) -> bool:
     """Check if a lead with this email already exists in leads_enriched (the canonical collection)."""
-    try:
-        from leads.canonical_ingestion import leads_enriched
-    except ImportError:
-        from backend.leads.canonical_ingestion import leads_enriched
+    from leads.canonical_ingestion import leads_enriched
     return leads_enriched.count_documents({"email": email}, limit=1) > 0
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -366,7 +360,7 @@ def extract_leads_from_mail_pool_batch(
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
     # Fetch unprocessed INBOUND emails received since the cutoff.
-    # Only process inbound emails â€” outbound (sent) emails are OUR emails,
+    # Only process inbound emails — outbound (sent) emails are OUR emails,
     # not leads.
     cursor = mail_col.find(
         {

@@ -32,6 +32,13 @@ from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 # Configure logging
@@ -84,7 +91,10 @@ router = APIRouter(
 
 # MongoDB connections
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+mongo_client = _get_pooled_client()
 
 # Databases
 email_automation_db = mongo_client["email_automation"]
@@ -683,7 +693,7 @@ def calculate_forecast_vs_actual(date_filter: Dict, target: float) -> Dict[str, 
 # ============== MAIN DASHBOARD ENDPOINT (CACHED) ==============
 
 @router.get("/dashboard", response_model=SalesDashboardResponse)
-async def get_sales_dashboard(
+def get_sales_dashboard(
     start_date: str = Query(
         default=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
         description="Start date YYYY-MM-DD"
@@ -842,7 +852,7 @@ async def get_sales_dashboard(
 # ============== FUNNEL DRILL-DOWN ENDPOINT ==============
 
 @router.get("/funnel/{stage}")
-async def get_funnel_stage_details(
+def get_funnel_stage_details(
     stage: FunnelStage,
     start_date: str = Query(default=(datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")),
     end_date: str = Query(default=datetime.utcnow().strftime("%Y-%m-%d")),
@@ -895,7 +905,7 @@ async def get_funnel_stage_details(
 # ============================================
 
 @router.post("/async/dashboard")
-async def start_async_dashboard_generation(
+def start_async_dashboard_generation(
     date_range: str = Query("30d", description="Date range: 7d, 30d, 90d"),
     force_refresh: bool = Query(False, description="Force cache refresh")
 ):
@@ -920,7 +930,7 @@ async def start_async_dashboard_generation(
 
 
 @router.post("/async/pipeline-report")
-async def start_async_pipeline_report(
+def start_async_pipeline_report(
     date_range: str = Query("30d", description="Date range: 7d, 30d, 90d")
 ):
     """
@@ -943,12 +953,12 @@ async def start_async_pipeline_report(
 
 
 @router.get("/async/reports/{report_id}")
-async def get_sales_report(report_id: str):
+def get_sales_report(report_id: str):
     """
     Get a generated sales report by ID.
     """
     try:
-        from backend.db_pools import get_api_collection
+        from db_pools import get_api_collection
         from bson import ObjectId
         
         # Check dashboards collection

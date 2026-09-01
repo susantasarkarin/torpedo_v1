@@ -13,20 +13,17 @@ canonical Pydantic models in app/models/crm_objects.py.
 from fastapi import APIRouter, HTTPException, Body, Query, Depends
 from typing import Optional, Dict, Any
 
-try:
-    from ..app.services import crm_service
-    from ..app.models import crm_objects
-    from ..app.security import require
-except ImportError:  # pragma: no cover - absolute import fallback
-    from app.services import crm_service
-    from app.models import crm_objects
-    from app.security import require
+from middleware.rate_limit import web_lead_rate_limit
+from app.services import crm_service
+from app.models import crm_objects
+from app.security import require
 
 router = APIRouter(prefix="/api/crm", tags=["CRM Spine"])
 
 # Coarse capability gates (enforced only when RBAC_ENABLED=true).
 require_read = require("read")
 require_write = require("write")
+require_approve = require("approve")
 
 # Map a URL resource to its canonical Pydantic model for create-time validation.
 _MODELS = {
@@ -50,7 +47,7 @@ def _check_resource(resource: str):
 # ----------------------- cross-object flows (specific first) -----------------------
 
 @router.get("/timeline/{object_type}/{object_id}")
-async def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_read)):
+def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_read)):
     """Activities + tasks linked to one canonical object (account/contact/opportunity/project)."""
     try:
         return crm_service.timeline(object_type, object_id)
@@ -59,13 +56,13 @@ async def get_timeline(object_type: str, object_id: str, _user: str = Depends(re
 
 
 @router.post("/rfq")
-async def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
+def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
     """RFQ -> creates an Opportunity and a Project stub, cross-linked."""
     return crm_service.create_rfq(payload)
 
 
 @router.post("/opportunities/{opp_id}/win")
-async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
+def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
     """Mark Opportunity Won -> activate Project and create Invoice stub."""
     result = crm_service.mark_opportunity_won(opp_id)
     if result is None:
@@ -74,7 +71,7 @@ async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
 
 
 @router.post("/opportunities/{opp_id}/stage")
-async def move_opportunity_stage(
+def move_opportunity_stage(
     opp_id: str,
     payload: Dict[str, Any] = Body(...),
     _user: str = Depends(require_write),
@@ -94,7 +91,7 @@ async def move_opportunity_stage(
 
 
 @router.post("/leads/{lead_id}/convert")
-async def convert_lead(
+def convert_lead(
     lead_id: str,
     payload: Dict[str, Any] = Body(default={}),
     _user: str = Depends(require_write),
@@ -113,7 +110,7 @@ async def convert_lead(
 
 
 @router.get("/search")
-async def global_search(q: str = Query(..., min_length=2),
+def global_search(q: str = Query(..., min_length=2),
                         limit: int = Query(10, le=50),
                         _user: str = Depends(require_read)):
     """Global search across accounts, contacts, leads and opportunities."""
@@ -121,26 +118,90 @@ async def global_search(q: str = Query(..., min_length=2),
 
 
 @router.get("/reports/pipeline")
-async def report_pipeline(_user: str = Depends(require_read)):
+def report_pipeline(_user: str = Depends(require_read)):
     """Pipeline value by stage, weighted forecast, win rate, velocity."""
     return crm_service.pipeline_report()
 
 
 @router.get("/reports/activity")
-async def report_activity(days: int = Query(30, ge=1, le=365),
+def report_activity(days: int = Query(30, ge=1, le=365),
                           _user: str = Depends(require_read)):
     """Activity volume by type over the trailing window."""
     return crm_service.activity_report(days=days)
 
 
+@router.get("/lead-sources")
+def lead_sources(_user: str = Depends(require_read)):
+    """
+    Where leads live, and how many are in each store (TOR-21).
+
+    "How many leads do we have" has five answers, because five collections hold
+    leads and different dashboards read different ones. Consolidating them is a
+    data migration; this is the part that makes the disagreement explicable
+    today — every count, side by side, with what each store is FOR.
+
+    `crm_db.leads` is the canonical answer. The others are stages that feed it:
+    leads_raw is unfiltered discovery output, leads_enriched is post-ingestion,
+    outreach_leads is enrollment state, email_leads is mail-pool extraction.
+    A dashboard reading anything but crm_db.leads should say so in its UI.
+    """
+    try:
+        from db_pools import get_db
+    except ImportError:
+        from backend.db_pools import get_db
+
+    stores = [
+        ("crm_db", "leads", "CANONICAL — the spine's lead object"),
+        ("email_automation", "leads_raw", "raw discovery output, pre-dedupe"),
+        ("email_automation", "leads_enriched", "post canonical-ingestion"),
+        ("email_automation", "outreach_leads", "outreach enrollment state"),
+        ("email_automation", "email_leads", "extracted from the mail pool"),
+    ]
+    out = []
+    for dbname, colname, purpose in stores:
+        try:
+            count = get_db(dbname)[colname].estimated_document_count()
+        except Exception:
+            count = None
+        out.append({
+            "database": dbname,
+            "collection": colname,
+            "count": count,
+            "purpose": purpose,
+            "canonical": dbname == "crm_db",
+        })
+    return {
+        "canonical": "crm_db.leads",
+        "stores": out,
+        "note": "Counts differ by design — these are pipeline stages, not "
+                "copies. Only crm_db.leads answers 'how many leads do we have'.",
+    }
+
+
+@router.get("/spine-health")
+def spine_health(_user: str = Depends(require_read)):
+    """
+    Mirror health (TOR-13).
+
+    Every spine_connector mirror swallows its exceptions so a mirror failure
+    can never break the legacy write that triggered it. That is the right call
+    for availability and the wrong one for visibility: a mirror failing all day
+    was indistinguishable from one never invoked. `failed` should be 0 — a
+    non-zero value means legacy records exist with no spine counterpart, and
+    the nightly reconcile only re-converges what it explicitly handles.
+    """
+    from app.services.spine_connector import mirror_stats
+    return mirror_stats()
+
+
 @router.get("/duplicates/accounts")
-async def duplicate_accounts(_user: str = Depends(require_read)):
+def duplicate_accounts(_user: str = Depends(require_read)):
     """Groups of accounts whose names collapse to the same dedupe key."""
     return crm_service.find_duplicate_accounts()
 
 
 @router.post("/accounts/merge")
-async def merge_accounts(payload: Dict[str, Any] = Body(...),
+def merge_accounts(payload: Dict[str, Any] = Body(...),
                          _user: str = Depends(require_write)):
     """Merge duplicate accounts into a primary; re-points all references."""
     try:
@@ -153,7 +214,7 @@ async def merge_accounts(payload: Dict[str, Any] = Body(...),
 
 
 @router.post("/notifications/{notif_id}/read")
-async def mark_notification_read(notif_id: str, _user: str = Depends(require_write)):
+def mark_notification_read(notif_id: str, _user: str = Depends(require_write)):
     doc = crm_service.update("notifications", notif_id, {"read": True})
     if not doc:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -161,7 +222,7 @@ async def mark_notification_read(notif_id: str, _user: str = Depends(require_wri
 
 
 @router.post("/contacts/{contact_id}/draft-email")
-async def draft_email_for_contact(
+def draft_email_for_contact(
     contact_id: str,
     payload: Dict[str, Any] = Body(default={}),
     _user: str = Depends(require_write),
@@ -174,12 +235,8 @@ async def draft_email_for_contact(
     if not contact.get("email"):
         raise HTTPException(status_code=400, detail="Contact has no email address")
     try:
-        try:
-            from ai_governance.ai_gateway import get_ai_gateway
-            from db_pools import get_db
-        except ImportError:
-            from backend.ai_governance.ai_gateway import get_ai_gateway
-            from backend.db_pools import get_db
+        from ai_governance.ai_gateway import get_ai_gateway
+        from db_pools import get_db
         account = crm_service.get("accounts", contact["account_id"]) \
             if contact.get("account_id") else None
         draft = get_ai_gateway().generate_email_draft(
@@ -222,17 +279,32 @@ async def draft_email_for_contact(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/web-to-lead")
-async def web_to_lead(payload: Dict[str, Any] = Body(...)):
+@router.post("/web-to-lead", dependencies=[Depends(web_lead_rate_limit)])
+def web_to_lead(payload: Dict[str, Any] = Body(...)):
     """
-    Public inbound lead capture for website forms. Honeypot field `website_hp`
-    must be empty; optional WEB_LEAD_TOKEN env enforces a shared secret.
+    Public inbound lead capture for website forms.
+
+    Three gates, because this is the one endpoint that writes to the database
+    with no session (TOR-10):
+      1. rate limit (5/hour per source IP) — see middleware/rate_limit.py
+      2. honeypot field `website_hp` must be empty
+      3. WEB_LEAD_TOKEN shared secret
+
+    The token used to be optional and defaulted to empty, which skipped the
+    check entirely — so in practice the honeypot was the only protection and
+    anyone could write unbounded documents into crm_db.leads, each firing a
+    notification. It is REQUIRED now: with no token configured the endpoint
+    refuses rather than accepting anonymous writes.
     """
     import os as _os
     if (payload.get("website_hp") or "").strip():
         return {"ok": True}  # bot fell in the honeypot; pretend success
-    expected = _os.getenv("WEB_LEAD_TOKEN", "")
-    if expected and payload.get("token") != expected:
+    expected = _os.getenv("WEB_LEAD_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Web lead capture is not configured (WEB_LEAD_TOKEN unset).")
+    if payload.get("token") != expected:
         raise HTTPException(status_code=403, detail="Invalid token")
     email = (payload.get("email") or "").strip().lower()
     name = (payload.get("name") or "").strip()
@@ -279,7 +351,12 @@ def _build_list_query(resource: str, account_id, contact_id, owner, stage,
     if status:
         query["status"] = status
     elif resource == "accounts":
-        query["status"] = {"$ne": "merged"}   # hide merged dupes by default
+        # hide merged dupes AND soft-deleted rows by default
+        query["status"] = {"$nin": ["merged", "deleted"]}
+    else:
+        # Soft-deleted docs stay in the collection so they keep anchoring
+        # historical activities (TOR-18), but they must not appear in lists.
+        query["status"] = {"$ne": "deleted"}
     if unread is not None and resource == "notifications":
         query["read"] = not unread
     if linked_object_type:
@@ -297,40 +374,71 @@ def _build_list_query(resource: str, account_id, contact_id, owner, stage,
 
 
 @router.get("/{resource}/export.csv")
-async def export_resource_csv(resource: str, _user: str = Depends(require_read)):
-    """Export a canonical collection as CSV (flat top-level fields)."""
+def export_resource_csv(resource: str,
+                              limit: int = Query(100000, ge=1, le=1000000),
+                              _user: str = Depends(require_read)):
+    """
+    Export a canonical collection as CSV (flat top-level fields).
+
+    Genuinely streamed (TOR-20): the previous version materialised every
+    document AND the entire rendered file as one string before handing it to
+    StreamingResponse, so a large export was a single unbounded allocation
+    that also blocked the event loop for its duration.
+
+    The header needs a stable column set, so a bounded first pass samples the
+    field names; rows are then streamed straight off the cursor.
+    """
     import csv
-    import io
+    import io as _io
     import re as _re
     from fastapi.responses import StreamingResponse
     _check_resource(resource)
-    docs = crm_service.list_docs(resource, limit=100000)
-    # Union of scalar top-level fields, stable order (common fields first).
+
     preferred = ["_id", "name", "title", "email", "company", "stage", "status",
                  "amount", "owner", "account_id", "contact_id", "created_at"]
+
+    # Header discovery: sample rather than scan. Documents in a canonical
+    # collection are homogeneous enough that 500 rows settle the columns.
     keys: list = []
-    for d in docs:
+    for d in crm_service.list_docs(resource, limit=500):
         for k, v in d.items():
             if isinstance(v, (dict, list)):
                 continue
             if k not in keys:
                 keys.append(k)
     keys.sort(key=lambda k: preferred.index(k) if k in preferred else 999)
-    out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=keys, extrasaction="ignore")
-    writer.writeheader()
-    for d in docs:
-        writer.writerow({k: v for k, v in d.items()
-                         if not isinstance(v, (dict, list))})
-    out.seek(0)
+
+    def _rows():
+        buf = _io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=keys, extrasaction="ignore")
+        writer.writeheader()
+        yield buf.getvalue()
+        buf.seek(0), buf.truncate(0)
+
+        CHUNK = 1000
+        sent = 0
+        while sent < limit:
+            batch = crm_service.list_docs(
+                resource, limit=min(CHUNK, limit - sent), skip=sent)
+            if not batch:
+                break
+            for d in batch:
+                writer.writerow({k: v for k, v in d.items()
+                                 if not isinstance(v, (dict, list))})
+            yield buf.getvalue()
+            buf.seek(0), buf.truncate(0)
+            sent += len(batch)
+            if len(batch) < CHUNK:
+                break
+
     fname = _re.sub(r"[^A-Za-z0-9_-]", "", resource) or "export"
     return StreamingResponse(
-        iter([out.getvalue()]), media_type="text/csv",
+        _rows(), media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=crm_{fname}.csv"})
 
 
 @router.get("/{resource}")
-async def list_resource(
+def list_resource(
     resource: str,
     limit: int = Query(200, le=1000),
     skip: int = Query(0, ge=0),
@@ -353,7 +461,7 @@ async def list_resource(
 
 
 @router.post("/{resource}")
-async def create_resource(
+def create_resource(
     resource: str,
     payload: Dict[str, Any] = Body(...),
     _user: str = Depends(require_write),
@@ -369,7 +477,7 @@ async def create_resource(
 
 
 @router.get("/{resource}/{doc_id}")
-async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_read)):
+def get_resource(resource: str, doc_id: str, _user: str = Depends(require_read)):
     _check_resource(resource)
     try:
         doc = crm_service.get(resource, doc_id)
@@ -381,7 +489,7 @@ async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_
 
 
 @router.put("/{resource}/{doc_id}")
-async def update_resource(
+def update_resource(
     resource: str,
     doc_id: str,
     payload: Dict[str, Any] = Body(...),
@@ -399,12 +507,33 @@ async def update_resource(
 
 
 @router.delete("/{resource}/{doc_id}")
-async def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
+def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
+    """Soft delete: the row is flagged and hidden, not removed (TOR-18)."""
     _check_resource(resource)
     try:
-        ok = crm_service.delete(resource, doc_id)
+        ok = crm_service.delete(resource, doc_id,
+                                changed_by=str(_user) if _user else None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail=f"{resource[:-1]} not found")
-    return {"message": "deleted"}
+    return {"message": "deleted", "soft": True}
+
+
+@router.post("/{resource}/{doc_id}/purge")
+def purge_resource(resource: str, doc_id: str,
+                         _user: str = Depends(require_approve)):
+    """
+    Permanently remove a document and clear references to it.
+
+    Deliberately separate from DELETE and behind the stronger 'approve'
+    capability: this is the operation that cannot be undone.
+    """
+    _check_resource(resource)
+    try:
+        result = crm_service.purge(resource, doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result["deleted"]:
+        raise HTTPException(status_code=404, detail=f"{resource[:-1]} not found")
+    return result

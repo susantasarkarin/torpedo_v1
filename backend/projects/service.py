@@ -54,10 +54,7 @@ class ProjectService:
 
         # Mirror into the canonical CRM spine (best-effort, non-fatal)
         try:
-            try:
-                from app.services.spine_connector import mirror_ops_project_to_spine
-            except ImportError:
-                from backend.app.services.spine_connector import mirror_ops_project_to_spine
+            from app.services.spine_connector import mirror_ops_project_to_spine
             spine_id = mirror_ops_project_to_spine(
                 project_doc,
                 client_name=project_doc.get("client_name"),

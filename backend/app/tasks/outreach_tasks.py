@@ -10,10 +10,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from celery import shared_task, Task
-try:
-    from ai_governance.claude_gateway import AsyncClaudeChatClient
-except ImportError:  # package context (tests import as backend.*)
-    from backend.ai_governance.claude_gateway import AsyncClaudeChatClient
+from ai_governance.claude_gateway import AsyncClaudeChatClient
 import os
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ regardless of actual engagement - both the admin dashboard and the panelist's
 own progress ring were showing a number that didn't mean what it claimed to.
 """
 
-from backend.routers.panel import calculate_profile_completion, _PROFILE_COMPLETION_OPTIONAL_FIELDS
+from routers.panel import calculate_profile_completion, _PROFILE_COMPLETION_OPTIONAL_FIELDS
 
 
 def _signup_only_panelist():

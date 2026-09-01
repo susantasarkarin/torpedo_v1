@@ -11,10 +11,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from bson import ObjectId
-try:
-    from ai_governance.claude_gateway import AsyncClaudeChatClient
-except ImportError:  # package context (tests import as backend.*)
-    from backend.ai_governance.claude_gateway import AsyncClaudeChatClient
+from ai_governance.claude_gateway import AsyncClaudeChatClient
 
 from celery_app import celery_app
 from db_pools import get_background_db

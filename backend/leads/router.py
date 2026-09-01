@@ -43,6 +43,12 @@ from .scheduler import (
     get_scheduler_logs, update_scheduler_config
 )
 
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -51,7 +57,10 @@ router = APIRouter(prefix="/leads", tags=["Leads"])
 # ============== MONGODB CONNECTION FOR JOBS ==============
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-_mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_mongo_client = _get_pooled_client()
 _jobs_db = _mongo_client['email_automation']
 _torpedo_gmail_db = _mongo_client['torpedo_gmail']  # Gmail OAuth emails database
 web_search_jobs_collection = _jobs_db['web_search_jobs']
@@ -238,7 +247,10 @@ def stop_all_jobs(reason: str = "Emergency stop") -> int:
 # ============== RATE LIMITING (DYNAMIC FROM SETTINGS) ==============
 
 # MongoDB connection for settings
-_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_settings_client = _get_pooled_client()
 _settings_db = _settings_client['torpedo_settings']
 _app_settings_collection = _settings_db['app_settings']
 

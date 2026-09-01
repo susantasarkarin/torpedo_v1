@@ -32,10 +32,7 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-try:
-    from .database import get_database
-except ImportError:
-    from database import get_database
+from database import get_database
 
 db = get_database("email_automation")
 settings_db = get_database("torpedo_settings")
@@ -135,10 +132,7 @@ async def attempt_job_resume(job_id: str, current_status: str):
             }}
         )
         try:
-            try:
-                from .leads.router import run_web_search_job
-            except Exception:
-                from leads.router import run_web_search_job
+            from leads.router import run_web_search_job
 
             asyncio.create_task(run_web_search_job(job_id))
             logger.info(f"[{job_id}] ▶️ Relaunch task queued ({resume_reason})")
@@ -841,10 +835,7 @@ def initialize_scheduler(loop=None):
         # CINT survey pool cleanup every 5 minutes
         # Refreshes offerwall cache + marks stale surveys inactive in DB
         try:
-            try:
-                from .tasks.cint_survey_cleanup import async_cint_survey_cleanup
-            except ImportError:
-                from tasks.cint_survey_cleanup import async_cint_survey_cleanup
+            from tasks.cint_survey_cleanup import async_cint_survey_cleanup
             
             scheduler.add_job(
                 async_cint_survey_cleanup,

@@ -12,6 +12,12 @@ Verifies:
 import pytest
 import httpx
 
+# Requires a RUNNING server on BASE_URL — these drive the live HTTP surface,
+# not the code in-process. Marked so CI can run everything else (TOR-14):
+#     pytest backend/tests -m "not smoke"
+pytestmark = pytest.mark.smoke
+
+
 
 class TestAuthLogin:
     def test_login_success(self, client: httpx.Client):

@@ -40,3 +40,40 @@ Purpose: Define single-owner async execution boundaries to prevent duplicate pol
 1. `Campaign_platform/src/pages/LogsPage.jsx` auto-refresh interval.
 2. Survey pool mixed websocket/fallback ownership audit in `Campaign_platform/src/pages/operations/surveyPool/`.
 3. Add request-version guards for domains with competing async updates.
+
+---
+
+## Backend: `async def` vs `def` on route handlers (added 2026-09-01, TOR-08)
+
+820 route handlers were declared `async def` while only 251 awaited anything.
+The rest ran blocking `pymongo` calls directly on the event loop, so any slow
+query — the CRM pipeline report, a finance CSV import, a large export — froze
+**every** concurrent request in the single uvicorn process, including WebSocket
+heartbeats and the CINT webhook path. On a 1-vCPU box under a 1 GB cgroup that
+is the most likely cause of user-visible stalls and 502s.
+
+**The rule now:** a route handler is `async def` only if its body actually
+awaits. Otherwise it is a plain `def`, and FastAPI runs it in the threadpool
+where blocking I/O belongs.
+
+Converted so far (132 handlers, the hot paths):
+
+| File | Converted |
+|---|---|
+| `routers/finance.py` | 59 |
+| `routers/crm.py` | 21 |
+| `routers/panel_admin.py` | 19 |
+| `routers/traffic.py` | 15 |
+| `routers/sales_accounts.py` | 13 |
+| `routers/sales_dashboard.py` | 5 |
+
+Two handlers in `finance.py` (`create_customer`, `get_vendor`) were left
+`async` because other code calls them directly with `await`; converting those
+needs the call sites changed in the same commit.
+
+Async dependencies (`verify_session`, the RBAC `require(...)` gates) work
+unchanged against sync endpoints — FastAPI resolves those on the loop and then
+hands the handler to the threadpool.
+
+Converting to Motor is a separate, much larger project and is **not** required
+to fix this. Do not start it as a side effect of touching a router.

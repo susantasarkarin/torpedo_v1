@@ -89,7 +89,7 @@ def _trigger_mail_ai(new_count: int, mailbox_email: Optional[str] = None) -> Non
         from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
     except ImportError:  # pragma: no cover
         try:
-            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+            from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
         except ImportError:
             logger.debug("[mail-ai] task module unavailable; leaving mail to the beat")
             return
@@ -437,7 +437,7 @@ class GmailWorkspaceService:
         """
         try:
             oid = ObjectId(mailbox_id)
-        except:
+        except Exception:
             return False
         
         mailbox = self.mailboxes.find_one({"_id": oid})
@@ -458,7 +458,7 @@ class GmailWorkspaceService:
         """Get mailbox by ID"""
         try:
             oid = ObjectId(mailbox_id)
-        except:
+        except Exception:
             return None
         
         mailbox = self.mailboxes.find_one({"_id": oid})
@@ -490,7 +490,7 @@ class GmailWorkspaceService:
         """Update mailbox settings"""
         try:
             oid = ObjectId(mailbox_id)
-        except:
+        except Exception:
             return False
         
         # Only allow certain fields to be updated
@@ -733,7 +733,7 @@ class GmailWorkspaceService:
         try:
             from email.utils import parsedate_to_datetime
             timestamp = parsedate_to_datetime(date_str)
-        except:
+        except Exception:
             timestamp = datetime.utcnow()
         
         # Check for attachments and extract body
@@ -788,7 +788,7 @@ class GmailWorkspaceService:
             """Decode base64url encoded body"""
             try:
                 return base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
-            except:
+            except Exception:
                 return ""
         
         def extract_from_parts(parts: List[Dict]):

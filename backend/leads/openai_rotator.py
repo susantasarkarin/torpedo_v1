@@ -1,4 +1,4 @@
-﻿"""
+"""
 OpenAI API Key Rotation System
 Manages multiple OpenAI API keys with quota tracking and automatic rotation.
 Pay-as-you-go: RPM / daily caps are configurable safeguards, not hard provider limits.
@@ -13,9 +13,9 @@ from pymongo import MongoClient
 import openai
 
 # ---------------------------------------------------------------------------
-# Pipeline key mapping â€” 4 isolated pools, each with 3 dedicated keys.
+# Pipeline key mapping — 4 isolated pools, each with 3 dedicated keys.
 #
-#   outreach  â†’ keys 1,2,3   (AI email drafting â€” real-time)
+#   outreach  â†’ keys 1,2,3   (AI email drafting — real-time)
 #   sfw_bim   â†’ keys 4,5,6   (SFW + BIM enrichment + mail)
 #   cogentix  â†’ keys 7,8,9   (Cogentix enrichment + mail)
 #   mail      â†’ keys 10,11,12 (general mail capacity)

@@ -20,12 +20,8 @@ Usage:
 import argparse
 from typing import Optional, Dict, Any, List
 
-try:
-    from ..database import get_database
-    from ..app.services import crm_service
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from database import get_database
-    from app.services import crm_service
+from database import get_database
+from app.services import crm_service
 
 # Field-name variants observed in the finance import mappings.
 _CUSTOMER_KEYS = ["customer_name", "customer", "client_name", "client",

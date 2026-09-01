@@ -1,4 +1,4 @@
-﻿"""
+"""
 MongoDB Connection Pool Manager
 Separate pools for different workloads to prevent blocking
 """

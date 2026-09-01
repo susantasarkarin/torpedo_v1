@@ -277,8 +277,74 @@ on collection; pre-existing issue.)
   the job's failure message in the Bedrock console, and inspect
   `.backfill_batch_preview.jsonl` from a dry run.
 - **CSE silent** — 24h cooldown: `db.scheduler_state.findOne({_id: "google_cse_state"})`.
-- **Suppression split-brain (known, unresolved)** — canonical list is
-  `email_automation.suppression_list` (`campaigns/suppression.py`), but
-  `outreach_engine/sending_engine.py` and `canonical_ingestion.py` reference a
-  different collection (`outreach_bounce_suppression`) in *different
-  databases*. Consolidate before scaling sends.
+- **Suppression: RESOLVED 2026-09-01.** There were three lists in three
+  databases (`email_automation.suppression_list`,
+  `torpedo.outreach_bounce_suppression` with 11,508 docs, and
+  `campaign_platform.panel_email_suppression`) and no sender read more than
+  one, so unsubscribing from one channel left you subscribed to the other two.
+  `backend/messaging/suppression.py` is now the single reader/writer;
+  `email_automation.suppression_list` is canonical.
+
+  Reads are read-through (canonical, then both legacy stores) so turning this
+  on could only ever suppress MORE mail, never less. Collapse them with:
+
+  ```bash
+  python -m scripts.migrate_suppressions_unified --dry-run   # always first
+  python -m scripts.migrate_suppressions_unified
+  ```
+
+  The dry run prints how many addresses were suppressed in exactly one list —
+  every one of those is a person who kept receiving mail from the other
+  channels. Legacy collections are never deleted; drop the `_LEGACY`
+  read-through in `messaging/suppression.py` only once every sender calls it.
+
+---
+
+## 7. Sending (the facade)
+
+**Every outbound email goes through `backend/messaging`** (TOR-06). Thirteen
+modules could previously send independently; caps lived in one of them and
+counted one collection, so nothing saw total volume. That is what produced the
+2026-08 over-send (past the Gmail 2,000/day cap, 45% bounce).
+
+```python
+from messaging import send
+
+result = send(
+    to_email=lead["email"],
+    subject=subject,
+    message=built_mime_message,      # or body_text= / body_html=
+    transport=dispatch,              # your existing sender; returns a message id
+    identity=SENDER_EMAIL,           # what carries the budget AND the reputation
+    channel="cold_outreach",
+)
+if not result:
+    log.info("not sent: %s (%s)", result.reason, result.category)
+```
+
+Guarantees, in order: ONE suppression check that **fails closed** → a
+per-identity budget spanning every channel → the transport → ONE log
+(`email_automation.email_send_log`, bodies never stored).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SENDING_ENABLED` | `true` | **Kill switch.** `false` stops all outbound mail immediately, no deploy needed. Read on every call. |
+| `SEND_BUDGET_DEFAULT_DAILY` | `1500` | Per-identity daily cap (Gmail's hard limit is 2,000) |
+| `SEND_BUDGET_DEFAULT_HOURLY` | `200` | Per-identity hourly cap |
+| `SEND_BUDGET_TRANSACTIONAL_RESERVE` | `150` | Daily quota withheld from bulk, so a campaign cannot starve a password reset |
+| `SEND_BUDGET_<IDENTITY>_DAILY` | — | Per-identity override; identity uppercased, non-alphanumerics to `_` |
+
+Ops endpoints (on `/deliverability`, which nginx already proxies):
+
+- `GET /deliverability/sending/status?identity=<addr>` — kill-switch state,
+  budget usage, suppression counts per store, recent sends
+- `GET /deliverability/sending/suppression/<email>` — is it blocked, why, and
+  which list holds it
+- `POST` / `DELETE` on `/deliverability/sending/suppression` — suppress or
+  release an address **everywhere at once**
+
+**Migration status.** `leads/outreach_mailer.py` is wired. The panel senders,
+`campaigns/send_queue`, `outreach_engine/sending_engine`, the Gmail services and
+`cold_outreach_router` still send directly — they are covered by the shared
+suppression list (via the read-through) but **not yet by the shared budget**.
+Route them through `messaging.send` before scaling volume.

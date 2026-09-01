@@ -1,4 +1,4 @@
-﻿"""
+"""
 Campaign Optimizer Service.
 
 Analyzes campaign performance and provides optimization recommendations.

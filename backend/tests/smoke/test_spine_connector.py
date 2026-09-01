@@ -18,8 +18,8 @@ crm_service = None
 connector = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.app.services import spine_connector as _conn
+    from app.services import crm_service as _svc
+    from app.services import spine_connector as _conn
     crm_service = _svc
     connector = _conn
 except Exception as e:  # pragma: no cover

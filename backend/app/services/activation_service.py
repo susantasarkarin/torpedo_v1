@@ -4,10 +4,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
-try:
-    from ...database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 from .survey_allocation_service import SurveyAllocationService, SurveyCreate, SurveyStatus
 

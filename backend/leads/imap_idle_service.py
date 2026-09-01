@@ -24,6 +24,13 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 # Configure logging
@@ -32,7 +39,10 @@ logger = logging.getLogger(__name__)
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 db = client['email_automation']
 gmail_db = client['torpedo_gmail']
 
@@ -108,7 +118,7 @@ class IMAPIdleWatcher:
             try:
                 imap.close()
                 imap.logout()
-            except:
+            except Exception:
                 pass
         
         self._imap_connections.clear()
@@ -215,13 +225,13 @@ class IMAPIdleWatcher:
                         try:
                             imap.send(b'DONE\r\n')
                             time.sleep(0.5)
-                        except:
+                        except Exception:
                             pass
                         
                         # NOOP to keep connection alive
                         try:
                             imap.noop()
-                        except:
+                        except Exception:
                             break
                         
                     except imaplib.IMAP4.abort as e:
@@ -235,7 +245,7 @@ class IMAPIdleWatcher:
                 try:
                     imap.close()
                     imap.logout()
-                except:
+                except Exception:
                     pass
                 
             except Exception as e:
@@ -290,7 +300,7 @@ class IMAPIdleWatcher:
             # Parse date
             try:
                 email_date = parsedate_to_datetime(date_str)
-            except:
+            except Exception:
                 email_date = datetime.utcnow()
             
             # Determine direction
@@ -336,7 +346,7 @@ class IMAPIdleWatcher:
             if isinstance(content, bytes):
                 try:
                     result += content.decode(charset or 'utf-8', errors='ignore')
-                except:
+                except Exception:
                     result += content.decode('utf-8', errors='ignore')
             else:
                 result += str(content)
@@ -356,7 +366,7 @@ class IMAPIdleWatcher:
                         charset = part.get_content_charset() or 'utf-8'
                         body = payload.decode(charset, errors='ignore')
                         break
-                    except:
+                    except Exception:
                         continue
                 elif content_type == "text/html" and not body:
                     try:
@@ -364,14 +374,14 @@ class IMAPIdleWatcher:
                         charset = part.get_content_charset() or 'utf-8'
                         html_body = payload.decode(charset, errors='ignore')
                         body = re.sub(r'<[^>]+>', '', html_body)
-                    except:
+                    except Exception:
                         continue
         else:
             try:
                 payload = msg.get_payload(decode=True)
                 charset = msg.get_content_charset() or 'utf-8'
                 body = payload.decode(charset, errors='ignore')
-            except:
+            except Exception:
                 body = str(msg.get_payload())
         
         return body.strip()

@@ -1,16 +1,52 @@
-# Minimal dependencies to run the CRM/AI foundation smoke tests in CI.
-# The full production dependency set lives in requirements-outreach.txt, which is
-# far too heavy/flaky for CI (selenium, playwright, langchain, sentry, ...).
-# Keep this in sync with what backend/tests/smoke/test_{crm_*,ai_engine,
-# *_agent,legacy_lead_migration,auth_module}.py actually import.
+# Dependencies for CI.
+#
+# CI now runs the WHOLE test suite plus an in-process app import (TOR-14), not
+# a hand-picked eighth of it, so this needs everything `import main` touches at
+# module load. It is still not requirements-outreach.txt: the genuinely heavy
+# and flaky extras there (selenium, playwright, langchain, sentry, pyreadstat,
+# scipy/sklearn) are imported lazily inside functions and never reached by an
+# import or by any unmarked test.
+#
+# If CI fails with ModuleNotFoundError, the honest fix is to add the package
+# here — not to narrow what CI runs. That narrowing is what let four routers
+# sit dead in production.
 
+# --- test runner ---
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+
+# --- web framework ---
+fastapi>=0.110.0
+starlette>=0.36.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9
+itsdangerous>=2.1.0
+jinja2>=3.1.0
+httpx>=0.27.0
+
+# --- data ---
 pymongo>=4.6.0
 motor>=3.3.0
 pydantic>=2.5.0
 email-validator>=2.0.0
-python-dotenv>=1.0.0
+redis>=5.0.0
+
+# --- scheduling / queues ---
+celery>=5.3.0
+kombu>=5.3.0
+apscheduler>=3.10.0
+
+# --- auth / crypto ---
 bcrypt>=4.0.0
-# Pulled in transitively by the leads package import chain.
+cryptography>=42.0.0
+python-dotenv>=1.0.0
+
+# --- integrations reached at import time ---
+boto3>=1.34.0
 requests>=2.31.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.2.0
+beautifulsoup4>=4.12.0
+python-dateutil>=2.8.0
+pytz>=2024.1
+dnspython>=2.6.0

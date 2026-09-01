@@ -15,14 +15,17 @@ import io
 import logging
 from dotenv import load_dotenv
 
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 logger = logging.getLogger(__name__)
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated from
 # per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 # RBAC imports for permission enforcement
 try:
@@ -58,29 +61,29 @@ load_dotenv()
 # ----------------------------
 # Router Setup
 # ----------------------------
-# SAFE-BY-DEFAULT session gate, same opt-in shape as RBAC_ENABLED in
-# app/security.py. This router has always been unauthenticated: every finance
-# endpoint (customers, vendors, invoices, estimates, payments) is world-readable,
-# so customer PII can be pulled with a plain unauthenticated GET.
+# Session auth on every /finance/* route.
 #
-# It cannot simply be switched on: several finance pages send no Authorization
-# header at all (PaymentsPage 12 calls/0, VendorsPage 9/0, PurchaseOrdersPage
-# 8/0, ItemsPage 6/0, ExpensesPage 6/0), so enabling this before they are
-# migrated onto the shared api.js client would 401 most of the finance UI.
+# This shipped OFF behind FINANCE_AUTH_ENABLED while several finance pages sent
+# no Authorization header (PaymentsPage, VendorsPage, PurchaseOrdersPage,
+# ItemsPage, ExpensesPage). Verified 2026-09-01: all twelve finance pages now go
+# through utils/api.js `authFetch`, and the three remaining raw fetches
+# (Finance.jsx dashboard, ClientsPage delete, RFQ customer list) set the header
+# themselves. The migration is done, so the gate is ON by default (TOR-03).
 #
-# Sequence: ship this OFF -> migrate the pages -> set FINANCE_AUTH_ENABLED=true.
-# Flipping it back is an env change plus a restart, not a redeploy.
-FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
+# The env var remains as an escape hatch: FINANCE_AUTH_ENABLED=false restores
+# the old open behaviour with a restart, no redeploy. Do not leave it off — the
+# whole ledger, including customer PII, is world-readable in that state.
+FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
 
 _finance_deps = []
 if FINANCE_AUTH_ENABLED:
     from session_state import verify_session
     _finance_deps.append(Depends(verify_session))
-    logger.warning("[finance] session auth ENABLED on /finance/*")
+    logger.info("[finance] session auth enabled on /finance/*")
 else:
-    logger.warning(
-        "[finance] session auth DISABLED - /finance/* is publicly readable. "
-        "Set FINANCE_AUTH_ENABLED=true once all finance pages send a session token."
+    logger.error(
+        "[finance] session auth DISABLED - /finance/* is publicly readable, "
+        "including customer PII. Unset FINANCE_AUTH_ENABLED to restore the gate."
     )
 
 router = APIRouter(prefix="/finance", tags=["Finance"], dependencies=_finance_deps)
@@ -89,7 +92,10 @@ router = APIRouter(prefix="/finance", tags=["Finance"], dependencies=_finance_de
 # MongoDB Connection
 # ----------------------------
 MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 finance_db = client["finance_db"]
 
 # Collections
@@ -259,6 +265,9 @@ def generate_vendor_number(offset: int = 0) -> str:
 # Validation Helpers
 # ----------------------------
 import re
+
+
+
 
 def validate_email(email: str) -> bool:
     """Validate email format"""
@@ -543,7 +552,7 @@ async def get_customers(
 
 
 @router.get("/customers/{customer_id}")
-async def get_customer(customer_id: str):
+def get_customer(customer_id: str):
     """Get a single customer by ID"""
     try:
         customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
@@ -620,7 +629,7 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/customers/{customer_id}")
-async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body(...)):
+def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body(...)):
     """Update a customer"""
     try:
         current_customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
@@ -656,7 +665,7 @@ async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body
 
 
 @router.delete("/customers/{customer_id}")
-async def delete_customer(customer_id: str):
+def delete_customer(customer_id: str):
     """Delete a customer"""
     try:
         # Check if customer has invoices
@@ -689,7 +698,7 @@ async def delete_customer(customer_id: str):
 
 
 @router.post("/customers/bulk-delete")
-async def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
+def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
     """Delete multiple customers by their IDs"""
     try:
         ids = data.get("ids", [])
@@ -725,7 +734,7 @@ async def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
 
 
 @router.get("/customers/export/csv")
-async def export_customers_csv():
+def export_customers_csv():
     """Export all customers to CSV format"""
     try:
         customers = list(customers_collection.find().sort("name", 1))
@@ -867,7 +876,7 @@ async def import_customers_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/vendors/")
-async def get_vendors(
+def get_vendors(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by name, email, or GSTIN"),
@@ -899,7 +908,7 @@ async def get_vendors(
 
 # NOTE: This endpoint must be before {vendor_id} to avoid route conflicts
 @router.get("/vendors/panel-vendors")
-async def get_panel_vendors_for_linking():
+def get_panel_vendors_for_linking():
     """
     Get all Operations panel vendors available for linking.
     Returns only vendors not yet linked to a finance vendor.
@@ -941,7 +950,7 @@ async def get_vendor(vendor_id: str):
 
 
 @router.post("/vendors/")
-async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
+def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
     """Create a new vendor with validation"""
     try:
         # Validate required fields
@@ -1006,7 +1015,7 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/vendors/{vendor_id}")
-async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
+def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     """Update a vendor"""
     try:
         vendor_data.pop("_id", None)
@@ -1039,7 +1048,7 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
 
 
 @router.delete("/vendors/{vendor_id}")
-async def delete_vendor(vendor_id: str):
+def delete_vendor(vendor_id: str):
     """
     Soft delete a billing vendor with safety checks.
     - Blocks if vendor has outstanding balance_due
@@ -1122,7 +1131,7 @@ async def delete_vendor(vendor_id: str):
 # =============================================================================
 
 @router.post("/vendors/{vendor_id}/link-panel-vendor")
-async def link_panel_vendor(
+def link_panel_vendor(
     vendor_id: str,
     panel_vendor_id: str = Body(..., embed=True, description="The Operations panel vendor ID to link")
 ):
@@ -1143,7 +1152,7 @@ async def link_panel_vendor(
         panel_vendor = None
         try:
             panel_vendor = ops_vendors.find_one({"_id": ObjectId(panel_vendor_id)})
-        except:
+        except Exception:
             pass
         
         if not panel_vendor:
@@ -1193,7 +1202,7 @@ async def link_panel_vendor(
 
 
 @router.delete("/vendors/{vendor_id}/unlink-panel-vendor")
-async def unlink_panel_vendor(vendor_id: str):
+def unlink_panel_vendor(vendor_id: str):
     """Unlink a finance vendor from its Operations panel vendor."""
     try:
         vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
@@ -1233,7 +1242,7 @@ async def unlink_panel_vendor(vendor_id: str):
                         "$set": {"updated_at": datetime.utcnow()}
                     }
                 )
-            except:
+            except Exception:
                 pass
         
         return {"success": True, "message": "Vendors unlinked successfully"}
@@ -1244,7 +1253,7 @@ async def unlink_panel_vendor(vendor_id: str):
 
 
 @router.get("/vendors/export/csv")
-async def export_vendors_csv():
+def export_vendors_csv():
     """Export all vendors to CSV format"""
     try:
         vendors = list(vendors_collection.find().sort("name", 1))
@@ -1391,7 +1400,7 @@ async def import_vendors_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/items/")
-async def get_items(
+def get_items(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by name, SKU, or description"),
@@ -1426,7 +1435,7 @@ async def get_items(
 
 
 @router.get("/items/{item_id}")
-async def get_item(item_id: str):
+def get_item(item_id: str):
     """
     Get a single item by ID (excluding soft-deleted).
     P0.16: Returns 404 if item is soft-deleted.
@@ -1441,7 +1450,7 @@ async def get_item(item_id: str):
 
 
 @router.post("/items/")
-async def create_item(item_data: Dict[str, Any] = Body(...)):
+def create_item(item_data: Dict[str, Any] = Body(...)):
     """Create a new item"""
     try:
         if not item_data.get("name"):
@@ -1463,7 +1472,7 @@ async def create_item(item_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/items/{item_id}")
-async def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
+def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
     """Update an item"""
     try:
         item_data.pop("_id", None)
@@ -1483,7 +1492,7 @@ async def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
 
 
 @router.delete("/items/{item_id}")
-async def delete_item(item_id: str):
+def delete_item(item_id: str):
     """
     Soft delete an item with usage validation.
     P0.17: Checks if item is used in invoices or bills before deletion.
@@ -1556,7 +1565,7 @@ async def delete_item(item_id: str):
 
 
 @router.get("/items/export/csv")
-async def export_items_csv():
+def export_items_csv():
     """Export all items to CSV"""
     try:
         items = list(items_collection.find().sort("name", 1))
@@ -1678,7 +1687,7 @@ async def import_items_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/estimates/")
-async def get_estimates(
+def get_estimates(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by estimate number or customer name"),
@@ -1742,7 +1751,7 @@ async def get_estimates(
 
 
 @router.get("/estimates/{estimate_id}")
-async def get_estimate(estimate_id: str):
+def get_estimate(estimate_id: str):
     """
     Get a single estimate by ID (excluding soft-deleted).
     P0.16: Returns 404 if estimate is soft-deleted.
@@ -1764,7 +1773,7 @@ async def get_estimate(estimate_id: str):
 
 
 @router.post("/estimates/")
-async def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
+def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
     """Create a new estimate"""
     try:
         if not estimate_data.get("customer_id"):
@@ -1795,7 +1804,7 @@ async def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/estimates/{estimate_id}")
-async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body(...)):
+def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body(...)):
     """Update an estimate"""
     try:
         estimate_data.pop("_id", None)
@@ -1843,7 +1852,7 @@ async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body
 
 
 @router.delete("/estimates/{estimate_id}")
-async def delete_estimate(estimate_id: str):
+def delete_estimate(estimate_id: str):
     """
     Soft delete an estimate.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
@@ -1872,7 +1881,7 @@ async def delete_estimate(estimate_id: str):
 
 
 @router.get("/estimates/export/csv")
-async def export_estimates_csv():
+def export_estimates_csv():
     """Export all estimates to CSV format"""
     try:
         # Get all estimates with customer details
@@ -2005,7 +2014,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                         try:
                             estimate_date = datetime.strptime(mapped["estimate_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not estimate_date:
                         estimate_date = datetime.now()
@@ -2015,7 +2024,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                         try:
                             expiry_date = datetime.strptime(mapped["expiry_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 # Create estimate data
@@ -2061,7 +2070,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 
 @router.get("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
-async def get_invoices(
+def get_invoices(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -2127,7 +2136,7 @@ async def get_invoices(
 
 @router.get("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
-async def get_invoice(request: Request, invoice_id: str):
+def get_invoice(request: Request, invoice_id: str):
     """
     Get a single invoice by ID (excluding soft-deleted).
     P0.16: Returns 404 if invoice is soft-deleted.
@@ -2150,7 +2159,7 @@ async def get_invoice(request: Request, invoice_id: str):
 
 @router.post("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_CREATE, Permissions.ADMIN_ALL)
-async def create_invoice(request: Request, invoice_data: Dict[str, Any] = Body(...)):
+def create_invoice(request: Request, invoice_data: Dict[str, Any] = Body(...)):
     """Create a new invoice"""
     try:
         if not invoice_data.get("customer_id"):
@@ -2207,7 +2216,7 @@ async def create_invoice(request: Request, invoice_data: Dict[str, Any] = Body(.
 
 @router.put("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_UPDATE, Permissions.ADMIN_ALL)
-async def update_invoice(request: Request, invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
+def update_invoice(request: Request, invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
     """Update an invoice"""
     try:
         invoice_data.pop("_id", None)
@@ -2229,7 +2238,7 @@ async def update_invoice(request: Request, invoice_id: str, invoice_data: Dict[s
 
 @router.delete("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_DELETE, Permissions.ADMIN_ALL)
-async def delete_invoice(request: Request, invoice_id: str):
+def delete_invoice(request: Request, invoice_id: str):
     """
     Soft delete an invoice.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
@@ -2265,7 +2274,7 @@ async def delete_invoice(request: Request, invoice_id: str):
 
 
 @router.get("/invoices/export/csv")
-async def export_invoices_csv():
+def export_invoices_csv():
     """Export all invoices to CSV format"""
     try:
         # Get all invoices with customer details
@@ -2405,7 +2414,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             invoice_date = datetime.strptime(mapped["invoice_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not invoice_date:
                         invoice_date = datetime.now()
@@ -2415,7 +2424,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             due_date = datetime.strptime(mapped["due_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 if mapped.get("payment_date"):
@@ -2423,7 +2432,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             payment_date = datetime.strptime(mapped["payment_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 # Create invoice data
@@ -2484,7 +2493,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 
 @router.get("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
-async def get_bills(
+def get_bills(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -2550,7 +2559,7 @@ async def get_bills(
 
 @router.get("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
-async def get_bill(request: Request, bill_id: str):
+def get_bill(request: Request, bill_id: str):
     """
     Get a single bill by ID (excluding soft-deleted).
     P0.16: Returns 404 if bill is soft-deleted.
@@ -2573,7 +2582,7 @@ async def get_bill(request: Request, bill_id: str):
 
 @router.post("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_CREATE, Permissions.ADMIN_ALL)
-async def create_bill(request: Request, bill_data: Dict[str, Any] = Body(...)):
+def create_bill(request: Request, bill_data: Dict[str, Any] = Body(...)):
     """Create a new bill"""
     try:
         if not bill_data.get("vendor_id"):
@@ -2615,7 +2624,7 @@ async def create_bill(request: Request, bill_data: Dict[str, Any] = Body(...)):
 
 @router.put("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_UPDATE, Permissions.ADMIN_ALL)
-async def update_bill(request: Request, bill_id: str, bill_data: Dict[str, Any] = Body(...)):
+def update_bill(request: Request, bill_id: str, bill_data: Dict[str, Any] = Body(...)):
     """Update a bill"""
     try:
         bill_data.pop("_id", None)
@@ -2636,7 +2645,7 @@ async def update_bill(request: Request, bill_id: str, bill_data: Dict[str, Any] 
 
 @router.delete("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_DELETE, Permissions.ADMIN_ALL)
-async def delete_bill(request: Request, bill_id: str):
+def delete_bill(request: Request, bill_id: str):
     """
     Soft delete a bill.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
@@ -2672,7 +2681,7 @@ async def delete_bill(request: Request, bill_id: str):
 
 
 @router.get("/bills/export/csv")
-async def export_bills_csv():
+def export_bills_csv():
     """Export all bills to CSV format"""
     try:
         pipeline = [
@@ -2792,7 +2801,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
                         try:
                             bill_date = datetime.strptime(mapped["bill_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not bill_date:
                         bill_date = datetime.now()
@@ -2802,7 +2811,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
                         try:
                             due_date = datetime.strptime(mapped["due_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 bill_data = {
@@ -2842,7 +2851,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/purchase-orders/")
-async def get_purchase_orders(
+def get_purchase_orders(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by PO number or vendor name"),
@@ -2899,7 +2908,7 @@ async def get_purchase_orders(
 
 
 @router.post("/purchase-orders/")
-async def create_purchase_order(po_data: Dict[str, Any] = Body(...)):
+def create_purchase_order(po_data: Dict[str, Any] = Body(...)):
     """Create a new purchase order"""
     try:
         if not po_data.get("vendor_id"):
@@ -2938,7 +2947,7 @@ async def create_purchase_order(po_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/purchase-orders/{po_id}")
-async def update_purchase_order(po_id: str, po_data: Dict[str, Any] = Body(...)):
+def update_purchase_order(po_id: str, po_data: Dict[str, Any] = Body(...)):
     """Update a purchase order"""
     try:
         po_data.pop("_id", None)
@@ -2958,7 +2967,7 @@ async def update_purchase_order(po_id: str, po_data: Dict[str, Any] = Body(...))
 
 
 @router.delete("/purchase-orders/{po_id}")
-async def delete_purchase_order(po_id: str):
+def delete_purchase_order(po_id: str):
     """Delete a purchase order"""
     try:
         result = purchase_orders_collection.delete_one({"_id": ObjectId(po_id)})
@@ -2970,7 +2979,7 @@ async def delete_purchase_order(po_id: str):
 
 
 @router.get("/purchase-orders/export/csv")
-async def export_purchase_orders_csv():
+def export_purchase_orders_csv():
     """Export all purchase orders to CSV format"""
     try:
         pipeline = [
@@ -3085,13 +3094,13 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
                 if row.get("order_date"):
                     try:
                         order_date = datetime.strptime(row["order_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         order_date = datetime.now()
                 
                 if row.get("expected_delivery"):
                     try:
                         expected_delivery = datetime.strptime(row["expected_delivery"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         expected_delivery = None
                 
                 po_data = {
@@ -3131,7 +3140,7 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/expenses/")
-async def get_expenses(
+def get_expenses(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
@@ -3170,7 +3179,7 @@ async def get_expenses(
 
 
 @router.post("/expenses/")
-async def create_expense(expense_data: Dict[str, Any] = Body(...)):
+def create_expense(expense_data: Dict[str, Any] = Body(...)):
     """Create a new expense"""
     try:
         if not expense_data.get("description"):
@@ -3193,7 +3202,7 @@ async def create_expense(expense_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/expenses/{expense_id}")
-async def update_expense(expense_id: str, expense_data: Dict[str, Any] = Body(...)):
+def update_expense(expense_id: str, expense_data: Dict[str, Any] = Body(...)):
     """Update an expense"""
     try:
         expense_data.pop("_id", None)
@@ -3213,7 +3222,7 @@ async def update_expense(expense_id: str, expense_data: Dict[str, Any] = Body(..
 
 
 @router.delete("/expenses/{expense_id}")
-async def delete_expense(expense_id: str):
+def delete_expense(expense_id: str):
     """
     Soft delete an expense.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
@@ -3242,7 +3251,7 @@ async def delete_expense(expense_id: str):
 
 
 @router.post("/expenses/auto-categorize")
-async def auto_categorize_expense(data: Dict[str, Any] = Body(...)):
+def auto_categorize_expense(data: Dict[str, Any] = Body(...)):
     """Auto-categorize expense based on description"""
     description = data.get("description", "").lower()
     
@@ -3270,7 +3279,7 @@ async def auto_categorize_expense(data: Dict[str, Any] = Body(...)):
 
 
 @router.get("/expenses/export/csv")
-async def export_expenses_csv():
+def export_expenses_csv():
     """Export all expenses to CSV format"""
     try:
         expenses = list(expenses_collection.find().sort("expense_date", -1))
@@ -3329,7 +3338,7 @@ async def import_expenses_csv(file: UploadFile = File(...)):
                 if row.get("expense_date"):
                     try:
                         expense_date = datetime.strptime(row["expense_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         expense_date = datetime.now()
                 
                 expense_data = {
@@ -3370,7 +3379,7 @@ async def import_expenses_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/payments/received/")
-async def get_payments_received(
+def get_payments_received(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by payment number or customer name"),
@@ -3422,7 +3431,7 @@ async def get_payments_received(
 
 
 @router.get("/payments/made/")
-async def get_payments_made(
+def get_payments_made(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by payment number or vendor name"),
@@ -3474,7 +3483,7 @@ async def get_payments_made(
 
 
 @router.post("/payments/received/")
-async def create_payment_received(payment_data: Dict[str, Any] = Body(...)):
+def create_payment_received(payment_data: Dict[str, Any] = Body(...)):
     """Record a payment received from a customer"""
     try:
         if not payment_data.get("customer_id"):
@@ -3526,7 +3535,7 @@ async def create_payment_received(payment_data: Dict[str, Any] = Body(...)):
 
 
 @router.post("/payments/made/")
-async def create_payment_made(payment_data: Dict[str, Any] = Body(...)):
+def create_payment_made(payment_data: Dict[str, Any] = Body(...)):
     """Record a payment made to a vendor"""
     try:
         if not payment_data.get("vendor_id"):
@@ -3578,7 +3587,7 @@ async def create_payment_made(payment_data: Dict[str, Any] = Body(...)):
 
 
 @router.get("/payments/received/export/csv")
-async def export_payments_received_csv():
+def export_payments_received_csv():
     """Export all payments received to CSV format"""
     try:
         pipeline = [
@@ -3663,7 +3672,7 @@ async def import_payments_received_csv(file: UploadFile = File(...)):
                 if row.get("payment_date"):
                     try:
                         payment_date = datetime.strptime(row["payment_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         payment_date = datetime.now()
                 
                 payment_data = {
@@ -3696,7 +3705,7 @@ async def import_payments_received_csv(file: UploadFile = File(...)):
 
 
 @router.get("/payments/made/export/csv")
-async def export_payments_made_csv():
+def export_payments_made_csv():
     """Export all payments made to CSV format"""
     try:
         pipeline = [
@@ -3781,7 +3790,7 @@ async def import_payments_made_csv(file: UploadFile = File(...)):
                 if row.get("payment_date"):
                     try:
                         payment_date = datetime.strptime(row["payment_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         payment_date = datetime.now()
                 
                 payment_data = {
@@ -3818,7 +3827,7 @@ async def import_payments_made_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/dashboard/summary")
-async def get_dashboard_summary():
+def get_dashboard_summary():
     """Get finance dashboard summary data"""
     try:
         # Calculate date ranges
@@ -3937,7 +3946,7 @@ async def get_dashboard_summary():
                             "name": customer.get("name", "Unknown"),
                             "revenue": tc["total"]
                         })
-                except:
+                except Exception:
                     pass
         
         return {
@@ -3977,7 +3986,7 @@ async def get_dashboard_summary():
 # ============================================
 
 @router.post("/async/export/{export_type}")
-async def start_async_export(
+def start_async_export(
     export_type: str = Path(..., description="Type: customers, invoices, bills"),
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
@@ -4034,7 +4043,7 @@ async def start_async_import(
 
 
 @router.post("/async/summary")
-async def start_async_finance_summary(
+def start_async_finance_summary(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
 ):
@@ -4058,7 +4067,7 @@ async def start_async_finance_summary(
 
 
 @router.post("/async/customers/bulk-delete")
-async def start_async_bulk_delete_customers(
+def start_async_bulk_delete_customers(
     data: Dict[str, Any] = Body(...)
 ):
     """
@@ -4087,12 +4096,12 @@ async def start_async_bulk_delete_customers(
 
 
 @router.get("/async/exports/{export_id}")
-async def get_export_file(export_id: str):
+def get_export_file(export_id: str):
     """
     Download a completed export file.
     """
     try:
-        from backend.db_pools import get_api_collection
+        from db_pools import get_api_collection
         from bson import ObjectId
 
         exports_collection = get_api_collection('export_files')

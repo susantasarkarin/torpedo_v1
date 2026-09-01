@@ -319,7 +319,7 @@ async def cpx_surveys_websocket(websocket: WebSocket):
                         "type": "heartbeat",
                         "timestamp": datetime.utcnow().isoformat()
                     })
-                except:
+                except Exception:
                     break
                     
     except WebSocketDisconnect:

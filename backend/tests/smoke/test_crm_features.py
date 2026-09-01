@@ -14,7 +14,7 @@ pytestmark = pytest.mark.smoke
 crm_service = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
+    from app.services import crm_service as _svc
     crm_service = _svc
 except Exception as e:  # pragma: no cover
     _import_error = e

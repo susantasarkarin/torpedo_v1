@@ -1,4 +1,4 @@
-﻿path = r'd:\Code\03. Projects\01. torpedo wip\01. Torpedo v1 (python reacy)\backend\routers\traffic.py'
+path = r'd:\Code\03. Projects\01. torpedo wip\01. Torpedo v1 (python reacy)\backend\routers\traffic.py'
 with open(path, 'r', encoding='utf-8') as f:
     lines = f.readlines()
 

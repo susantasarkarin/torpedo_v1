@@ -30,12 +30,8 @@ import requests
 
 logger = logging.getLogger("panel_health")
 
-try:
-    from services.panel_bounce_handler import invitation_log_collection, suppression_collection
-    from services.panel_job_state import get_all_heartbeats
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from backend.services.panel_bounce_handler import invitation_log_collection, suppression_collection
-    from backend.services.panel_job_state import get_all_heartbeats
+from services.panel_bounce_handler import invitation_log_collection, suppression_collection
+from services.panel_job_state import get_all_heartbeats
 
 # job_name -> (expected cadence in hours, human label). Matches the beat
 # schedule in celery_app.py; the multiplier below turns cadence into a
@@ -128,14 +124,7 @@ def _suppression_velocity(window_hours: int = 24) -> Dict[str, Any]:
 
 def _ses_quota() -> Dict[str, Any]:
     try:
-        try:
-            from services.panel_email_service import (
-                _get_ses_client, PANEL_SES_RESERVE, PANEL_DAILY_SEND_CAP,
-            )
-        except ImportError:
-            from backend.services.panel_email_service import (
-                _get_ses_client, PANEL_SES_RESERVE, PANEL_DAILY_SEND_CAP,
-            )
+        from services.panel_email_service import _get_ses_client, PANEL_SES_RESERVE, PANEL_DAILY_SEND_CAP
         quota = _get_ses_client().get_send_quota()
         max_24h = int(quota.get("Max24HourSend") or 0)
         sent_24h = int(quota.get("SentLast24Hours") or 0)

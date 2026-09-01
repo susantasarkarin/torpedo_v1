@@ -11,18 +11,25 @@ from pymongo import MongoClient
 from random import randint
 import os
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 
 # Panel vendors are in email_automation database
 operations_db = client["email_automation"]

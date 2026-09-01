@@ -154,10 +154,7 @@ def derive_segment(ai_category: Optional[str],
 
 
 def _rule_agent():
-    try:
-        from agents.mail_segregation_agent import get_mail_segregation_agent
-    except ImportError:
-        from backend.agents.mail_segregation_agent import get_mail_segregation_agent
+    from agents.mail_segregation_agent import get_mail_segregation_agent
     return get_mail_segregation_agent()
 
 
@@ -193,10 +190,7 @@ _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company 
 
 
 def _bedrock():
-    try:
-        from leads import bedrock_client as bc
-    except ImportError:
-        from backend.leads import bedrock_client as bc
+    from leads import bedrock_client as bc
     return bc
 
 
@@ -279,10 +273,7 @@ Rules:
 
 
 def _get_db(name: str):
-    try:
-        from db_pools import get_db
-    except ImportError:
-        from backend.db_pools import get_db
+    from db_pools import get_db
     return get_db(name)
 
 
@@ -335,12 +326,8 @@ def _run_icp_and_route(lead_id: str, email: str, is_inbound: bool,
     Returns the route ("warm" | "cold" | "not_qualified" | None). Never raises.
     """
     try:
-        try:
-            from leads.bucket_classifier import classify_lead, persist, leads_raw
-            from leads.outreach_qualification import qualify
-        except ImportError:
-            from backend.leads.bucket_classifier import classify_lead, persist, leads_raw
-            from backend.leads.outreach_qualification import qualify
+        from leads.bucket_classifier import classify_lead, persist, leads_raw
+        from leads.outreach_qualification import qualify
         from bson import ObjectId
 
         try:
@@ -456,10 +443,7 @@ def _ingest_contacts(analysis: Dict[str, Any], email_doc: Dict[str, Any]) -> int
 
     sender_email = (email_doc.get("from_email") or email_doc.get("from") or "").strip().lower()
     try:
-        try:
-            from leads.canonical_ingestion import ingest_lead
-        except ImportError:
-            from backend.leads.canonical_ingestion import ingest_lead
+        from leads.canonical_ingestion import ingest_lead
         for c in contacts:
             contact_email = (c.get("email") or "").strip().lower()
             if not contact_email:
@@ -554,10 +538,7 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
 
     # --- CRM spine: account/contact + opportunity + project ----------------
     try:
-        try:
-            from app.services import crm_service
-        except ImportError:
-            from backend.app.services import crm_service
+        from app.services import crm_service
 
         account_id = None
         if sender_company:
@@ -691,10 +672,7 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
 
     # Surface the RFQ in CRM notifications (best-effort)
     try:
-        try:
-            from app.services import crm_service
-        except ImportError:
-            from backend.app.services import crm_service
+        from app.services import crm_service
         crm_service.notify(
             "rfq_received",
             f"RFQ detected in mail pool: {title}"
@@ -932,10 +910,7 @@ def _clean_email_body(body: str) -> str:
     with. Falls back to a plain slice if the cleaner is unavailable for any
     reason (never blocks analysis on this being importable)."""
     try:
-        try:
-            from outreach_engine.reply_engine.cleaner import clean_reply_text
-        except ImportError:
-            from backend.outreach_engine.reply_engine.cleaner import clean_reply_text
+        from outreach_engine.reply_engine.cleaner import clean_reply_text
         return clean_reply_text(str(body))
     except Exception:
         return str(body)[:2000]
@@ -1065,10 +1040,7 @@ def _apply_rfq_stage(entry: Dict[str, Any]) -> None:
     if not stage or not opp_id:
         return
     try:
-        try:
-            from app.services import crm_service
-        except ImportError:
-            from backend.app.services import crm_service
+        from app.services import crm_service
         crm_service.set_opportunity_stage(
             opp_id, stage,
             loss_reason=(entry.get("evidence") or "per email thread")

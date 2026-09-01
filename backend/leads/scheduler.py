@@ -33,12 +33,22 @@ from threading import Thread, Event
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 # ============== CONFIGURATION ==============
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 db = client['email_automation']
 
 # Scheduler state collection
@@ -48,7 +58,10 @@ scheduler_logs_collection = db['scheduler_logs']
 # ============== SCHEDULER CONSTANTS ==============
 
 # MongoDB connection for dynamic rate limits
-_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_settings_client = _get_pooled_client()
 _settings_db = _settings_client['torpedo_settings']
 _app_settings = _settings_db['app_settings']
 
@@ -701,7 +714,7 @@ async def run_cpx_refresh() -> dict:
             count = surveys.count_documents({})
             print(f"[Scheduler] CPX Refresh: ✅ {count} surveys in DB")
             return {"processed": 1, "surveys": count}
-        except:
+        except Exception:
             return {"processed": 0, "message": "CPX integration not available"}
     except Exception as e:
         print(f"[Scheduler] CPX Refresh error: {e}")

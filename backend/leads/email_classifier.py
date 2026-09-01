@@ -32,19 +32,25 @@ from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
-try:
-    from ai_governance.ai_gateway import get_ai_gateway
-    from ai_governance.governance_checks import AIDailyLimitExceeded
-except ImportError:
-    from backend.ai_governance.ai_gateway import get_ai_gateway
-    from backend.ai_governance.governance_checks import AIDailyLimitExceeded
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
+from ai_governance.ai_gateway import get_ai_gateway
+from ai_governance.governance_checks import AIDailyLimitExceeded
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+mongo_client = _get_pooled_client()
 # Stage 2 standardization: classification state is stored in campaign_platform.
 campaign_platform_db = mongo_client['campaign_platform']
 email_metadata = campaign_platform_db['email_metadata']

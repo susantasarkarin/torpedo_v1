@@ -1,4 +1,4 @@
-﻿"""
+"""
 Company Cache System
 Intelligent caching for company details to avoid redundant enrichment calls
 90-day TTL with smart invalidation
@@ -373,7 +373,7 @@ if __name__ == "__main__":
         invalidated = cache.invalidate("techcorp.com")
         print(f"   âœ“ Invalidated: {invalidated}\n")
         
-        print("âœ… All tests passed!")
+        print("[ok] All tests passed!")
         
     except Exception as e:
         print(f"âŒ Error: {e}")

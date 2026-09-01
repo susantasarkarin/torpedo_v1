@@ -365,7 +365,7 @@ async def analyze_website_seo(website_id: str):
     """
     try:
         website = websites_collection.find_one({"_id": ObjectId(website_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid website ID")
     
     if not website:
@@ -414,7 +414,7 @@ async def get_seo_scores_history(
     """
     try:
         ObjectId(website_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid website ID")
     
     since = datetime.utcnow() - timedelta(days=days)
@@ -458,7 +458,7 @@ async def audit_website_content(website_id: str):
     """
     try:
         website = websites_collection.find_one({"_id": ObjectId(website_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid website ID")
     
     if not website:
@@ -562,7 +562,7 @@ async def get_content_suggestions(website_id: str):
     """
     try:
         website = websites_collection.find_one({"_id": ObjectId(website_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid website ID")
     
     if not website:

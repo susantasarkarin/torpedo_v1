@@ -1,124 +1,97 @@
-# Torpedo Campaign Platform
+# Torpedo
 
-AI-powered cold outreach platform with lead management, survey integrations, and email automation.
+The in-house market-research business platform: lead generation, cold outreach,
+an AI mail desk over the company inbox, a canonical CRM, quoting and invoicing,
+project delivery, survey-panel routing, and a respondent panel.
 
-## 📁 Project Structure
+**The authoritative structural map is [`docs/codebase_inventory.md`](docs/codebase_inventory.md)** —
+every mounted router, Celery task, scheduled job and environment variable.
+Update it when you add or move a router. This README is the orientation; that
+file is the reference.
+
+## Layout
 
 ```
-.
-├── backend/              # FastAPI backend application
-│   ├── app/             # Core application modules
-│   ├── routers/         # API route handlers
-│   ├── scripts/         # Backend utility scripts
-│   └── ...
-├── frontend/            # React frontend application
-│   └── src/            # React components and pages
-├── Campaign_platform/   # Alternative frontend build
-├── docs/               # 📚 Documentation
-│   ├── deployment/     # Deployment guides
-│   ├── integrations/   # Integration docs (CINT, CPX)
-│   └── email/         # Email system docs
-├── scripts/           # 🛠️ Utility scripts by domain
-│   ├── cint/         # CINT survey scripts
-│   ├── entry_links/  # Entry link management
-│   ├── surveys/      # Survey operations
-│   ├── leads/        # Lead management
-│   ├── db/           # Database utilities
-│   ├── email/        # Email utilities
-│   ├── admin/        # Admin scripts
-│   └── diagnostics/  # Troubleshooting tools
-├── deploy/           # 🚀 Deployment assets
-│   ├── scripts/      # Deployment automation
-│   └── configs/      # Server configuration templates
-├── ai_outreach/      # AI outreach modules
-├── gmail_automation/ # Gmail automation tools
-├── models/          # Data models
-├── vm_config/       # VM configuration
-└── logs/           # Application logs
+backend/                FastAPI application (one uvicorn process serves everything)
+  main.py               App entry point — router mounts and APScheduler jobs
+  routers/              HTTP surface, one module per domain
+  app/services/         CRM spine (crm_service, spine_connector) + CINT/CPX
+  leads/                Lead generation: ICP -> search -> enrich -> classify
+  sales/                Mail-pool AI desk, outreach pipeline
+  services/             Panel acquisition, drips, funnel, health
+  campaigns/ outreach/ outreach_engine/
+                        Three superseded outreach generations; current path is
+                        leads/outreach_mailer.py + sales/outreach_pipeline.py
+  tasks/                Celery tasks (schedule lives in celery_app.py)
+  tests/                pytest; `-m smoke` needs a running server
+  deprecated/           Kept for history, mounted by nothing
 
-## 🚀 Quick Start
+Campaign_platform/      The React SPA (Vite). This is the frontend.
+qre_frontend/           Respondent survey UI (served at /survey/)
+qre_cx_frontend/        IDFC CX survey UI (served at /cx-survey/)
+qre_backend/            Separate survey backend, port 8001, run under pm2
 
-### 1. Environment Setup
-```bash
-cp .env.example .env
-# Edit .env with your credentials
+docs/                   Documentation; codebase_inventory.md is the map
+deploy/                 systemd units and deployment scripts
+scripts/                Operational scripts by domain
+nginx_config.conf       The deployed nginx config (not a snapshot — the artifact)
+RUNBOOK.md              Lead pipeline + deployment runbook
 ```
 
-### 2. Install Dependencies
-```powershell
-.\deploy\scripts\install_dependencies.ps1
-```
+## Running it
 
-### 3. Start Services
-```powershell
-.\deploy\scripts\start_services.ps1
-```
+Backend — note the working directory. The app runs with `backend/` as the
+current directory, so `routers`, `database` and friends are top-level packages:
 
-### 4. Deploy to VM (Optional)
-```powershell
-.\deploy\scripts\deploy_to_vm.ps1
-```
-
-## 📖 Documentation
-
-- **Deployment**: See [docs/deployment/](docs/deployment/)
-- **CINT Integration**: See [docs/integrations/cint/](docs/integrations/cint/)
-- **Email Setup**: See [docs/email/](docs/email/)
-
-## 🛠️ Common Scripts
-
-```bash
-# Check CINT status
-python scripts/cint/check_cint_status.py
-
-# Test email system
-python scripts/email/test_smtp.py
-
-# Create admin user
-python scripts/admin/create_admin_user.py
-
-# Verify entry links
-python scripts/entry_links/check_entry_links.py
-```
-
-## 🏗️ Architecture
-
-- **Backend**: Python FastAPI with MongoDB
-- **Frontend**: React with Vite
-- **Integrations**: CINT, CPX survey platforms
-- **Email**: SMTP with Gmail automation
-- **Deployment**: PowerShell/Bash scripts for VM deployment
-
-## 🔧 Development
-
-### Backend
 ```bash
 cd backend
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
 
-### Frontend
+Frontend:
+
 ```bash
-cd frontend
+cd Campaign_platform
 npm install
 npm run dev
 ```
 
-## 📝 Notes
+Required environment (see `.env.example`): `MONGO_URI`, `SESSION_SECRET`,
+`CORS_ORIGINS`. The app refuses to start without a real `SESSION_SECRET` and
+will not accept `*` for `CORS_ORIGINS`.
 
-- All temporary files (tmpclaude-*, __pycache__) are now gitignored
-- Utility scripts have been organized by domain under `/scripts/`
-- Documentation is centralized under `/docs/`
-- Deployment assets are under `/deploy/`
+## Tests
 
-## 🤝 Contributing
+```bash
+pytest backend/tests -m "not smoke"     # everything that runs without a server
+pytest backend/tests -m smoke           # needs a server on BASE_URL
+```
 
-When adding new scripts or documentation:
-- Place utility scripts in appropriate `/scripts/` subdirectory
-- Add documentation to relevant `/docs/` section
-- Update respective README.md files
+`backend/tests/smoke/test_backend_startup.py` imports the app the way uvicorn
+does and asserts every router mounted. It is the check that catches a deploy
+that would come up with a module missing — router mount failures raise rather
+than warn, so a broken import stops the boot instead of quietly removing a
+section of the product.
 
-## 📄 License
+## Deploying
 
-[Your License Here]
+Push to `main`. GitHub Actions runs CI and, on green, deploys to the VM
+(`.github/workflows/deploy.yml`). **This is the only deploy path** — see
+`RUNBOOK.md` §6 for what it does and how to recover it.
+
+nginx is deployed separately and deliberately:
+
+```bash
+sudo cp nginx_config.conf /etc/nginx/sites-available/campaign-platform
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+## Conventions
+
+- Conventional commits (`feat:` / `fix:` / `chore:` / `docs:`).
+- Never commit credentials or data exports. CI fails the build on tracked
+  `token.json`, `credentials.json`, `.env` or `leads_export/` paths.
+- New router? Mount it in `main.py`, add its prefix to
+  `REQUIRED_ROUTE_PREFIXES` in `backend/startup_checks.py`, and add it to the
+  nginx location regex. A router that is mounted but missing from nginx is
+  served the SPA's `index.html` instead of reaching the backend.

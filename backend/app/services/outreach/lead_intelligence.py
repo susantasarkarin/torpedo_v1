@@ -1,4 +1,4 @@
-﻿"""
+"""
 Lead Intelligence Service.
 
 Extracts structured intelligence from company data and scores leads

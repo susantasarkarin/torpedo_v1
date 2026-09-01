@@ -1,4 +1,4 @@
-﻿"""
+"""
 Email Processor Pipeline
 Processes emails from torpedo_gmail.email_metadata (and legacy mail_pool)
 â†’ classified_gmail â†’ leads_enriched via canonical ingestion.
@@ -400,7 +400,7 @@ class EmailProcessor:
                 "attachments": [] if not doc.get("has_attachments") else ["_placeholder_"],
                 "_source_collection": "email_metadata",
             }
-        # mail_pool: already has nested sender dict â€” pass through
+        # mail_pool: already has nested sender dict — pass through
         return {**doc, "_source_collection": "mail_pool"}
 
     # â”€â”€ Workspace email_metadata processing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -456,7 +456,7 @@ class EmailProcessor:
                     result = self.classified_gmail.insert_one(classified_doc)
                     classified_doc["_id"] = result.inserted_id
                 except Exception:
-                    pass  # duplicate key â€” already classified
+                    pass  # duplicate key — already classified
 
                 segment = classified_doc.get("segment", "")
                 confidence = classified_doc.get("confidence", 0)
@@ -499,15 +499,9 @@ class EmailProcessor:
         ingestion (dedup, enrichment, outreach enrollment all handled there).
         Returns lead_id or None.
         """
-        try:
-            from leads.canonical_ingestion import ingest_lead
-        except ImportError:
-            from backend.leads.canonical_ingestion import ingest_lead
+        from leads.canonical_ingestion import ingest_lead
 
-        try:
-            from leads.gmail_leads_service import extract_name_from_email
-        except ImportError:
-            from backend.leads.gmail_leads_service import extract_name_from_email
+        from leads.gmail_leads_service import extract_name_from_email
 
         sender_email = (
             classified_doc.get("metadata", {}).get("sender_email")
@@ -525,10 +519,7 @@ class EmailProcessor:
         domain = sender_email.split("@")[1]
         if not company:
             # Derive company name from domain (e.g. "research-now.com" â†’ "Research Now")
-            try:
-                from sales.mail_pool_extractor import _derive_company
-            except ImportError:
-                from backend.sales.mail_pool_extractor import _derive_company
+            from sales.mail_pool_extractor import _derive_company
             company = _derive_company(domain)
 
         title = next((c.get("title") for c in contacts if c.get("title")), "")
@@ -595,7 +586,7 @@ class EmailProcessor:
             print(f"   Errors: {len(stats['errors'])}")
         print()
         
-        print("âœ… Email processor test completed!")
+        print("[ok] Email processor test completed!")
         
     except Exception as e:
         print(f"âŒ Error: {e}")

@@ -12,20 +12,11 @@ from typing import Any, Dict
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-try:
-    from .session_state import verify_session
-except ImportError:
-    from session_state import verify_session
+from session_state import verify_session
 
-try:
-    from .database import get_client, get_database
-except ImportError:
-    from database import get_client, get_database
+from database import get_client, get_database
 
-try:
-    from .services import contact_service
-except ImportError:
-    from services import contact_service
+from services import contact_service
 
 logger = logging.getLogger(__name__)
 

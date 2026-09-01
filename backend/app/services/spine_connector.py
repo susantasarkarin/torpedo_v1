@@ -16,10 +16,79 @@ Design rules (same as routers/rfq.mirror_rfq_to_spine):
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Mirror failure accounting (TOR-13)
+# ---------------------------------------------------------------------------
+# Every mirror below is best-effort and swallows its exception, by design: a
+# spine write must never break the legacy write that triggered it. But nothing
+# counted the swallows, so a mirror that had been failing all day looked
+# exactly like one that had never been called — and the drift sat invisible
+# until the 02:30 reconcile, or forever for anything the reconcile doesn't
+# specifically handle.
+#
+# Failures are now counted in memory (cheap, for the health endpoint) AND
+# written to crm_db.spine_mirror_failures with the source id, so "which
+# records are missing from the spine" is an answerable question.
+
+_FAILURE_COUNTS: Dict[str, int] = {}
+
+
+def _record_failure(kind: str, error: Exception,
+                    source: Optional[str] = None,
+                    source_id: Optional[str] = None) -> None:
+    """Log at WARNING, count, and persist enough to find the record later."""
+    _FAILURE_COUNTS[kind] = _FAILURE_COUNTS.get(kind, 0) + 1
+    logger.warning("[spine] %s mirror failed (non-fatal) source=%s id=%s: %s",
+                   kind, source, source_id, error)
+    try:
+        crm = _crm()
+        crm._db()["spine_mirror_failures"].insert_one({
+            "kind": kind,
+            "source": source,
+            "source_id": source_id,
+            "error": f"{type(error).__name__}: {error}"[:500],
+            "at": datetime.utcnow(),
+        })
+    except Exception:
+        # The failure log failing is not worth escalating — the WARNING above
+        # already reached journalctl, which is the floor we care about.
+        logger.debug("[spine] could not persist mirror failure", exc_info=True)
+
+
+def mirror_stats() -> Dict[str, Any]:
+    """
+    Mirror health since process start, plus the persisted failure backlog.
+    Surfaced by GET /api/crm/spine-health.
+    """
+    total_fail = sum(_FAILURE_COUNTS.values())
+    stats: Dict[str, Any] = {
+        "since_process_start": {
+            "failed": total_fail,
+            "by_kind": dict(_FAILURE_COUNTS),
+        },
+        # The number to watch. It should be 0. Anything else means legacy
+        # writes are landing without their spine counterpart, and the 02:30
+        # reconcile will only catch the subset it explicitly handles.
+        "healthy": total_fail == 0,
+    }
+    try:
+        col = _crm()._db()["spine_mirror_failures"]
+        since = datetime.utcnow() - timedelta(days=7)
+        stats["persisted_failures_7d"] = col.count_documents({"at": {"$gte": since}})
+        stats["recent_failures"] = [
+            {k: v for k, v in doc.items() if k != "_id"}
+            for doc in col.find({"at": {"$gte": since}}).sort("at", -1).limit(20)
+        ]
+    except Exception:
+        stats["persisted_failures_7d"] = None
+    return stats
+
 
 
 def _crm():
@@ -81,7 +150,7 @@ def mirror_lead_to_spine(lead: Dict[str, Any], source: str,
         })
         return canonical["_id"]
     except Exception as e:
-        logger.warning(f"[spine] lead mirror failed (non-fatal): {e}")
+        _record_failure("lead mirror", e)
         return None
 
 
@@ -158,7 +227,7 @@ def mirror_leads_bulk(items: List[Tuple[Dict[str, Any], Optional[str]]],
             crm._col("activities").insert_many(activities, ordered=False)
         return len(result.inserted_ids)
     except Exception as e:
-        logger.warning(f"[spine] bulk lead mirror failed (non-fatal): {e}")
+        _record_failure("bulk lead mirror", e)
         return 0
 
 
@@ -186,7 +255,7 @@ def mirror_sales_account_to_spine(name: str, source_id: Optional[str] = None,
             })
         return account["_id"]
     except Exception as e:
-        logger.warning(f"[spine] sales account mirror failed (non-fatal): {e}")
+        _record_failure("sales account mirror", e)
         return None
 
 
@@ -212,7 +281,7 @@ def mirror_finance_party_to_spine(name: str, party: str,
             })
         return account["_id"]
     except Exception as e:
-        logger.warning(f"[spine] finance party mirror failed (non-fatal): {e}")
+        _record_failure("finance party mirror", e)
         return None
 
 
@@ -253,7 +322,7 @@ def mirror_invoice_to_spine(invoice: Dict[str, Any], customer_name: Optional[str
         })
         return doc["_id"]
     except Exception as e:
-        logger.warning(f"[spine] invoice mirror failed (non-fatal): {e}")
+        _record_failure("invoice mirror", e)
         return None
 
 
@@ -290,7 +359,7 @@ def mirror_finance_parties_bulk(names: List[str], party: str,
                 continue
         return mapping
     except Exception as e:
-        logger.warning(f"[spine] bulk finance party mirror failed (non-fatal): {e}")
+        _record_failure("bulk finance party mirror", e)
         return mapping
 
 
@@ -346,7 +415,7 @@ def mirror_invoices_bulk(items: List[Tuple[Dict[str, Any], Optional[str], Option
             crm._col("activities").insert_many(activities, ordered=False)
         return len(result.inserted_ids)
     except Exception as e:
-        logger.warning(f"[spine] bulk invoice mirror failed (non-fatal): {e}")
+        _record_failure("bulk invoice mirror", e)
         return 0
 
 
@@ -394,7 +463,7 @@ def mirror_email_activity_to_spine(direction: str, email: str,
         })
         return contact["_id"]
     except Exception as e:
-        logger.warning(f"[spine] email activity mirror failed (non-fatal): {e}")
+        _record_failure("email activity mirror", e)
         return None
 
 
@@ -433,7 +502,7 @@ def mirror_ops_project_to_spine(project: Dict[str, Any],
         })
         return doc["_id"]
     except Exception as e:
-        logger.warning(f"[spine] ops project mirror failed (non-fatal): {e}")
+        _record_failure("ops project mirror", e)
         return None
 
 
@@ -455,7 +524,7 @@ def update_spine_account(crm_account_id: str,
             return False
         return crm.update("accounts", crm_account_id, allowed) is not None
     except Exception as e:
-        logger.warning(f"[spine] account update failed (non-fatal): {e}")
+        _record_failure("account update", e)
         return False
 
 
@@ -475,7 +544,7 @@ def mark_spine_account_deleted(crm_account_id: str, source: str) -> bool:
         })
         return updated is not None
     except Exception as e:
-        logger.warning(f"[spine] account delete-mark failed (non-fatal): {e}")
+        _record_failure("account delete-mark", e)
         return False
 
 
@@ -503,5 +572,5 @@ def mirror_panelist_registration_to_spine(email: str, name: Optional[str] = None
         })
         return contact["_id"]
     except Exception as e:
-        logger.warning(f"[spine] panelist mirror failed (non-fatal): {e}")
+        _record_failure("panelist mirror", e)
         return None

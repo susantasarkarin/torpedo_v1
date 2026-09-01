@@ -23,7 +23,7 @@ from selenium.common.exceptions import (
     StaleElementReferenceException
 )
 
-from backend.linkedin_automation.models import LinkedInJobResult, LinkedInBotConfig
+from linkedin_automation.models import LinkedInJobResult, LinkedInBotConfig
 
 logger = logging.getLogger(__name__)
 

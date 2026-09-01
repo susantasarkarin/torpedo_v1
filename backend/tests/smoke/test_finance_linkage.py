@@ -15,11 +15,11 @@ migration = None
 get_database = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.database import get_database as _gd
+    from app.services import crm_service as _svc
+    from database import get_database as _gd
     crm_service = _svc
     get_database = _gd
-    migration = importlib.import_module("backend.migrations.004_link_finance_invoices")
+    migration = importlib.import_module("migrations.004_link_finance_invoices")
 except Exception as e:  # pragma: no cover
     _import_error = e
 

@@ -33,28 +33,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from botocore.exceptions import ClientError
 
-try:
-    from services.panel_bounce_handler import (
-        log_invitation, panelists_collection, suppression_collection,
-        invitation_log_collection,
-    )
-    from services.panel_email_service import (
-        _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
-        ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
-        PANEL_MAX_TOTAL_EMAILS_PER_PANELIST,
-    )
-    from services.panel_funnel import SEGMENTS
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from backend.services.panel_bounce_handler import (
-        log_invitation, panelists_collection, suppression_collection,
-        invitation_log_collection,
-    )
-    from backend.services.panel_email_service import (
-        _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
-        ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
-        PANEL_MAX_TOTAL_EMAILS_PER_PANELIST,
-    )
-    from backend.services.panel_funnel import SEGMENTS
+from services.panel_bounce_handler import log_invitation, panelists_collection, suppression_collection, invitation_log_collection
+from services.panel_email_service import _apply_unsubscribe, _get_ses_client, _send_batch_concurrently, ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME, PANEL_MAX_TOTAL_EMAILS_PER_PANELIST
+from services.panel_funnel import SEGMENTS
 
 logger = logging.getLogger(__name__)
 

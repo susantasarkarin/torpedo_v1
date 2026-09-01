@@ -39,6 +39,13 @@ from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 from pymongo import MongoClient
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 try:
     from .outreach_config import (
         BUCKETS,
@@ -84,7 +91,10 @@ except ImportError:
 logger = logging.getLogger("bucket_classifier")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_client = _get_pooled_client()
 _db = _client["email_automation"]
 leads_raw = _db["leads_raw"]
 
@@ -371,10 +381,7 @@ def _roles_share_a_model() -> bool:
     pass, making escalation a no-op. Resolved at call time, not import time, so
     pointing the roles at different models via env re-enables escalation without
     a code change."""
-    try:
-        from .bedrock_client import model_for_role
-    except ImportError:
-        from leads.bedrock_client import model_for_role
+    from leads.bedrock_client import model_for_role
     try:
         return model_for_role(CLASSIFIER_ROLE_FIRST_PASS) == model_for_role(
             CLASSIFIER_ROLE_ESCALATION)
@@ -388,10 +395,7 @@ def _classify_with(role: str, prompt: str, lead_id: str
     One classification pass. Returns (bucket, confidence, reason, error).
     `error` is None on success.
     """
-    try:
-        from .bedrock_client import converse_json_object
-    except ImportError:
-        from leads.bedrock_client import converse_json_object
+    from leads.bedrock_client import converse_json_object
 
     try:
         data = converse_json_object(

@@ -20,10 +20,7 @@ import os
 import argparse
 from typing import Optional, Dict, Any, List, Callable
 
-try:
-    from ..app.services import ai_engine
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from app.services import ai_engine
+from app.services import ai_engine
 
 AGENT_NAME = "seo_agent"
 

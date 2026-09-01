@@ -9,7 +9,7 @@ Modules:
 - classification_router: Email routing based on category and content
 
 Usage:
-    from backend.email_classification import ReplySentimentClassifier
+    from email_classification import ReplySentimentClassifier
     
     classifier = ReplySentimentClassifier()
     result = classifier.classify_reply("Thanks! I'd love to schedule a call.")

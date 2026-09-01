@@ -162,6 +162,21 @@ class AIGateway:
             logger.error(f"Bedrock API call failed: {e}. NO AUTOMATIC RETRY.")
             raise
 
+    def complete(self, prompt: str, model: str = None, max_tokens: int = 1024,
+                 temperature: float = 0.3) -> str:
+        """
+        Generic governed completion — the public path for callers whose task
+        does not match one of the typed methods below.
+
+        This exists so "my use case isn't covered" stops being a reason to
+        construct a client directly (TOR-22). Everything that goes through here
+        is subject to the daily limit and lands in the usage counters; a
+        directly-constructed client is invisible to both, which is why cost was
+        unattributable and a model deprecation meant grepping the tree.
+        """
+        return self._call_llm(prompt, model=model, max_tokens=max_tokens,
+                              temperature=temperature)
+
     # ------------------------------------------------------------------
     # classify_email
     # ------------------------------------------------------------------

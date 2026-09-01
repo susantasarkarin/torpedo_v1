@@ -1,4 +1,4 @@
-﻿"""
+"""
 Rollback Migration Helper
 
 Provides utilities for rolling back migrations:

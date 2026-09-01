@@ -12,20 +12,11 @@ from typing import Any, Dict
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Body, Request, Depends
 
-try:
-    from .auth import hash_password
-except ImportError:
-    from auth import hash_password
+from auth import hash_password
 
-try:
-    from .session_state import serializer, SESSION_TTL_SECONDS, verify_session
-except ImportError:
-    from session_state import serializer, SESSION_TTL_SECONDS, verify_session
+from session_state import serializer, SESSION_TTL_SECONDS, verify_session
 
-try:
-    from .database import get_database
-except ImportError:
-    from database import get_database
+from database import get_database
 
 logger = logging.getLogger(__name__)
 

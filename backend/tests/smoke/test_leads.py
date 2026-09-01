@@ -17,6 +17,12 @@ import io
 import pytest
 import httpx
 
+# Requires a RUNNING server on BASE_URL — these drive the live HTTP surface,
+# not the code in-process. Marked so CI can run everything else (TOR-14):
+#     pytest backend/tests -m "not smoke"
+pytestmark = pytest.mark.smoke
+
+
 _SMOKE_EMAIL = "smoke-lead-do-not-use@test.invalid"
 
 

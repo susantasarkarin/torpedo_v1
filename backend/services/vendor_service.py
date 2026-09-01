@@ -1,4 +1,4 @@
-﻿"""
+"""
 Vendor Service
 ==============
 Business logic for vendor and project lifecycle management,
@@ -14,12 +14,8 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-try:
-    from .utils import validate_redirect_url
-    from .repositories import vendor_repo
-except ImportError:
-    from utils import validate_redirect_url
-    from repositories import vendor_repo
+from utils import validate_redirect_url
+from repositories import vendor_repo
 
 logger = logging.getLogger(__name__)
 

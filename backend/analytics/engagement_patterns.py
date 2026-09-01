@@ -462,5 +462,5 @@ class EngagementPatternAnalyzer:
             return value
         try:
             return ObjectId(value)
-        except:
+        except Exception:
             return ObjectId()

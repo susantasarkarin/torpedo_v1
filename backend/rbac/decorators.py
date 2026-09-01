@@ -33,9 +33,14 @@ logger = logging.getLogger(__name__)
 # Security scheme for auth header
 security = HTTPBearer(auto_error=False)
 
-# Environment flag to disable RBAC (for development/testing)
-RBAC_ENABLED = os.getenv("RBAC_ENABLED", "true").lower() in ("true", "1", "yes")
-RBAC_LOG_CHECKS = os.getenv("RBAC_LOG_CHECKS", "false").lower() in ("true", "1", "yes")
+# Enforcement flag: ONE reader, shared with app/security.py (TOR-04).
+# Read at call time via the helpers so a toggle takes effect without a reload;
+# the module-level names below are kept only for backwards compatibility with
+# anything that imported them directly.
+from .flags import rbac_enabled, rbac_log_checks
+
+RBAC_ENABLED = rbac_enabled()
+RBAC_LOG_CHECKS = rbac_log_checks()
 
 
 class PermissionDeniedError(HTTPException):
@@ -144,8 +149,8 @@ def check_permission(permission: str):
     Use as: Depends(check_permission(Permissions.FINANCE_INVOICE_CREATE))
     """
     async def dependency(request: Request) -> bool:
-        if not RBAC_ENABLED:
-            if RBAC_LOG_CHECKS:
+        if not rbac_enabled():
+            if rbac_log_checks():
                 logger.debug(f"[RBAC DISABLED] Would check: {permission}")
             return True
         
@@ -157,13 +162,13 @@ def check_permission(permission: str):
         
         # Check for admin (has all permissions)
         if "admin" in user.get("roles", []):
-            if RBAC_LOG_CHECKS:
+            if rbac_log_checks():
                 logger.debug(f"[RBAC] Admin bypass for {permission}")
             return True
         
         # Check specific permission
         if permission in user_permissions:
-            if RBAC_LOG_CHECKS:
+            if rbac_log_checks():
                 logger.debug(f"[RBAC] Allowed: {permission} for user {user.get('email')}")
             return True
         
@@ -172,7 +177,7 @@ def check_permission(permission: str):
         if len(parts) >= 2:
             wildcard = f"{parts[0]}.*"
             if wildcard in user_permissions:
-                if RBAC_LOG_CHECKS:
+                if rbac_log_checks():
                     logger.debug(f"[RBAC] Wildcard allowed: {wildcard} for {permission}")
                 return True
         
@@ -234,7 +239,7 @@ def require_any_permission(*permissions: str):
             if request is None:
                 raise ValueError("Request object not found.")
             
-            if not RBAC_ENABLED:
+            if not rbac_enabled():
                 return await func(*args, **kwargs)
             
             user = await get_current_user(request)
@@ -279,7 +284,7 @@ def require_all_permissions(*permissions: str):
             if request is None:
                 raise ValueError("Request object not found.")
             
-            if not RBAC_ENABLED:
+            if not rbac_enabled():
                 return await func(*args, **kwargs)
             
             user = await get_current_user(request)
@@ -315,7 +320,7 @@ async def has_permission(request: Request, permission: str) -> bool:
     Check if current user has permission without raising exception.
     Useful for conditional UI elements.
     """
-    if not RBAC_ENABLED:
+    if not rbac_enabled():
         return True
     
     try:

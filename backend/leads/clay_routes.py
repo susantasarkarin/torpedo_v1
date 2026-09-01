@@ -8,38 +8,18 @@ FastAPI routes for:
 - Cost tracking and budget controls
 """
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Body
+# `Path` was used by 20+ route signatures but never imported, so this module
+# raised NameError at import and the Clay router silently never mounted — the
+# print-and-continue mount handler swallowed it (TOR-05).
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Body, Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-try:
-    from .clay_models import (
-        QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession,
-        Workbook, Column, CellValue, WorkbookRow, ExecutionLog,
-        SourceType, SourceProvider, DeduplicationRule
-    )
-    from .preview_executor import (
-        PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
-    )
-    from .filter_builder import QueryPlanCompiler
-    from .import_gating import (
-        ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
-    )
-    from .workbook_engine import WorkbookExecutionEngine
-except ImportError:
-    from clay_models import (
-        QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession,
-        Workbook, Column, CellValue, WorkbookRow, ExecutionLog,
-        SourceType, SourceProvider, DeduplicationRule
-    )
-    from preview_executor import (
-        PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
-    )
-    from filter_builder import QueryPlanCompiler
-    from import_gating import (
-        ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
-    )
-    from workbook_engine import WorkbookExecutionEngine
+from leads.clay_models import QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession, Workbook, Column, CellValue, WorkbookRow, ExecutionLog, SourceType, SourceProvider, DeduplicationRule
+from leads.preview_executor import PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
+from leads.filter_builder import QueryPlanCompiler
+from leads.import_gating import ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
+from leads.workbook_engine import WorkbookExecutionEngine
 
 router = APIRouter(prefix="/leads/clay", tags=["Clay-Level Features"])
 

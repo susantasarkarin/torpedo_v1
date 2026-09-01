@@ -15,6 +15,13 @@ from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from bson import ObjectId
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 # WebSocket manager (optional — graceful if not available)
 try:
     from websocket_manager import connection_manager as _ws_manager
@@ -23,51 +30,18 @@ except ImportError:
     _ws_manager = None
     _WS_AVAILABLE = False
 
-try:
-    from ..agents import (
-        AGENT_REGISTRY,
-        DAILY_LEAD_LIMIT,
-        LEADS_PER_BATCH,
-        LeadDeduplicator,
-    )
-    from ..agents.schemas import (
-        AgentConfig,
-        AgentJobStatus,
-        AgentQuotaStatus,
-        AgentStatus,
-        AgentType,
-        CompanyDiscoveryConfig,
-        ContactFinderConfig,
-        LeadEnricherConfig,
-        LeadScorerConfig,
-        OutreachComposerConfig,
-    )
-except ImportError:
-    from agents import (
-        AGENT_REGISTRY,
-        DAILY_LEAD_LIMIT,
-        LEADS_PER_BATCH,
-        LeadDeduplicator,
-    )
-    from agents.schemas import (
-        AgentConfig,
-        AgentJobStatus,
-        AgentQuotaStatus,
-        AgentStatus,
-        AgentType,
-        CompanyDiscoveryConfig,
-        ContactFinderConfig,
-        LeadEnricherConfig,
-        LeadScorerConfig,
-        OutreachComposerConfig,
-    )
+from agents import AGENT_REGISTRY, DAILY_LEAD_LIMIT, LEADS_PER_BATCH, LeadDeduplicator
+from agents.schemas import AgentConfig, AgentJobStatus, AgentQuotaStatus, AgentStatus, AgentType, CompanyDiscoveryConfig, ContactFinderConfig, LeadEnricherConfig, LeadScorerConfig, OutreachComposerConfig
 
 router = APIRouter(prefix="/leads/agents", tags=["Lead Generation Agents"])
 
 # ============== MONGODB CONNECTION ==============
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-_mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_mongo_client = _get_pooled_client()
 _db = _mongo_client['email_automation']
 
 # Collections
@@ -238,10 +212,7 @@ async def import_companies(
         
         # Optionally trigger contact finder
         if run_contact_finder and company_ids:
-            try:
-                from ..tasks.lead_agent_tasks import run_lead_generation_pipeline
-            except ImportError:
-                from tasks.lead_agent_tasks import run_lead_generation_pipeline
+            from tasks.lead_agent_tasks import run_lead_generation_pipeline
             
             job_id = str(uuid.uuid4())
             
@@ -360,10 +331,7 @@ async def run_agents(request: RunAgentsRequest):
     agent_jobs_collection.insert_one(job_doc)
     
     # Queue the pipeline task
-    try:
-        from ..tasks.lead_agent_tasks import run_lead_generation_pipeline
-    except ImportError:
-        from tasks.lead_agent_tasks import run_lead_generation_pipeline
+    from tasks.lead_agent_tasks import run_lead_generation_pipeline
     
     run_lead_generation_pipeline.delay(
         job_id=job_id,
@@ -530,7 +498,7 @@ async def get_config(config_id: str):
         # Try by ObjectId
         try:
             config = agent_configs_collection.find_one({"_id": ObjectId(config_id)})
-        except:
+        except Exception:
             pass
     
     if not config:

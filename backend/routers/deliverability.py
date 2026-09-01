@@ -12,17 +12,12 @@ Date: 2026-01-28
 from datetime import datetime, timedelta
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from pydantic import BaseModel, Field
 
-try:
-    from deliverability.domain_health import DomainHealthService
-    from campaigns.rate_limiter import RateLimitService
-    from database import get_database
-except ImportError:
-    from backend.deliverability.domain_health import DomainHealthService
-    from backend.campaigns.rate_limiter import RateLimitService
-    from backend.database import get_database
+from deliverability.domain_health import DomainHealthService
+from campaigns.rate_limiter import RateLimitService
+from database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -563,3 +558,63 @@ async def monitor_deliverability():
     
     except Exception as e:
         logger.error(f"Error in deliverability monitoring: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Unified sending: status, budget, suppression (TOR-06)
+# ---------------------------------------------------------------------------
+# Mounted here rather than on a new prefix because /deliverability is already
+# in the nginx location regex; a new top-level prefix would be served the SPA's
+# index.html until nginx was updated too (TOR-15).
+
+@router.get("/sending/status")
+def sending_status(identity: Optional[str] = Query(None)):
+    """
+    Is mail flowing, and why not.
+
+    Answers the question that had no answer before the facade existed: total
+    volume across every send path, against one budget, plus how far the
+    suppression migration has got.
+    """
+    from messaging import status as _status
+    return _status(identity)
+
+
+@router.get("/sending/suppression/{email}")
+def suppression_lookup(email: str):
+    """Is this address suppressed, why, and which list is holding it."""
+    from messaging import suppression as _sup
+    record = _sup.lookup(email)
+    return {
+        "email": _sup.normalize(email),
+        "suppressed": record is not None,
+        "record": record,
+    }
+
+
+@router.post("/sending/suppression")
+def suppression_add(payload: Dict[str, Any] = Body(...)):
+    """
+    Suppress an address everywhere at once.
+
+    The whole point: this writes the canonical list that every channel now
+    consults, so one unsubscribe actually stops all of them.
+    """
+    email = (payload.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=422, detail="email is required")
+    from messaging import suppression as _sup
+    added = _sup.suppress(
+        email,
+        reason=payload.get("reason") or "manual",
+        source=payload.get("source") or "admin_ui",
+        suppressed_by=payload.get("suppressed_by") or "admin",
+    )
+    return {"email": _sup.normalize(email), "newly_added": added}
+
+
+@router.delete("/sending/suppression/{email}")
+def suppression_remove(email: str):
+    """Remove from every list — a partial removal leaves the address blocked."""
+    from messaging import suppression as _sup
+    return {"email": _sup.normalize(email), "removed": _sup.unsuppress(email)}

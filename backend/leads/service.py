@@ -30,6 +30,12 @@ from .deduplication import (
     log_rejected_duplicate
 )
 
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -37,7 +43,10 @@ logger = logging.getLogger(__name__)
 # ============== DATABASE CONNECTION ==============
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 db = client['email_automation']
 torpedo_gmail_db = client['torpedo_gmail']  # Gmail Workspace emails database
 

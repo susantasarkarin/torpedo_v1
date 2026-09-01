@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  backend-smoke:
-    name: Backend smoke tests
+  backend-tests:
+    name: Backend tests
     runs-on: ubuntu-latest
     services:
       mongodb:
@@ -20,6 +20,7 @@ jobs:
       MONGO_URI: mongodb://localhost:27017
       # CI-only values; production injects real secrets via environment.
       SESSION_SECRET: ci-not-a-real-secret-override-in-prod
+      CORS_ORIGINS: http://localhost:5173
       CRM_DB_NAME: crm_db_ci
     steps:
       - uses: actions/checkout@v4
@@ -28,33 +29,44 @@ jobs:
           python-version: "3.13"
       - name: Install CI dependencies
         run: pip install -r backend/requirements-ci.txt
-      - name: Run self-contained smoke tests
-        # Run the whole smoke dir, ignoring tests that need a running server or
-        # heavy prod-only deps. New self-contained tests are then auto-included
-        # regardless of branch/merge order.
-        run: >
-          pytest -v backend/tests/smoke
-          --ignore=backend/tests/smoke/test_auth.py
-          --ignore=backend/tests/smoke/test_campaigns.py
-          --ignore=backend/tests/smoke/test_contacts.py
-          --ignore=backend/tests/smoke/test_leads.py
-          --ignore=backend/tests/smoke/test_ai_generation.py
-          --ignore=backend/tests/smoke/test_backend_startup.py
-          --ignore=backend/tests/smoke/test_mail_integration.py
 
-      - name: Run lead-pipeline tests
-        # Fully mocked (no AWS, no Google CSE, no network) and fast (~3s).
-        # Named explicitly: other files in backend/tests/ hang on collection.
-        run: >
-          pytest -q
-          backend/tests/test_bedrock_client.py
-          backend/tests/test_icp_query_generation.py
-          backend/tests/test_icp_query_ai.py
-          backend/tests/test_backfill_enrich.py
-          backend/tests/test_bucket_classifier.py
-          backend/tests/test_outreach_qualification.py
-          backend/tests/test_outreach_mailer.py
-          backend/tests/test_batch_and_sns.py
+      # Static counterpart to the fail-fast router mounts (TOR-05/TOR-11).
+      # With the 338 relative/absolute import fallbacks gone, a broken import
+      # is a real failure rather than something the other branch papers over —
+      # catch it here in seconds instead of at boot. This is what found
+      # leads/clay_routes.py importing five of its own siblings as top-level
+      # modules.
+      - name: Check every intra-project import resolves
+        run: python backend/scripts/check_imports.py
+
+      # Ratchet, not a ban (TOR-22): four live modules still construct AI
+      # clients directly and need their request/response shapes rewritten to
+      # migrate. This stops the count growing while that happens.
+      - name: No new direct AI clients outside ai_governance/
+        run: python backend/scripts/check_ai_gateway.py
+
+      # The whole suite, not a hand-picked eighth of it (TOR-14).
+      #
+      # This used to run backend/tests/smoke minus seven ignored files plus
+      # eight named lead-pipeline files — about a quarter of the tests, and the
+      # quarter covering the newest module. Nothing exercised the CRM spine,
+      # finance, traffic, CINT/CPX or the panel, all of which have tests that
+      # were simply never run.
+      #
+      # The stated reason ("other files hang on collection") was stale: the
+      # full suite collects in ~13s. What the excluded files actually need is a
+      # RUNNING SERVER, which is a different problem and now has its own
+      # marker. `-m "not smoke"` deselects exactly those.
+      - name: Run test suite
+        run: pytest backend/tests -m "not smoke" -q
+
+      # The app has to be importable in-process, which it was not until the
+      # sys.path bootstrap in backend/conftest.py (TOR-11). Run it separately
+      # so a mount failure is unmistakable in the log: since router mounts now
+      # raise instead of warning (TOR-05), this step is what stops a deploy
+      # that would come up with a module missing.
+      - name: Verify the app imports and mounts every router
+        run: pytest backend/tests/smoke/test_backend_startup.py -q
 
   frontend-build:
     name: Frontend build
@@ -71,3 +83,24 @@ jobs:
           cache-dependency-path: Campaign_platform/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  no-secrets:
+    name: No secrets or PII in the tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # TOR-01/TOR-07 were both "a file that should never have been committed,
+      # committed". .gitignore cannot help once a path is tracked, so assert it
+      # directly and fail the build rather than discovering it in an audit.
+      - name: Reject tracked credentials and data exports
+        run: |
+          set -e
+          bad=$(git ls-files \
+            | grep -E '(^|/)(token|credentials|service.account)[^/]*\.json$|(^|/)\.env$|leads_export/' \
+            | grep -v '\.example$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Tracked credential or data-export files detected:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "clean"

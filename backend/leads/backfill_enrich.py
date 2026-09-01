@@ -43,6 +43,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from bson import ObjectId
 from pymongo import MongoClient
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 try:
     from .canonical_ingestion import (
         _strip_guessed_email_if_unverified,
@@ -68,7 +75,10 @@ except ImportError:  # script context
 logger = logging.getLogger("backfill_enrich")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_client = _get_pooled_client()
 _db = _client["email_automation"]
 leads_raw = _db["leads_raw"]
 
@@ -274,18 +284,7 @@ async def enrich_one(lead: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     Returns scrubbed enrichment data, or None if nothing usable was found.
     Respects the 24-hour CSE quota back-off inside perform_google_search.
     """
-    try:
-        from .ingestion import (
-            _is_cse_paused,
-            extract_leads_from_google_results,
-            perform_google_search,
-        )
-    except ImportError:
-        from leads.ingestion import (
-            _is_cse_paused,
-            extract_leads_from_google_results,
-            perform_google_search,
-        )
+    from leads.ingestion import _is_cse_paused, extract_leads_from_google_results, perform_google_search
 
     if _is_cse_paused():
         logger.info("CSE in 24h cooldown — skipping enrichment")
@@ -406,20 +405,8 @@ def _apply_enrichment_and_rescore(lead: Dict[str, Any],
 async def run_batch(dry_run: bool = False, limit: Optional[int] = None,
                     poll_interval: int = 300) -> Dict[str, int]:
     """Batch-inference variant of the enrichment pass."""
-    try:
-        from .bedrock_client import (
-            build_batch_records, fetch_batch_results, poll_batch_job,
-            submit_batch_job, validate_model_access)
-        from .ingestion import (
-            EXTRACTION_SYSTEM_PROMPT, _is_cse_paused, build_extraction_prompt,
-            parse_extracted_leads, perform_google_search)
-    except ImportError:
-        from leads.bedrock_client import (
-            build_batch_records, fetch_batch_results, poll_batch_job,
-            submit_batch_job, validate_model_access)
-        from leads.ingestion import (
-            EXTRACTION_SYSTEM_PROMPT, _is_cse_paused, build_extraction_prompt,
-            parse_extracted_leads, perform_google_search)
+    from leads.bedrock_client import build_batch_records, fetch_batch_results, poll_batch_job, submit_batch_job, validate_model_access
+    from leads.ingestion import EXTRACTION_SYSTEM_PROMPT, _is_cse_paused, build_extraction_prompt, parse_extracted_leads, perform_google_search
 
     validate_model_access(("cheap",))  # fail fast before burning CSE quota
 

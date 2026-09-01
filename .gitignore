@@ -175,3 +175,10 @@ outreach/preview/
 
 # Local copies of VM-only work pulled down before a deploy
 vm-backups/
+
+# Audit remediation (TOR-01 / TOR-07): these were tracked before .gitignore
+# could take effect on them. Untracked 2026-09-01; keep them out for good.
+gmail_config/temp_*/
+gmail_config/**/token.json
+backend/leads_export/
+*.token.json

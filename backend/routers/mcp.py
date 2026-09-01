@@ -8,35 +8,17 @@ from pydantic import BaseModel, Field
 from pymongo import MongoClient
 import os
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 # MCP imports
-try:
-    from ..mcp import (
-        get_action_router,
-        MCPActionRouter,
-        MCPAction,
-        MCPActionCreate,
-        MCPActionBatch,
-        ActionStatus,
-        ActionType,
-        EntityType,
-        ActionPriority,
-    )
-    from ..rbac.decorators import require_permission, require_any_permission
-    from ..rbac.permissions import Permissions
-except ImportError:
-    from mcp import (
-        get_action_router,
-        MCPActionRouter,
-        MCPAction,
-        MCPActionCreate,
-        MCPActionBatch,
-        ActionStatus,
-        ActionType,
-        EntityType,
-        ActionPriority,
-    )
-    from rbac.decorators import require_permission, require_any_permission
-    from rbac.permissions import Permissions
+from mcp import get_action_router, MCPActionRouter, MCPAction, MCPActionCreate, MCPActionBatch, ActionStatus, ActionType, EntityType, ActionPriority
+from rbac.decorators import require_permission, require_any_permission
+from rbac.permissions import Permissions
 
 
 router = APIRouter(
@@ -47,7 +29,10 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+client = _get_pooled_client()
 
 
 def get_router() -> MCPActionRouter:

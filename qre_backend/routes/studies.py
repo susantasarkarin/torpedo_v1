@@ -1,5 +1,5 @@
 """
-Study & Wave CRUD â€” manages multiple studies/clients and tracking waves.
+Study & Wave CRUD — manages multiple studies/clients and tracking waves.
 Each study has its own quotas, respondents, redirects, and module config.
 Waves allow brands and ad stimuli to change between fieldwork periods.
 """
@@ -494,7 +494,7 @@ async def list_waves(study_id: str):
 
 @router.post("/{study_id}/waves")
 async def create_wave(study_id: str, payload: WaveCreate):
-    """Create a new wave â€” copies modules from previous wave or uses defaults."""
+    """Create a new wave — copies modules from previous wave or uses defaults."""
     db = _db()
     study = await db.studies.find_one({"_id": study_id})
     if not study:

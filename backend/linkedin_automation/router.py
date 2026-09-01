@@ -8,8 +8,8 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from datetime import datetime
 
-from backend.linkedin_automation.service import LinkedInService
-from backend.linkedin_automation.models import (
+from linkedin_automation.service import LinkedInService
+from linkedin_automation.models import (
     LinkedInAccountCreate,
     LinkedInAccountUpdate,
     LinkedInAccountResponse,
@@ -20,7 +20,7 @@ from backend.linkedin_automation.models import (
     TaskType,
     LinkedInBotConfig
 )
-from backend.linkedin_automation.jobs_queue import queue_linkedin_automation
+from linkedin_automation.jobs_queue import queue_linkedin_automation
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +241,7 @@ async def update_schedule(account_id: str, schedule: dict):
     }
     """
     try:
-        from backend.linkedin_automation.models import LinkedInScheduleConfig
+        from linkedin_automation.models import LinkedInScheduleConfig
         
         schedule_config = LinkedInScheduleConfig(**schedule)
         update_data = LinkedInAccountUpdate(schedule=schedule_config)
@@ -328,7 +328,7 @@ async def update_opportunity(opportunity_id: str, update_data: LinkedInOpportuni
 async def _execute_automation_task(account_id: str, task_type: TaskType):
     """Background task for executing automation"""
     try:
-        from backend.tasks.linkedin_tasks import run_linkedin_account_automation
+        from tasks.linkedin_tasks import run_linkedin_account_automation
         
         logger.info(f"Executing LinkedIn automation for account {account_id}")
         # This will call the Celery task which handles execution

@@ -22,6 +22,13 @@ from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 from dotenv import load_dotenv
 
+
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 load_dotenv()
 
 # Configure logging
@@ -35,7 +42,10 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+mongo_client = _get_pooled_client()
 db = mongo_client["email_automation"]
 rfqs_collection = db["rfqs"]
 email_leads_collection = db["email_leads"]
@@ -56,10 +66,7 @@ contacts_collection = db["contacts"]
 
 # CRM spine read model. RFQs live in crm_db.opportunities — mail_pool_ai writes
 # them there every 10 min; email_automation.rfqs is legacy and read-only now.
-try:
-    from ..app.services import spine_rfq
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from app.services import spine_rfq
+from app.services import spine_rfq
 
 
 # ============== PYDANTIC MODELS ==============
@@ -168,10 +175,7 @@ def generate_rfq_id() -> str:
     now — numbering off the legacy collection would restart at 0001 and collide
     with every migrated RFQ.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     year = datetime.utcnow().year
     prefix = f"RFQ-{year}-"
@@ -311,10 +315,7 @@ async def resync_rfqs_from_mail(
     Queues the same Celery task the scheduler runs, so there is exactly one code
     path that turns mail into RFQs.
     """
-    try:
-        from ..tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
-    except ImportError:  # pragma: no cover
-        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
 
     try:
         task = process_mail_pool_sender_batch.delay(limit=limit)
@@ -345,10 +346,7 @@ async def resync_all_rfqs_from_mail_pool(
     ledgers. Resumable and rate-limited — call repeatedly with a small
     `limit`; check GET /rfq/rebuild-status for how many senders remain.
     """
-    try:
-        from ..tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
-    except ImportError:  # pragma: no cover
-        from tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
+    from tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
 
     try:
         task = rebuild_rfqs_all_senders_batch.delay(limit=limit)
@@ -371,10 +369,7 @@ async def get_rebuild_status() -> Dict[str, Any]:
     Cheap poll for the POST /rfq/resync-all backfill: how many senders still
     need a rebuild scan. No AI calls — just counts against mail_sender_analysis.
     """
-    try:
-        from ..sales.mail_pool_ai import _REBUILD_CANDIDATE_QUERY
-    except ImportError:  # pragma: no cover
-        from sales.mail_pool_ai import _REBUILD_CANDIDATE_QUERY
+    from sales.mail_pool_ai import _REBUILD_CANDIDATE_QUERY
 
     remaining = mail_sender_analysis_collection.count_documents(_REBUILD_CANDIDATE_QUERY)
     done = mail_sender_analysis_collection.count_documents({"rfq_rebuild_done": True})
@@ -394,10 +389,7 @@ async def get_sync_status() -> Dict[str, Any]:
     how many RFQs that has produced on the spine, so an empty RFQ list can be
     told apart from a stalled worker.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     try:
         # Exact count, not estimated_document_count(): the estimate is derived
@@ -479,10 +471,7 @@ def mirror_rfq_to_spine(rfq_id: str, contact_email: Optional[str], title: Option
     crm_service.create_rfq. Touches only crm_db (testable in isolation).
     Returns {opportunity_id, project_id}.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     contact_id = None
     account_id = None
@@ -516,10 +505,7 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
     first would just recreate the drift this refactor removed — so the spine
     opportunity IS the RFQ, and there is no second copy to keep in step.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     rfq_id = generate_rfq_id()
     direction = (rfq_data.direction or "inbound").strip().lower()
@@ -623,10 +609,7 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     timeline. The old local VALID_STATUS_TRANSITIONS table is no longer the
     authority — the spine is.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     existing = spine_rfq.get_rfq(rfq_id)
     if not existing:
@@ -732,10 +715,7 @@ async def delete_rfq(rfq_id: str) -> Dict[str, Any]:
     trail. Deletion is always soft: the opportunity anchors historical
     activities on the account timeline.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
@@ -800,10 +780,7 @@ def _deletion_blocker(rfq: Dict[str, Any]) -> Optional[str]:
 @router.post("/bulk-delete")
 async def bulk_delete_rfqs(data: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     """Soft delete multiple RFQs, skipping any with linked estimates or invoices."""
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     ids = data.get("ids", [])
     if not ids:
@@ -859,10 +836,7 @@ async def get_rfqs_by_lead(lead_id: str) -> Dict[str, Any]:
     Reads the spine: opportunities carry contact_id, so resolve the lead to a
     canonical contact and query on that.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     contact_id = None
     email = lead_id if "@" in lead_id else None
@@ -920,10 +894,7 @@ async def link_email_to_rfq(
     """
     Link an email to an existing RFQ.
     """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
@@ -1064,7 +1035,7 @@ def _get_next_document_number(collection, prefix: str) -> str:
         try:
             last_num = int(last_doc["document_number"].split("-")[-1])
             next_num = last_num + 1
-        except:
+        except Exception:
             next_num = 1
     else:
         next_num = 1
@@ -1103,7 +1074,7 @@ async def convert_rfq_to_estimate(
         customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
         if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid customer_id format")
     
     # Generate line items
@@ -1153,10 +1124,7 @@ async def convert_rfq_to_estimate(
     estimate_id = str(result.inserted_id)
     
     # Move the spine opportunity to "proposal" and cross-link the estimate.
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     crm_service._col("opportunities").update_one(
         {"_id": ObjectId(rfq["opportunity_id"])},
@@ -1217,7 +1185,7 @@ async def convert_rfq_to_invoice(
         customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
         if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid customer_id format")
     
     # Generate line items
@@ -1280,10 +1248,7 @@ async def convert_rfq_to_invoice(
     # Invoicing an RFQ means the deal is won. Go through the spine so the linked
     # project is activated and the win lands on the account timeline, then
     # cross-link the finance invoice.
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
+    from app.services import crm_service
 
     try:
         crm_service.set_opportunity_stage(rfq["opportunity_id"], "won")
@@ -1332,7 +1297,7 @@ async def convert_estimate_to_invoice(
     # Find the estimate
     try:
         estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid estimate_id format")
     
     if not estimate:
@@ -1400,7 +1365,7 @@ async def convert_estimate_to_invoice(
                     "$set": {"updated_at": now}
                 }
             )
-        except:
+        except Exception:
             pass
     
     # Estimate -> invoice means the deal is won. rfq_object_id now holds the
@@ -1408,10 +1373,7 @@ async def convert_estimate_to_invoice(
     # longer resolves — those simply skip the transition rather than erroring).
     opportunity_id = estimate.get("opportunity_id") or estimate.get("rfq_object_id")
     if opportunity_id:
-        try:
-            from ..app.services import crm_service
-        except ImportError:  # pragma: no cover
-            from app.services import crm_service
+        from app.services import crm_service
 
         try:
             crm_service.set_opportunity_stage(opportunity_id, "won")

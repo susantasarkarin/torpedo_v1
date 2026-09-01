@@ -10,7 +10,13 @@ that a total Bedrock failure now still produces an answer.
 
 import pytest
 
-from backend.leads import bedrock_client as bc
+# Import by the SAME path production uses (backend/ as cwd, so `leads` is
+# top-level). Importing as `backend.leads` creates a SECOND module object:
+# monkeypatching `backend.leads.do_inference_client.chat` then has no effect on
+# the `leads.do_inference_client` that bedrock_client actually calls. The old
+# relative-import fallback hid this by resolving to whichever package the test
+# happened to import through (TOR-11).
+from leads import bedrock_client as bc
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +85,7 @@ def test_bedrock_failure_falls_through_to_digitalocean(monkeypatch):
         called["model"] = model
         return "classified", {"inputTokens": 10, "outputTokens": 3, "totalTokens": 13}, 0.2
 
-    monkeypatch.setattr("backend.leads.do_inference_client.chat", _fake_chat)
+    monkeypatch.setattr("leads.do_inference_client.chat", _fake_chat)
 
     text, meta = bc.converse_meta("cheap", "sys", "user")
 
@@ -143,7 +149,7 @@ def test_do_throttle_is_retried_not_treated_as_dead(monkeypatch):
     monkeypatch.setenv("BEDROCK_MAX_RETRIES", "2")
     monkeypatch.setattr(bc.time, "sleep", lambda *_: None)
 
-    from backend.leads import do_inference_client as do
+    from leads import do_inference_client as do
 
     calls = {"n": 0}
 
@@ -153,7 +159,7 @@ def test_do_throttle_is_retried_not_treated_as_dead(monkeypatch):
             raise do.DOThrottled("429")
         return "recovered", {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}, 0.1
 
-    monkeypatch.setattr("backend.leads.do_inference_client.chat", _flaky)
+    monkeypatch.setattr("leads.do_inference_client.chat", _flaky)
 
     text, meta = bc.converse_meta("cheap", "sys", "user")
 
@@ -169,7 +175,7 @@ def test_bad_do_key_is_not_retried(monkeypatch):
     monkeypatch.setenv("DO_INFERENCE_API_KEY", "bad-key")
     monkeypatch.setenv("BEDROCK_MAX_RETRIES", "3")
 
-    from backend.leads import do_inference_client as do
+    from leads import do_inference_client as do
 
     calls = {"n": 0}
 
@@ -177,7 +183,7 @@ def test_bad_do_key_is_not_retried(monkeypatch):
         calls["n"] += 1
         raise do.DOAuthError("401")
 
-    monkeypatch.setattr("backend.leads.do_inference_client.chat", _unauthorised)
+    monkeypatch.setattr("leads.do_inference_client.chat", _unauthorised)
 
     with pytest.raises(bc.BedrockError):
         bc.converse_meta("cheap", "sys", "user")

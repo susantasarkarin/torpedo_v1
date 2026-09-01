@@ -21,6 +21,12 @@ import boto3
 from botocore.exceptions import ClientError
 from pymongo import MongoClient
 
+def _get_pooled_client():
+    """The process-wide pooled MongoClient (backend/database.py)."""
+    from database import get_client
+    return get_client()
+
+
 try:
     # Raised by the Celery worker ~5 min before the hard time limit. Catching
     # it lets a long bulk send stop cleanly with partial progress instead of
@@ -46,7 +52,10 @@ logger = logging.getLogger(__name__)
 # ============== CONFIGURATION ==============
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-_client = MongoClient(MONGO_URI)
+# Shared pooled client (TOR-12): this module built its own
+# MongoClient at import time. 101 modules did, each with a pool of
+# up to 100 connections on a 2 GB box shared with mongod.
+_client = _get_pooled_client()
 _db = _client["campaign_platform"]
 panelists_collection = _db["panelists"]
 
@@ -795,10 +804,7 @@ def _apply_unsubscribe(msg, to_email: str) -> str:
     Returns the per-recipient link so the footer matches the header.
     """
     try:
-        try:
-            from services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
-        except ImportError:
-            from backend.services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
+        from services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
 
         for header, value in list_unsubscribe_headers(to_email).items():
             msg[header] = value

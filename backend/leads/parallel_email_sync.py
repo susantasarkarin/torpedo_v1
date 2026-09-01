@@ -323,7 +323,7 @@ def is_sync_cancelled(email_address: str) -> bool:
         r = redis.Redis(host='localhost', port=6379, db=3, decode_responses=True)
         cancel_key = f"sync:cancel:{email_address}"
         return r.get(cancel_key) == "1"
-    except:
+    except Exception:
         return False
 
 
@@ -334,7 +334,7 @@ def clear_sync_cancellation(email_address: str):
         r = redis.Redis(host='localhost', port=6379, db=3, decode_responses=True)
         cancel_key = f"sync:cancel:{email_address}"
         r.delete(cancel_key)
-    except:
+    except Exception:
         pass
 
 
@@ -573,7 +573,7 @@ def download_all_emails_for_account(
                             # Parse date
                             try:
                                 email_date = parsedate_to_datetime(date_str)
-                            except:
+                            except Exception:
                                 email_date = datetime.now()
                             
                             # Determine contact email based on direction

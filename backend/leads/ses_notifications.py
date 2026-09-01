@@ -94,20 +94,14 @@ def _recipient_emails(recipients: Optional[List[Dict[str, Any]]]) -> List[str]:
 
 
 def _suppress(email: str, reason: str) -> None:
-    try:
-        from .outreach_mailer import record_bounce, record_unsubscribe
-    except ImportError:
-        from leads.outreach_mailer import record_bounce, record_unsubscribe
+    from leads.outreach_mailer import record_bounce, record_unsubscribe
     if reason == "unsubscribed":
         record_unsubscribe(email)
     else:
         # record_bounce writes reason='bounced'; complaints go through the
         # manager directly to keep the true reason.
         if reason == "complaint":
-            try:
-                from .outreach_qualification import _get_suppression_manager
-            except ImportError:
-                from leads.outreach_qualification import _get_suppression_manager
+            from leads.outreach_qualification import _get_suppression_manager
             try:
                 _get_suppression_manager().add(email, "complaint")
             except Exception as e:

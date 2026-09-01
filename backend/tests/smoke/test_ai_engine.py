@@ -14,8 +14,8 @@ crm_service = None
 ai = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.app.services import ai_engine as _ai
+    from app.services import crm_service as _svc
+    from app.services import ai_engine as _ai
     crm_service = _svc
     ai = _ai
 except Exception as e:  # pragma: no cover

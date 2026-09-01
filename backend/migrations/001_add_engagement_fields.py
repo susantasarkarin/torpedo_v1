@@ -1,4 +1,4 @@
-﻿"""
+"""
 Migration: Add engagement tracking fields to leads collection
 
 Fields added:

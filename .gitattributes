@@ -45,3 +45,6 @@
 *.eot    binary
 *.zip    binary
 *.gz     binary
+
+# Encoding is pinned in .editorconfig (UTF-8, no BOM). See TOR-29 — a dozen
+# files were saved as cp1252 and a further 32 carried a BOM before that.

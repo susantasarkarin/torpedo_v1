@@ -455,7 +455,7 @@ async def cint_status_callback(
     body_params = {}
     try:
         body_params = await request.json()
-    except:
+    except Exception:
         pass
     
     # Merge query params with body params (query takes priority)
@@ -1922,7 +1922,7 @@ async def cint_surveys_websocket(websocket: WebSocket):
                         "type": "heartbeat",
                         "timestamp": datetime.utcnow().isoformat()
                     })
-                except:
+                except Exception:
                     break
                     
     except WebSocketDisconnect:

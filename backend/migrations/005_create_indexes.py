@@ -1,4 +1,4 @@
-﻿"""
+"""
 Migration: Create indexes for optimal query performance
 
 Indexes created:

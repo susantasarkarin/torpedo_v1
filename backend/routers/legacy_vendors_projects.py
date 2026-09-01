@@ -13,15 +13,9 @@ from typing import Any, Dict
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-try:
-    from .session_state import verify_session
-except ImportError:
-    from session_state import verify_session
+from session_state import verify_session
 
-try:
-    from .services import vendor_service
-except ImportError:
-    from services import vendor_service
+from services import vendor_service
 
 logger = logging.getLogger(__name__)
 

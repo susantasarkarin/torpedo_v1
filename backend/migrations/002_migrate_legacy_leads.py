@@ -20,12 +20,8 @@ Usage:
 import argparse
 from typing import Optional, Dict, Any
 
-try:
-    from ..database import get_database
-    from ..app.services import crm_service
-except ImportError:  # pragma: no cover - absolute import fallback / CLI
-    from database import get_database
-    from app.services import crm_service
+from database import get_database
+from app.services import crm_service
 
 
 def _split_name(name: Optional[str]) -> tuple:

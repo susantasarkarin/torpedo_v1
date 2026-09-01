@@ -236,7 +236,7 @@ class AutoResponseDrafter:
                         "response": resp_data.get("response", objection_response),
                         "confidence": 0.85
                     }
-                except:
+                except Exception:
                     return {"response": objection_response, "confidence": 0.85}
         
         # Otherwise, generate custom response
@@ -389,7 +389,7 @@ Respond with ONLY valid JSON:
                 try:
                     result = json.loads(result_text.strip())
                     alternatives.append(result)
-                except:
+                except Exception:
                     pass
             
             return alternatives

@@ -408,7 +408,7 @@ Respond with ONLY valid JSON:
                     import json
                     try:
                         response_data = json.loads(response_text) if isinstance(response_text, str) and response_text.startswith("{") else {"response": response_text}
-                    except:
+                    except Exception:
                         response_data = {"response": response_text, "strategy": "unknown", "call_to_action": ""}
                     
                     response_result = ObjectionResponseResult(**response_data)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bounce Recovery Module
 ======================
 
@@ -18,15 +18,15 @@ Bounce Recovery Module
 
 New fields on outreach_leads_v2 (backward-compatible, added only when
 bounce recovery is triggered):
-  bounce_recovery_attempt       int   â€” how many recovery cycles have run
-  bounce_recovery_status        str   â€” 'recovering' | 'recovered' | 'needs_human_intervention'
-  bounce_recovery_emails_tried  list  â€” all emails attempted (original + each recovery)
-  bounce_recovery_method        str   â€” last method used ('alt_format' | 'skrapp')
+  bounce_recovery_attempt       int   — how many recovery cycles have run
+  bounce_recovery_status        str   — 'recovering' | 'recovered' | 'needs_human_intervention'
+  bounce_recovery_emails_tried  list  — all emails attempted (original + each recovery)
+  bounce_recovery_method        str   — last method used ('alt_format' | 'skrapp')
 
 New fields on leads_enriched (updated in parallel):
-  email_status                  str   â€” 'Predicted' when a recovery email is set
-  email_source                  str   â€” 'bounce_recovery_alt' | 'bounce_recovery_skrapp'
-  bounce_recovery_status        str   â€” mirrors outreach_leads_v2
+  email_status                  str   — 'Predicted' when a recovery email is set
+  email_source                  str   — 'bounce_recovery_alt' | 'bounce_recovery_skrapp'
+  bounce_recovery_status        str   — mirrors outreach_leads_v2
 
 Usage (called from cold_outreach_router.py bounce scanner):
     from leads.bounce_recovery import attempt_recovery
@@ -58,7 +58,7 @@ _ALT_FORMAT_ENABLED = (
 # Placeholders: {first}, {last}, {f} (first initial), {l} (last initial)
 # ---------------------------------------------------------------------------
 ALT_FORMAT_TEMPLATES = [
-    "{first}.{last}@{domain}",       # john.doe   â€” most common
+    "{first}.{last}@{domain}",       # john.doe   — most common
     "{first}{last}@{domain}",        # johndoe
     "{f}{last}@{domain}",            # jdoe
     "{first}@{domain}",              # john
@@ -292,14 +292,14 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
                 _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_alt", confidence=0.2)
                 return {"action": "retry", "email": new_email, "method": "alt_format"}
             else:
-                # All 6 formats already tried â€” skip straight to attempt 3
+                # All 6 formats already tried — skip straight to attempt 3
                 logger.info(
                     f"[BounceRecovery] All alt formats exhausted for {outreach_lead_id}, "
                     f"escalating to Skrapp"
                 )
 
         # ----------------------------------------------------------------
-        # Attempt 3 â€” Skrapp.io / EmailPatternSystem discovery
+        # Attempt 3 — Skrapp.io / EmailPatternSystem discovery
         # ----------------------------------------------------------------
         if recovery_attempt < 2:
             new_email, new_confidence = _attempt_skrapp_discovery(first, last, domain, emails_tried, leads_db)

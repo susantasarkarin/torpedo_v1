@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 
-from backend.ai_governance import (
+from ai_governance import (
     classify_email,
     summarize_email,
     extract_leads_from_email,
@@ -32,7 +32,7 @@ GeminiDailyLimitExceeded = AIDailyLimitExceeded
 
 # Try importing web search if available
 try:
-    from backend.ai_governance import (
+    from ai_governance import (
         web_search,
         discover_leads_external,
         get_openai_gateway,
@@ -44,7 +44,7 @@ except ImportError:
     get_openai_gateway = None
     OpenAIWebSearchOnly = None
 
-from backend.ai_governance.governance_checks import (
+from ai_governance.governance_checks import (
     get_governance_status,
     get_gemini_daily_usage,
     check_gemini_daily_limit,
