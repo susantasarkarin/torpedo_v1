@@ -1,5 +1,7 @@
-# App routers package
-# Note: cpx, gmail_router, survey_allocation, survey_pool, cint have been
-# moved to backend/routers/ as part of Phase 6 router consolidation.
-# Only outreach_api remains here due to its dependency on app.services.
-from . import outreach_api
+"""
+app.routers package.
+
+Empty by design. `outreach_api` used to be imported here, but it was never
+mounted by main.py — dead endpoints that this import made look live. It now
+lives in backend/deprecated/routers/app_outreach_api.py (TOR-26).
+"""

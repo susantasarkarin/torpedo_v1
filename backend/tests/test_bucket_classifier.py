@@ -1,4 +1,4 @@
-﻿"""
+"""
 BUCKET CLASSIFIER TESTS
 =======================
 
@@ -318,7 +318,7 @@ def test_threshold_is_configurable():
 
 
 def test_low_confidence_reject_is_not_downgraded():
-    """REJECT is not gated â€” a rejection stands regardless of confidence."""
+    """REJECT is not gated — a rejection stands regardless of confidence."""
     payload = '{"bucket": "REJECT", "confidence": 0.3, "reason": "unclear"}'
     with patch.object(bedrock_client, "converse", return_value=payload):
         result = classify_lead(QUALIFIED, threshold=0.7)

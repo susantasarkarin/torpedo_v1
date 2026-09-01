@@ -1,4 +1,4 @@
-﻿"""
+"""
 Migration: Add multi-channel and A/B testing fields to campaigns
 
 Fields added to campaigns:

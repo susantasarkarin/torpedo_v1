@@ -1,4 +1,4 @@
-﻿"""
+"""
 EMAIL SYNC INTEGRATION
 ======================
 

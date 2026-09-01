@@ -11,7 +11,16 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from pydantic import BaseModel, EmailStr, Field
 
-from ..campaigns.automation import CampaignAutomation
+# Bare relative import with no fallback: this is the ONLY router that had one.
+# The app runs as `uvicorn main:app` with backend/ as the working directory, so
+# `routers` is a top-level package and `..campaigns` reaches beyond it — this
+# module raised ImportError on every real boot and the router silently never
+# mounted (TOR-05/TOR-11). It imported fine under pytest, where backend/ IS a
+# package, which is exactly why nothing noticed.
+try:
+    from ..campaigns.automation import CampaignAutomation
+except ImportError:
+    from campaigns.automation import CampaignAutomation
 
 logger = logging.getLogger(__name__)
 

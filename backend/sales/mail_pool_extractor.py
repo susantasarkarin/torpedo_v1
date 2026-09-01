@@ -1,5 +1,5 @@
-﻿"""
-MODULE 2 â€” EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY â€” NO AI)
+"""
+MODULE 2 — EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY — NO AI)
 ======================================================================
 Scans the Gmail mail pool (email_metadata collection) and extracts structured
 lead records using regex and code-based parsing ONLY. No LLMs used here.
@@ -27,7 +27,7 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
-# Canonical ingestion â€” the ONLY way leads should enter the system
+# Canonical ingestion — the ONLY way leads should enter the system
 def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
     try:
@@ -366,7 +366,7 @@ def extract_leads_from_mail_pool_batch(
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
     # Fetch unprocessed INBOUND emails received since the cutoff.
-    # Only process inbound emails â€” outbound (sent) emails are OUR emails,
+    # Only process inbound emails — outbound (sent) emails are OUR emails,
     # not leads.
     cursor = mail_col.find(
         {

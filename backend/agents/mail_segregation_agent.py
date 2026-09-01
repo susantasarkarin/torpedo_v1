@@ -1,4 +1,4 @@
-﻿"""
+"""
 Mail Segregation Agent - Rule-based email categorization and segregation
 
 Purpose:

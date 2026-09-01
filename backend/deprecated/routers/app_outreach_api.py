@@ -1,4 +1,4 @@
-﻿"""
+"""
 Torpedo Outreach API Routes.
 
 Main REST API for the AI-powered cold outreach system.

@@ -1,5 +1,5 @@
-﻿"""
-Audit Router â€” Query logs and outreach event data for monitoring.
+"""
+Audit Router — Query logs and outreach event data for monitoring.
 """
 
 from __future__ import annotations

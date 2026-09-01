@@ -8,7 +8,10 @@ FastAPI routes for:
 - Cost tracking and budget controls
 """
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Body
+# `Path` was used by 20+ route signatures but never imported, so this module
+# raised NameError at import and the Clay router silently never mounted — the
+# print-and-continue mount handler swallowed it (TOR-05).
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Body, Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 

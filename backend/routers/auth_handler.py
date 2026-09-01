@@ -35,6 +35,11 @@ try:
 except ImportError:
     from database import get_database
 
+try:
+    from ..middleware.rate_limit import login_rate_limit
+except ImportError:
+    from middleware.rate_limit import login_rate_limit
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
@@ -57,7 +62,7 @@ def _get_users_collection():
 # Auth endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/login/")
+@router.post("/login/", dependencies=[Depends(login_rate_limit)])
 async def login(credentials: Dict[str, str] = Body(...)):
     users_col = _get_users_collection()
     try:

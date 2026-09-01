@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gemini API Key Rotation System
 Manages 7 free-tier Gemini accounts with quota tracking and automatic rotation
 Each account: 15 RPM, 1000 requests/day
@@ -122,7 +122,7 @@ class GeminiRotator:
             return self._get_available_key_locked()
 
     def _get_available_key_locked(self) -> Tuple[int, str]:
-        """Inner implementation â€” must be called with _key_lock held."""
+        """Inner implementation — must be called with _key_lock held."""
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now()
         one_minute_ago = current_time - timedelta(minutes=1)
@@ -419,7 +419,7 @@ class GeminiRotator:
 # ============================================================
 # 4 isolated key pools, each with 3 dedicated Gemini accounts:
 #
-#   outreach  â†’ keys 1,2,3   (AI email drafting â€” real-time)
+#   outreach  â†’ keys 1,2,3   (AI email drafting — real-time)
 #   sfw_bim   â†’ keys 4,5,6   (SFW + BIM enrichment + mail)
 #   cogentix  â†’ keys 7,8,9   (Cogentix enrichment + mail)
 #   mail      â†’ keys 10,11,12 (general mail capacity)
@@ -455,7 +455,7 @@ class GeminiPipelineRotator:
         window (15 RPM per key, free tier).
       - Daily cap (1,500 req/day per key, free tier) is read from the
         gemini_quota MongoDB collection and cached for DAILY_CACHE_TTL seconds.
-        Keys confirmed daily-exhausted are skipped proactively â€” no wasted 429.
+        Keys confirmed daily-exhausted are skipped proactively — no wasted 429.
       - Account names (gemini_account_N) are loaded once from app_settings so
         every log line and health-check shows which Google account owns the key.
 
@@ -479,11 +479,11 @@ class GeminiPipelineRotator:
             idx: [] for idx in self.key_indices
         }
 
-        # Daily cap cache â€” refreshed from MongoDB every DAILY_CACHE_TTL seconds
+        # Daily cap cache — refreshed from MongoDB every DAILY_CACHE_TTL seconds
         self._daily_exhausted: set = set()   # key indices that hit 1,500/day
         self._daily_cache_time: float = 0.0  # epoch of last DB refresh
 
-        # Account names â€” loaded once at startup
+        # Account names — loaded once at startup
         self._account_names: Dict[int, str] = self._load_account_names()
 
         if not self.key_indices:
@@ -565,7 +565,7 @@ class GeminiPipelineRotator:
                 ]
 
                 if not candidates:
-                    # All keys daily-exhausted â€” surface a clear error
+                    # All keys daily-exhausted — surface a clear error
                     raise Exception(
                         f"Pipeline '{self.pipeline_name}': all keys have hit the "
                         f"{self.DAILY_LIMIT} req/day free-tier limit. "
@@ -582,12 +582,12 @@ class GeminiPipelineRotator:
                     if len(window) < self.RPM_LIMIT:
                         window.append(now)
                         return key_idx, self._base.api_keys[key_idx]
-                    # Key RPM-saturated â€” record when its window opens next
+                    # Key RPM-saturated — record when its window opens next
                     earliest = window[0] + 60.0
                     if sleep_until is None or earliest < sleep_until:
                         sleep_until = earliest
 
-                # All candidate keys RPM-saturated â€” release lock and wait
+                # All candidate keys RPM-saturated — release lock and wait
             wait_s = max(0.3, (sleep_until - time.time())) if sleep_until else 5.0
             time.sleep(wait_s)
 
@@ -738,7 +738,7 @@ if __name__ == "__main__":
         print(f"   Period: {stats['period']}")
         print(f"   Stats collected for {len(stats['stats_by_date'])} days\n")
         
-        print("âœ… All tests passed!")
+        print("[ok] All tests passed!")
         
     except Exception as e:
         print(f"âŒ Error: {e}")

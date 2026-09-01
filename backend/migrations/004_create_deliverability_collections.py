@@ -1,4 +1,4 @@
-﻿"""
+"""
 Migration: Create deliverability tracking collections
 
 Collections created:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Vendor Service
 ==============
 Business logic for vendor and project lifecycle management,

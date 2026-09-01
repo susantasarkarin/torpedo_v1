@@ -19,7 +19,8 @@ import pytest
 import httpx
 
 
-pytestmark = pytest.mark.ai
+# Needs BOTH a running server and live AI credentials (TOR-14).
+pytestmark = [pytest.mark.smoke, pytest.mark.ai]
 
 
 class TestAIGovernanceChain:

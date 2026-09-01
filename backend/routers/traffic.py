@@ -1,4 +1,4 @@
-﻿"""
+"""
 Traffic Flow API Router
 Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
@@ -723,9 +723,9 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
                 print(f"   ðŸ“¡ CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
                 return candidates
             else:
-                print(f"   âš ï¸ CINT cache: No surveys for CountryLanguageID={country_lang_id}, falling back to API")
+                print(f"   [warn] CINT cache: No surveys for CountryLanguageID={country_lang_id}, falling back to API")
         elif cache_info.get("last_updated") and not country_lang_id:
-            # No country mapping â€” use all cached surveys
+            # No country mapping — use all cached surveys
             all_surveys = cache_info.get("surveys", [])
             if all_surveys:
                 all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age, relaxed=relaxed)
@@ -734,9 +734,9 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
                 print(f"   ðŸ“¡ CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
                 return candidates
         else:
-            print(f"   âš ï¸ CINT cache empty/stale, falling back to direct API call")
+            print(f"   [warn] CINT cache empty/stale, falling back to direct API call")
     except Exception as cache_err:
-        print(f"   âš ï¸ Cache read error: {cache_err}, falling back to API")
+        print(f"   [warn] Cache read error: {cache_err}, falling back to API")
     
     # --- Fallback: Direct API call ---
     api_key = os.getenv("CINT_API_KEY")
@@ -747,7 +747,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
         return []
     
     if not country_lang_id:
-        print(f"   âš ï¸ CINT offerwall: No CountryLanguageID mapping for '{cc}'")
+        print(f"   [warn] CINT offerwall: No CountryLanguageID mapping for '{cc}'")
     
     try:
         headers = {
@@ -774,7 +774,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             filtered = surveys
         
         if not filtered and country_lang_id:
-            print(f"   WARNING: CINT offerwall has no surveys for country={cc} â€” aborting (no cross-country fallback)")
+            print(f"   WARNING: CINT offerwall has no surveys for country={cc} — aborting (no cross-country fallback)")
             return []
 
         if not filtered:
@@ -830,7 +830,7 @@ _IN_STATE_PRECODES: Dict[str, str] = {
     # (fill all 28+ states from API response)
 }
 
-# Same pattern for city (optional â€” lower priority than state)
+# Same pattern for city (optional — lower priority than state)
 _IN_CITY_PRECODES: Dict[str, str] = {
     # "CITY NAME": "LUCID_PRECODE"
 }
@@ -869,15 +869,15 @@ def _build_geo_profiling_params(
             print(f"   ðŸ“ Geo profiling: US zip â†’ variable 47 = {postal[:5]}")
 
     elif cc == "IN":
-        # India state â€” only active once _IN_STATE_PRECODES is populated
+        # India state — only active once _IN_STATE_PRECODES is populated
         if _IN_STATE_PRECODES:
             state_precode = _IN_STATE_PRECODES.get(region)
             if state_precode:
                 params[_IN_STATE_QID] = state_precode
                 print(f"   ðŸ“ Geo profiling: IN state {region} â†’ variable {_IN_STATE_QID} = {state_precode}")
             else:
-                print(f"   âš ï¸  Geo profiling: IN state {region!r} not in _IN_STATE_PRECODES â€” passing without state filter")
-        # India city â€” only active once _IN_CITY_PRECODES is populated
+                print(f"   [warn]  Geo profiling: IN state {region!r} not in _IN_STATE_PRECODES — passing without state filter")
+        # India city — only active once _IN_CITY_PRECODES is populated
         if _IN_CITY_PRECODES and ip_city:
             city_key = (ip_city or "").strip().upper()
             city_precode = _IN_CITY_PRECODES.get(city_key)
@@ -962,16 +962,16 @@ def _build_cint_entry_link(
       - MID   : unique session identifier (new UUID per session)
       - profile variables (optional): e.g. 42=AGE, 43=GENDER
       - cint_email : respondent email, hex-encoded SHA-256 hash (required)
-      - hash  : HMAC-SHA1 of the full URL (minus &hash=â€¦) signed with the
+      - hash  : HMAC-SHA1 of the full URL (minus &hash=…) signed with the
                 Encryption Secret Key, then base64-url-safe encoded.
 
     The hash MUST be the last query parameter.
     """
     secret_key = os.getenv("CINT_WEBHOOK_SECRET", "")
     if not secret_key:
-        print("   âš ï¸ CINT_WEBHOOK_SECRET not set â€” entry link will be missing hash")
+        print("   [warn] CINT_WEBHOOK_SECRET not set — entry link will be missing hash")
 
-    # live_link already ends with "&PID=" or "?SID=â€¦&PID="
+    # live_link already ends with "&PID=" or "?SID=…&PID="
     # We strip any trailing "&PID=" suffix that the API may have appended so
     # we can build the complete param string ourselves.
     base = live_link
@@ -995,7 +995,7 @@ def _build_cint_entry_link(
     if user_email:
         email_hash = hashlib.sha256(user_email.lower().strip().encode("utf-8")).hexdigest()
     else:
-        # Cint requires a real email â€” if missing, omit the parameter
+        # Cint requires a real email — if missing, omit the parameter
         # rather than sending a dummy/invalid hash.
         email_hash = ""
 
@@ -1038,7 +1038,7 @@ def _build_cint_entry_link(
 
     # Safety guard: redirect URL limit per CINT docs is 2999 chars
     if len(entry_url) > 2999:
-        print(f"   âš ï¸ CINT entry link exceeds 2999 chars ({len(entry_url)}) â€” truncation risk!")
+        print(f"   [warn] CINT entry link exceeds 2999 chars ({len(entry_url)}) — truncation risk!")
 
     return entry_url
 
@@ -1059,7 +1059,7 @@ async def create_cint_entry_link(
     Returns the full respondent-specific URL, or empty string on failure.
     """
     
-    # Quick cache check â€” skip surveys that dropped from the offerwall
+    # Quick cache check — skip surveys that dropped from the offerwall
     try:
         try:
             from tasks.cint_survey_cleanup import is_survey_live
@@ -1069,7 +1069,7 @@ async def create_cint_entry_link(
         if not is_survey_live(str(survey_id)):
             print(f"   WARNING: CINT survey {survey_id} not in offerwall cache - proceeding with API create attempt")
     except Exception:
-        pass  # Cache unavailable â€” proceed anyway
+        pass  # Cache unavailable — proceed anyway
     
     api_key = os.getenv("CINT_API_KEY")
     supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
@@ -1084,8 +1084,8 @@ async def create_cint_entry_link(
         "Accept": "application/json",
     }
     
-    # Callback URLs with [%PID%] placeholder â€” CINT replaces with our hashed PID
-    # DefaultLink: where CINT sends respondent on survey error/closed â€” terminates back to us
+    # Callback URLs with [%PID%] placeholder — CINT replaces with our hashed PID
+    # DefaultLink: where CINT sends respondent on survey error/closed — terminates back to us
     callback_base = CINT_CALLBACK_BASE
     create_payload = {
         "SupplierLinkTypeCode": "OWS",
@@ -1123,12 +1123,12 @@ async def create_cint_entry_link(
         if resp.status_code in (200, 201):
             sl = resp_body.get("SupplierLink", {})
             live_link = sl.get("LiveLink", "")
-            print(f"   âœ… CINT SupplierLink CREATED for survey {survey_id}")
+            print(f"   [ok] CINT SupplierLink CREATED for survey {survey_id}")
             print(f"      LiveLink: {live_link}")
             print(f"      CPI: {sl.get('CPI')}")
         
         elif resp.status_code == 409:
-            # Already exists â€” GET existing link
+            # Already exists — GET existing link
             get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
             print(f"   ðŸ“¤ CINT SupplierLink already exists (409), fetching: GET {get_url}")
             get_resp = await client.get(get_url, headers=headers, timeout=10.0)
@@ -1145,22 +1145,22 @@ async def create_cint_entry_link(
                 sl = get_body.get("SupplierLink", {})
                 live_link = sl.get("LiveLink", "")
                 
-                # Check if existing link has wrong DefaultLink â€” update if needed
+                # Check if existing link has wrong DefaultLink — update if needed
                 existing_default = sl.get("DefaultLink", "")
                 if existing_default and "cint-response" not in existing_default:
-                    print(f"   âš ï¸ Existing SupplierLink has wrong DefaultLink: {existing_default}")
+                    print(f"   [warn] Existing SupplierLink has wrong DefaultLink: {existing_default}")
                     print(f"   ðŸ”„ Updating SupplierLink with correct redirect URLs...")
                     update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
                     update_resp = await client.put(update_url, json=create_payload, headers=headers, timeout=10.0)
                     print(f"   ðŸ“¥ CINT SupplierLink UPDATE: Status={update_resp.status_code}")
                 
-                print(f"   âœ… CINT SupplierLink EXISTS for survey {survey_id}")
+                print(f"   [ok] CINT SupplierLink EXISTS for survey {survey_id}")
                 print(f"      LiveLink: {live_link}")
             else:
                 print(f"   âŒ CINT GET SupplierLink failed: status={get_resp.status_code}")
         
         elif resp.status_code == 404:
-            print(f"   âŒ CINT survey {survey_id} not found (404) â€” survey closed")
+            print(f"   âŒ CINT survey {survey_id} not found (404) — survey closed")
         else:
             print(f"   âŒ CINT SupplierLink Create failed: status={resp.status_code}")
         
@@ -1210,7 +1210,7 @@ async def create_cint_entry_link(
                 )
                 print(f"   ðŸ’¾ Stored cint_hashed_pid={hashed_pid[:16]}... mid={mid[:8]}... for traffic_id={traffic_id}")
             except Exception as store_err:
-                print(f"   âš ï¸ Failed to store cint_hashed_pid (non-fatal): {store_err}")
+                print(f"   [warn] Failed to store cint_hashed_pid (non-fatal): {store_err}")
             
             return entry_url
         
@@ -1274,7 +1274,7 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
         candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age, relaxed=True)
         
         if not candidates:
-            print(f"   âš ï¸ CINT fallback: No candidates available for country={country_code}")
+            print(f"   [warn] CINT fallback: No candidates available for country={country_code}")
             return None
         
         # Try top-3 scored surveys (candidates are sorted by _score_cint_survey)
@@ -1327,7 +1327,7 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
             }
         )
         
-        print(f"   âœ… CINT fallback SUCCESS: survey {survey_id}")
+        print(f"   [ok] CINT fallback SUCCESS: survey {survey_id}")
         return {
             "survey_id": survey_id,
             "entry_link": entry_link,
@@ -1357,7 +1357,7 @@ def set_cpx_entry_guards_collection(collection: Collection):
     """Set the CPX entry guards collection for single-use ext_user_id enforcement"""
     global cpx_entry_guards_collection
     cpx_entry_guards_collection = collection
-    print("âœ… CPX entry guards collection set for single-use ext_user_id enforcement")
+    print("[ok] CPX entry guards collection set for single-use ext_user_id enforcement")
 
 
 def check_cpx_entry_guard(ext_user_id: str, client_ip: str = None, user_agent: str = None) -> dict:
@@ -1369,7 +1369,7 @@ def check_cpx_entry_guard(ext_user_id: str, client_ip: str = None, user_agent: s
     """
     if cpx_entry_guards_collection is None:
         # If collection not available, allow (fail-open for backwards compatibility)
-        print("âš ï¸ CPX entry guards collection not available - allowing entry (fail-open)")
+        print("[warn] CPX entry guards collection not available - allowing entry (fail-open)")
         return {"allowed": True, "reason": "guard_collection_not_configured", "existing_status": None}
     
     try:
@@ -1414,7 +1414,7 @@ def check_cpx_entry_guard(ext_user_id: str, client_ip: str = None, user_agent: s
         
         try:
             cpx_entry_guards_collection.insert_one(guard_doc)
-            print(f"âœ… CPX ENTRY GUARD: Registered new ext_user_id '{ext_user_id}' with status CREATED")
+            print(f"[ok] CPX ENTRY GUARD: Registered new ext_user_id '{ext_user_id}' with status CREATED")
             return {"allowed": True, "reason": "new_ext_user_id", "existing_status": None}
         except Exception as dup_err:
             # Race condition - another request registered it first
@@ -1424,7 +1424,7 @@ def check_cpx_entry_guard(ext_user_id: str, client_ip: str = None, user_agent: s
             raise
             
     except Exception as e:
-        print(f"âš ï¸ CPX ENTRY GUARD ERROR: {e} - allowing entry (fail-open)")
+        print(f"[warn] CPX ENTRY GUARD ERROR: {e} - allowing entry (fail-open)")
         import traceback
         traceback.print_exc()
         return {"allowed": True, "reason": f"guard_error_{str(e)[:50]}", "existing_status": None}
@@ -1437,7 +1437,7 @@ def update_cpx_entry_guard_status(ext_user_id: str, new_status: str, survey_id: 
     Call this AFTER generating the entry link but BEFORE returning to frontend.
     """
     if cpx_entry_guards_collection is None:
-        print("âš ï¸ CPX entry guards collection not available - cannot update status")
+        print("[warn] CPX entry guards collection not available - cannot update status")
         return False
     
     try:
@@ -1457,14 +1457,14 @@ def update_cpx_entry_guard_status(ext_user_id: str, new_status: str, survey_id: 
         )
         
         if result.modified_count > 0:
-            print(f"âœ… CPX ENTRY GUARD: Updated ext_user_id '{ext_user_id}' status to '{new_status}'")
+            print(f"[ok] CPX ENTRY GUARD: Updated ext_user_id '{ext_user_id}' status to '{new_status}'")
             return True
         else:
-            print(f"âš ï¸ CPX ENTRY GUARD: No document found to update for ext_user_id '{ext_user_id}'")
+            print(f"[warn] CPX ENTRY GUARD: No document found to update for ext_user_id '{ext_user_id}'")
             return False
             
     except Exception as e:
-        print(f"âš ï¸ CPX ENTRY GUARD UPDATE ERROR: {e}")
+        print(f"[warn] CPX ENTRY GUARD UPDATE ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -1550,13 +1550,13 @@ async def cint_callback(
     URL format: /cint-response?status={status}&pid={pid}&mid={mid}&revenue={revenue}
     
     Cint appends additional tracking parameters via Supplier Redirect template:
-    - survey_id: [%RSFN%] â€” Cint survey number
-    - marketplace_status: [%InitialStatus%] â€” Cint's initial marketplace status
-    - client_status: [%ClientStatus%] â€” Client-side status
-    - termed_qualification_id: [%TermedQualificationID%] â€” Qual that caused term
-    - termed_quota_id: [%TermedQuotaID%] â€” Quota that caused term
-    - rpi: [%REVENUE%] â€” Revenue per interview (duplicate of revenue)
-    - Demographic data (42=AGE, 43=GENDER, etc.) â€” captured in full query string
+    - survey_id: [%RSFN%] — Cint survey number
+    - marketplace_status: [%InitialStatus%] — Cint's initial marketplace status
+    - client_status: [%ClientStatus%] — Client-side status
+    - termed_qualification_id: [%TermedQualificationID%] — Qual that caused term
+    - termed_quota_id: [%TermedQuotaID%] — Quota that caused term
+    - rpi: [%REVENUE%] — Revenue per interview (duplicate of revenue)
+    - Demographic data (42=AGE, 43=GENDER, etc.) — captured in full query string
     """
     try:
         print(f"ðŸ“¥ Cint Callback received: status={status}, pid={pid}, mid={mid}, revenue={revenue}")
@@ -1589,14 +1589,14 @@ async def cint_callback(
         if lookup_id:
             traffic_record = await async_url_collection.find_one({"cint_hashed_pid": lookup_id})
             if traffic_record:
-                print(f"âœ… Found traffic record by cint_hashed_pid: {lookup_id[:16]}...")
+                print(f"[ok] Found traffic record by cint_hashed_pid: {lookup_id[:16]}...")
         
         # Fallback: try as raw ObjectId (legacy, before hashed PID was used)
         if not traffic_record:
             try:
                 traffic_record = await async_url_collection.find_one({"_id": ObjectId(lookup_id)})
                 if traffic_record:
-                    print(f"âœ… Found traffic record by ObjectId: {lookup_id}")
+                    print(f"[ok] Found traffic record by ObjectId: {lookup_id}")
             except:
                 pass
         
@@ -1609,7 +1609,7 @@ async def cint_callback(
             traffic_record = await async_url_collection.find_one({"cint_mid": mid})
         
         if not traffic_record:
-            print(f"âš ï¸ Traffic record not found for pid={pid}, mid={mid}")
+            print(f"[warn] Traffic record not found for pid={pid}, mid={mid}")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
         
         # Get vendor info
@@ -1803,7 +1803,7 @@ async def cint_callback(
                 if vendor:
                     redirect_url = _extract_redirect_url(vendor, "completeRD", redirect_url, respondent_id)
                 else:
-                    # No vendor found â€” still append respondent ID to fallback
+                    # No vendor found — still append respondent ID to fallback
                     if respondent_id:
                         separator = "&" if "?" in redirect_url else "?"
                         redirect_url = f"{redirect_url}{separator}id={respondent_id}"
@@ -1811,7 +1811,7 @@ async def cint_callback(
                 separator = "&" if "?" in redirect_url else "?"
                 redirect_url = f"{redirect_url}{separator}id={respondent_id}"
 
-            print(f"âœ… Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
+            print(f"[ok] Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
 
         # TERMINATED / OVERQUOTA / QUALITY_TERM from Cint: redirect to vendor terminate URL
@@ -1828,7 +1828,7 @@ async def cint_callback(
             separator = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{separator}id={respondent_id}"
 
-        print(f"âœ… Cint {new_status}, redirecting to {redirect_url}")
+        print(f"[ok] Cint {new_status}, redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
 
     except Exception as e:
@@ -1839,7 +1839,7 @@ async def cint_callback(
 
 
 # =============================================================================
-# PROJECT-BASED (ADHOC) SURVEY CALLBACKS â€” api=false flow
+# PROJECT-BASED (ADHOC) SURVEY CALLBACKS — api=false flow
 # These endpoints are called by external survey tools (e.g. Zoho) when a
 # respondent completes, terminates, or hits quota-full on an adhoc project.
 # They mirror the /cint-response pattern: look up traffic record â†’ vendor â†’
@@ -1856,8 +1856,8 @@ async def _handle_project_survey_callback(
 
     Parameters
     ----------
-    rid : str  â€“ Traffic record ObjectId (SFWID) passed as query param by the survey tool.
-    outcome : str â€“ One of "complete", "terminate", "quotafull".
+    rid : str  – Traffic record ObjectId (SFWID) passed as query param by the survey tool.
+    outcome : str – One of "complete", "terminate", "quotafull".
     """
     status_map = {
         "complete":  ("COMPLETE",    "completeRD"),
@@ -1871,7 +1871,7 @@ async def _handle_project_survey_callback(
         print(f"ðŸ“¥ Project callback [{outcome.upper()}]: rid={rid}")
 
         if not rid:
-            print("âš ï¸ Project callback: missing rid")
+            print("[warn] Project callback: missing rid")
             await _log_callback_error(request, f"project-{outcome}", "missing_id")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
 
@@ -1884,7 +1884,7 @@ async def _handle_project_survey_callback(
             pass
 
         if not traffic_record:
-            print(f"âš ï¸ Project callback: traffic record not found for rid={rid}")
+            print(f"[warn] Project callback: traffic record not found for rid={rid}")
             await _log_callback_error(request, f"project-{outcome}", "not_found")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
 
@@ -1936,9 +1936,9 @@ async def _handle_project_survey_callback(
                     else:
                         redirect_url = base_url
                 else:
-                    print(f"âš ï¸ Vendor {vendor.get('vendorName')} has no {rd_field} configured")
+                    print(f"[warn] Vendor {vendor.get('vendorName')} has no {rd_field} configured")
             else:
-                print(f"âš ï¸ Vendor not found for vid={vendor_id}")
+                print(f"[warn] Vendor not found for vid={vendor_id}")
 
         # Encrypt rid and append panel= to the redirect URL.
         # AES-256-GCM encryption prevents URL spoofing / fabricated completions.
@@ -1979,7 +1979,7 @@ async def _handle_project_survey_callback(
                 _parsed._replace(query=_urlencode({k: v[0] for k, v in _params.items()}))
             )
 
-        print(f"âœ… Project [{outcome.upper()}]: Redirecting to {redirect_url}")
+        print(f"[ok] Project [{outcome.upper()}]: Redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
 
     except Exception as e:
@@ -2114,7 +2114,7 @@ async def cpx_callback(
             log_result = await async_logs_col.insert_one(initial_log_entry)
             initial_log_id = log_result.inserted_id
         except Exception as log_error:
-            print(f"âš ï¸ Failed to log callback: {log_error}")
+            print(f"[warn] Failed to log callback: {log_error}")
         
         # Idempotency Check (Async)
         hour_bucket = datetime.utcnow().strftime("%Y%m%d%H")
@@ -2125,7 +2125,7 @@ async def cpx_callback(
             "success": True
         })
         if existing_callback:
-            print(f"âš ï¸ Duplicate CPX callback: {callback_key}")
+            print(f"[warn] Duplicate CPX callback: {callback_key}")
             existing_redirect = existing_callback.get("vendor_redirect_url")
             if existing_redirect:
                 return RedirectResponse(url=existing_redirect)
@@ -2229,7 +2229,7 @@ async def cpx_callback(
                     }}
                 )
             except Exception as log_error:
-                print(f"âš ï¸ Failed to update CPX log: {log_error}")
+                print(f"[warn] Failed to update CPX log: {log_error}")
         
         # Encrypt rid and append panel= to the redirect URL (Panel vendors only).
         # AES-256-GCM encryption prevents URL spoofing / fabricated completions.
@@ -2315,7 +2315,7 @@ async def cpx_callback(
                 await get_async_cpx_callback_logs_collection().insert_one(error_log)
                 print(f"ðŸ“ Logged error to callback logs")
             except Exception as log_err:
-                print(f"âš ï¸ Failed to log error: {log_err}")
+                print(f"[warn] Failed to log error: {log_err}")
         
         # Always redirect to terminate page on error
         return RedirectResponse(url=ZOHO_TERMINATE_URL)
@@ -2613,12 +2613,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             # Use client-provided IP (from browser - CRITICAL for CPX compatibility)
             client_ip = client_provided_ip
             print(f"ðŸ“ Using browser-collected IP: {client_ip} (source: {client_ip_source})")
-            print(f"   âœ… This IP will match what CPX sees when user clicks survey")
+            print(f"   [ok] This IP will match what CPX sees when user clicks survey")
         else:
             # Fallback: Extract from server headers (may cause mismatch on mobile)
             client_ip, client_ip_source = extract_real_client_ip(request)
             print(f"ðŸ“ Using server-extracted IP: {client_ip} (source: {client_ip_source})")
-            print(f"   âš ï¸ Server IP may differ from browser IP on mobile networks")
+            print(f"   [warn] Server IP may differ from browser IP on mobile networks")
         
         # Extract User-Agent from request headers (for CPX fingerprint matching)
         client_user_agent = data.get('userAgent') or request.headers.get("User-Agent") or ""
@@ -2731,7 +2731,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
 
         # Log IP extraction for debugging
         if not client_ip:
-            print("âš ï¸ WARNING: No valid IP could be extracted! CPX API targeting may fail.")
+            print("[warn] WARNING: No valid IP could be extracted! CPX API targeting may fail.")
         
         # ===================================================================================
         # STEP 1: CREATE TRAFFIC RECORD (SFWID) - ASYNCHRONOUS
@@ -2770,9 +2770,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     result = await async_url_collection.insert_one(data)
                     traffic_id = str(result.inserted_id)
                 
-                print(f"âœ… Created traffic record (ASYNC SFWID): {traffic_id}")
+                print(f"[ok] Created traffic record (ASYNC SFWID): {traffic_id}")
             except Exception as e:
-                print(f"âš ï¸ Failed to create async traffic record: {e}")
+                print(f"[warn] Failed to create async traffic record: {e}")
         
         # Legacy fallback - store as before but async
         if not traffic_id:
@@ -2799,9 +2799,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 }
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
-                print(f"âœ… Created traffic record (LEGACY FALLBACK): {traffic_id}")
+                print(f"[ok] Created traffic record (LEGACY FALLBACK): {traffic_id}")
             except Exception as fallback_err:
-                print(f"âš ï¸ Legacy fallback traffic record creation also failed: {fallback_err}")
+                print(f"[warn] Legacy fallback traffic record creation also failed: {fallback_err}")
                 # traffic_id remains None; allocation block will be skipped gracefully
         
         # ===============================================================================
@@ -2817,7 +2817,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         _resolve_project_client_variable_async(project_doc), timeout=4.0
                     )
                 except asyncio.TimeoutError:
-                    print("âš ï¸ Client variable lookup timed out â€” proceeding without it")
+                    print("[warn] Client variable lookup timed out — proceeding without it")
                     client_variable = ""
                 base_live_link = project_doc.get("liveLink") or project_doc.get("clientLink") or ""
                 
@@ -2840,7 +2840,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             "updatedAt": datetime.utcnow().isoformat(),
                         }}
                     )
-                    print(f"âœ… PROJECT allocation success: survey {survey_id}")
+                    print(f"[ok] PROJECT allocation success: survey {survey_id}")
                 else:
                     allocation_error = "Project has no live link configured."
             else:
@@ -2867,7 +2867,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 # Check if CPX service is available
                 if cpx_service is None:
-                    print("âš ï¸ CPX ASYNC: CPX service not available")
+                    print("[warn] CPX ASYNC: CPX service not available")
                     allocation_error = "CPX service not available"
                     return False
                 
@@ -2937,7 +2937,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             }}
                         )
                     else:
-                        print("âš ï¸ CPX allocation succeeded but no traffic_id to update record")
+                        print("[warn] CPX allocation succeeded but no traffic_id to update record")
                     return True
                 cpx_error = (
                     result.get("error")
@@ -2948,7 +2948,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 return False
                     
             except Exception as e:
-                print(f"âš ï¸ CPX async allocation error: {e}")
+                print(f"[warn] CPX async allocation error: {e}")
                 allocation_error = f"CPX allocation exception: {str(e)}"
                 return False
 
@@ -3022,13 +3022,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 upsert=True,
                             )
                         except Exception:
-                            pass  # non-critical â€” don't block allocation
+                            pass  # non-critical — don't block allocation
 
                         return True
                 return False
                     
             except Exception as e:
-                print(f"âš ï¸ CINT async allocation error: {e}")
+                print(f"[warn] CINT async allocation error: {e}")
                 allocation_error = f"CINT allocation exception: {str(e)}"
                 return False
         
@@ -3099,7 +3099,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         }
         
         if not allocation_success:
-            print(f"âš ï¸ No allocation achieved. Error: {allocation_error}")
+            print(f"[warn] No allocation achieved. Error: {allocation_error}")
             # Build vendor terminate redirect so the user is sent back to vendor
             if vendor_id:
                 try:
@@ -3110,7 +3110,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     response_data["redirect_url"] = terminate_url
                     print(f"ðŸ”€ Terminate redirect: {terminate_url}")
                 except Exception as vex:
-                    print(f"âš ï¸ Could not build vendor terminate URL: {vex}")
+                    print(f"[warn] Could not build vendor terminate URL: {vex}")
                     response_data["redirect_url"] = f"{ZOHO_TERMINATE_URL}?id={respondent_id}" if respondent_id else ZOHO_TERMINATE_URL
             else:
                 response_data["redirect_url"] = f"{ZOHO_TERMINATE_URL}?id={respondent_id}" if respondent_id else ZOHO_TERMINATE_URL
@@ -3239,7 +3239,7 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
                 raise HTTPException(status_code=400, detail="Invalid CPX entry link domain")
         
         # Perform HTTP 302 redirect (preserves CPX parameters and request integrity)
-        print(f"âœ… CPX Redirect: Redirecting SFWID {id} to survey")
+        print(f"[ok] CPX Redirect: Redirecting SFWID {id} to survey")
         return RedirectResponse(url=entry_link, status_code=302)
         
     except HTTPException:
@@ -4415,7 +4415,7 @@ async def vendor_takesurvey(
     pid: str = Query(None, description="Project number (surveyNo) from study pool"),
     vid: str = Query(None, description="Vendor ID"),
     cc: str = Query(None, description="Country code (ISO2)"),
-    rid: str = Query(None, description="Respondent ID from vendor â€” stored, replaced with SFWID"),
+    rid: str = Query(None, description="Respondent ID from vendor — stored, replaced with SFWID"),
 ):
     """
     Vendor Traffic Parsing Page
@@ -4494,7 +4494,7 @@ async def vendor_takesurvey(
         # --- Step 1: Resolve vendor (for later use in /vendor-response) ---
         vendor_doc = await _resolve_vendor_async(vendor_id)
         if not vendor_doc:
-            print(f"âš ï¸ /takesurvey: Vendor {vendor_id} not found â€” proceeding without vendor record")
+            print(f"[warn] /takesurvey: Vendor {vendor_id} not found — proceeding without vendor record")
 
         # --- Step 2: Resolve project from study pool ---
         project_doc = await _resolve_live_project_async(project_number)
@@ -4550,13 +4550,13 @@ async def vendor_takesurvey(
         async_url_collection = get_async_url_parameters_collection()
         result = await async_url_collection.insert_one(traffic_record)
         sfwid = str(result.inserted_id)
-        print(f"âœ… /takesurvey: Traffic record created â€” SFWID={sfwid}")
+        print(f"[ok] /takesurvey: Traffic record created — SFWID={sfwid}")
 
         # --- Step 4: Resolve client variable from finance customer record ---
         client_variable = await _resolve_project_client_variable_async(project_doc)
         print(f"   Client variable: '{client_variable or '(auto-detect)'}'")
 
-        # --- Step 5: Build entry link â€” replace respondent placeholder with SFWID ---
+        # --- Step 5: Build entry link — replace respondent placeholder with SFWID ---
         entry_link = _replace_live_link_respondent(base_live_link, sfwid, client_variable)
         survey_id = project_doc.get("surveyNo") or project_number
 
@@ -4578,7 +4578,7 @@ async def vendor_takesurvey(
             },
         )
 
-        print(f"âœ… /takesurvey: Redirecting SFWID={sfwid} â†’ {entry_link[:80]}...")
+        print(f"[ok] /takesurvey: Redirecting SFWID={sfwid} â†’ {entry_link[:80]}...")
         return RedirectResponse(url=entry_link)
 
     except Exception as e:
@@ -4592,7 +4592,7 @@ async def vendor_takesurvey(
 async def vendor_response_callback(
     request: Request,
     status: str = Query(..., description="Survey outcome: complete, terminate, quota_full"),
-    sfwid: str = Query(None, description="SFWID â€” our traffic record ID (set as client variable)"),
+    sfwid: str = Query(None, description="SFWID — our traffic record ID (set as client variable)"),
     rid: str = Query(None, description="Respondent ID (optional fallback)"),
 ):
     """
@@ -4632,7 +4632,7 @@ async def vendor_response_callback(
         try:
             traffic_record = await async_url_collection.find_one({"_id": ObjectId(sfwid)})
             if traffic_record:
-                print(f"âœ… /vendor-response: Found traffic record by ObjectId: {sfwid}")
+                print(f"[ok] /vendor-response: Found traffic record by ObjectId: {sfwid}")
         except Exception:
             pass
 
@@ -4641,7 +4641,7 @@ async def vendor_response_callback(
             traffic_record = await async_url_collection.find_one({"_id": sfwid})
 
         if not traffic_record:
-            print(f"âš ï¸ /vendor-response: Traffic record not found for sfwid={sfwid}")
+            print(f"[warn] /vendor-response: Traffic record not found for sfwid={sfwid}")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
 
         vendor_id = traffic_record.get("vendorId")
@@ -4695,7 +4695,7 @@ async def vendor_response_callback(
             sep = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{sep}panel={panel_id}"
 
-        print(f"âœ… /vendor-response: {new_status} â†’ {redirect_url}")
+        print(f"[ok] /vendor-response: {new_status} â†’ {redirect_url}")
         return RedirectResponse(url=redirect_url)
 
     except Exception as e:

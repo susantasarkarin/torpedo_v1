@@ -14,10 +14,12 @@ from fastapi import APIRouter, HTTPException, Body, Query, Depends
 from typing import Optional, Dict, Any
 
 try:
+    from ..middleware.rate_limit import web_lead_rate_limit
     from ..app.services import crm_service
     from ..app.models import crm_objects
     from ..app.security import require
 except ImportError:  # pragma: no cover - absolute import fallback
+    from middleware.rate_limit import web_lead_rate_limit
     from app.services import crm_service
     from app.models import crm_objects
     from app.security import require
@@ -134,6 +136,25 @@ async def report_activity(days: int = Query(30, ge=1, le=365),
     return crm_service.activity_report(days=days)
 
 
+@router.get("/spine-health")
+async def spine_health(_user: str = Depends(require_read)):
+    """
+    Mirror health (TOR-13).
+
+    Every spine_connector mirror swallows its exceptions so a mirror failure
+    can never break the legacy write that triggered it. That is the right call
+    for availability and the wrong one for visibility: a mirror failing all day
+    was indistinguishable from one never invoked. `failed` should be 0 — a
+    non-zero value means legacy records exist with no spine counterpart, and
+    the nightly reconcile only re-converges what it explicitly handles.
+    """
+    try:
+        from app.services.spine_connector import mirror_stats
+    except ImportError:
+        from backend.app.services.spine_connector import mirror_stats
+    return mirror_stats()
+
+
 @router.get("/duplicates/accounts")
 async def duplicate_accounts(_user: str = Depends(require_read)):
     """Groups of accounts whose names collapse to the same dedupe key."""
@@ -223,17 +244,32 @@ async def draft_email_for_contact(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/web-to-lead")
+@router.post("/web-to-lead", dependencies=[Depends(web_lead_rate_limit)])
 async def web_to_lead(payload: Dict[str, Any] = Body(...)):
     """
-    Public inbound lead capture for website forms. Honeypot field `website_hp`
-    must be empty; optional WEB_LEAD_TOKEN env enforces a shared secret.
+    Public inbound lead capture for website forms.
+
+    Three gates, because this is the one endpoint that writes to the database
+    with no session (TOR-10):
+      1. rate limit (5/hour per source IP) — see middleware/rate_limit.py
+      2. honeypot field `website_hp` must be empty
+      3. WEB_LEAD_TOKEN shared secret
+
+    The token used to be optional and defaulted to empty, which skipped the
+    check entirely — so in practice the honeypot was the only protection and
+    anyone could write unbounded documents into crm_db.leads, each firing a
+    notification. It is REQUIRED now: with no token configured the endpoint
+    refuses rather than accepting anonymous writes.
     """
     import os as _os
     if (payload.get("website_hp") or "").strip():
         return {"ok": True}  # bot fell in the honeypot; pretend success
-    expected = _os.getenv("WEB_LEAD_TOKEN", "")
-    if expected and payload.get("token") != expected:
+    expected = _os.getenv("WEB_LEAD_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Web lead capture is not configured (WEB_LEAD_TOKEN unset).")
+    if payload.get("token") != expected:
         raise HTTPException(status_code=403, detail="Invalid token")
     email = (payload.get("email") or "").strip().lower()
     name = (payload.get("name") or "").strip()

@@ -1,5 +1,5 @@
-﻿"""
-Health Router v2 â€” System health overview, email deliverability, and alerts.
+"""
+Health Router v2 — System health overview, email deliverability, and alerts.
 """
 
 from __future__ import annotations

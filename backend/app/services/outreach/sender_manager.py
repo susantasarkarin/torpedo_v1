@@ -1,4 +1,4 @@
-﻿"""
+"""
 Sender Manager Service.
 
 Manages email sender accounts, warmup status, and allocation.

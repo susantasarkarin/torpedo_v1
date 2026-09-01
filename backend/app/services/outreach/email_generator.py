@@ -1,4 +1,4 @@
-﻿"""
+"""
 Email Generator Service.
 
 Generates personalized initial outreach emails and follow-ups

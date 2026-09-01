@@ -1,0 +1,25 @@
+# Pins the file encoding, which .gitattributes cannot do (TOR-29).
+#
+# Twelve source files were UTF-8 read as cp1252 and re-saved, leaving mojibake
+# in docstrings and comments, and 32 more carried a UTF-8 BOM (main.py among
+# them). All were repaired 2026-09-01; this is what stops it recurring. The
+# root cause is Windows editors defaulting to the system codepage.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{js,jsx,ts,tsx,json,css,scss,html}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

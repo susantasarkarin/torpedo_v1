@@ -1,4 +1,4 @@
-﻿"""
+"""
 Email Processor Pipeline
 Processes emails from torpedo_gmail.email_metadata (and legacy mail_pool)
 â†’ classified_gmail â†’ leads_enriched via canonical ingestion.
@@ -400,7 +400,7 @@ class EmailProcessor:
                 "attachments": [] if not doc.get("has_attachments") else ["_placeholder_"],
                 "_source_collection": "email_metadata",
             }
-        # mail_pool: already has nested sender dict â€” pass through
+        # mail_pool: already has nested sender dict — pass through
         return {**doc, "_source_collection": "mail_pool"}
 
     # â”€â”€ Workspace email_metadata processing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -456,7 +456,7 @@ class EmailProcessor:
                     result = self.classified_gmail.insert_one(classified_doc)
                     classified_doc["_id"] = result.inserted_id
                 except Exception:
-                    pass  # duplicate key â€” already classified
+                    pass  # duplicate key — already classified
 
                 segment = classified_doc.get("segment", "")
                 confidence = classified_doc.get("confidence", 0)
@@ -595,7 +595,7 @@ class EmailProcessor:
             print(f"   Errors: {len(stats['errors'])}")
         print()
         
-        print("âœ… Email processor test completed!")
+        print("[ok] Email processor test completed!")
         
     except Exception as e:
         print(f"âŒ Error: {e}")

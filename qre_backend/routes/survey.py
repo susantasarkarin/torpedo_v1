@@ -424,17 +424,17 @@ async def submit_answer(payload: AnswerPayload):
     _study_id = respondent.get("study_id")  # used for scoped quota enforcement
 
     # ==========================================================================
-    # SECTION S â€” SCREENER (Q1-Q7)
+    # SECTION S — SCREENER (Q1-Q7)
     # ==========================================================================
 
-    # Q1 â€” Industry screener
+    # Q1 — Industry screener
     if qid == "Q1":
         codes = answer if isinstance(answer, list) else [answer]
         if any(int(c) in Q1_TERMINATE_CODES for c in codes):
             return await _terminate(db, rid, "Q1_industry_disqualified", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q2")
 
-    # Q2 â€” City qualification + hard quota (n=200 per city)
+    # Q2 — City qualification + hard quota (n=200 per city)
     if qid == "Q2":
         code = _coerce_int(answer)
         if code not in CITY_CODE_MAP:
@@ -449,7 +449,7 @@ async def submit_answer(payload: AnswerPayload):
         )
         return RoutingDecision(action="next", next_question_id="Q3")
 
-    # Q3 â€” Age qualification + quota
+    # Q3 — Age qualification + quota
     if qid == "Q3":
         code = _coerce_int(answer)
         if code in (1, 5):
@@ -476,21 +476,21 @@ async def submit_answer(payload: AnswerPayload):
                 )
         return RoutingDecision(action="next", next_question_id="Q5")
 
-    # Q5 â€” Decision maker gate
+    # Q5 — Decision maker gate
     if qid == "Q5":
         code = _coerce_int(answer)
         if code == 3:
             return await _terminate(db, rid, "Q5_not_decision_maker", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q6")
 
-    # Q6 â€” Household durables / NCCS proxy; terminate if no electricity or fan
+    # Q6 — Household durables / NCCS proxy; terminate if no electricity or fan
     if qid == "Q6":
         codes = [int(c) for c in (answer if isinstance(answer, list) else [answer])]
         if 1 not in codes or 2 not in codes:
             return await _terminate(db, rid, "Q6_below_minimum_durables", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q7")
 
-    # Q7 â€” Education + NCCS classification and quota
+    # Q7 — Education + NCCS classification and quota
     if qid == "Q7":
         code = _coerce_int(answer)
         if code in (5, 6):
@@ -515,7 +515,7 @@ async def submit_answer(payload: AnswerPayload):
         return RoutingDecision(action="next", next_question_id="Q8")
 
     # ==========================================================================
-    # MODULE A â€” THE DISCOVERY JOURNEY (Q8-Q16)
+    # MODULE A — THE DISCOVERY JOURNEY (Q8-Q16)
     # ==========================================================================
 
     # Q8 — Category incidence; determines Module C blocks
@@ -534,7 +534,7 @@ async def submit_answer(payload: AnswerPayload):
             active_categories=active_cats,
         )
 
-    # Q9â€“Q11 â€” Sequential, no skip logic
+    # Q9–Q11 — Sequential, no skip logic
     if qid in ("Q9", "Q10", "Q11"):
         nxt = {"Q9": "Q10", "Q10": "Q11", "Q11": "Q12"}[qid]
         return RoutingDecision(action="next", next_question_id=nxt)
@@ -556,7 +556,7 @@ async def submit_answer(payload: AnswerPayload):
     if qid == "Q41":
         return RoutingDecision(action="next", next_question_id="Q13")
 
-    # Q13â€“Q14 â€” Sequential
+    # Q13–Q14 — Sequential
     if qid in ("Q13", "Q14"):
         nxt = {"Q13": "Q14", "Q14": "Q15"}[qid]
         return RoutingDecision(action="next", next_question_id=nxt)
@@ -593,7 +593,7 @@ async def submit_answer(payload: AnswerPayload):
         return RoutingDecision(action="next", next_question_id="Q17")
 
     # ==========================================================================
-    # MODULE B â€” TRUST BY SOURCE (Q17-Q24)
+    # MODULE B — TRUST BY SOURCE (Q17-Q24)
     # ==========================================================================
 
     # Q17 - Trust hierarchy grid (straight-liner check; terminate if both grids flagged)
@@ -618,7 +618,7 @@ async def submit_answer(payload: AnswerPayload):
         _check_max_select(qid, answer, 3)
         return RoutingDecision(action="next", next_question_id="Q19")
 
-    # Q19â€"Q23 â€" Sequential
+    # Q19—"Q23 —" Sequential
     if qid in ("Q19", "Q20", "Q21", "Q22", "Q23"):
         nxt = {
             "Q19": "Q20", "Q20": "Q21",
@@ -626,14 +626,14 @@ async def submit_answer(payload: AnswerPayload):
         }[qid]
         return RoutingDecision(action="next", next_question_id=nxt)
 
-    # Q24 â€” Spend trend; route to Module C or Section D
+    # Q24 — Spend trend; route to Module C or Section D
     if qid == "Q24":
         fresh = await db.respondents.find_one({"_id": rid}, {"active_categories": 1})
         first_q = _first_mc_question(fresh or respondent)
         return RoutingDecision(action="next", next_question_id=first_q)
 
     # ==========================================================================
-    # MODULE C â€” COMPETITIVE LANDSCAPE (Q25-Q35 per category; max 3 blocks)
+    # MODULE C — COMPETITIVE LANDSCAPE (Q25-Q35 per category; max 3 blocks)
     # Question IDs encoded as Q{25-35}_{cat_key}
     # ==========================================================================
 
@@ -642,7 +642,7 @@ async def submit_answer(payload: AnswerPayload):
         q_num = int(mc_match.group(1))
         cat_key = mc_match.group(2)
 
-        # Q25 â€” Usage frequency; skip entire block if code 6 (not used)
+        # Q25 — Usage frequency; skip entire block if code 6 (not used)
         if q_num == 25:
             code = _coerce_int(answer)
             if code == 6:
@@ -653,17 +653,17 @@ async def submit_answer(payload: AnswerPayload):
         if q_num == 31:
             _check_max_select(qid, answer, 3)
             return RoutingDecision(action="next", next_question_id=f"Q32_{cat_key}")
-        # Q26â€“Q34 â€” Sequential within block
+        # Q26–Q34 — Sequential within block
         if 26 <= q_num <= 34:
             return RoutingDecision(action="next", next_question_id=f"Q{q_num + 1}_{cat_key}")
 
-        # Q35 â€” Switching intent; end of category block
+        # Q35 — Switching intent; end of category block
         if q_num == 35:
             next_q = _next_mc_or_demo(respondent, cat_key)
             return RoutingDecision(action="next", next_question_id=next_q)
 
     # ==========================================================================
-    # SECTION D â€” DEMOGRAPHICS (Q36-Q40)
+    # SECTION D — DEMOGRAPHICS (Q36-Q40)
     # ==========================================================================
 
     if qid in ("Q36", "Q37", "Q38", "Q39"):

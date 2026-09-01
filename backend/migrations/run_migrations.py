@@ -1,4 +1,4 @@
-﻿"""
+"""
 Migration Runner
 
 Orchestrates execution of all database migrations in order.

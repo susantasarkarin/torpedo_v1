@@ -8,7 +8,7 @@ REST API endpoints for campaign management.
 from datetime import datetime
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Query, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, Query, HTTPException, Depends, BackgroundTasks, Body
 from pydantic import BaseModel, Field
 from bson import ObjectId
 from pymongo import MongoClient

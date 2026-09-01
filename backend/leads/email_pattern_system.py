@@ -170,7 +170,7 @@ class EmailPatternSystem:
         # Tier 1: Database lookup
         pattern = self._lookup_database(domain)
         if pattern:
-            # Never return a blacklisted domain pattern â€” it causes too many bounces
+            # Never return a blacklisted domain pattern — it causes too many bounces
             if pattern.get("pattern_blacklisted"):
                 return None
             return pattern
@@ -202,7 +202,7 @@ class EmailPatternSystem:
                 self._store_pattern(pattern)
                 return pattern
         
-        # Tier 4: Pattern guessing â€” skip for domains with known bounce history
+        # Tier 4: Pattern guessing — skip for domains with known bounce history
         risk = self.get_domain_risk(domain)
         if risk.get("pattern_blacklisted") or risk.get("high_bounce_risk"):
             return None
@@ -851,7 +851,7 @@ class EmailPatternSystem:
                     # Use Skrapp-returned pattern if available, otherwise extract from email
                     skrapp_pattern = data.get("pattern", "")
                     if skrapp_pattern:
-                        # Skrapp returns patterns like "{first}.{last}" â€” append domain
+                        # Skrapp returns patterns like "{first}.{last}" — append domain
                         if "@" not in skrapp_pattern:
                             pattern_str = f"{skrapp_pattern}@{{domain}}"
                         else:
@@ -1071,7 +1071,7 @@ class EmailPatternSystem:
             )
             import logging as _log
             _log.getLogger(__name__).warning(
-                f"[PatternFeedback] âœ— {domain} bounce recorded â€” "
+                f"[PatternFeedback] âœ— {domain} bounce recorded — "
                 f"rate={bounce_rate:.0%} conf={old_conf:.2f}â†’{new_conf:.2f} "
                 f"high_risk={high_risk} blacklisted={blacklisted}"
             )
@@ -1293,7 +1293,7 @@ if __name__ == "__main__":
         print(f"   By source: {stats['by_source']}")
         print(f"   Hunter.io configured: {stats['hunter_api_configured']}\n")
         
-        print("âœ… All tests completed!")
+        print("[ok] All tests completed!")
         
     except Exception as e:
         print(f"âŒ Error: {e}")
