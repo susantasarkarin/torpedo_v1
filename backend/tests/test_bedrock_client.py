@@ -20,7 +20,7 @@ Run with: pytest backend/tests/test_bedrock_client.py -v
 import json
 import os
 import sys
-import threading
+import time as _real_time
 from unittest.mock import MagicMock, patch
 
 import pytest

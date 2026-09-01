@@ -57,6 +57,29 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,  # Re-queue if worker dies
     task_time_limit=3600,  # 1 hour max per task
     task_soft_time_limit=3300,  # Soft limit 55 min
+
+    # DUPLICATE-DELIVERY GUARD (TOR-41).
+    #
+    # Redis's broker visibility_timeout defaults to 3600s — exactly equal to
+    # task_time_limit above. With acks_late=True the ack only lands when the
+    # task finishes, so a task still running as the visibility timeout expires
+    # is redelivered to a SECOND worker while the first is still executing.
+    #
+    # That is not theoretical here: the panel invite sender is a paced,
+    # concurrent batch loop whose runtime scales with recipient count, and a
+    # duplicate delivery of it re-sends to everyone whose last_invited_at had
+    # not yet been written. It is the most plausible mechanism for repeating
+    # the 2026-08 over-send.
+    #
+    # visibility_timeout must exceed the longest possible task duration, so it
+    # is set above the hard time limit with margin. The global send budget in
+    # backend/messaging is the backstop if this is ever wrong again.
+    broker_transport_options={
+        'visibility_timeout': 7200,   # 2x task_time_limit
+    },
+    result_backend_transport_options={
+        'visibility_timeout': 7200,
+    },
     
     # Worker settings
     worker_prefetch_multiplier=4,  # Better throughput (was 1)

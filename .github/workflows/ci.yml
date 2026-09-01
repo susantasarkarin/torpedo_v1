@@ -84,6 +84,30 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  dependency-audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    # Reports, does not gate (TOR-51). A new advisory in a transitive
+    # dependency should be visible immediately, but it should not block an
+    # unrelated deploy at 2am — that is how audit steps get disabled.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements-ci.txt || true
+          pip-audit -r backend/requirements-outreach.txt || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: npm audit (shipped dependencies only)
+        working-directory: Campaign_platform
+        run: npm audit --omit=dev || true
+
   no-secrets:
     name: No secrets or PII in the tree
     runs-on: ubuntu-latest

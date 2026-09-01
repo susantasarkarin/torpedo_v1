@@ -140,4 +140,8 @@ databases>=0.8.0
 # Used by routers/email_campaigns.py for template rendering. It was never
 # declared, so that router failed to import and silently never mounted on any
 # host without jinja2 already present (TOR-05 surfaced it).
-jinja2==3.1.4
+#
+# Was pinned to ==3.1.4 when first added, which carries three advisories
+# (PYSEC-2026-1471/1472/1475). Caught by the pip-audit run added for TOR-51 —
+# which is the argument for that CI step in one line.
+jinja2>=3.1.6
