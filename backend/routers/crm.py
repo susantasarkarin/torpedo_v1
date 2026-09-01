@@ -130,6 +130,54 @@ def report_activity(days: int = Query(30, ge=1, le=365),
     return crm_service.activity_report(days=days)
 
 
+@router.get("/lead-sources")
+def lead_sources(_user: str = Depends(require_read)):
+    """
+    Where leads live, and how many are in each store (TOR-21).
+
+    "How many leads do we have" has five answers, because five collections hold
+    leads and different dashboards read different ones. Consolidating them is a
+    data migration; this is the part that makes the disagreement explicable
+    today — every count, side by side, with what each store is FOR.
+
+    `crm_db.leads` is the canonical answer. The others are stages that feed it:
+    leads_raw is unfiltered discovery output, leads_enriched is post-ingestion,
+    outreach_leads is enrollment state, email_leads is mail-pool extraction.
+    A dashboard reading anything but crm_db.leads should say so in its UI.
+    """
+    try:
+        from db_pools import get_db
+    except ImportError:
+        from backend.db_pools import get_db
+
+    stores = [
+        ("crm_db", "leads", "CANONICAL — the spine's lead object"),
+        ("email_automation", "leads_raw", "raw discovery output, pre-dedupe"),
+        ("email_automation", "leads_enriched", "post canonical-ingestion"),
+        ("email_automation", "outreach_leads", "outreach enrollment state"),
+        ("email_automation", "email_leads", "extracted from the mail pool"),
+    ]
+    out = []
+    for dbname, colname, purpose in stores:
+        try:
+            count = get_db(dbname)[colname].estimated_document_count()
+        except Exception:
+            count = None
+        out.append({
+            "database": dbname,
+            "collection": colname,
+            "count": count,
+            "purpose": purpose,
+            "canonical": dbname == "crm_db",
+        })
+    return {
+        "canonical": "crm_db.leads",
+        "stores": out,
+        "note": "Counts differ by design — these are pipeline stages, not "
+                "copies. Only crm_db.leads answers 'how many leads do we have'.",
+    }
+
+
 @router.get("/spine-health")
 def spine_health(_user: str = Depends(require_read)):
     """

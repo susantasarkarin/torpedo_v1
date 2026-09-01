@@ -39,6 +39,12 @@ jobs:
       - name: Check every intra-project import resolves
         run: python backend/scripts/check_imports.py
 
+      # Ratchet, not a ban (TOR-22): four live modules still construct AI
+      # clients directly and need their request/response shapes rewritten to
+      # migrate. This stops the count growing while that happens.
+      - name: No new direct AI clients outside ai_governance/
+        run: python backend/scripts/check_ai_gateway.py
+
       # The whole suite, not a hand-picked eighth of it (TOR-14).
       #
       # This used to run backend/tests/smoke minus seven ignored files plus
