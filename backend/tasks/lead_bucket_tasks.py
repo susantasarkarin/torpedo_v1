@@ -8,10 +8,7 @@ hand. Routed to the ai_processing queue.
 
 import logging
 
-try:
-    from backend.celery_app import celery_app
-except ImportError:
-    from celery_app import celery_app
+from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +25,7 @@ def classify_lead_bucket_batch(self, limit: int = None):
     """Classify up to `limit` unclassified leads (newest first). Defaults to
     CLASSIFY_DAILY_CAP when limit is not given."""
     try:
-        try:
-            from leads.bucket_classifier import run, CLASSIFY_DAILY_CAP
-        except ImportError:
-            from backend.leads.bucket_classifier import run, CLASSIFY_DAILY_CAP
+        from leads.bucket_classifier import run, CLASSIFY_DAILY_CAP
         result = run(limit=limit or CLASSIFY_DAILY_CAP)
         logger.info(f"[bucket-classifier] batch done: {result}")
         return result

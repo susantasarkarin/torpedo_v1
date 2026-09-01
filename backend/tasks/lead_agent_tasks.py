@@ -124,30 +124,8 @@ def run_lead_generation_pipeline(
         Job result summary
     """
     from bson import ObjectId
-    try:
-        from ..agents import (
-            CompanyDiscoveryAgent,
-            ContactFinderAgent,
-            LeadEnricherAgent,
-            LeadScorerAgent,
-            OutreachComposerAgent,
-            LeadDeduplicator,
-            DAILY_LEAD_LIMIT,
-            LEADS_PER_BATCH,
-        )
-        from ..agents.schemas import AgentConfig, AgentStatus
-    except ImportError:
-        from agents import (
-            CompanyDiscoveryAgent,
-            ContactFinderAgent,
-            LeadEnricherAgent,
-            LeadScorerAgent,
-            OutreachComposerAgent,
-            LeadDeduplicator,
-            DAILY_LEAD_LIMIT,
-            LEADS_PER_BATCH,
-        )
-        from agents.schemas import AgentConfig, AgentStatus
+    from agents import CompanyDiscoveryAgent, ContactFinderAgent, LeadEnricherAgent, LeadScorerAgent, OutreachComposerAgent, LeadDeduplicator, DAILY_LEAD_LIMIT, LEADS_PER_BATCH
+    from agents.schemas import AgentConfig, AgentStatus
     
     db = get_agents_db()
     task_id = self.request.id

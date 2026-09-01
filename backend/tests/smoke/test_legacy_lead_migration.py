@@ -15,10 +15,10 @@ crm_service = None
 migration = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
+    from app.services import crm_service as _svc
     crm_service = _svc
-    migration = importlib.import_module("backend.migrations.002_migrate_legacy_leads")
-    from backend.database import get_database
+    migration = importlib.import_module("migrations.002_migrate_legacy_leads")
+    from database import get_database
 except Exception as e:  # pragma: no cover
     _import_error = e
 

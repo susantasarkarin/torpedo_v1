@@ -30,6 +30,15 @@ jobs:
       - name: Install CI dependencies
         run: pip install -r backend/requirements-ci.txt
 
+      # Static counterpart to the fail-fast router mounts (TOR-05/TOR-11).
+      # With the 338 relative/absolute import fallbacks gone, a broken import
+      # is a real failure rather than something the other branch papers over —
+      # catch it here in seconds instead of at boot. This is what found
+      # leads/clay_routes.py importing five of its own siblings as top-level
+      # modules.
+      - name: Check every intra-project import resolves
+        run: python backend/scripts/check_imports.py
+
       # The whole suite, not a hand-picked eighth of it (TOR-14).
       #
       # This used to run backend/tests/smoke minus seven ignored files plus

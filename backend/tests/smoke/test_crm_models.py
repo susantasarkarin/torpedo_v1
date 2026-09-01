@@ -1,4 +1,4 @@
-from backend.app.models.crm_objects import Account, Contact, Lead
+from app.models.crm_objects import Account, Contact, Lead
 
 
 def test_account_model():

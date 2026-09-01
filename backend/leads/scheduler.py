@@ -36,10 +36,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -717,7 +714,7 @@ async def run_cpx_refresh() -> dict:
             count = surveys.count_documents({})
             print(f"[Scheduler] CPX Refresh: ✅ {count} surveys in DB")
             return {"processed": 1, "surveys": count}
-        except:
+        except Exception:
             return {"processed": 0, "message": "CPX integration not available"}
     except Exception as e:
         print(f"[Scheduler] CPX Refresh error: {e}")

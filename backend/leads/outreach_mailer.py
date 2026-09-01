@@ -56,10 +56,7 @@ logger = logging.getLogger("outreach_mailer")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): was its own MongoClient at import time.
-try:
-    from ..database import get_client as _get_client
-except ImportError:
-    from database import get_client as _get_client
+from database import get_client as _get_client
 _db = _get_client()["email_automation"]
 send_log = _db["outreach_send_logs"]
 
@@ -228,10 +225,7 @@ def generate_email(lead: Dict[str, Any], bucket: str
     Generate and validate an email, regenerating on validation failure.
     Returns (subject, body, problems). On success problems is empty.
     """
-    try:
-        from .bedrock_client import converse_json_object
-    except ImportError:
-        from leads.bedrock_client import converse_json_object
+    from leads.bedrock_client import converse_json_object
 
     lead_id = str(lead.get("_id", "?"))
     last_problems: List[str] = ["not attempted"]
@@ -343,10 +337,7 @@ def cap_status() -> Dict[str, Any]:
 
 def _facade_send(**kwargs):
     """Thin indirection so tests can patch the facade at this module's level."""
-    try:
-        from messaging import send as _send
-    except ImportError:
-        from backend.messaging import send as _send
+    from messaging import send as _send
     return _send(**kwargs)
 
 
@@ -413,10 +404,7 @@ def record_unsubscribe(email: str, campaign_id: Optional[str] = None) -> None:
 
 
 def _suppress(email: str, reason: str, campaign_id: Optional[str]) -> None:
-    try:
-        from .outreach_qualification import _get_suppression_manager
-    except ImportError:
-        from leads.outreach_qualification import _get_suppression_manager
+    from leads.outreach_qualification import _get_suppression_manager
     try:
         _get_suppression_manager().add(email, reason, source_campaign_id=campaign_id)
         logger.info("suppressed %s reason=%s", email.lower().strip(), reason)

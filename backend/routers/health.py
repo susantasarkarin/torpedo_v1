@@ -31,10 +31,7 @@ async def redis_health() -> Dict[str, Any]:
     Check Redis session store health.
     Returns detailed Redis connection status.
     """
-    try:
-        from session_store import SessionStore
-    except ImportError:
-        from backend.session_store import SessionStore
+    from session_store import SessionStore
     
     store = await SessionStore.get_instance()
     return await store.health_check()
@@ -71,10 +68,7 @@ async def detailed_health() -> Dict[str, Any]:
     
     # Check Redis
     try:
-        try:
-            from session_store import SessionStore
-        except ImportError:
-            from backend.session_store import SessionStore
+        from session_store import SessionStore
         
         store = await SessionStore.get_instance()
         redis_health = await store.health_check()

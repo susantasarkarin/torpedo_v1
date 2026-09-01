@@ -221,7 +221,7 @@ class RBACService:
         """Get user by ID."""
         try:
             doc = self.users.find_one({"_id": ObjectId(user_id)})
-        except:
+        except Exception:
             doc = self.users.find_one({"email": user_id.lower()})
         
         if doc:
@@ -271,7 +271,7 @@ class RBACService:
         """Update a user."""
         try:
             oid = ObjectId(user_id)
-        except:
+        except Exception:
             return None
         
         update_doc = {"updated_at": datetime.utcnow()}
@@ -303,7 +303,7 @@ class RBACService:
                 {"$set": {"status": UserStatus.INACTIVE.value, "updated_at": datetime.utcnow()}}
             )
             return result.modified_count > 0
-        except:
+        except Exception:
             return False
     
     def assign_role(self, user_id: str, role_code: str, assigned_by: Optional[str] = None) -> bool:

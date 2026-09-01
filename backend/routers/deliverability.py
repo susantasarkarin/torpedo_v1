@@ -15,14 +15,9 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from pydantic import BaseModel, Field
 
-try:
-    from deliverability.domain_health import DomainHealthService
-    from campaigns.rate_limiter import RateLimitService
-    from database import get_database
-except ImportError:
-    from backend.deliverability.domain_health import DomainHealthService
-    from backend.campaigns.rate_limiter import RateLimitService
-    from backend.database import get_database
+from deliverability.domain_health import DomainHealthService
+from campaigns.rate_limiter import RateLimitService
+from database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -581,20 +576,14 @@ def sending_status(identity: Optional[str] = Query(None)):
     volume across every send path, against one budget, plus how far the
     suppression migration has got.
     """
-    try:
-        from messaging import status as _status
-    except ImportError:
-        from backend.messaging import status as _status
+    from messaging import status as _status
     return _status(identity)
 
 
 @router.get("/sending/suppression/{email}")
 def suppression_lookup(email: str):
     """Is this address suppressed, why, and which list is holding it."""
-    try:
-        from messaging import suppression as _sup
-    except ImportError:
-        from backend.messaging import suppression as _sup
+    from messaging import suppression as _sup
     record = _sup.lookup(email)
     return {
         "email": _sup.normalize(email),
@@ -614,10 +603,7 @@ def suppression_add(payload: Dict[str, Any] = Body(...)):
     email = (payload.get("email") or "").strip()
     if not email:
         raise HTTPException(status_code=422, detail="email is required")
-    try:
-        from messaging import suppression as _sup
-    except ImportError:
-        from backend.messaging import suppression as _sup
+    from messaging import suppression as _sup
     added = _sup.suppress(
         email,
         reason=payload.get("reason") or "manual",
@@ -630,8 +616,5 @@ def suppression_add(payload: Dict[str, Any] = Body(...)):
 @router.delete("/sending/suppression/{email}")
 def suppression_remove(email: str):
     """Remove from every list — a partial removal leaves the address blocked."""
-    try:
-        from messaging import suppression as _sup
-    except ImportError:
-        from backend.messaging import suppression as _sup
+    from messaging import suppression as _sup
     return {"email": _sup.normalize(email), "removed": _sup.unsuppress(email)}

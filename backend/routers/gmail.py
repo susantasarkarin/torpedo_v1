@@ -70,10 +70,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # more forgiving, not less. Everything else (serverSelection/connect timeouts)
 # matches, and the pool is capped at maxPoolSize=30 instead of pymongo's
 # default 100 — which is the whole point on a 2 GB box shared with mongod.
-try:
-    from ..database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 mongo_client = get_client()
 gmail_db = mongo_client["torpedo_gmail"]
 accounts_collection = gmail_db["accounts"]
@@ -613,7 +610,7 @@ async def delete_account(account_id: str, request: Request):
         if account_id in _authenticators:
             try:
                 _authenticators[account_id].revoke_credentials()
-            except:
+            except Exception:
                 pass
             del _authenticators[account_id]
         
@@ -723,7 +720,7 @@ async def delete_account_by_id(account_id: str, request: Request):
         if actual_id in _authenticators:
             try:
                 _authenticators[actual_id].revoke_credentials()
-            except:
+            except Exception:
                 pass
             del _authenticators[actual_id]
         
@@ -1819,7 +1816,7 @@ def parse_email_address(from_string):
             else:
                 decoded_str += part
         from_string = decoded_str
-    except:
+    except Exception:
         pass
     
     # Match "Name <email>" pattern
@@ -2193,12 +2190,12 @@ def get_mail_pool_emails(
             if date_from:
                 try:
                     date_query["$gte"] = datetime.strptime(date_from, "%Y-%m-%d")
-                except:
+                except Exception:
                     pass
             if date_to:
                 try:
                     date_query["$lte"] = datetime.strptime(date_to, "%Y-%m-%d")
-                except:
+                except Exception:
                     pass
             if date_query:
                 query["timestamp"] = date_query
@@ -3609,7 +3606,7 @@ try:
     WEBSOCKET_AVAILABLE = True
 except ImportError:
     try:
-        from backend.websocket_manager import connection_manager, BroadcastPriority
+        from websocket_manager import connection_manager, BroadcastPriority
         WEBSOCKET_AVAILABLE = True
     except ImportError:
         WEBSOCKET_AVAILABLE = False
@@ -3797,7 +3794,7 @@ def is_sync_cancelled(mailbox_id: str) -> bool:
     try:
         cancel_key = get_sync_cancellation_key(mailbox_id)
         return _sync_redis.get(cancel_key) == "1"
-    except:
+    except Exception:
         return False
 
 
@@ -3807,7 +3804,7 @@ def clear_sync_cancellation(mailbox_id: str):
         try:
             cancel_key = get_sync_cancellation_key(mailbox_id)
             _sync_redis.delete(cancel_key)
-        except:
+        except Exception:
             pass
 
 

@@ -6,10 +6,7 @@ from urllib.parse import urlencode
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 
-try:
-    from ...database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 
 class CPXService:

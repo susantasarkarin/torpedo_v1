@@ -42,10 +42,7 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException, Request
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
-try:
-    from .session_store import get_session_store, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
-except ImportError:
-    from session_store import get_session_store, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
+from session_store import get_session_store, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +129,7 @@ def _unpack(payload):
 def current_epoch(username: str) -> int:
     """Read the user's session epoch. Missing user or field -> 0."""
     try:
-        try:
-            from .database import get_database
-        except ImportError:
-            from database import get_database
+        from database import get_database
         doc = get_database("email_automation")["users"].find_one(
             {"username": username}, {"session_epoch": 1}
         )
@@ -153,10 +147,7 @@ def bump_epoch(username: str) -> int:
     Invalidate every existing token for this user. Called on password change
     and on user deletion/deactivation.
     """
-    try:
-        from .database import get_database
-    except ImportError:
-        from database import get_database
+    from database import get_database
     doc = get_database("email_automation")["users"].find_one_and_update(
         {"username": username},
         {"$inc": {"session_epoch": 1}},

@@ -170,10 +170,7 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
     """
     from pymongo import MongoClient
     
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:
@@ -318,10 +315,7 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
     """
     from pymongo import MongoClient
     
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
 
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:

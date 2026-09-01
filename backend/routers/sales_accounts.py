@@ -15,10 +15,7 @@ import os
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -26,10 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 router = APIRouter(prefix="/sales", tags=["Sales Accounts"])
 
@@ -410,10 +404,7 @@ def get_account_overview(account_id: str):
     try:
         crm_account_id = account.get("crm_account_id")
         if crm_account_id:
-            try:
-                from ..app.services import spine_rfq
-            except ImportError:  # pragma: no cover
-                from app.services import spine_rfq
+            from app.services import spine_rfq
 
             listing = spine_rfq.list_rfqs(account_id=crm_account_id, limit=200)
             items = listing["rfqs"]
@@ -571,7 +562,7 @@ def get_account_contacts(account_id: str):
                 contact = leads_collection.find_one({"_id": ObjectId(cid)})
                 if contact:
                     contacts.append(serialize_doc(contact))
-            except:
+            except Exception:
                 pass
         
         return {

@@ -29,20 +29,7 @@ from urllib.parse import quote
 
 from botocore.exceptions import ClientError
 
-try:
-    from services.panel_email_service import (
-        _get_ses_client,
-        PANEL_LOGO_URL,
-        SES_FROM_EMAIL,
-        SES_FROM_NAME,
-    )
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from backend.services.panel_email_service import (
-        _get_ses_client,
-        PANEL_LOGO_URL,
-        SES_FROM_EMAIL,
-        SES_FROM_NAME,
-    )
+from services.panel_email_service import _get_ses_client, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME
 
 logger = logging.getLogger(__name__)
 

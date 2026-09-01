@@ -12,8 +12,8 @@ from bson import ObjectId
 from cryptography.fernet import Fernet
 import os
 
-from backend.database import DatabaseManager
-from backend.linkedin_automation.models import (
+from database import DatabaseManager
+from linkedin_automation.models import (
     LinkedInAccountCreate,
     LinkedInAccountUpdate,
     LinkedInAccountResponse,

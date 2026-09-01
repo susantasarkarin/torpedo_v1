@@ -17,28 +17,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-try:
-    from ai_governance.claude_gateway import (  # re-exported for legacy importers
-        chat_completion,
-        chat_completion_with_escalation,
-        ClaudeChatClient,
-        PREMIUM_MODEL,
-        CHEAP_MODEL,
-        ANTHROPIC_DEFAULT_MODEL,
-    )
-    from ai_governance.ai_gateway import _get_anthropic_api_key, _get_mongo_client
-    from ai_governance.governance_checks import check_ai_daily_limit
-except ImportError:  # package context (tests import as backend.*)
-    from backend.ai_governance.claude_gateway import (
-        chat_completion,
-        chat_completion_with_escalation,
-        ClaudeChatClient,
-        PREMIUM_MODEL,
-        CHEAP_MODEL,
-        ANTHROPIC_DEFAULT_MODEL,
-    )
-    from backend.ai_governance.ai_gateway import _get_anthropic_api_key, _get_mongo_client
-    from backend.ai_governance.governance_checks import check_ai_daily_limit
+from ai_governance.claude_gateway import chat_completion, chat_completion_with_escalation, ClaudeChatClient, PREMIUM_MODEL, CHEAP_MODEL, ANTHROPIC_DEFAULT_MODEL
+from ai_governance.ai_gateway import _get_anthropic_api_key, _get_mongo_client
+from ai_governance.governance_checks import check_ai_daily_limit
 
 logger = logging.getLogger(__name__)
 

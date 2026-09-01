@@ -22,7 +22,7 @@ from bson import ObjectId
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pymongo import MongoClient
-from backend.agents.mail_segregation_agent import (
+from agents.mail_segregation_agent import (
     MailSegregationAgent, 
     ExtractedLead,
     get_mail_segregation_agent
@@ -97,7 +97,7 @@ class VerificationRunner:
             db = self.client.get_database("leads")
             has_leads = "leads" in db.list_collection_names()
             return has_leads
-        except:
+        except Exception:
             # Try ai_enrichment as fallback
             db = self.client.get_database("ai_enrichment")
             return "leads" in db.list_collection_names()
@@ -120,7 +120,7 @@ class VerificationRunner:
                 print(f"  ⚠️ Found placeholder collections: {found_placeholders}")
                 return False
             return True
-        except:
+        except Exception:
             return True  # DB doesn't exist, which is fine
     
     # ========================
@@ -235,7 +235,7 @@ class VerificationRunner:
     def verify_gemini_rotator_import(self):
         """Verify OpenAI rotator can be imported"""
         try:
-            from backend.leads.openai_rotator import get_rotator
+            from leads.openai_rotator import get_rotator
             rotator = get_rotator()
             return rotator is not None
         except ImportError as e:

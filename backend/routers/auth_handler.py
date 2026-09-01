@@ -12,33 +12,13 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, Body, Request, Depends
 
-try:
-    from .auth import hash_password, verify_password, needs_rehash, migrate_user_password
-except ImportError:
-    from auth import hash_password, verify_password, needs_rehash, migrate_user_password
+from auth import hash_password, verify_password, needs_rehash, migrate_user_password
 
-try:
-    from .session_state import (
-        serializer, SESSION_TTL_SECONDS, sessions,
-        get_session_store_instance, verify_session,
-        issue_token, revoke_session, bump_epoch, current_epoch,
-    )
-except ImportError:
-    from session_state import (
-        serializer, SESSION_TTL_SECONDS, sessions,
-        get_session_store_instance, verify_session,
-        issue_token, revoke_session, bump_epoch, current_epoch,
-    )
+from session_state import serializer, SESSION_TTL_SECONDS, sessions, get_session_store_instance, verify_session, issue_token, revoke_session, bump_epoch, current_epoch
 
-try:
-    from .database import get_database
-except ImportError:
-    from database import get_database
+from database import get_database
 
-try:
-    from ..middleware.rate_limit import login_rate_limit
-except ImportError:
-    from middleware.rate_limit import login_rate_limit
+from middleware.rate_limit import login_rate_limit
 
 logger = logging.getLogger(__name__)
 

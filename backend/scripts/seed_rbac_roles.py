@@ -34,12 +34,8 @@ import argparse
 import logging
 import sys
 
-try:
-    from database import get_database
-    from rbac.simple import SIMPLE_ROLES
-except ImportError:  # pragma: no cover
-    from backend.database import get_database
-    from backend.rbac.simple import SIMPLE_ROLES
+from database import get_database
+from rbac.simple import SIMPLE_ROLES
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("seed_rbac_roles")

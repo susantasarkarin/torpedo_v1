@@ -32,14 +32,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
-try:
-    from services.panel_bounce_handler import (
-        panelists_collection, suppression_collection, invitation_log_collection,
-    )
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from backend.services.panel_bounce_handler import (
-        panelists_collection, suppression_collection, invitation_log_collection,
-    )
+from services.panel_bounce_handler import panelists_collection, suppression_collection, invitation_log_collection
 
 logger = logging.getLogger(__name__)
 

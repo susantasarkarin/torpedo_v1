@@ -30,7 +30,7 @@ try:
     db = client['traffic_flow_db']
     collection = db['url_parameters']
     print("✅ MongoDB connected successfully!")
-except:
+except Exception:
     collection = None
     print("❌ MongoDB NOT connected")
 

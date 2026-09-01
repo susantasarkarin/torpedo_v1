@@ -760,7 +760,7 @@ async def create_transaction(
         body_data = {}
         try:
             body_data = await request.json()
-        except:
+        except Exception:
             pass  # No JSON body, use query params
         
         # Prefer body data, fall back to query params

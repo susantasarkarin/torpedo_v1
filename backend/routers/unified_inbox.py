@@ -521,7 +521,7 @@ async def get_email(
     
     try:
         doc = emails_collection.find_one({"_id": ObjectId(email_id)})
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid email ID")
     
     if not doc:
@@ -582,7 +582,7 @@ async def bulk_operation(
     # Convert IDs
     try:
         object_ids = [ObjectId(eid) for eid in operation.email_ids]
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid email ID(s)")
     
     # Build update based on operation

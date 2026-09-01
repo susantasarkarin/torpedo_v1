@@ -23,12 +23,8 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-try:
-    from ai_governance.ai_gateway import get_ai_gateway
-    from ai_governance.governance_checks import AIDailyLimitExceeded
-except ImportError:
-    from backend.ai_governance.ai_gateway import get_ai_gateway
-    from backend.ai_governance.governance_checks import AIDailyLimitExceeded
+from ai_governance.ai_gateway import get_ai_gateway
+from ai_governance.governance_checks import AIDailyLimitExceeded
 
 logger = logging.getLogger(__name__)
 

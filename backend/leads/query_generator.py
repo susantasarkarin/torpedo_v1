@@ -28,10 +28,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -51,7 +48,7 @@ search_plans_cache = db['search_plans_cache']
 try:
     search_plans_cache.create_index("created_at", expireAfterSeconds=72 * 60 * 60)
     search_plans_cache.create_index("plan_hash", unique=True)
-except:
+except Exception:
     pass
 
 

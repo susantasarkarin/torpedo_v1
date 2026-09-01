@@ -1116,7 +1116,7 @@ async def create_cint_entry_link(
         try:
             resp_body = resp.json()
             print(f"      Body: {resp_body}")
-        except:
+        except Exception:
             print(f"      Body (raw): {resp.text[:500]}")
             resp_body = {}
         
@@ -1137,7 +1137,7 @@ async def create_cint_entry_link(
             try:
                 get_body = get_resp.json()
                 print(f"      Body: {get_body}")
-            except:
+            except Exception:
                 get_body = {}
                 print(f"      Body (raw): {get_resp.text[:500]}")
             
@@ -1597,7 +1597,7 @@ async def cint_callback(
                 traffic_record = await async_url_collection.find_one({"_id": ObjectId(lookup_id)})
                 if traffic_record:
                     print(f"[ok] Found traffic record by ObjectId: {lookup_id}")
-            except:
+            except Exception:
                 pass
         
         # Fallback: try by respondentId
@@ -2136,7 +2136,7 @@ async def cpx_callback(
         if decoded_sfwid:
             try:
                 traffic_record = await async_url_collection.find_one({"_id": ObjectId(decoded_sfwid)})
-            except:
+            except Exception:
                 pass
             
             if not traffic_record:
@@ -2481,10 +2481,7 @@ def prefetch_client_ip(request: Request):
     """
     try:
         # Import IP extraction utilities
-        try:
-            from ..utils import extract_real_client_ip, extract_user_agent
-        except ImportError:
-            from utils import extract_real_client_ip, extract_user_agent
+        from utils import extract_real_client_ip, extract_user_agent
         
         # Extract IP from headers (instant, no external calls)
         client_ip, ip_source = extract_real_client_ip(request)
@@ -2588,10 +2585,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # If client doesn't provide IP, we extract it ourselves from headers
         
         # Import utilities for server-side extraction
-        try:
-            from ..utils import extract_real_client_ip, extract_user_agent
-        except ImportError:
-            from utils import extract_real_client_ip, extract_user_agent
+        from utils import extract_real_client_ip, extract_user_agent
         
         # Check if client provided IP (from browser-based collection)
         client_provided_ip = data.get('clientIp')

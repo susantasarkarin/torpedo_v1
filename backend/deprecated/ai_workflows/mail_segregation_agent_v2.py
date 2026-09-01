@@ -26,7 +26,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 # GOVERNANCE IMPORTS - Single source of truth for Gemini
-from backend.ai_governance import (
+from ai_governance import (
     classify_email,
     summarize_email,
     extract_leads_from_email,
@@ -36,7 +36,7 @@ from backend.ai_governance import (
     EmailAlreadyClassified,
     get_governance_status,
 )
-from backend.ai_governance.governance_checks import get_gemini_daily_usage
+from ai_governance.governance_checks import get_gemini_daily_usage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

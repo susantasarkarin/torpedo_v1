@@ -421,7 +421,7 @@ class SendTimeOptimizer:
             return value
         try:
             return ObjectId(value)
-        except:
+        except Exception:
             return ObjectId()
 
 

@@ -13,16 +13,10 @@ canonical Pydantic models in app/models/crm_objects.py.
 from fastapi import APIRouter, HTTPException, Body, Query, Depends
 from typing import Optional, Dict, Any
 
-try:
-    from ..middleware.rate_limit import web_lead_rate_limit
-    from ..app.services import crm_service
-    from ..app.models import crm_objects
-    from ..app.security import require
-except ImportError:  # pragma: no cover - absolute import fallback
-    from middleware.rate_limit import web_lead_rate_limit
-    from app.services import crm_service
-    from app.models import crm_objects
-    from app.security import require
+from middleware.rate_limit import web_lead_rate_limit
+from app.services import crm_service
+from app.models import crm_objects
+from app.security import require
 
 router = APIRouter(prefix="/api/crm", tags=["CRM Spine"])
 
@@ -148,10 +142,7 @@ def spine_health(_user: str = Depends(require_read)):
     non-zero value means legacy records exist with no spine counterpart, and
     the nightly reconcile only re-converges what it explicitly handles.
     """
-    try:
-        from app.services.spine_connector import mirror_stats
-    except ImportError:
-        from backend.app.services.spine_connector import mirror_stats
+    from app.services.spine_connector import mirror_stats
     return mirror_stats()
 
 
@@ -196,12 +187,8 @@ def draft_email_for_contact(
     if not contact.get("email"):
         raise HTTPException(status_code=400, detail="Contact has no email address")
     try:
-        try:
-            from ai_governance.ai_gateway import get_ai_gateway
-            from db_pools import get_db
-        except ImportError:
-            from backend.ai_governance.ai_gateway import get_ai_gateway
-            from backend.db_pools import get_db
+        from ai_governance.ai_gateway import get_ai_gateway
+        from db_pools import get_db
         account = crm_service.get("accounts", contact["account_id"]) \
             if contact.get("account_id") else None
         draft = get_ai_gateway().generate_email_draft(

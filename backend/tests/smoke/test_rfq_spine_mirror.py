@@ -14,8 +14,8 @@ crm_service = None
 rfq = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.routers import rfq as _rfq
+    from app.services import crm_service as _svc
+    from routers import rfq as _rfq
     crm_service, rfq = _svc, _rfq
 except Exception as e:  # pragma: no cover
     _import_error = e

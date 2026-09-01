@@ -20,10 +20,7 @@ import logging
 import base64
 from pymongo.collection import Collection
 
-try:
-    from ...database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 from app.models.cint import (
     CintOpportunity,
@@ -291,7 +288,7 @@ class CintService:
         if isinstance(loi, str):
             try:
                 loi = float(loi)
-            except:
+            except Exception:
                 loi = 0
         
         # Get payout - check multiple field names
@@ -306,7 +303,7 @@ class CintService:
         if isinstance(payout, str):
             try:
                 payout = float(payout)
-            except:
+            except Exception:
                 payout = 0
         
         # Get conversion rate - try bid_incidence first, then incidence_rate
@@ -314,7 +311,7 @@ class CintService:
         if isinstance(incidence, str):
             try:
                 incidence = float(incidence)
-            except:
+            except Exception:
                 incidence = 0
         
         # Filter: LOI must be <= max_loi (skip if LOI is 0, meaning not provided)
@@ -571,7 +568,7 @@ class CintService:
         if isinstance(cpi, str):
             try:
                 cpi = float(cpi)
-            except:
+            except Exception:
                 cpi = 0
         
         # Get LOI

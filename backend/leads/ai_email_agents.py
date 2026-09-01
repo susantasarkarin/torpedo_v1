@@ -34,18 +34,12 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
 # Import AI governance gateway for API calls
-try:
-    from ai_governance.ai_gateway import get_ai_gateway
-except ImportError:
-    from backend.ai_governance.ai_gateway import get_ai_gateway
+from ai_governance.ai_gateway import get_ai_gateway
 
 DEFAULT_MODEL = "ai_governance_gateway"
 

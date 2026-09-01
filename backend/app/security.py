@@ -20,14 +20,9 @@ from typing import Optional
 
 from fastapi import Request, HTTPException
 
-try:
-    from ..database import get_database
-    from ..rbac import can
-    from ..rbac.flags import rbac_enabled as _rbac_enabled
-except ImportError:  # pragma: no cover - absolute import fallback
-    from database import get_database
-    from rbac import can
-    from rbac.flags import rbac_enabled as _rbac_enabled
+from database import get_database
+from rbac import can
+from rbac.flags import rbac_enabled as _rbac_enabled
 
 
 def rbac_enabled() -> bool:
@@ -65,10 +60,7 @@ def _user_roles(user_doc: Optional[dict]) -> list:
 
 async def _authenticated_user(request: Request) -> dict:
     """Resolve the current user (username + roles) via the canonical verifier."""
-    try:
-        from ..main import verify_session
-    except ImportError:  # pragma: no cover
-        from main import verify_session
+    from main import verify_session
 
     username = await verify_session(request)  # raises 401 on bad/missing token
     try:

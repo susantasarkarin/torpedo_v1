@@ -35,10 +35,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -961,7 +958,7 @@ def get_sales_report(report_id: str):
     Get a generated sales report by ID.
     """
     try:
-        from backend.db_pools import get_api_collection
+        from db_pools import get_api_collection
         from bson import ObjectId
         
         # Check dashboards collection

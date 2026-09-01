@@ -14,24 +14,15 @@ import os
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
-try:
-    from ..leads.service import get_emails_for_lead
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from leads.service import get_emails_for_lead
+from leads.service import get_emails_for_lead
 
 router = APIRouter(prefix="/vendor-leads", tags=["Vendor Leads"])
 
@@ -125,7 +116,7 @@ async def get_vendor_lead(lead_id: str, include_emails: bool = Query(True)):
     """Get a single vendor lead by ID, with matching mail thread when available"""
     try:
         obj_id = ObjectId(lead_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead ID")
 
     lead = vendor_leads_collection.find_one({"_id": obj_id})
@@ -171,7 +162,7 @@ async def update_vendor_lead(lead_id: str, lead_data: dict = Body(...)):
     """Update a vendor lead"""
     try:
         obj_id = ObjectId(lead_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead ID")
     
     update = {k: v for k, v in lead_data.items() if k != "_id"}
@@ -193,7 +184,7 @@ async def delete_vendor_lead(lead_id: str):
     """Delete a vendor lead"""
     try:
         obj_id = ObjectId(lead_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead ID")
     
     result = vendor_leads_collection.delete_one({"_id": obj_id})
@@ -215,7 +206,7 @@ async def bulk_delete_vendor_leads(data: dict = Body(...)):
     for id in ids:
         try:
             obj_ids.append(ObjectId(id))
-        except:
+        except Exception:
             pass
     
     result = vendor_leads_collection.delete_many({"_id": {"$in": obj_ids}})
@@ -246,7 +237,7 @@ async def transfer_from_ai_database(data: dict = Body(...)):
     
     try:
         obj_id = ObjectId(lead_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead_id format")
     
     # Get source collection
@@ -368,7 +359,7 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
             # Validate ObjectId format
             try:
                 obj_id = ObjectId(lead_id)
-            except:
+            except Exception:
                 skipped += 1
                 errors.append(f"Invalid ObjectId format: {lead_id}")
                 continue
@@ -481,7 +472,7 @@ async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
     
     try:
         obj_id = ObjectId(lead_id)
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead_id")
     
     # Find the vendor lead
@@ -505,7 +496,7 @@ async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
             try:
                 num = int(last_vendor["vendor_number"].replace("VEND-", ""))
                 new_num = f"VEND-{num + 1:05d}"
-            except:
+            except Exception:
                 new_num = "VEND-00001"
         else:
             new_num = "VEND-00001"

@@ -30,10 +30,7 @@ logger = logging.getLogger(__name__)
 # Canonical ingestion — the ONLY way leads should enter the system
 def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
-    try:
-        from leads.canonical_ingestion import ingest_lead
-    except ImportError:
-        from backend.leads.canonical_ingestion import ingest_lead
+    from leads.canonical_ingestion import ingest_lead
 
     payload = {
         "email": lead_data.get("email"),
@@ -56,10 +53,7 @@ def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _is_duplicate_in_enriched(email: str) -> bool:
     """Check if a lead with this email already exists in leads_enriched (the canonical collection)."""
-    try:
-        from leads.canonical_ingestion import leads_enriched
-    except ImportError:
-        from backend.leads.canonical_ingestion import leads_enriched
+    from leads.canonical_ingestion import leads_enriched
     return leads_enriched.count_documents({"email": email}, limit=1) > 0
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

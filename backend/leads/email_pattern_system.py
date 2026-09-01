@@ -114,7 +114,7 @@ class EmailPatternSystem:
             settings = self.settings_db["app_settings"].find_one()
             if settings and "hunter_api_key" in settings:
                 return settings["hunter_api_key"]
-        except:
+        except Exception:
             pass
         
         return os.getenv("HUNTER_API_KEY")
@@ -348,7 +348,7 @@ class EmailPatternSystem:
                             if domain in email.lower():
                                 emails_found.append(email)
                 
-                except:
+                except Exception:
                     continue
             
             if emails_found:
@@ -576,10 +576,7 @@ class EmailPatternSystem:
             return None
 
         full_name = f"{first} {last}".strip()
-        try:
-            from ai_governance.claude_gateway import get_claude_gateway
-        except ImportError:
-            from backend.ai_governance.claude_gateway import get_claude_gateway
+        from ai_governance.claude_gateway import get_claude_gateway
 
         query = (
             f"Search the web for the real, publicly listed work email address of "

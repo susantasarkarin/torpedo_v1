@@ -19,10 +19,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 
-try:
-    from backend.celery_app import celery_app
-except ImportError:
-    from celery_app import celery_app
+from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +32,7 @@ DEACTIVATION_CONV_THRESHOLD = 0.05
 
 
 def _get_db():
-    try:
-        from db_pools import get_db
-    except ImportError:
-        from backend.db_pools import get_db
+    from db_pools import get_db
     return get_db
 
 

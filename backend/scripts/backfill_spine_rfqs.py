@@ -46,12 +46,8 @@ log = logging.getLogger(__name__)
 
 
 def _imports():
-    try:
-        from db_pools import get_db
-        from app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from backend.db_pools import get_db
-        from backend.app.services import crm_service
+    from db_pools import get_db
+    from app.services import crm_service
     return get_db, crm_service
 
 
@@ -194,10 +190,7 @@ def adopt_spine_accounts(dry_run: bool = False) -> dict:
     """Run the reverse reconcile immediately instead of waiting for the nightly beat."""
     get_db, crm_service = _imports()
 
-    try:
-        from tasks.crm_spine_tasks import _adopt_spine_accounts_into_sales
-    except ImportError:  # pragma: no cover
-        from backend.tasks.crm_spine_tasks import _adopt_spine_accounts_into_sales
+    from tasks.crm_spine_tasks import _adopt_spine_accounts_into_sales
 
     sales_accounts = get_db("email_automation")["sales_accounts"]
     stats: dict = {}
@@ -235,10 +228,7 @@ def queue_mail_backfill(batches: int, per_batch: int, dry_run: bool = False) -> 
                  batches, per_batch, batches * per_batch)
         return {"queued": 0, "would_queue": batches}
 
-    try:
-        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
-    except ImportError:  # pragma: no cover
-        from backend.tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
 
     queued = []
     for _ in range(batches):

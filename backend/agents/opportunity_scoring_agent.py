@@ -23,10 +23,7 @@ import argparse
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-try:
-    from ..app.services import crm_service, ai_engine
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from app.services import crm_service, ai_engine
+from app.services import crm_service, ai_engine
 
 AGENT_NAME = "opportunity_scoring_agent"
 

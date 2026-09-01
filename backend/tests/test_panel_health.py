@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from backend.services import panel_health as H
+from services import panel_health as H
 
 
 @pytest.fixture

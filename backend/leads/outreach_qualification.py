@@ -34,10 +34,7 @@ from pymongo import MongoClient
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -215,10 +212,7 @@ def _get_suppression_manager():
     """Lazily bind the existing campaigns.suppression manager."""
     global _suppression_manager
     if _suppression_manager is None:
-        try:
-            from campaigns.suppression import get_suppression_manager
-        except ImportError:
-            from backend.campaigns.suppression import get_suppression_manager
+        from campaigns.suppression import get_suppression_manager
         _suppression_manager = get_suppression_manager(_db)
     return _suppression_manager
 

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from backend.services import panel_lead_promotion as P
+from services import panel_lead_promotion as P
 
 
 @pytest.fixture

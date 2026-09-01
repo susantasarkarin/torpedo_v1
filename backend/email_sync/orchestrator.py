@@ -19,10 +19,7 @@ from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 
-try:
-    from ..database import get_client
-except ImportError:
-    from database import get_client
+from database import get_client
 
 from .models import (
     MailboxDocument,

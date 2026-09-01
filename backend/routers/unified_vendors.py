@@ -14,19 +14,13 @@ import os
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
 

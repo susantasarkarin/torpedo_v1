@@ -499,15 +499,9 @@ class EmailProcessor:
         ingestion (dedup, enrichment, outreach enrollment all handled there).
         Returns lead_id or None.
         """
-        try:
-            from leads.canonical_ingestion import ingest_lead
-        except ImportError:
-            from backend.leads.canonical_ingestion import ingest_lead
+        from leads.canonical_ingestion import ingest_lead
 
-        try:
-            from leads.gmail_leads_service import extract_name_from_email
-        except ImportError:
-            from backend.leads.gmail_leads_service import extract_name_from_email
+        from leads.gmail_leads_service import extract_name_from_email
 
         sender_email = (
             classified_doc.get("metadata", {}).get("sender_email")
@@ -525,10 +519,7 @@ class EmailProcessor:
         domain = sender_email.split("@")[1]
         if not company:
             # Derive company name from domain (e.g. "research-now.com" â†’ "Research Now")
-            try:
-                from sales.mail_pool_extractor import _derive_company
-            except ImportError:
-                from backend.sales.mail_pool_extractor import _derive_company
+            from sales.mail_pool_extractor import _derive_company
             company = _derive_company(domain)
 
         title = next((c.get("title") for c in contacts if c.get("title")), "")

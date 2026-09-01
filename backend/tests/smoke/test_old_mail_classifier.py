@@ -17,10 +17,10 @@ agent = None
 get_database = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.app.services import ai_engine as _ai
-    from backend.agents import old_mail_classifier as _agent
-    from backend.database import get_database as _get_db
+    from app.services import crm_service as _svc
+    from app.services import ai_engine as _ai
+    from agents import old_mail_classifier as _agent
+    from database import get_database as _get_db
     crm_service, ai_engine, agent, get_database = _svc, _ai, _agent, _get_db
 except Exception as e:  # pragma: no cover
     _import_error = e

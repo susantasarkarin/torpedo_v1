@@ -32,17 +32,11 @@ from urllib.parse import urlparse
 # from per-router copies into backend/utils.py.
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 logger = logging.getLogger(__name__)
 

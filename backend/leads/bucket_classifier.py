@@ -42,10 +42,7 @@ from pymongo import MongoClient
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -384,10 +381,7 @@ def _roles_share_a_model() -> bool:
     pass, making escalation a no-op. Resolved at call time, not import time, so
     pointing the roles at different models via env re-enables escalation without
     a code change."""
-    try:
-        from .bedrock_client import model_for_role
-    except ImportError:
-        from leads.bedrock_client import model_for_role
+    from leads.bedrock_client import model_for_role
     try:
         return model_for_role(CLASSIFIER_ROLE_FIRST_PASS) == model_for_role(
             CLASSIFIER_ROLE_ESCALATION)
@@ -401,10 +395,7 @@ def _classify_with(role: str, prompt: str, lead_id: str
     One classification pass. Returns (bucket, confidence, reason, error).
     `error` is None on success.
     """
-    try:
-        from .bedrock_client import converse_json_object
-    except ImportError:
-        from leads.bedrock_client import converse_json_object
+    from leads.bedrock_client import converse_json_object
 
     try:
         data = converse_json_object(

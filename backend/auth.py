@@ -255,10 +255,7 @@ def get_current_user(request: Request = None) -> dict:
     """
     try:
         # Import here to avoid circular imports at module load time
-        try:
-            from .main import verify_session, serializer, SESSION_TTL_SECONDS
-        except Exception:
-            from main import verify_session, serializer, SESSION_TTL_SECONDS
+        from main import verify_session, serializer, SESSION_TTL_SECONDS
 
         username = None
         # verify_session returns username (the serializer payload)
@@ -272,10 +269,7 @@ def get_current_user(request: Request = None) -> dict:
         username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
 
         # Fetch user from DB
-        try:
-            from .database import get_database
-        except Exception:
-            from database import get_database
+        from database import get_database
         users_col = get_database("email_automation")["users"]
         user = users_col.find_one({"username": username})
         if not user:

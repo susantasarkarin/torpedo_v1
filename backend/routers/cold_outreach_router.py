@@ -611,10 +611,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     # â”€â”€ Fetch sender signature via Gmail API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     signature_html = ""
     if gmail_mailbox:
-        try:
-            from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
-        except ImportError:
-            from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
+        from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
         _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
         _ws = _GWS(mongo_uri=_mongo)
         _ws.load_service_account()
@@ -641,10 +638,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     if gmail_mailbox:
         # Reuse the workspace service created for signature fetch, or create one
         if not signature_html:
-            try:
-                from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
-            except ImportError:
-                from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
+            from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
             _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
             _ws = _GWS2(mongo_uri=_mongo)
             _ws.load_service_account()
@@ -1158,10 +1152,7 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             # and same fail-closed-on-missing-confidence rule as
             # leads.outreach_qualification.check_email(), reused rather than
             # duplicated.
-            try:
-                from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
-            except ImportError:
-                from backend.leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+            from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
             _lead_source = (lead.get("email_source") or "").strip().lower()
             if _lead_source in _GUESSED_SOURCES:
                 _lead_conf = lead.get("email_pattern_confidence")
@@ -1876,10 +1867,7 @@ Sender: {sender_name} ({campaign_ctx.get("sender_title", "")})
 
 Return JSON exactly: {{"subject": "...", "body": "..."}}"""
 
-    try:
-        from leads.bedrock_client import JSONParseError, converse_json_object
-    except ImportError:
-        from backend.leads.bedrock_client import JSONParseError, converse_json_object
+    from leads.bedrock_client import JSONParseError, converse_json_object
 
     try:
         data = converse_json_object(
@@ -1948,10 +1936,7 @@ _STEP_INSTRUCTIONS: Dict[int, str] = {
 
 def _get_gmail_workspace_service():
     """Return a ready GmailWorkspaceService instance loaded from DB credentials."""
-    try:
-        from app.services.gmail_workspace_service import GmailWorkspaceService
-    except ImportError:
-        from backend.app.services.gmail_workspace_service import GmailWorkspaceService
+    from app.services.gmail_workspace_service import GmailWorkspaceService
 
     mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     svc = GmailWorkspaceService(mongo_uri=mongo_uri, db_name="torpedo_gmail")
@@ -2321,10 +2306,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # pattern_derived/guessed, so this is the only check that catches a
         # fabricated or dead company_domain regardless of email_source.
         try:
-            try:
-                from app.services.outreach.email_validator import EmailValidator
-            except ImportError:
-                from backend.app.services.outreach.email_validator import EmailValidator
+            from app.services.outreach.email_validator import EmailValidator
             _valid, _reason = EmailValidator(db).validate_before_send(email)
             if not _valid:
                 logger.warning(f"[Outreach] Skipping {email}: deliverability check failed ({_reason})")
@@ -2403,10 +2385,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # at a domain with no send history yet would otherwise sail through
         # on its very first attempt. Reuses GUESSED_EMAIL_SOURCES from
         # leads.outreach_qualification rather than duplicating the list.
-        try:
-            from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
-        except ImportError:
-            from backend.leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+        from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
         _source_norm = (email_source_flag or "").strip().lower()
         if _source_norm in _GUESSED_SOURCES:
             try:

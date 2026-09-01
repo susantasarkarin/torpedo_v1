@@ -113,10 +113,7 @@ invent — a plausible-looking value with no source is worse than null):
 # ============== STORAGE ==============
 
 def _db():
-    try:
-        from db_pools import get_db
-    except ImportError:
-        from backend.db_pools import get_db
+    from db_pools import get_db
     return get_db("email_automation")
 
 
@@ -137,10 +134,7 @@ def _domain_is_real(domain: str) -> bool:
     domain.
     """
     try:
-        try:
-            from app.services.outreach.email_validator import EmailValidator
-        except ImportError:
-            from backend.app.services.outreach.email_validator import EmailValidator
+        from app.services.outreach.email_validator import EmailValidator
         return EmailValidator(_db()).domain_exists(domain)
     except Exception as e:
         logger.debug(f"[Enrichment] domain existence check skipped: {e}")
@@ -198,10 +192,7 @@ def enrich_company_with_websearch(
             logger.debug(f"[Enrichment] cache lookup failed: {e}")
 
     try:
-        try:
-            from ai_governance.claude_gateway import get_claude_gateway
-        except ImportError:
-            from backend.ai_governance.claude_gateway import get_claude_gateway
+        from ai_governance.claude_gateway import get_claude_gateway
         gateway = get_claude_gateway()
 
         query = (f"Company research: '{company_name}'. Find their official "

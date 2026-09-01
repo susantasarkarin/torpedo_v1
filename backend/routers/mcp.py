@@ -11,42 +11,14 @@ import os
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
 # MCP imports
-try:
-    from ..mcp import (
-        get_action_router,
-        MCPActionRouter,
-        MCPAction,
-        MCPActionCreate,
-        MCPActionBatch,
-        ActionStatus,
-        ActionType,
-        EntityType,
-        ActionPriority,
-    )
-    from ..rbac.decorators import require_permission, require_any_permission
-    from ..rbac.permissions import Permissions
-except ImportError:
-    from mcp import (
-        get_action_router,
-        MCPActionRouter,
-        MCPAction,
-        MCPActionCreate,
-        MCPActionBatch,
-        ActionStatus,
-        ActionType,
-        EntityType,
-        ActionPriority,
-    )
-    from rbac.decorators import require_permission, require_any_permission
-    from rbac.permissions import Permissions
+from mcp import get_action_router, MCPActionRouter, MCPAction, MCPActionCreate, MCPActionBatch, ActionStatus, ActionType, EntityType, ActionPriority
+from rbac.decorators import require_permission, require_any_permission
+from rbac.permissions import Permissions
 
 
 router = APIRouter(

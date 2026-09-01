@@ -33,10 +33,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -282,7 +279,7 @@ def decode_email_header(header_value):
         if isinstance(content, bytes):
             try:
                 result += content.decode(charset or 'utf-8', errors='ignore')
-            except:
+            except Exception:
                 result += content.decode('utf-8', errors='ignore')
         else:
             result += str(content)
@@ -302,7 +299,7 @@ def get_email_body(msg) -> str:
                     charset = part.get_content_charset() or 'utf-8'
                     body = payload.decode(charset, errors='ignore')
                     break
-                except:
+                except Exception:
                     continue
             elif content_type == "text/html" and not body:
                 try:
@@ -311,14 +308,14 @@ def get_email_body(msg) -> str:
                     # Basic HTML stripping
                     html_body = payload.decode(charset, errors='ignore')
                     body = re.sub(r'<[^>]+>', '', html_body)
-                except:
+                except Exception:
                     continue
     else:
         try:
             payload = msg.get_payload(decode=True)
             charset = msg.get_content_charset() or 'utf-8'
             body = payload.decode(charset, errors='ignore')
-        except:
+        except Exception:
             body = str(msg.get_payload())
     
     return body.strip()
@@ -703,7 +700,7 @@ def fetch_emails_imap(
                 # Parse date
                 try:
                     email_date = parsedate_to_datetime(date_str)
-                except:
+                except Exception:
                     email_date = datetime.now()
                 
                 # Extract signature info
@@ -866,7 +863,7 @@ def fetch_emails_multi_folder(
                         # Parse date
                         try:
                             email_date = parsedate_to_datetime(date_str)
-                        except:
+                        except Exception:
                             email_date = datetime.utcnow()
                         
                         # Extract signature info
@@ -981,7 +978,7 @@ def generate_rfq_id() -> str:
         try:
             last_num = int(latest["rfq_id"].split("-")[-1])
             new_num = last_num + 1
-        except:
+        except Exception:
             new_num = 1
     else:
         new_num = 1

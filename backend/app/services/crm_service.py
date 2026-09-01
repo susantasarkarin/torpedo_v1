@@ -22,10 +22,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from bson import ObjectId
 from bson.errors import InvalidId
 
-try:
-    from ...database import get_database
-except ImportError:  # pragma: no cover - absolute import fallback
-    from database import get_database
+from database import get_database
 
 CRM_DB_NAME = os.getenv("CRM_DB_NAME", "crm_db")
 

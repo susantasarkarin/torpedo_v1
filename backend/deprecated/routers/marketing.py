@@ -25,12 +25,8 @@ from bson import ObjectId
 from pymongo import MongoClient, DESCENDING
 
 # RBAC
-try:
-    from ..rbac.decorators import require_permission
-    from ..rbac.permissions import Permissions
-except ImportError:
-    from rbac.decorators import require_permission
-    from rbac.permissions import Permissions
+from rbac.decorators import require_permission
+from rbac.permissions import Permissions
 
 # ============== LOGGING ==============
 logger = logging.getLogger(__name__)

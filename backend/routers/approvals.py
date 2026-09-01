@@ -7,38 +7,10 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
 # Workflow engine imports
-try:
-    from ..workflows import (
-        ApprovalEngine,
-        get_approval_engine,
-        ApprovalRequest,
-        ApprovalRequestCreate,
-        ApprovalRule,
-        ApprovalRuleCreate,
-        ApprovalStatus,
-        ApprovalActionType,
-        ApprovalDecision,
-        ApprovalStats,
-    )
-    from ..rbac.decorators import require_permission, require_any_permission
-    from ..rbac.permissions import Permissions
-    from ..database import get_db
-except ImportError:
-    from workflows import (
-        ApprovalEngine,
-        get_approval_engine,
-        ApprovalRequest,
-        ApprovalRequestCreate,
-        ApprovalRule,
-        ApprovalRuleCreate,
-        ApprovalStatus,
-        ApprovalActionType,
-        ApprovalDecision,
-        ApprovalStats,
-    )
-    from rbac.decorators import require_permission, require_any_permission
-    from rbac.permissions import Permissions
-    from database import get_db
+from workflows import ApprovalEngine, get_approval_engine, ApprovalRequest, ApprovalRequestCreate, ApprovalRule, ApprovalRuleCreate, ApprovalStatus, ApprovalActionType, ApprovalDecision, ApprovalStats
+from rbac.decorators import require_permission, require_any_permission
+from rbac.permissions import Permissions
+from database import get_db
 
 
 router = APIRouter(

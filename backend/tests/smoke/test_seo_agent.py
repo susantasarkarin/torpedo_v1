@@ -13,8 +13,8 @@ crm_service = None
 agent = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.agents import seo_agent as _agent
+    from app.services import crm_service as _svc
+    from agents import seo_agent as _agent
     crm_service, agent = _svc, _agent
 except Exception as e:  # pragma: no cover
     _import_error = e

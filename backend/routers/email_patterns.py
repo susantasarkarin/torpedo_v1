@@ -16,10 +16,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -161,7 +158,7 @@ async def analyze_mail_pool(
     4. Report on discovery results
     """
     try:
-        from backend.leads.email_pattern_system import EmailPatternSystem
+        from leads.email_pattern_system import EmailPatternSystem
         
         system = EmailPatternSystem()
         

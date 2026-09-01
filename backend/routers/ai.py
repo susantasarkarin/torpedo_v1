@@ -8,12 +8,8 @@ the human approval gate. Distinct from /api/approvals (generic business approval
 from fastapi import APIRouter, HTTPException, Body, Query, Depends
 from typing import Optional, Dict, Any
 
-try:
-    from ..app.services import ai_engine
-    from ..app.security import require
-except ImportError:  # pragma: no cover - absolute import fallback
-    from app.services import ai_engine
-    from app.security import require
+from app.services import ai_engine
+from app.security import require
 
 router = APIRouter(prefix="/api/ai", tags=["AI Engine"])
 

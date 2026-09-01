@@ -17,10 +17,7 @@ from pydantic import BaseModel, EmailStr, Field
 # module raised ImportError on every real boot and the router silently never
 # mounted (TOR-05/TOR-11). It imported fine under pytest, where backend/ IS a
 # package, which is exactly why nothing noticed.
-try:
-    from ..campaigns.automation import CampaignAutomation
-except ImportError:
-    from campaigns.automation import CampaignAutomation
+from campaigns.automation import CampaignAutomation
 
 logger = logging.getLogger(__name__)
 

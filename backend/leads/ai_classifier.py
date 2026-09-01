@@ -39,17 +39,11 @@ from .models import (
 # Uses OpenAI via AI governance gateway
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
-try:
-    from ai_governance.ai_gateway import get_ai_gateway
-except ImportError:
-    from backend.ai_governance.ai_gateway import get_ai_gateway
+from ai_governance.ai_gateway import get_ai_gateway
 
 load_dotenv()
 
@@ -397,7 +391,7 @@ _company_cache = _enrichment_db['company_enrichment_cache']
 # Create TTL index for cache expiry (30 days)
 try:
     _company_cache.create_index("fetched_at", expireAfterSeconds=30 * 24 * 60 * 60)
-except:
+except Exception:
     pass
 
 

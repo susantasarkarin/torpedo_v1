@@ -15,25 +15,13 @@ from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from fastapi.responses import RedirectResponse, Response
 
-try:
-    from .session_state import verify_session
-except ImportError:
-    from session_state import verify_session
+from session_state import verify_session
 
-try:
-    from .database import get_database
-except ImportError:
-    from database import get_database
+from database import get_database
 
-try:
-    from .services import campaign_service
-except ImportError:
-    from services import campaign_service
+from services import campaign_service
 
-try:
-    from .utils import validate_redirect_url
-except ImportError:
-    from utils import validate_redirect_url
+from utils import validate_redirect_url
 
 logger = logging.getLogger(__name__)
 

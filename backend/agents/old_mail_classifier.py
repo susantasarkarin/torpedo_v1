@@ -33,12 +33,8 @@ Usage:
 import argparse
 from typing import Optional, Dict, Any
 
-try:
-    from ..app.services import crm_service, ai_engine
-    from ..database import get_database
-except ImportError:  # pragma: no cover - absolute import / CLI fallback
-    from app.services import crm_service, ai_engine
-    from database import get_database
+from app.services import crm_service, ai_engine
+from database import get_database
 
 AGENT_NAME = "old_mail_classifier"
 DEFAULT_EXTRACTIONS_DB = "email_automation"

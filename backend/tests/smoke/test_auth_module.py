@@ -1,5 +1,5 @@
 import pytest
-from backend.auth import hash_password, verify_password, needs_rehash
+from auth import hash_password, verify_password, needs_rehash
 
 
 def test_hash_and_verify():

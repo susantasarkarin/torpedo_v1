@@ -221,12 +221,9 @@ def config_summary() -> Dict[str, Any]:
     the same as having no fallback, and that should be visible here rather than
     discovered when the primary fails."""
     try:
-        from .do_inference_client import is_configured as _do_configured
-    except ImportError:  # pragma: no cover - flat import when run from backend/
-        try:
-            from leads.do_inference_client import is_configured as _do_configured
-        except ImportError:
-            _do_configured = lambda: False  # noqa: E731
+        from leads.do_inference_client import is_configured as _do_configured
+    except ImportError:  # pragma: no cover - DO client not present
+        _do_configured = lambda: False  # noqa: E731
 
     return {
         "primary_provider": "bedrock",
@@ -309,10 +306,7 @@ def validate_model_access(roles: Tuple[str, ...] = VALID_ROLES) -> Dict[str, str
     wanted = {role: model_for_role(role) for role in roles}
 
     def _fallback_can_serve() -> bool:
-        try:
-            from .do_inference_client import is_configured
-        except ImportError:  # pragma: no cover - flat import when run from backend/
-            from leads.do_inference_client import is_configured
+        from leads.do_inference_client import is_configured
         return is_configured()
 
     try:
@@ -425,10 +419,7 @@ def provider_of(model_id: str) -> str:
 def _call_do(model_id: str, system: str, user: str,
              max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
     """Route a `do:`-prefixed chain entry to DigitalOcean."""
-    try:
-        from .do_inference_client import chat, is_configured
-    except ImportError:  # pragma: no cover - flat import when run from backend/
-        from leads.do_inference_client import chat, is_configured
+    from leads.do_inference_client import chat, is_configured
 
     if not is_configured():
         # Distinct from an auth failure: nothing is misconfigured upstream,

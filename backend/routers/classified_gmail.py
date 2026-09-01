@@ -22,10 +22,7 @@ from leads.gmail_leads_service import extract_name_from_email
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -523,10 +520,7 @@ async def process_batch(
     Supersedes the legacy mail_pool-based batch processor.
     """
     try:
-        try:
-            from leads.email_processor import EmailProcessor
-        except ImportError:
-            from backend.leads.email_processor import EmailProcessor
+        from leads.email_processor import EmailProcessor
 
         processor = EmailProcessor()
 

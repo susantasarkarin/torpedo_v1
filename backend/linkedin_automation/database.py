@@ -4,7 +4,7 @@ Initializes MongoDB collections and indexes for LinkedIn automation.
 """
 
 import logging
-from backend.database import DatabaseManager
+from database import DatabaseManager
 
 logger = logging.getLogger(__name__)
 

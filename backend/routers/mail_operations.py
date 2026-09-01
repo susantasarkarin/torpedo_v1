@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Request, Query, Body
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from backend.agents.mail_segregation_agent import (
+from agents.mail_segregation_agent import (
     get_mail_segregation_agent,
     SegmentationStrategy,
     ExtractedContact
@@ -305,7 +305,7 @@ async def get_extracted_contacts(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        from backend.agents.mail_segregation_agent import email_leads
+        from agents.mail_segregation_agent import email_leads
         
         # Build query
         query = {}
@@ -365,12 +365,8 @@ async def ai_process_mail(request: Request, body: AIProcessRequest = Body(defaul
     """
     try:
         from bson import ObjectId
-        try:
-            from sales.mail_pool_ai import process_email, MAIL_DB, MAIL_COLLECTION
-            from db_pools import get_db
-        except ImportError:
-            from backend.sales.mail_pool_ai import process_email, MAIL_DB, MAIL_COLLECTION
-            from backend.db_pools import get_db
+        from sales.mail_pool_ai import process_email, MAIL_DB, MAIL_COLLECTION
+        from db_pools import get_db
 
         if body.email_id:
             col = get_db(MAIL_DB)[MAIL_COLLECTION]
@@ -385,10 +381,7 @@ async def ai_process_mail(request: Request, body: AIProcessRequest = Body(defaul
                 raise HTTPException(status_code=502, detail=result.get("error", "AI analysis failed"))
             return {"success": True, "mode": "single", "analysis": result["analysis"]}
 
-        try:
-            from tasks.mail_pool_ai_tasks import process_mail_pool_batch
-        except ImportError:
-            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_batch
+        from tasks.mail_pool_ai_tasks import process_mail_pool_batch
         task = process_mail_pool_batch.delay(limit=body.limit)
         return {"success": True, "mode": "batch", "task_id": task.id,
                 "message": f"AI processing enqueued for up to {body.limit} emails"}
@@ -407,12 +400,8 @@ async def get_followup_drafts(
 ) -> Dict[str, Any]:
     """List AI-generated follow-up drafts awaiting human review."""
     try:
-        try:
-            from db_pools import get_db
-            from sales.mail_pool_ai import FOLLOWUP_COLLECTION
-        except ImportError:
-            from backend.db_pools import get_db
-            from backend.sales.mail_pool_ai import FOLLOWUP_COLLECTION
+        from db_pools import get_db
+        from sales.mail_pool_ai import FOLLOWUP_COLLECTION
         col = get_db("email_automation")[FOLLOWUP_COLLECTION]
         query: Dict[str, Any] = {}
         if status:
@@ -435,10 +424,7 @@ async def get_mail_ai_stats() -> Dict[str, Any]:
     Bedrock token usage by model (last 7 days) for cost auditing.
     """
     try:
-        try:
-            from sales.mail_pool_ai import ai_stats
-        except ImportError:
-            from backend.sales.mail_pool_ai import ai_stats
+        from sales.mail_pool_ai import ai_stats
         return {"success": True, **ai_stats()}
     except Exception as e:
         logger.error(f"Error computing mail AI stats: {e}")

@@ -6,8 +6,8 @@ Manages queuing of LinkedIn automation tasks
 import logging
 from typing import Optional
 from datetime import datetime
-from backend.linkedin_automation.service import LinkedInService
-from backend.linkedin_automation.models import TaskType
+from linkedin_automation.service import LinkedInService
+from linkedin_automation.models import TaskType
 
 logger = logging.getLogger(__name__)
 service = LinkedInService()

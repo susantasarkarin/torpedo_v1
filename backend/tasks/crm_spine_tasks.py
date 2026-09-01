@@ -26,10 +26,7 @@ from datetime import datetime
 
 from bson import ObjectId
 
-try:
-    from backend.celery_app import celery_app
-except ImportError:
-    from celery_app import celery_app
+from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +34,8 @@ QRE_DB_NAME = os.getenv("QRE_DB_NAME", "qre_health_survey")
 
 
 def _imports():
-    try:
-        from db_pools import get_db
-        from app.services import crm_service, spine_connector
-    except ImportError:
-        from backend.db_pools import get_db
-        from backend.app.services import crm_service, spine_connector
+    from db_pools import get_db
+    from app.services import crm_service, spine_connector
     return get_db, crm_service, spine_connector
 
 

@@ -43,10 +43,7 @@ def _col():
 
 def _derive(ai_analysis: dict):
     """Local (no-model) segment derivation from a stored ai_analysis doc."""
-    try:
-        from sales.mail_pool_ai import derive_segment
-    except ImportError:
-        from backend.sales.mail_pool_ai import derive_segment
+    from sales.mail_pool_ai import derive_segment
     rule_result = ai_analysis.get("rule_classification")
     # A prefilter-skip marker has no AI category; its category IS the rule's.
     ai_category = ai_analysis.get("category")

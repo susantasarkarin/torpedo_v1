@@ -23,10 +23,7 @@ from pymongo import MongoClient
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -807,10 +804,7 @@ def _apply_unsubscribe(msg, to_email: str) -> str:
     Returns the per-recipient link so the footer matches the header.
     """
     try:
-        try:
-            from services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
-        except ImportError:
-            from backend.services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
+        from services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
 
         for header, value in list_unsubscribe_headers(to_email).items():
             msg[header] = value

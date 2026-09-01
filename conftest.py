@@ -5,17 +5,13 @@ Puts `backend/` on sys.path so the application's absolute imports
 (`from routers import ...`, `from database import ...`) resolve no matter which
 directory pytest is invoked from.
 
-This is the first half of TOR-11. The app runs as `uvicorn main:app` with
-backend/ as the working directory, which is why 140 files carry a
+TOR-11. The app runs as `uvicorn main:app` with backend/ as the working
+directory, which is why 140 files used to carry a
 `try: from .x import y / except ImportError: from x import y` fallback — and
 why `backend.main` could not be imported from the repo root at all, so the
 app-level smoke test failed by construction and nothing could be tested
-in-process.
-
-Fixing the import convention properly means deleting all 338 fallbacks in one
-sweep; doing that in the same change as a batch of security fixes would make
-both unreviewable. This makes the package importable today, which is what
-unblocks the tests, and leaves the fallbacks for a dedicated commit.
+in-process. The fallbacks are gone; this bootstrap is what makes the single
+absolute convention work from any invoking directory.
 """
 
 import os

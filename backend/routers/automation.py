@@ -58,8 +58,8 @@ async def trigger_auto_routing(
     Full audit trail logged to campaign_decisions collection for compliance.
     """
     try:
-        from backend.automation.lead_router import LeadRouter
-        from backend.automation.decision_logger import DecisionLogger
+        from automation.lead_router import LeadRouter
+        from automation.decision_logger import DecisionLogger
 
         decision_logger = None
         if log_decisions:
@@ -128,10 +128,10 @@ async def trigger_email_optimization(
     Full reasoning and all variants logged for compliance.
     """
     try:
-        from backend.automation.email_optimizer import EmailOptimizer
-        from backend.leads.openai_wrapper import get_openai_client
-        from backend.leads.openai_wrapper import chat_completion
-        from backend.automation.decision_logger import DecisionLogger
+        from automation.email_optimizer import EmailOptimizer
+        from leads.openai_wrapper import get_openai_client
+        from leads.openai_wrapper import chat_completion
+        from automation.decision_logger import DecisionLogger
 
         decision_logger = None
         if log_decisions:
@@ -198,8 +198,8 @@ async def trigger_schedule_optimization(
     Full reasoning logged for compliance.
     """
     try:
-        from backend.automation.campaign_scheduler import CampaignScheduler
-        from backend.automation.decision_logger import DecisionLogger
+        from automation.campaign_scheduler import CampaignScheduler
+        from automation.decision_logger import DecisionLogger
 
         decision_logger = None
         if log_decisions:
@@ -306,7 +306,7 @@ async def get_audit_trail(
     Response: Array of decisions with full reasoning, confidence scores, and input context
     """
     try:
-        from backend.automation.decision_logger import DecisionLogger
+        from automation.decision_logger import DecisionLogger
 
         decision_logger = DecisionLogger(db)
         decisions = decision_logger.get_decision_history(
@@ -351,7 +351,7 @@ async def get_confidence_stats(
     Used to monitor automation quality and ensure high confidence before fully deploying.
     """
     try:
-        from backend.automation.decision_logger import DecisionLogger
+        from automation.decision_logger import DecisionLogger
 
         decision_logger = DecisionLogger(db)
         stats = decision_logger.get_confidence_stats(

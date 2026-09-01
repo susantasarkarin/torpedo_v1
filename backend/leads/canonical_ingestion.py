@@ -19,10 +19,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -1616,10 +1613,7 @@ def ingest_leads_bulk(
 
     # --- CRM spine mirror: bulk (best-effort) -------------------------------
     try:
-        try:
-            from app.services.spine_connector import mirror_leads_bulk
-        except ImportError:
-            from backend.app.services.spine_connector import mirror_leads_bulk
+        from app.services.spine_connector import mirror_leads_bulk
         mirror_leads_bulk([(d, str(d['_id'])) for d in ok_docs], source)
     except Exception as spine_err:
         logger.debug(f"bulk spine mirror skipped: {spine_err}")

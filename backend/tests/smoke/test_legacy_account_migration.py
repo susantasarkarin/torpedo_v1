@@ -15,11 +15,11 @@ migration = None
 get_database = None
 _import_error = None
 try:
-    from backend.app.services import crm_service as _svc
-    from backend.database import get_database as _gd
+    from app.services import crm_service as _svc
+    from database import get_database as _gd
     crm_service = _svc
     get_database = _gd
-    migration = importlib.import_module("backend.migrations.003_migrate_legacy_accounts")
+    migration = importlib.import_module("migrations.003_migrate_legacy_accounts")
 except Exception as e:  # pragma: no cover
     _import_error = e
 

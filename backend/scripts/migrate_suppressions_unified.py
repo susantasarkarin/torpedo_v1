@@ -32,12 +32,8 @@ import sys
 from collections import Counter
 from datetime import datetime
 
-try:
-    from database import get_database
-    from messaging import suppression
-except ImportError:  # pragma: no cover
-    from backend.database import get_database
-    from backend.messaging import suppression
+from database import get_database
+from messaging import suppression
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("migrate_suppressions")

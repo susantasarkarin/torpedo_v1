@@ -14,7 +14,7 @@ the SES budget is spread evenly instead of arriving in every-third-day spikes.
 """
 
 import logging
-from backend.celery_app import celery_app
+from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,7 @@ def _heartbeat(job_name: str, **extra) -> None:
     """Record that `job_name` completed. Never allowed to fail the task —
     losing the heartbeat write must not be worse than not writing it."""
     try:
-        try:
-            from services.panel_job_state import record_heartbeat
-        except ImportError:
-            from backend.services.panel_job_state import record_heartbeat
+        from services.panel_job_state import record_heartbeat
         record_heartbeat(job_name, extra or None)
     except Exception as e:
         logger.warning(f"[panel-heartbeat] failed to record {job_name}: {e}")
@@ -48,10 +45,7 @@ def _heartbeat(job_name: str, **extra) -> None:
 def send_daily_panel_invitations(self):
     """Send one invitation email per eligible lead per day."""
     try:
-        try:
-            from services.panel_email_service import send_bulk_invitations
-        except ImportError:
-            from backend.services.panel_email_service import send_bulk_invitations
+        from services.panel_email_service import send_bulk_invitations
 
         result = send_bulk_invitations(daily_mode=True)
         logger.info(
@@ -82,10 +76,7 @@ def sync_ses_suppression(self):
     bounce rate toward the 5% review threshold.
     """
     try:
-        try:
-            from services.panel_bounce_handler import sync_ses_suppression_list
-        except ImportError:
-            from backend.services.panel_bounce_handler import sync_ses_suppression_list
+        from services.panel_bounce_handler import sync_ses_suppression_list
 
         result = sync_ses_suppression_list()
         logger.info(
@@ -113,10 +104,7 @@ def sync_panel_registrations(self):
     from that day's "register" invites and included in the survey-available send.
     """
     try:
-        try:
-            from services.panel_sync_service import sync_registrations_from_sfw
-        except ImportError:
-            from backend.services.panel_sync_service import sync_registrations_from_sfw
+        from services.panel_sync_service import sync_registrations_from_sfw
 
         result = sync_registrations_from_sfw()
         logger.info(
@@ -152,10 +140,7 @@ def promote_panelist_leads(self, limit: int = None):
     observable rather than arriving as one 37K spike.
     """
     try:
-        try:
-            from services.panel_lead_promotion import promote_traffic_leads_to_panelists
-        except ImportError:
-            from backend.services.panel_lead_promotion import promote_traffic_leads_to_panelists
+        from services.panel_lead_promotion import promote_traffic_leads_to_panelists
 
         result = promote_traffic_leads_to_panelists(use_watermark=True, limit=limit)
         logger.info(
@@ -189,10 +174,7 @@ def run_panel_reengagement_drips(self):
     ends permanently.
     """
     try:
-        try:
-            from services.panel_drip_service import run_all_drip_stages
-        except ImportError:
-            from backend.services.panel_drip_service import run_all_drip_stages
+        from services.panel_drip_service import run_all_drip_stages
 
         result = run_all_drip_stages()
         logger.info(f"[panel-drips] total_sent={result.get('total_sent')} stages={result.get('stages')}")
@@ -215,10 +197,7 @@ def run_panel_reengagement_drips(self):
 def send_daily_panel_login_invitations(self):
     """Send one login reminder email per registered panelist per day."""
     try:
-        try:
-            from services.panel_email_service import send_bulk_login_invitations
-        except ImportError:
-            from backend.services.panel_email_service import send_bulk_login_invitations
+        from services.panel_email_service import send_bulk_login_invitations
 
         result = send_bulk_login_invitations()
         logger.info(
@@ -251,10 +230,7 @@ def check_panel_health(self):
     again.
     """
     try:
-        try:
-            from services.panel_health import check_panel_health as run_check
-        except ImportError:
-            from backend.services.panel_health import check_panel_health as run_check
+        from services.panel_health import check_panel_health as run_check
 
         result = run_check()
         logger.info(

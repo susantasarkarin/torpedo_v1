@@ -10,10 +10,7 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-try:
-    from ai_governance.claude_gateway import ClaudeChatClient
-except ImportError:  # package context (tests import as backend.*)
-    from backend.ai_governance.claude_gateway import ClaudeChatClient
+from ai_governance.claude_gateway import ClaudeChatClient
 from .openai_rotator import get_rotator
 
 logger = logging.getLogger(__name__)

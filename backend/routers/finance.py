@@ -17,10 +17,7 @@ from dotenv import load_dotenv
 
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
-    try:
-        from ..database import get_client
-    except ImportError:
-        from database import get_client
+    from database import get_client
     return get_client()
 
 
@@ -28,10 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated from
 # per-router copies into backend/utils.py.
-try:
-    from ..utils import serialize_doc, serialize_docs
-except ImportError:  # pragma: no cover - flat import when run from backend/
-    from utils import serialize_doc, serialize_docs
+from utils import serialize_doc, serialize_docs
 
 # RBAC imports for permission enforcement
 try:
@@ -83,10 +77,7 @@ FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "true").lower() in ("1"
 
 _finance_deps = []
 if FINANCE_AUTH_ENABLED:
-    try:
-        from ..session_state import verify_session
-    except ImportError:
-        from session_state import verify_session
+    from session_state import verify_session
     _finance_deps.append(Depends(verify_session))
     logger.info("[finance] session auth enabled on /finance/*")
 else:
@@ -1161,7 +1152,7 @@ def link_panel_vendor(
         panel_vendor = None
         try:
             panel_vendor = ops_vendors.find_one({"_id": ObjectId(panel_vendor_id)})
-        except:
+        except Exception:
             pass
         
         if not panel_vendor:
@@ -1251,7 +1242,7 @@ def unlink_panel_vendor(vendor_id: str):
                         "$set": {"updated_at": datetime.utcnow()}
                     }
                 )
-            except:
+            except Exception:
                 pass
         
         return {"success": True, "message": "Vendors unlinked successfully"}
@@ -2023,7 +2014,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                         try:
                             estimate_date = datetime.strptime(mapped["estimate_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not estimate_date:
                         estimate_date = datetime.now()
@@ -2033,7 +2024,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                         try:
                             expiry_date = datetime.strptime(mapped["expiry_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 # Create estimate data
@@ -2423,7 +2414,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             invoice_date = datetime.strptime(mapped["invoice_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not invoice_date:
                         invoice_date = datetime.now()
@@ -2433,7 +2424,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             due_date = datetime.strptime(mapped["due_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 if mapped.get("payment_date"):
@@ -2441,7 +2432,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                         try:
                             payment_date = datetime.strptime(mapped["payment_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 # Create invoice data
@@ -2810,7 +2801,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
                         try:
                             bill_date = datetime.strptime(mapped["bill_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                     if not bill_date:
                         bill_date = datetime.now()
@@ -2820,7 +2811,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
                         try:
                             due_date = datetime.strptime(mapped["due_date"], fmt)
                             break
-                        except:
+                        except Exception:
                             continue
                 
                 bill_data = {
@@ -3103,13 +3094,13 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
                 if row.get("order_date"):
                     try:
                         order_date = datetime.strptime(row["order_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         order_date = datetime.now()
                 
                 if row.get("expected_delivery"):
                     try:
                         expected_delivery = datetime.strptime(row["expected_delivery"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         expected_delivery = None
                 
                 po_data = {
@@ -3347,7 +3338,7 @@ async def import_expenses_csv(file: UploadFile = File(...)):
                 if row.get("expense_date"):
                     try:
                         expense_date = datetime.strptime(row["expense_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         expense_date = datetime.now()
                 
                 expense_data = {
@@ -3681,7 +3672,7 @@ async def import_payments_received_csv(file: UploadFile = File(...)):
                 if row.get("payment_date"):
                     try:
                         payment_date = datetime.strptime(row["payment_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         payment_date = datetime.now()
                 
                 payment_data = {
@@ -3799,7 +3790,7 @@ async def import_payments_made_csv(file: UploadFile = File(...)):
                 if row.get("payment_date"):
                     try:
                         payment_date = datetime.strptime(row["payment_date"], "%Y-%m-%d")
-                    except:
+                    except Exception:
                         payment_date = datetime.now()
                 
                 payment_data = {
@@ -3955,7 +3946,7 @@ def get_dashboard_summary():
                             "name": customer.get("name", "Unknown"),
                             "revenue": tc["total"]
                         })
-                except:
+                except Exception:
                     pass
         
         return {
@@ -4110,7 +4101,7 @@ def get_export_file(export_id: str):
     Download a completed export file.
     """
     try:
-        from backend.db_pools import get_api_collection
+        from db_pools import get_api_collection
         from bson import ObjectId
 
         exports_collection = get_api_collection('export_files')

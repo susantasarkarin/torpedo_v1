@@ -251,7 +251,7 @@ def update_email_classifications(results: List[Dict]) -> int:
         from bson import ObjectId
         try:
             oid = ObjectId(email_id)
-        except:
+        except Exception:
             continue
         
         update_doc = {

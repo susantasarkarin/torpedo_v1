@@ -30,81 +30,42 @@ if not logging.getLogger().hasHandlers():
     )
 
 # Auth utilities for password hashing
-try:
-    from .auth import hash_password, verify_password, needs_rehash, migrate_user_password
-except ImportError:
-    from auth import hash_password, verify_password, needs_rehash, migrate_user_password
+from auth import hash_password, verify_password, needs_rehash, migrate_user_password
 
 # URL validation utility
-try:
-    from .utils import validate_redirect_url
-except ImportError:
-    from utils import validate_redirect_url
+from utils import validate_redirect_url
 
 # Session store for Redis-backed sessions
-try:
-    from .session_store import get_session_store, SessionStore, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
-except ImportError:
-    from session_store import get_session_store, SessionStore, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
-try:
-    # Prefer relative import when running as a package (python -m uvicorn backend.main)
-    from .routers import traffic as traffic_router
-    from .routers import cpx_api as cpx_api_router
-    from .routers import cpx_app as cpx_router
-    from .routers import finance as finance_router
-    from .routers import settings as settings_router
-    from .routers import gmail as gmail_router
-    from .routers import gmail_app_router as gmail_api_router
-    from .routers import rfq as rfq_router
-    from .routers import operations as operations_router
-    from .routers import health as health_router
-    from .routers import users as users_router
-    from .routers import roles as roles_router
-    from .routers import approvals as approvals_router
-    from .routers import auth_handler as auth_handler_router
-    from .app.services.cpx_service import CPXService
-    from .routers import survey_allocation as survey_allocation_router
-    from .routers import cint as cint_router
-    from .app.integrations.cint_integration import CintIntegration
-    from .leads import router as leads_router
-    from .routers import panel as panel_router
-    from .routers import mail_operations as mail_operations_router
-    from .routers import prompt_management as prompt_management_router
-    from .routers import automation as automation_router
-except Exception:
-    # Fallback to absolute import for other runtimes
-    from routers import traffic as traffic_router
-    from routers import cpx_api as cpx_api_router
-    from routers import cpx_app as cpx_router
-    from routers import finance as finance_router
-    from routers import settings as settings_router
-    from routers import gmail as gmail_router
-    from routers import gmail_app_router as gmail_api_router
-    from routers import rfq as rfq_router
-    from routers import operations as operations_router
-    from routers import health as health_router
-    from routers import users as users_router
-    from routers import roles as roles_router
-    from routers import approvals as approvals_router
-    from routers import auth_handler as auth_handler_router
-    from app.services.cpx_service import CPXService
-    from routers import survey_allocation as survey_allocation_router
-    from routers import panel as panel_router
-    from routers import cint as cint_router
-    from app.integrations.cint_integration import CintIntegration
-    from leads import router as leads_router
-    from routers import mail_operations as mail_operations_router
-    from routers import prompt_management as prompt_management_router
-    from routers import automation as automation_router
+from session_store import get_session_store, SessionStore, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
+from routers import traffic as traffic_router
+from routers import cpx_api as cpx_api_router
+from routers import cpx_app as cpx_router
+from routers import finance as finance_router
+from routers import settings as settings_router
+from routers import gmail as gmail_router
+from routers import gmail_app_router as gmail_api_router
+from routers import rfq as rfq_router
+from routers import operations as operations_router
+from routers import health as health_router
+from routers import users as users_router
+from routers import roles as roles_router
+from routers import approvals as approvals_router
+from routers import auth_handler as auth_handler_router
+from app.services.cpx_service import CPXService
+from routers import survey_allocation as survey_allocation_router
+from routers import panel as panel_router
+from routers import cint as cint_router
+from app.integrations.cint_integration import CintIntegration
+from leads import router as leads_router
+from routers import mail_operations as mail_operations_router
+from routers import prompt_management as prompt_management_router
+from routers import automation as automation_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
 
 # CORS setup using centralized config
-try:
-    from .config import CORS_ORIGINS
-except Exception:
-    from config import CORS_ORIGINS
+from config import CORS_ORIGINS
 
 # Register CORS middleware later when app is created (see bottom of file)
 try:
@@ -139,10 +100,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # ----------------------------
 # MongoDB connection (pooled singleton — shared across all modules)
 # ----------------------------
-try:
-    from .database import get_client, get_database
-except ImportError:
-    from database import get_client, get_database
+from database import get_client, get_database
 
 client = get_client()
 db = get_database("email_automation")
@@ -194,20 +152,8 @@ except Exception as e:
 # alongside session_state's copies; login wrote to one and verification read
 # the other, so the cache never hit and logout could not purge what
 # verification consulted. Import, don't duplicate.
-try:
-    from .session_state import (
-        serializer, sessions, SESSION_TTL_SECONDS,
-        get_session_store_instance, verify_session,
-        issue_token, revoke_session, bump_epoch,
-    )
-    from .config import SESSION_SECRET as SECRET_KEY
-except ImportError:
-    from session_state import (
-        serializer, sessions, SESSION_TTL_SECONDS,
-        get_session_store_instance, verify_session,
-        issue_token, revoke_session, bump_epoch,
-    )
-    from config import SESSION_SECRET as SECRET_KEY
+from session_state import serializer, sessions, SESSION_TTL_SECONDS, get_session_store_instance, verify_session, issue_token, revoke_session, bump_epoch
+from config import SESSION_SECRET as SECRET_KEY
 
 
 
@@ -906,10 +852,7 @@ except Exception as e:
 
 # Classified Gmail router (Email classification and move to leads)
 try:
-    try:
-        from .routers import classified_gmail as classified_gmail_router
-    except ImportError:
-        from routers import classified_gmail as classified_gmail_router
+    from routers import classified_gmail as classified_gmail_router
     
     app.include_router(classified_gmail_router.router)
     print("✅ Classified Gmail router included")
@@ -926,10 +869,7 @@ except Exception as e:
 
 # Email Patterns Discovery router
 try:
-    try:
-        from .routers import email_patterns as email_patterns_router
-    except ImportError:
-        from routers import email_patterns as email_patterns_router
+    from routers import email_patterns as email_patterns_router
     
     app.include_router(email_patterns_router.router)
     print("✅ Email Patterns router included")
@@ -946,10 +886,7 @@ except Exception as e:
 
 # Company Cache router
 try:
-    try:
-        from .routers import company_cache as company_cache_router
-    except ImportError:
-        from routers import company_cache as company_cache_router
+    from routers import company_cache as company_cache_router
     
     app.include_router(company_cache_router.router)
     print("✅ Company Cache router included")
@@ -982,10 +919,7 @@ except Exception as e:
 
 # Multi-Agent System router (Phase 3-6 agents + Orchestrator)
 try:
-    try:
-        from .leads.multi_agent_router import router as multi_agent_router
-    except ImportError:
-        from leads.multi_agent_router import router as multi_agent_router
+    from leads.multi_agent_router import router as multi_agent_router
     
     app.include_router(multi_agent_router)
     print("✅ Multi-Agent System router included")
@@ -1039,10 +973,7 @@ except Exception as e:
 
 # Clay-Level Features router (List building, enrichment, workbooks)
 try:
-    try:
-        from .leads.clay_routes import router as clay_routes
-    except ImportError:
-        from leads.clay_routes import router as clay_routes
+    from leads.clay_routes import router as clay_routes
     
     app.include_router(clay_routes)
     print("✅ Clay-Level Features router included")
@@ -1122,10 +1053,7 @@ except Exception as e:
 
 # Deliverability Monitoring router (Agent 11)
 try:
-    try:
-        from .routers import deliverability as deliverability_router
-    except ImportError:
-        from routers import deliverability as deliverability_router
+    from routers import deliverability as deliverability_router
     app.include_router(deliverability_router.router)
     print("✅ Deliverability router included")
 except Exception as e:
@@ -1156,10 +1084,7 @@ except Exception as e:
 
 # Mystery Shopping router
 try:
-    try:
-        from .routers import mystery_shopping as mystery_shopping_router
-    except ImportError:
-        from routers import mystery_shopping as mystery_shopping_router
+    from routers import mystery_shopping as mystery_shopping_router
     app.include_router(mystery_shopping_router.router)
     print("✅ Mystery Shopping router included")
 except Exception as e:
@@ -1175,10 +1100,7 @@ except Exception as e:
 
 # Sales Dashboard router
 try:
-    try:
-        from .routers import sales_dashboard as sales_dashboard_router
-    except ImportError:
-        from routers import sales_dashboard as sales_dashboard_router
+    from routers import sales_dashboard as sales_dashboard_router
     app.include_router(sales_dashboard_router.router)
     print("✅ Sales Dashboard router included")
 except Exception as e:
@@ -1194,10 +1116,7 @@ except Exception as e:
 
 # Sales Accounts router
 try:
-    try:
-        from .routers import sales_accounts as sales_accounts_router
-    except ImportError:
-        from routers import sales_accounts as sales_accounts_router
+    from routers import sales_accounts as sales_accounts_router
     app.include_router(sales_accounts_router.router)
     print("✅ Sales Accounts router included")
 except Exception as e:
@@ -1213,10 +1132,7 @@ except Exception as e:
 
 # Unified Vendors router
 try:
-    try:
-        from .routers import unified_vendors as unified_vendors_router
-    except ImportError:
-        from routers import unified_vendors as unified_vendors_router
+    from routers import unified_vendors as unified_vendors_router
     app.include_router(unified_vendors_router.router)
     print("✅ Unified Vendors router included")
 except Exception as e:
@@ -1232,10 +1148,7 @@ except Exception as e:
 
 # Vendor Leads router (for vendor qualification workflow)
 try:
-    try:
-        from .routers import vendor_leads as vendor_leads_router
-    except ImportError:
-        from routers import vendor_leads as vendor_leads_router
+    from routers import vendor_leads as vendor_leads_router
     app.include_router(vendor_leads_router.router)
     print("✅ Vendor Leads router included")
 except Exception as e:
@@ -1251,10 +1164,7 @@ except Exception as e:
 
 # Email Sync router
 try:
-    try:
-        from .email_sync.router import router as email_sync_router
-    except ImportError:
-        from email_sync.router import router as email_sync_router
+    from email_sync.router import router as email_sync_router
     app.include_router(email_sync_router, prefix="/api/v1")
     print("✅ Email Sync router included")
 except Exception as e:
@@ -1270,10 +1180,7 @@ except Exception as e:
 
 # Unified Inbox router (aggregated email view)
 try:
-    try:
-        from .routers import unified_inbox as unified_inbox_router
-    except ImportError:
-        from routers import unified_inbox as unified_inbox_router
+    from routers import unified_inbox as unified_inbox_router
     app.include_router(unified_inbox_router.router, prefix="/api")
     print("✅ Unified Inbox router included")
 except Exception as e:
@@ -1289,10 +1196,7 @@ except Exception as e:
 
 # Campaigns router (cold outreach sequences)
 try:
-    try:
-        from .routers import campaigns as campaigns_router
-    except ImportError:
-        from routers import campaigns as campaigns_router
+    from routers import campaigns as campaigns_router
     app.include_router(campaigns_router.router)
     print("✅ Campaigns router included")
 except Exception as e:
@@ -1308,10 +1212,7 @@ except Exception as e:
 
 # Campaign Automation router (automated outreach with tracking)
 try:
-    try:
-        from .routers import campaign_automation as campaign_automation_router
-    except ImportError:
-        from routers import campaign_automation as campaign_automation_router
+    from routers import campaign_automation as campaign_automation_router
     app.include_router(campaign_automation_router.router)
     print("✅ Campaign Automation router included")
 except Exception as e:
@@ -1327,10 +1228,7 @@ except Exception as e:
 
 # Sales Outreach router (Business Unit configs, AI settings)
 try:
-    try:
-        from .routers import sales_outreach as sales_outreach_router
-    except ImportError:
-        from routers import sales_outreach as sales_outreach_router
+    from routers import sales_outreach as sales_outreach_router
     app.include_router(sales_outreach_router.router)
     print("✅ Sales Outreach router included")
 except Exception as e:
@@ -1346,10 +1244,7 @@ except Exception as e:
 
 # Cold Outreach router (campaigns, lead enrollment, send processor)
 try:
-    try:
-        from .routers import cold_outreach_router as cold_outreach_router_module
-    except ImportError:
-        from routers import cold_outreach_router as cold_outreach_router_module
+    from routers import cold_outreach_router as cold_outreach_router_module
     app.include_router(cold_outreach_router_module.router)
     print("✅ Cold Outreach router included")
 except Exception as e:
@@ -1365,10 +1260,7 @@ except Exception as e:
 
 # LinkedIn Automation router (connection requests and messaging)
 try:
-    try:
-        from .routers import linkedin as linkedin_router
-    except ImportError:
-        from routers import linkedin as linkedin_router
+    from routers import linkedin as linkedin_router
     app.include_router(linkedin_router.router)
     print("✅ LinkedIn Automation router included")
 except Exception as e:
@@ -1384,10 +1276,7 @@ except Exception as e:
 
 # Email Classification router (AI batch classification)
 try:
-    try:
-        from .routers import classification as classification_router
-    except ImportError:
-        from routers import classification as classification_router
+    from routers import classification as classification_router
     app.include_router(classification_router.router)
     print("✅ Email Classification router included")
 except Exception as e:
@@ -1405,10 +1294,7 @@ except Exception as e:
 
 # Audit Trail router
 try:
-    try:
-        from .routers import audit as audit_router
-    except ImportError:
-        from routers import audit as audit_router
+    from routers import audit as audit_router
     app.include_router(audit_router.router)
     print("✅ Audit Trail router included")
 except Exception as e:
@@ -1424,10 +1310,7 @@ except Exception as e:
 
 # P1.6: AI Review Queue router
 try:
-    try:
-        from .routers import review_queue as review_queue_router
-    except ImportError:
-        from routers import review_queue as review_queue_router
+    from routers import review_queue as review_queue_router
     app.include_router(review_queue_router.router)
     print("✅ AI Review Queue router included")
 except Exception as e:
@@ -1486,10 +1369,7 @@ except Exception as e:
 
 # --- CRM Spine Router (canonical /api/crm/* layer) ---
 try:
-    try:
-        from .routers import crm as crm_router
-    except ImportError:
-        from routers import crm as crm_router
+    from routers import crm as crm_router
     app.include_router(crm_router.router)
     print("✅ CRM Spine router included")
 except Exception as e:
@@ -1505,10 +1385,7 @@ except Exception as e:
 
 # --- AI Engine Router (decision engine, action queue, approvals) ---
 try:
-    try:
-        from .routers import ai as ai_router
-    except ImportError:
-        from routers import ai as ai_router
+    from routers import ai as ai_router
     app.include_router(ai_router.router)
     print("✅ AI Engine router included")
 except Exception as e:
@@ -1524,10 +1401,7 @@ except Exception as e:
 
 # --- MCP Action Router ---
 try:
-    try:
-        from .routers import mcp as mcp_router
-    except ImportError:
-        from routers import mcp as mcp_router
+    from routers import mcp as mcp_router
     app.include_router(mcp_router.router)
     print("✅ MCP Action Router included")
 except Exception as e:
@@ -1543,10 +1417,7 @@ except Exception as e:
 
 # --- Projects Router ---
 try:
-    try:
-        from .routers import projects as projects_router
-    except ImportError:
-        from routers import projects as projects_router
+    from routers import projects as projects_router
     app.include_router(projects_router.router)
     print("✅ Projects router included")
 except Exception as e:
@@ -1562,10 +1433,7 @@ except Exception as e:
 
 # --- Support/Tickets Router ---
 try:
-    try:
-        from .routers import support as support_router
-    except ImportError:
-        from routers import support as support_router
+    from routers import support as support_router
     app.include_router(support_router.router)
     print("✅ Support router included")
 except Exception as e:
@@ -1581,10 +1449,7 @@ except Exception as e:
 
 # Panel Admin router (admin controls for survey panel module)
 try:
-    try:
-        from .routers import panel_admin as panel_admin_router
-    except ImportError:
-        from routers import panel_admin as panel_admin_router
+    from routers import panel_admin as panel_admin_router
     # nginx only proxies the /api form; the bare mount was unreachable externally
     app.include_router(panel_admin_router.router, prefix="/api")
     print("✅ Panel Admin router included")
@@ -1980,10 +1845,7 @@ async def startup_event():
 
     # Initialize Clay-Level Features
     try:
-        try:
-            from .leads.clay_init import initialize_clay_features
-        except ImportError:
-            from leads.clay_init import initialize_clay_features
+        from leads.clay_init import initialize_clay_features
         
         await initialize_clay_features()
     except Exception as e:
@@ -2035,10 +1897,7 @@ async def startup_event():
     # Initialize Cint yield management (seed thresholds + bootstrap metrics stubs)
     try:
         if cint_integration and cint_integration.cint_service:
-            try:
-                from .app.services.yield_init import initialize_yield_management
-            except ImportError:
-                from app.services.yield_init import initialize_yield_management
+            from app.services.yield_init import initialize_yield_management
 
             yield_summary = await initialize_yield_management()
             print(
@@ -2052,10 +1911,7 @@ async def startup_event():
 
     # Start Email Sync workers (runs in background even when user navigates away)
     try:
-        try:
-            from .email_sync.router import get_orchestrator
-        except ImportError:
-            from email_sync.router import get_orchestrator
+        from email_sync.router import get_orchestrator
         
         orchestrator = get_orchestrator()
         if orchestrator and not orchestrator._started:
@@ -2067,10 +1923,7 @@ async def startup_event():
     # Initialize background job scheduler for continuous lead generation
     # This handles automatic resumption of paused web search jobs, daily limit resets, etc.
     try:
-        try:
-            from .background_job_scheduler import initialize_scheduler
-        except ImportError:
-            from background_job_scheduler import initialize_scheduler
+        from background_job_scheduler import initialize_scheduler
         
         initialize_scheduler()
         print("✅ Background job scheduler initialized (auto-resume web search jobs every 5 min)")
@@ -2255,10 +2108,7 @@ async def startup_event():
         if scheduler.running:
             def _outreach_send_job():
                 try:
-                    try:
-                        from .routers.cold_outreach_router import process_due_outreach_sends
-                    except ImportError:
-                        from routers.cold_outreach_router import process_due_outreach_sends
+                    from routers.cold_outreach_router import process_due_outreach_sends
                     process_due_outreach_sends()
                 except Exception as e:
                     print(f"[OutreachSend] Error: {e}")
@@ -2285,10 +2135,7 @@ async def startup_event():
         if scheduler.running:
             def _outreach_enrollment_job():
                 try:
-                    try:
-                        from .routers.cold_outreach_router import run_enrollment_sync
-                    except ImportError:
-                        from routers.cold_outreach_router import run_enrollment_sync
+                    from routers.cold_outreach_router import run_enrollment_sync
                     run_enrollment_sync("scheduled")
                 except Exception as e:
                     print(f"[OutreachEnroll] Error: {e}")
@@ -2313,16 +2160,7 @@ async def startup_event():
         if scheduler.running:
             def _outreach_bounce_reply_job():
                 try:
-                    try:
-                        from .routers.cold_outreach_router import (
-                            process_outreach_bounces_and_replies,
-                            sync_outreach_replies_to_leads,
-                        )
-                    except ImportError:
-                        from routers.cold_outreach_router import (
-                            process_outreach_bounces_and_replies,
-                            sync_outreach_replies_to_leads,
-                        )
+                    from routers.cold_outreach_router import process_outreach_bounces_and_replies, sync_outreach_replies_to_leads
                     process_outreach_bounces_and_replies()
                     # Backfill any replied leads not yet in the leads collection
                     sync_outreach_replies_to_leads()
@@ -2340,10 +2178,7 @@ async def startup_event():
 
             # Run backfill immediately at startup so existing replied leads appear right away
             try:
-                try:
-                    from .routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
-                except ImportError:
-                    from routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
+                from routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
                 result = _sync_now()
                 print(f"✅ Startup reply backfill: {result.get('promoted', 0)} promoted, {result.get('skipped', 0)} already present")
             except Exception as _e:
@@ -2391,7 +2226,7 @@ async def startup_event():
         if scheduler.running:
             def background_mail_segregation_wrapper():
                 """Run rule-based mail segregation (sync, no AI)"""
-                from backend.agents.mail_segregation_agent import get_mail_segregation_agent, SegmentationStrategy
+                from agents.mail_segregation_agent import get_mail_segregation_agent, SegmentationStrategy
                 try:
                     agent = get_mail_segregation_agent()
                     result = agent.segregate_all_emails(
@@ -2457,16 +2292,13 @@ async def startup_event():
         print("   • Cint Survey Refresh: Inactive")
     # Check email sync workers status
     try:
-        try:
-            from .email_sync.router import get_orchestrator
-        except ImportError:
-            from email_sync.router import get_orchestrator
+        from email_sync.router import get_orchestrator
         orchestrator = get_orchestrator()
         if orchestrator and orchestrator._started:
             print("   • Email Sync Workers: Active (runs in background)")
         else:
             print("   • Email Sync Workers: Inactive")
-    except:
+    except Exception:
         print("   • Email Sync Workers: Not available")
     print("")
     print("🌐 ENDPOINTS:")
@@ -2480,10 +2312,7 @@ async def shutdown_event():
     """Shutdown scheduler and email sync workers"""
     # Shutdown background job scheduler (handles web search job resumption)
     try:
-        try:
-            from .background_job_scheduler import shutdown_scheduler
-        except ImportError:
-            from background_job_scheduler import shutdown_scheduler
+        from background_job_scheduler import shutdown_scheduler
         
         shutdown_scheduler()
         print("✅ Background job scheduler shutdown complete")
@@ -2492,10 +2321,7 @@ async def shutdown_event():
     
     # Shutdown Clay features
     try:
-        try:
-            from .leads.clay_init import shutdown_clay_features
-        except ImportError:
-            from leads.clay_init import shutdown_clay_features
+        from leads.clay_init import shutdown_clay_features
         
         await shutdown_clay_features()
     except Exception as e:
@@ -2507,10 +2333,7 @@ async def shutdown_event():
     
     # Stop Email Sync workers
     try:
-        try:
-            from .email_sync.router import get_orchestrator
-        except ImportError:
-            from email_sync.router import get_orchestrator
+        from email_sync.router import get_orchestrator
         
         orchestrator = get_orchestrator()
         if orchestrator and orchestrator._started:

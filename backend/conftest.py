@@ -6,8 +6,11 @@ conftest files at or below this directory — a repo-root conftest.py is never
 loaded when tests run from here. This is the one that actually takes effect.
 
 Puts backend/ on sys.path so the app's absolute imports (`from routers import
-...`) resolve regardless of the invoking directory — the first half of TOR-11,
-which is what lets `test_backend_main_app_importable` run at all.
+...`) resolve regardless of the invoking directory (TOR-11). Absolute is the
+ONE convention now: the app runs as `uvicorn main:app` with backend/ as the
+working directory, so that is what actually works at runtime, and the 338
+try-relative/except-absolute fallbacks that used to hide broken imports are
+gone. `scripts/check_imports.py` keeps them gone.
 """
 
 import os
