@@ -28,11 +28,18 @@ Three things were true:
 | nginx strips the header | ❌ it did not |
 | Constant-time comparison | ❌ plain `==` |
 
-`INTERNAL_SERVICE_TOKEN` is **not set** in the local `.env` (see TOR-63 below),
-so the bypass was almost certainly inert rather than live — the gap analysis's
-"one-header auth bypass from the internet" is the correct description of the
-risk, but it required the variable to be set first. It would have become live
-the moment anyone configured it.
+**CORRECTION (verified on the VM, 2026-09-01 10:47).** I first wrote that this
+was "almost certainly inert" because `INTERNAL_SERVICE_TOKEN` is unset in the
+*local* `.env`. That was exactly the inference TOR-63 warns against, and it was
+wrong. Production **has it set** (64 characters), and an unauthenticated
+request carrying the header reached the code path from the public internet —
+confirmed by curl before the fix, `401` with a bogus token rather than `404`.
+
+So the gap analysis's description was literally correct: a live one-header auth
+bypass reachable from the internet. Not brute-forceable at 64 chars, but a
+static unrotated shared secret held by anyone who has seen the `.env`, a
+backup, or the MCP host's config. **Closed in production at 10:54** — nginx now
+strips the header.
 
 Fixed in code:
 
@@ -161,27 +168,32 @@ were previously inferences:
 
 | Variable | Present? | Consequence |
 |---|---|---|
-| `FINANCE_AUTH_ENABLED` | **not set** | The default governs. The first remediation flipped it to `true`, so finance is now gated — *provided prod's `.env` also omits it*. |
+| `FINANCE_AUTH_ENABLED` | local: not set · **PROD: `true`** | **TOR-03 was ALREADY CLOSED in production**, set on the box since 2026-08-25 (`/root/backups/env-before-finance-auth-20260825-065358.bak`). Verified: an unauthenticated `GET /finance/customers/` from the internet returns 401 and did so *before* this remediation. The audit's "critical live exposure" was a code-**default** finding; prod had overridden it. Flipping the default is still right for a new host, but the severity was overstated. |
 | `RBAC_ENABLED` | **not set** | Enforcement off, as the audit said. |
-| `INTERNAL_SERVICE_TOKEN` | **not set** | TOR-50 was inert, not live. |
+| `INTERNAL_SERVICE_TOKEN` | local: not set · **PROD: set (64 ch)** | **TOR-50 was LIVE**, not inert. See the correction above. |
 | `WEB_LEAD_TOKEN` | **not set** | `/api/crm/web-to-lead` returns 503 until set. |
 | `SENDING_ENABLED`, `SEND_BUDGET_*` | **not set** | New defaults govern: 1500/day, 200/hour per identity. |
 | `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEYS` | all present | Confirms the four-provider sprawl of TOR-22 empirically. |
 
 **One new finding this turned up, not in either register:**
 
-> **TOR-64 · `AWS_SESSION_TOKEN` is set — temporary STS credentials on the
-> sending path. High.** An `AWS_SESSION_TOKEN` alongside the access key means
-> these are short-lived STS credentials, not long-lived IAM ones. They expire —
-> typically in 1–12 hours. If production carries the same shape, SES sending and
-> Bedrock calls fail at expiry with an auth error that looks like a
-> misconfiguration rather than an expiry. Either move to an instance role (the
-> right answer on a VM) or to long-lived credentials with a rotation process.
+> **TOR-64 · `AWS_SESSION_TOKEN` — WITHDRAWN.** I raised this from the local
+> `.env`. Production does **not** set it, and sets no AWS keys at all, so SES
+> and Bedrock must resolve credentials another way. The finding does not apply
+> to prod. Recording the withdrawal rather than deleting it, because it is the
+> same inference error as TOR-50 above — in the harmless direction that time.
 
-This is exactly the class of thing the gap analysis predicted static review
-would miss, and it was found by reading one config file. **The hour on the box
-is still owed** — this is not a substitute for it. The local `.env` is evidence
-about prod, not prod.
+**The hour on the box was subsequently spent** (2026-09-01, during the deploy).
+It reversed three of my own conclusions — two above, plus the discovery that
+`/etc/nginx/sites-enabled/campaign-platform` is a *separate regular file* from
+`sites-available/`, so the config I had diffed against was not the one nginx
+serves. The live one also has **no `panel` in its route regex** while the repo
+copy does: deploying the repo copy verbatim would have proxied `/panel/login`
+to the backend and broken the panel UI.
+
+The gap analysis was right about this in the strongest possible sense. Every
+one of those errors came from reasoning about production from artefacts in the
+repository.
 
 ---
 
