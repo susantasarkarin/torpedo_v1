@@ -10,6 +10,7 @@ Date: 2026-01-28
 """
 
 from datetime import datetime, timedelta
+import os
 import logging
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
@@ -21,7 +22,37 @@ from database import get_database
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/deliverability", tags=["Deliverability"])
+# Session auth on every /deliverability/* route.
+#
+# This router shipped completely unauthenticated — the same shape as the
+# finance router in TOR-03, which the original audit caught while missing this
+# one. Found by end-to-end verification after deploying: GET
+# /deliverability/sending/status answered 200 to an anonymous request from the
+# internet, exposing suppression counts and (with ?identity=) recent
+# recipients, and DELETE /deliverability/sending/suppression/{email} would have
+# let anyone UNSUPPRESS an address — turning a public endpoint into a way to
+# resume mailing people who had opted out.
+#
+# Its only frontend caller already sends the session header, so gating costs
+# nothing. DELIVERABILITY_AUTH_ENABLED=false is the escape hatch; leaving it
+# there re-opens the above.
+_deliverability_auth = os.getenv("DELIVERABILITY_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
+_deliverability_deps = []
+if _deliverability_auth:
+    try:
+        from ..session_state import verify_session as _verify_session
+    except ImportError:
+        from session_state import verify_session as _verify_session
+    _deliverability_deps.append(Depends(_verify_session))
+    logger.info("[deliverability] session auth enabled on /deliverability/*")
+else:
+    logger.error(
+        "[deliverability] session auth DISABLED - suppression list is publicly "
+        "writable. Unset DELIVERABILITY_AUTH_ENABLED to restore the gate."
+    )
+
+router = APIRouter(prefix="/deliverability", tags=["Deliverability"],
+                   dependencies=_deliverability_deps)
 
 
 # ============== REQUEST/RESPONSE MODELS ==============
