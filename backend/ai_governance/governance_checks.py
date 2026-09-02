@@ -61,15 +61,23 @@ def _get_mongo_client() -> MongoClient:
     return _mongo_client
 
 
+# The counter collection. Named `gemini_daily_usage` historically; it has NEVER
+# counted only Gemini — every provider increments it. Renaming the collection
+# would silently reset today's count (a fresh name means no document for
+# today), which is a behaviour change disguised as a rename, so the name stays
+# and the misleading part is fixed in the code that reads it.
+USAGE_COLLECTION = os.getenv("AI_USAGE_COLLECTION", "gemini_daily_usage")
+
+
 def _get_governance_collection():
-    """Get Gemini governance tracking collection"""
+    """The cross-provider daily AI usage counter."""
     global _governance_collection
     if _governance_collection is None:
         client = _get_mongo_client()
         # Intentionally separate from campaign_platform: governance collections store
         # cross-pipeline limits/locks and should remain isolated from business data.
         db = client['ai_governance']
-        _governance_collection = db['gemini_daily_usage']
+        _governance_collection = db[USAGE_COLLECTION]
         # Create index for fast daily lookups
         _governance_collection.create_index([("date", 1)], unique=True)
     return _governance_collection
@@ -92,10 +100,37 @@ def _get_classification_guard_collection():
     return _classification_guard_collection
 
 
-# ============== GEMINI DAILY CAP (7000) ==============
+# ============== DAILY AI CALL CAP ==============
+#
+# This is a cap on ALL model calls, whichever provider serves them. It has
+# never been Gemini-specific: every call through ai_gateway increments it, and
+# production currently runs Qwen3-32B on AWS Bedrock — there is no Gemini in
+# the path at all. The name was inherited and actively misled, most recently
+# when a backfill stopped with "GEMINI DAILY LIMIT REACHED" on a Bedrock-only
+# deployment.
+#
+# It is a SELF-IMPOSED safeguard, not a provider quota. Bedrock is
+# pay-as-you-go; this exists so a runaway loop cannot bill an unbounded amount
+# overnight — which it has already earned twice.
+#
+# Set AI_DAILY_LIMIT to change it. GEMINI_DAILY_LIMIT is still honoured so an
+# existing environment keeps working.
+def _configured_daily_limit() -> int:
+    raw = (os.getenv("AI_DAILY_LIMIT")
+           or os.getenv("GEMINI_DAILY_LIMIT")
+           or "50000")
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        logger.warning("AI_DAILY_LIMIT=%r is not an integer; using 50000", raw)
+        return 50000
 
-GEMINI_DAILY_LIMIT = 50000  # Configurable safeguard — OpenAI is pay-as-you-go
-AI_DAILY_LIMIT = GEMINI_DAILY_LIMIT
+
+AI_DAILY_LIMIT = _configured_daily_limit()
+
+# Deprecated alias. Kept because other modules and dashboards import it by this
+# name; it is the same number, and it never meant Gemini.
+GEMINI_DAILY_LIMIT = AI_DAILY_LIMIT
 
 
 def get_gemini_daily_usage() -> Tuple[int, int]:
@@ -110,7 +145,7 @@ def get_gemini_daily_usage() -> Tuple[int, int]:
     
     doc = collection.find_one({"date": today})
     current_count = doc.get("request_count", 0) if doc else 0
-    remaining = max(0, GEMINI_DAILY_LIMIT - current_count)
+    remaining = max(0, _configured_daily_limit() - current_count)
     
     return current_count, remaining
 
@@ -128,7 +163,12 @@ def check_gemini_daily_limit() -> bool:
     current_count, remaining = get_gemini_daily_usage()
     
     if remaining <= 0:
-        logger.error(f"GEMINI DAILY LIMIT REACHED: {current_count}/{GEMINI_DAILY_LIMIT}")
+        logger.error(
+            "AI DAILY LIMIT REACHED: %d/%d calls today across ALL providers "
+            "(currently %s on Bedrock). This is a self-imposed cap, not a "
+            "provider quota — raise it with AI_DAILY_LIMIT.",
+            current_count, _configured_daily_limit(),
+            os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0"))
         return False
     
     return True
@@ -162,14 +202,14 @@ def increment_gemini_daily_usage() -> int:
     
     new_count = result.get("request_count", 1)
     
-    if new_count > GEMINI_DAILY_LIMIT:
+    if new_count > _configured_daily_limit():
         # We've exceeded - decrement back and raise
         collection.update_one(
             {"date": today},
             {"$inc": {"request_count": -1}}
         )
         raise AIDailyLimitExceeded(
-            f"AI daily limit ({GEMINI_DAILY_LIMIT}) exceeded. Current: {new_count}. "
+            f"AI daily limit ({_configured_daily_limit()}) exceeded. Current: {new_count}. "
             "No more AI calls allowed today."
         )
     
@@ -358,10 +398,10 @@ def get_governance_status() -> dict:
         "date": date.today().isoformat(),
         "ai": {
             "provider": "openai",
-            "daily_limit": GEMINI_DAILY_LIMIT,
+            "daily_limit": _configured_daily_limit(),
             "current_usage": current_usage,
             "remaining": remaining,
-            "percentage_used": round((current_usage / GEMINI_DAILY_LIMIT) * 100, 2),
+            "percentage_used": round((current_usage / max(_configured_daily_limit(), 1)) * 100, 2),
             "limit_reached": remaining <= 0
         },
         "enforcement": {

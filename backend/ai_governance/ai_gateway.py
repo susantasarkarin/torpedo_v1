@@ -64,7 +64,12 @@ def _strip_markdown_json(text: str) -> str:
 BEDROCK_BASE_URL = os.getenv("BEDROCK_MANTLE_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
 # Qwen-only policy: same model, same env var, as leads/bedrock_client.py's
 # "cheap" role — this module must never default to a different provider.
-ANTHROPIC_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
+# The default model for gateway calls. Named ANTHROPIC_MODEL historically; it
+# has held a BEDROCK model id for as long as it has had this value, and there
+# is no Anthropic model in the path. Renamed; the old name is kept as an alias
+# because other modules import it.
+DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
+ANTHROPIC_MODEL = DEFAULT_MODEL  # deprecated alias
 
 _mongo_client: Optional[MongoClient] = None
 
@@ -77,10 +82,19 @@ def _get_mongo_client() -> MongoClient:
     return _mongo_client
 
 
-def _get_anthropic_api_key() -> str:
+def _get_bedrock_bearer_token() -> str:
     """
-    Get the Bedrock API key from MongoDB settings first, then env var
-    fallback. Name kept for compat with existing callers/imports.
+    Bearer token for the OpenAI-compatible Bedrock gateway endpoint.
+
+    Only used when AI_GATEWAY_USE_BEARER_TOKEN=true. The default path is boto3
+    Converse (see _call_llm), which authenticates with the standard AWS
+    credential chain and needs none of this.
+
+    NOTE the trap this function used to spring: its last fallback is
+    ANTHROPIC_API_KEY, so on a host with an Anthropic key but no Bedrock
+    bearer token it returned an `sk-ant-...` key and presented it to an AWS
+    endpoint, which answered 401 "Invalid bearer token". That is what broke
+    lead classification for months.
     """
     try:
         client = _get_mongo_client()
@@ -95,6 +109,10 @@ def _get_anthropic_api_key() -> str:
     if env_key:
         return env_key
     raise ValueError("No Bedrock API key configured — save it in Settings or set AWS_BEARER_TOKEN_BEDROCK env var")
+
+
+# Deprecated alias: the name says Anthropic, the value is a Bedrock token.
+_get_anthropic_api_key = _get_bedrock_bearer_token
 
 
 # ============== DATA CLASSES ==============
@@ -134,7 +152,7 @@ class AIGateway:
         self._client: Optional[openai.OpenAI] = None
 
     def _get_client(self) -> openai.OpenAI:
-        api_key = _get_anthropic_api_key()
+        api_key = _get_bedrock_bearer_token()
         self._client = openai.OpenAI(api_key=api_key, base_url=BEDROCK_BASE_URL)
         return self._client
 
@@ -178,7 +196,7 @@ class AIGateway:
             try:
                 client = self._get_client()
                 response = client.chat.completions.create(
-                    model=model or ANTHROPIC_MODEL,
+                    model=model or DEFAULT_MODEL,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     messages=[{"role": "user", "content": prompt}],
