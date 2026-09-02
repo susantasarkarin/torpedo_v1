@@ -84,6 +84,9 @@ def main(argv=None) -> int:
     ap.add_argument("--max-calls", type=int, default=20000,
                     help="hard ceiling on leads processed, so a run cannot "
                          "consume the whole daily AI allowance")
+    ap.add_argument("--abort-after", type=int, default=25,
+                    help="stop after this many CONSECUTIVE failures — the "
+                         "backstop for an outage the error text does not name")
     args = ap.parse_args(argv)
 
     E = get_database("email_automation")["leads_enriched"]
@@ -103,6 +106,25 @@ def main(argv=None) -> int:
 
     stats = Counter()
     t0 = time.time()
+
+    # CIRCUIT BREAKER.
+    #
+    # Matching error strings has now failed twice. First the guard only
+    # inspected exceptions, and classify_lead swallows its own — so a quota
+    # outage arrived as an ordinary empty result. Then the strings themselves
+    # did not match: Bedrock answered ValidationException "Operation not
+    # allowed" (an account-level model-access refusal), which is in no
+    # transient word list, and 5,956 leads were marked unclassifiable in 156
+    # seconds by an infrastructure failure that had nothing to do with them.
+    #
+    # The robust signal is not the wording, it is the SHAPE: a per-lead verdict
+    # affects some leads, an outage affects every lead in a row. Consecutive
+    # failures are therefore the backstop, whatever the text says.
+    consecutive_failures = 0
+    # Ids marked during the CURRENT failure streak. If the streak turns out to
+    # be an outage, these marks were wrong — a lead is not unclassifiable
+    # because the provider was down — so they are rolled back on abort.
+    streak_marked: list = []
 
     while stats["processed"] < budget:
         batch = list(E.find(selector).limit(100))
@@ -153,6 +175,14 @@ def main(argv=None) -> int:
                     return 2
                 stats["error"] += 1
                 stats["processed"] += 1
+                consecutive_failures += 1
+                if consecutive_failures >= args.abort_after:
+                    logger.error(
+                        "%d CONSECUTIVE failures — stopping. Last: %s: %s",
+                        consecutive_failures, type(exc).__name__, str(exc)[:160])
+                    _rollback_streak(E, streak_marked, stats)
+                    _report(stats, t0, args)
+                    return 2
                 E.update_one({"_id": doc["_id"]},
                              {"$set": {DONE_MARK: datetime.utcnow(),
                                        "ai_classification_result":
@@ -168,7 +198,14 @@ def main(argv=None) -> int:
                 # therefore marked 5 leads permanently "empty" during a run
                 # where the real cause was the daily cap. Inspect the log too.
                 err = getattr(call_log, "error_message", "") or ""
-                if _is_transient_text(err):
+                consecutive_failures += 1
+                if _is_transient_text(err) or consecutive_failures >= args.abort_after:
+                    if consecutive_failures >= args.abort_after:
+                        logger.error(
+                            "%d CONSECUTIVE failures — this is an outage, not "
+                            "a property of these leads. Last error: %s",
+                            consecutive_failures, err[:200])
+                    _rollback_streak(E, streak_marked, stats)
                     logger.error(
                         "TRANSIENT failure after %d leads (%s) — stopping "
                         "rather than marking leads unclassifiable. Re-run when "
@@ -177,6 +214,7 @@ def main(argv=None) -> int:
                     _report(stats, t0, args)
                     return 2
                 stats["no_result"] += 1
+                streak_marked.append(doc["_id"])
                 E.update_one({"_id": doc["_id"]},
                              {"$set": {DONE_MARK: datetime.utcnow(),
                                        "ai_classification_result": "empty"}})
@@ -190,6 +228,8 @@ def main(argv=None) -> int:
             update.setdefault("seniority_level", "Unknown")
             E.update_one({"_id": doc["_id"]}, {"$set": update})
             stats["ok"] += 1
+            consecutive_failures = 0
+            streak_marked.clear()
 
             if stats["processed"] % 100 == 0:
                 el = time.time() - t0
@@ -199,6 +239,24 @@ def main(argv=None) -> int:
 
     _report(stats, t0, args)
     return 0
+
+
+def _rollback_streak(collection, ids, stats) -> None:
+    """
+    Un-mark the leads written during a failure streak that turned out to be an
+    outage. Without this the run leaves them permanently skipped for a reason
+    that had nothing to do with them — which is exactly how 5,956 leads were
+    written off in 156 seconds by a Bedrock "Operation not allowed".
+    """
+    if not ids:
+        return
+    result = collection.update_many(
+        {"_id": {"$in": list(ids)}},
+        {"$unset": {DONE_MARK: "", "ai_classification_result": ""}})
+    stats["rolled_back"] = result.modified_count
+    logger.info("rolled back %d marks written during the failed streak",
+                result.modified_count)
+    ids.clear()
 
 
 def _report(stats, t0, args):
