@@ -44,6 +44,9 @@ def main() -> int:
     ap.add_argument("--undo", action="store_true",
                     help="restore everything this script paused")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--active-only", action="store_true",
+                    help="only consider campaigns with is_active=true (the old "
+                         "behaviour; matches nothing while outreach is paused)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -69,9 +72,31 @@ def main() -> int:
         print("done")
         return 0
 
-    active = {c_["campaign_id"]: c_.get("business")
-              for c_ in t["outreach_campaigns_v2"].find({"is_active": True})}
-    print("active campaigns:", active)
+    # Clean duplicates across ALL campaigns, not just currently-active ones.
+    #
+    # This used to be find({"is_active": True}). That logic is not wrong, but
+    # on production every campaign carries is_active=false — outreach is
+    # switched off right now — so the filter matched nothing and the script
+    # printed "active campaigns: {}" and exited having done nothing, every
+    # time it was run. Meanwhile 12,686 people sit enrolled in more than one
+    # chain, 9,642 of them in all three.
+    #
+    # Restricting the cleanup to active campaigns gets the ordering backwards:
+    # the duplicates are harmless while everything is paused and become live
+    # the instant somebody un-pauses. The backlog has to be cleaned BEFORE
+    # that, which means operating on paused campaigns too.
+    #
+    # --active-only restores the old behaviour if you ever want it.
+    campaign_filter = {"campaign_id": {"$nin": [None, ""]}}
+    if args.active_only:
+        campaign_filter["is_active"] = True
+    active = {c_["campaign_id"]: (c_.get("business") or c_.get("name") or c_.get("basket"))
+              for c_ in t["outreach_campaigns_v2"].find(campaign_filter)}
+    print(f"campaigns in scope ({len(active)})"
+          f"{' [active only]' if args.active_only else ' [including paused]'}:")
+    for cid, label in active.items():
+        n_enrolled = ol.count_documents({"campaign_id": cid})
+        print(f"  {str(cid)[:14]}  {str(label):<28} enrolled={n_enrolled}")
 
     # group this person's enrollments across active campaigns
     by_email = defaultdict(list)

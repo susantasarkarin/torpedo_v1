@@ -1116,11 +1116,30 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             logger.error(f"Campaign {campaign_id} not found during enrollment")
             return
 
-        # Already enrolled emails for this campaign
+        # Already enrolled emails — checked across EVERY campaign, not just
+        # this one.
+        #
+        # This filter used to be {"campaign_id": campaign_id}, so enrolling
+        # into chain B never noticed the person was already in chain A. The
+        # result, measured on production 2026-09-02: 12,686 people enrolled in
+        # more than one chain (9,642 of them in all three), and 6,190 people
+        # had ALREADY been emailed by more than one brand — 32,170 sends, 53%
+        # of all outreach, with individuals receiving up to 11 messages
+        # pitching consumer_insights, data_services AND bimwave.
+        #
+        # "One person, one brand" is stated as the rule for basket D a few
+        # lines above; scoping the check per-campaign meant it was never
+        # enforced between campaigns. Whoever is enrolled first keeps the
+        # lead — matching the tie-break in
+        # scripts/retire_duplicate_brand_enrollments.py, so the backlog
+        # cleanup and this guard agree on who wins.
+        #
+        # Paused/retired rows still count: a person retired out of a chain
+        # must not be re-enrolled into it by the next run.
         enrolled_emails = {
             doc["email"] for doc in outreach_leads.find(
-                {"campaign_id": campaign_id}, {"email": 1, "_id": 0}
-            )
+                {"email": {"$nin": [None, ""]}}, {"email": 1, "_id": 0}
+            ) if doc.get("email")
         }
 
         query = _build_basket_enrollment_query(basket)
