@@ -34,6 +34,21 @@ logger = logging.getLogger("do_inference_client")
 
 DEFAULT_BASE_URL = "https://inference.do-ai.run/v1"
 
+# A second, independently-configured endpoint that speaks the same
+# OpenAI-compatible protocol. Point it at a Qwen you host yourself — vLLM,
+# Ollama (`/v1`), llama.cpp's server, LM Studio, or a rented GPU box:
+#
+#     SELF_HOSTED_BASE_URL=http://10.0.0.5:8000/v1
+#     SELF_HOSTED_API_KEY=whatever-your-server-expects   (Ollama ignores it)
+#     BEDROCK_FALLBACKS_CHEAP=local:qwen3-32b
+#
+# Nothing else changes: bedrock_client still owns the chain, the retries and
+# the cheap/smart roles, and the call is logged and cost-audited identically.
+# This exists because the transport was already generic — the DigitalOcean
+# endpoint is just one OpenAI-compatible URL among many.
+SELF_HOSTED_BASE_URL_ENV = "SELF_HOSTED_BASE_URL"
+SELF_HOSTED_KEY_ENV = "SELF_HOSTED_API_KEY"
+
 
 class DOInferenceError(RuntimeError):
     """DigitalOcean inference call failed."""
@@ -60,6 +75,10 @@ def api_key() -> str:
 
 
 def base_url() -> str:
+    return _default_base_url()
+
+
+def _default_base_url() -> str:
     return (os.getenv("DO_INFERENCE_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
 
 
@@ -76,8 +95,10 @@ def is_configured() -> bool:
     return bool(api_key())
 
 
-def _headers() -> Dict[str, str]:
-    key = api_key()
+def _headers(override_key: Optional[str] = None) -> Dict[str, str]:
+    # A self-hosted server usually wants no real key; callers pass a
+    # placeholder so this does not raise on an endpoint that ignores auth.
+    key = override_key if override_key is not None else api_key()
     if not key:
         raise DOAuthError(
             "DO_INFERENCE_API_KEY is not set — the DigitalOcean fallback is "
@@ -105,13 +126,20 @@ def _raise_for_status(response: requests.Response, model: str) -> None:
 
 
 def chat(model: str, system: str, user: str,
-         max_tokens: int = 1024, temperature: float = 0.0
+         max_tokens: int = 1024, temperature: float = 0.0,
+         base_url: Optional[str] = None,
+         api_key: Optional[str] = None,
          ) -> Tuple[str, Dict[str, int], float]:
     """One chat completion. Returns (text, usage, latency_seconds).
 
     `usage` is normalised to Bedrock's key names (inputTokens/outputTokens/
     totalTokens) so the cost-audit log line and meta dict in bedrock_client
     read identically whichever provider answered.
+
+    `base_url` / `api_key` override the DigitalOcean defaults, which is how a
+    `local:`-prefixed chain entry reaches a self-hosted Qwen. The protocol is
+    the same POST /chat/completions either way — that is what vLLM, Ollama,
+    llama.cpp and LM Studio all serve — so nothing else needs to change.
     """
     messages: List[Dict[str, str]] = []
     if system:
@@ -128,8 +156,8 @@ def chat(model: str, system: str, user: str,
     started = time.monotonic()
     try:
         response = requests.post(
-            f"{base_url()}/chat/completions",
-            headers=_headers(),
+            f"{(base_url or _default_base_url()).rstrip('/')}/chat/completions",
+            headers=_headers(api_key),
             json=payload,
             timeout=timeout_seconds(),
         )

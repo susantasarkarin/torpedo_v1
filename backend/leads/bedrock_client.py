@@ -109,6 +109,16 @@ DEFAULT_FALLBACKS_SMART = (DO_MODEL_SMART,)
 # Marks a chain entry as belonging to the DigitalOcean provider.
 DO_PREFIX = "do:"
 
+# Self-hosted / any OpenAI-compatible endpoint. Same transport as `do:`, but
+# reads its own base URL and key, so a local Qwen and the DigitalOcean
+# fallback can be configured independently and used in the same chain:
+#
+#     BEDROCK_MODEL_CHEAP=local:qwen3-32b
+#     BEDROCK_FALLBACKS_CHEAP=qwen.qwen3-32b-v1:0,do:alibaba-qwen3-32b
+#
+# i.e. try your own box first, fall back to Bedrock, then to DigitalOcean.
+LOCAL_PREFIX = "local:"
+
 VALID_ROLES = ("cheap", "smart")
 
 # Throttling / transient error codes worth retrying on the SAME model.
@@ -412,7 +422,14 @@ def is_do_model(model_id: str) -> bool:
     return str(model_id or "").startswith(DO_PREFIX)
 
 
+def is_local_model(model_id: str) -> bool:
+    """True for a `local:`-prefixed entry — any OpenAI-compatible endpoint."""
+    return str(model_id or "").startswith(LOCAL_PREFIX)
+
+
 def provider_of(model_id: str) -> str:
+    if is_local_model(model_id):
+        return "self_hosted"
     return "digitalocean" if is_do_model(model_id) else "bedrock"
 
 
@@ -431,6 +448,32 @@ def _call_do(model_id: str, system: str, user: str,
     return chat(model_id[len(DO_PREFIX):], system, user, max_tokens, temperature)
 
 
+def _call_self_hosted(model_id: str, system: str, user: str,
+                      max_tokens: int, temperature: float
+                      ) -> Tuple[str, Dict[str, int], float]:
+    """
+    Route a `local:`-prefixed entry to a self-hosted OpenAI-compatible server.
+
+    Reuses do_inference_client's transport — it is a plain POST to
+    /chat/completions, which is what vLLM, Ollama, llama.cpp and LM Studio all
+    speak — but with its own base URL and key so the two providers stay
+    independently configurable.
+    """
+    from leads import do_inference_client as _oai
+
+    base = os.getenv(_oai.SELF_HOSTED_BASE_URL_ENV, "").strip()
+    if not base:
+        raise DOFallbackNotConfigured(
+            f"{_oai.SELF_HOSTED_BASE_URL_ENV} not set — self-hosted model "
+            f"{model_id!r} is in the chain but has nowhere to call")
+
+    return _oai.chat(
+        model_id[len(LOCAL_PREFIX):], system, user, max_tokens, temperature,
+        base_url=base,
+        api_key=os.getenv(_oai.SELF_HOSTED_KEY_ENV, "") or "not-required",
+    )
+
+
 def _call_converse(model_id: str, system: str, user: str,
                    max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
     """One raw model call, routed to whichever provider owns `model_id`.
@@ -439,6 +482,8 @@ def _call_converse(model_id: str, system: str, user: str,
     provider, so the retry loop and cost-audit logging above stay
     provider-agnostic.
     """
+    if is_local_model(model_id):
+        return _call_self_hosted(model_id, system, user, max_tokens, temperature)
     if is_do_model(model_id):
         return _call_do(model_id, system, user, max_tokens, temperature)
 

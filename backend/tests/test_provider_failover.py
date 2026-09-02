@@ -226,3 +226,42 @@ def test_config_summary_flags_an_unusable_fallback():
     assert summary["primary_provider"] == "bedrock"
     assert summary["fallback_provider"] == "digitalocean"
     assert summary["do_fallback_configured"] is False
+
+
+# ---------------------------------------------------------------------------
+# Self-hosted provider (`local:`) — any OpenAI-compatible endpoint: vLLM,
+# Ollama, llama.cpp, LM Studio, a rented GPU box.
+# ---------------------------------------------------------------------------
+def test_local_prefix_routes_to_self_hosted_not_bedrock():
+    assert bc.provider_of("local:qwen3-32b") == "self_hosted"
+    assert bc.provider_of("do:alibaba-qwen3-32b") == "digitalocean"
+    assert bc.provider_of("qwen.qwen3-32b-v1:0") == "bedrock"
+
+
+def test_local_model_without_a_base_url_is_a_config_error_not_a_crash(monkeypatch):
+    """An unconfigured self-hosted entry must name the missing variable, and
+    must be the same error class the chain already treats as 'skip me'."""
+    monkeypatch.delenv("SELF_HOSTED_BASE_URL", raising=False)
+    with pytest.raises(bc.DOFallbackNotConfigured) as exc:
+        bc._call_converse("local:qwen3-32b", "s", "u", 10, 0.0)
+    assert "SELF_HOSTED_BASE_URL" in str(exc.value)
+
+
+def test_local_model_calls_the_configured_endpoint(monkeypatch):
+    monkeypatch.setenv("SELF_HOSTED_BASE_URL", "http://10.0.0.5:8000/v1")
+    monkeypatch.setenv("SELF_HOSTED_API_KEY", "unused-by-ollama")
+    seen = {}
+
+    def _fake_chat(model, system, user, max_tokens, temperature,
+                   base_url=None, api_key=None):
+        seen.update(model=model, base_url=base_url, api_key=api_key)
+        return "ok", {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}, 0.01
+
+    from leads import do_inference_client as oai
+    monkeypatch.setattr(oai, "chat", _fake_chat)
+    text, usage, _ = bc._call_converse("local:qwen3-32b", "s", "u", 10, 0.0)
+
+    assert text == "ok"
+    # The prefix is stripped before the model name reaches the server.
+    assert seen["model"] == "qwen3-32b"
+    assert seen["base_url"] == "http://10.0.0.5:8000/v1"
