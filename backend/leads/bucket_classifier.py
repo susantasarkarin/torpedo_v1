@@ -37,6 +37,7 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
+from bson import ObjectId
 from pymongo import MongoClient
 
 
@@ -455,6 +456,41 @@ def persist(lead: Dict[str, Any], result: Dict[str, Any],
         return False
 
     leads_raw.update_one({"_id": lead_id}, {"$set": updates})
+
+    # Mirror onto leads_enriched as well.
+    #
+    # This classifier wrote ONLY to leads_raw, but every downstream consumer —
+    # ICP segmentation, basket assignment, campaign enrollment — reads
+    # leads_enriched. Measured 2026-09-02: 17,457 raw docs carried an
+    # outreach_bucket and ZERO enriched docs did, so the derivation chain
+    #
+    #     outreach_bucket -> icp_segment -> classification_basket
+    #
+    # broke at its first link: icp_segment stayed "unknown" for 87% of leads,
+    # compute_icp_basket fell through to its keyword fallback, and 17,836 of
+    # 22,117 leads parked in basket E (Nurture / Unqualified). The AI had
+    # already decided; its answer just never reached the collection that
+    # needed it.
+    #
+    # Only the three service-line buckets carry an ICP segment — REJECT has no
+    # ICP and REVIEW has no *decided* one, so neither is mirrored.
+    enriched_id = lead.get("enriched_lead_id")
+    if cfg and cfg.get("icp_slug") and enriched_id:
+        mirror = {
+            "outreach_bucket": bucket,
+            "icp_segment": cfg["icp_slug"],
+            "classification_basket": cfg["basket"],
+            "classification_basket_name": cfg["label"],
+        }
+        try:
+            leads_enriched = leads_raw.database["leads_enriched"]
+            leads_enriched.update_one({"_id": ObjectId(enriched_id)},
+                                      {"$set": mirror})
+        except Exception:
+            # Never fail the classification because the mirror failed — the
+            # backfill (scripts/backfill_bucket_to_enriched.py) re-converges.
+            logger.warning("lead=%s enriched mirror failed", str(lead_id),
+                           exc_info=True)
     return True
 
 
