@@ -25,7 +25,7 @@ def _clean_env(monkeypatch):
     for var in ("BEDROCK_MODEL_CHEAP", "BEDROCK_MODEL_SMART",
                 "BEDROCK_FALLBACKS_CHEAP", "BEDROCK_FALLBACKS_SMART",
                 "DO_INFERENCE_API_KEY", "DIGITALOCEAN_INFERENCE_KEY",
-                "BEDROCK_MAX_RETRIES"):
+                "BEDROCK_MAX_RETRIES", "SELF_HOSTED_EXTRA_PARAMS"):
         monkeypatch.delenv(var, raising=False)
     bc._demoted.clear()
     yield
@@ -253,8 +253,9 @@ def test_local_model_calls_the_configured_endpoint(monkeypatch):
     seen = {}
 
     def _fake_chat(model, system, user, max_tokens, temperature,
-                   base_url=None, api_key=None):
-        seen.update(model=model, base_url=base_url, api_key=api_key)
+                   base_url=None, api_key=None, extra_params=None):
+        seen.update(model=model, base_url=base_url, api_key=api_key,
+                    extra_params=extra_params)
         return "ok", {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}, 0.01
 
     from leads import do_inference_client as oai
@@ -265,3 +266,62 @@ def test_local_model_calls_the_configured_endpoint(monkeypatch):
     # The prefix is stripped before the model name reaches the server.
     assert seen["model"] == "qwen3-32b"
     assert seen["base_url"] == "http://10.0.0.5:8000/v1"
+
+
+# ---------------------------------------------------------------
+# Self-hosted extra params (reasoning-model control)
+# ---------------------------------------------------------------
+
+def test_extra_params_default_empty(monkeypatch):
+    monkeypatch.delenv("SELF_HOSTED_EXTRA_PARAMS", raising=False)
+    assert bc._self_hosted_extra_params() == {}
+
+
+def test_extra_params_parsed(monkeypatch):
+    monkeypatch.setenv("SELF_HOSTED_EXTRA_PARAMS",
+                       '{"thinking": {"type": "disabled"}}')
+    assert bc._self_hosted_extra_params() == {
+        "thinking": {"type": "disabled"}}
+
+
+def test_extra_params_malformed_is_ignored(monkeypatch):
+    monkeypatch.setenv("SELF_HOSTED_EXTRA_PARAMS", "{not json")
+    assert bc._self_hosted_extra_params() == {}
+
+
+def test_extra_params_non_object_is_ignored(monkeypatch):
+    monkeypatch.setenv("SELF_HOSTED_EXTRA_PARAMS", '["thinking"]')
+    assert bc._self_hosted_extra_params() == {}
+
+
+def test_chat_merges_extra_params_without_clobbering_reserved(monkeypatch):
+    """extra_params reach the payload; reserved keys stay authoritative."""
+    from leads import do_inference_client as oai
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"choices": [{"message": {"content": "{}"}}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1,
+                              "total_tokens": 2}}
+
+    def _fake_post(url, headers=None, json=None, timeout=None):
+        captured.update(json)
+        return _Resp()
+
+    monkeypatch.setattr(oai.requests, "post", _fake_post)
+    oai.chat("glm-5.2", "sys", "usr", max_tokens=64, temperature=0.0,
+             base_url="http://x/v1", api_key="k",
+             extra_params={"thinking": {"type": "disabled"},
+                           "max_tokens": 999999})
+
+    assert captured["thinking"] == {"type": "disabled"}
+    assert captured["max_tokens"] == 64, "reserved key must not be overridden"
+
+
+def test_empty_content_raises_rather_than_passing_through():
+    """A reasoning model that spends its budget must fail loudly, not return ''."""
+    with pytest.raises(bc.JSONParseError):
+        bc.parse_json_strict("")

@@ -448,6 +448,36 @@ def _call_do(model_id: str, system: str, user: str,
     return chat(model_id[len(DO_PREFIX):], system, user, max_tokens, temperature)
 
 
+def _self_hosted_extra_params() -> Dict[str, Any]:
+    """
+    Extra JSON payload keys for the self-hosted endpoint, from
+    SELF_HOSTED_EXTRA_PARAMS (a JSON object).
+
+    Reasoning models need this. GLM-5.2 thinks by default and will spend the
+    entire max_tokens budget producing reasoning, returning empty content —
+    which costs two billed calls (converse_json retries once) and then raises
+    JSONParseError. Disable it with:
+
+        SELF_HOSTED_EXTRA_PARAMS={"thinking": {"type": "disabled"}}
+
+    Malformed JSON is logged and ignored rather than taking the chain down.
+    """
+    raw = os.getenv("SELF_HOSTED_EXTRA_PARAMS", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("SELF_HOSTED_EXTRA_PARAMS is not valid JSON, ignoring: %r",
+                       raw[:120])
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("SELF_HOSTED_EXTRA_PARAMS must be a JSON object, got %s",
+                       type(parsed).__name__)
+        return {}
+    return parsed
+
+
 def _call_self_hosted(model_id: str, system: str, user: str,
                       max_tokens: int, temperature: float
                       ) -> Tuple[str, Dict[str, int], float]:
@@ -471,6 +501,7 @@ def _call_self_hosted(model_id: str, system: str, user: str,
         model_id[len(LOCAL_PREFIX):], system, user, max_tokens, temperature,
         base_url=base,
         api_key=os.getenv(_oai.SELF_HOSTED_KEY_ENV, "") or "not-required",
+        extra_params=_self_hosted_extra_params(),
     )
 
 

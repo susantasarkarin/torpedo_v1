@@ -129,6 +129,7 @@ def chat(model: str, system: str, user: str,
          max_tokens: int = 1024, temperature: float = 0.0,
          base_url: Optional[str] = None,
          api_key: Optional[str] = None,
+         extra_params: Optional[Dict[str, Any]] = None,
          ) -> Tuple[str, Dict[str, int], float]:
     """One chat completion. Returns (text, usage, latency_seconds).
 
@@ -140,6 +141,12 @@ def chat(model: str, system: str, user: str,
     `local:`-prefixed chain entry reaches a self-hosted Qwen. The protocol is
     the same POST /chat/completions either way — that is what vLLM, Ollama,
     llama.cpp and LM Studio all serve — so nothing else needs to change.
+
+    `extra_params` are merged into the payload for options this transport does
+    not model itself. Reasoning models need it: GLM-5.2 thinks by default and
+    will spend the whole max_tokens budget on reasoning, returning empty
+    content, unless sent {"thinking": {"type": "disabled"}}. Reserved keys
+    (model/messages/max_tokens/temperature) cannot be overridden.
     """
     messages: List[Dict[str, str]] = []
     if system:
@@ -152,6 +159,9 @@ def chat(model: str, system: str, user: str,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if extra_params:
+        payload.update({k: v for k, v in extra_params.items()
+                        if k not in payload})
 
     started = time.monotonic()
     try:
