@@ -97,17 +97,92 @@ def _has_mx_or_a(domain: str) -> bool:
         return True  # fail open if dnspython missing — don't block on a dependency gap
 
 
+PROVIDER = os.getenv("EMAIL_VERIFY_PROVIDER", "").strip().lower()
+PROVIDER_KEY = os.getenv("EMAIL_VERIFY_API_KEY", "").strip()
+
+# Provider verdicts normalised to our four values. Anything a provider says
+# that is not mapped here becomes "unknown", never "valid" — an unrecognised
+# string must not be able to open the gate.
+_ZEROBOUNCE = {"valid": "valid", "invalid": "invalid", "catch-all": "catch-all",
+               "catchall": "catch-all", "spamtrap": "invalid", "abuse": "invalid",
+               "do_not_mail": "invalid", "unknown": "unknown"}
+_NEVERBOUNCE = {"valid": "valid", "invalid": "invalid", "catchall": "catch-all",
+                "disposable": "invalid", "unknown": "unknown"}
+_BOUNCER = {"deliverable": "valid", "undeliverable": "invalid",
+            "risky": "catch-all", "unknown": "unknown"}
+
+
 def paid_verify(email: str) -> Optional[str]:
-    """Real-time verification via a third-party provider. NOT implemented
-    — no provider is wired up (see module docstring). Returns None to
-    mean "not checked", never a fabricated valid/invalid. Wire this up
-    once a provider + API key is approved:
-        - ZeroBounce: POST https://api.zerobounce.net/v2/validate
-        - NeverBounce: POST https://api.neverbounce.com/v4/single/check
-        - Bouncer: POST https://api.usebouncer.com/v1.1/email/verify
-    Expected return values once wired: "valid", "invalid", "catch-all",
-    "unknown"."""
+    """
+    Real-time verification via a third-party provider.
+
+    Returns "valid" / "invalid" / "catch-all" / "unknown", or None meaning
+    NOT CHECKED. The distinction matters: None must never be written as a
+    verdict, and only "valid" may ever set sendable=True.
+
+    Wired for ZeroBounce, NeverBounce and Bouncer. Select with
+    EMAIL_VERIFY_PROVIDER and EMAIL_VERIFY_API_KEY. With neither set this
+    returns None exactly as before, so the gate stays shut by default rather
+    than falling open.
+
+    A transport error also returns None, not "unknown": we did not learn that
+    the address is doubtful, we learned nothing, and the difference decides
+    whether it is worth asking again.
+    """
+    if not PROVIDER or not PROVIDER_KEY:
+        return None
+
+    import json as _json
+    import urllib.parse as _urlparse
+    import urllib.request as _urlreq
+
+    try:
+        if PROVIDER == "zerobounce":
+            qs = _urlparse.urlencode({"api_key": PROVIDER_KEY, "email": email})
+            url = f"https://api.zerobounce.net/v2/validate?{qs}"
+            with _urlreq.urlopen(url, timeout=30) as resp:
+                data = _json.loads(resp.read().decode())
+            return _ZEROBOUNCE.get(str(data.get("status", "")).lower(), "unknown")
+
+        if PROVIDER == "neverbounce":
+            qs = _urlparse.urlencode({"key": PROVIDER_KEY, "email": email})
+            url = f"https://api.neverbounce.com/v4/single/check?{qs}"
+            with _urlreq.urlopen(url, timeout=30) as resp:
+                data = _json.loads(resp.read().decode())
+            if str(data.get("status", "")).lower() not in ("success", ""):
+                return None          # an API-level error, not a verdict
+            return _NEVERBOUNCE.get(str(data.get("result", "")).lower(), "unknown")
+
+        if PROVIDER == "bouncer":
+            qs = _urlparse.urlencode({"email": email})
+            req = _urlreq.Request(
+                f"https://api.usebouncer.com/v1.1/email/verify?{qs}",
+                headers={"x-api-key": PROVIDER_KEY})
+            with _urlreq.urlopen(req, timeout=30) as resp:
+                data = _json.loads(resp.read().decode())
+            return _BOUNCER.get(str(data.get("status", "")).lower(), "unknown")
+
+    except Exception as exc:  # network, quota, auth — all "we did not learn"
+        print(f"  ! verification call failed for {email}: "
+              f"{type(exc).__name__}: {str(exc)[:120]}")
+        return None
+
+    print(f"  ! unknown EMAIL_VERIFY_PROVIDER={PROVIDER!r} — no verification run")
     return None
+
+
+def _mark(db, email: str, sendable: bool, status: str) -> None:
+    """
+    Record a verification outcome on every outreach row for this address.
+
+    Keyed on the address rather than a lead id: the same person can sit in more
+    than one campaign row, and a verdict about a mailbox is true for all of them.
+    """
+    db["outreach_leads_v2"].update_many(
+        {"email": email},
+        {"$set": {"sendable": sendable,
+                  "verification_status": status,
+                  "verified_at": datetime.utcnow()}})
 
 
 def get_cohort(db, name: str):
@@ -153,6 +228,15 @@ def main() -> int:
 
     cohorts = ["staged", "sent-clean", "candidates"] if args.cohort == "all" else [args.cohort]
 
+    provider_live = bool(PROVIDER and PROVIDER_KEY)
+    if args.apply and not provider_live:
+        print("EMAIL_VERIFY_PROVIDER / EMAIL_VERIFY_API_KEY are not set - the "
+              "paid step cannot run. Free-check FAILURES are still written "
+              "(they are deterministic and permanent); no address is marked "
+              "sendable without a provider 'valid'.")
+
+    writes = {"sendable_true": 0, "sendable_false": 0, "verdicts": {}}
+
     for cohort_name in cohorts:
         items = get_cohort(db, cohort_name)
         pass_count = 0
@@ -165,6 +249,34 @@ def main() -> int:
                 fail_reasons[result["free_check_reason"]] = fail_reasons.get(
                     result["free_check_reason"], 0) + 1
 
+            if not args.apply:
+                continue
+
+            email = item["email"]
+            if result["free_check_result"] != "pass":
+                # A free-check failure is deterministic and permanent - no MX
+                # means no mailbox, today or next month. Write it, and never
+                # spend a verification credit on it.
+                _mark(db, email, sendable=False,
+                      status="free_check_failed:" + result["free_check_reason"])
+                writes["sendable_false"] += 1
+                continue
+
+            verdict = paid_verify(email)
+            if verdict is None:
+                # Not checked. Write nothing: an absent field already means
+                # "not sendable", and a blank is honest where a guess is not.
+                continue
+            writes["verdicts"][verdict] = writes["verdicts"].get(verdict, 0) + 1
+            if verdict == "valid":
+                _mark(db, email, sendable=True, status="verified_valid")
+                writes["sendable_true"] += 1
+            else:
+                # catch-all and unknown are NOT sendable. After a 45% bounce
+                # incident, "probably fine" is not a standard worth adopting.
+                _mark(db, email, sendable=False, status="verified_" + verdict)
+                writes["sendable_false"] += 1
+
         total = len(items)
         print(f"\n=== Cohort: {cohort_name} (n={total}) ===")
         if total == 0:
@@ -175,14 +287,22 @@ def main() -> int:
         print(f"  Free checks fail: {total - pass_count} ({(total-pass_count)/total*100:.1f}%)")
         for reason, count in sorted(fail_reasons.items(), key=lambda x: -x[1]):
             print(f"    {reason}: {count}")
-        print(f"  Paid verification: NOT RUN (no provider wired up — see module docstring)")
-        print(f"  Sendable (requires paid 'valid'): 0")
+        if provider_live:
+            print("  Paid verification: " + PROVIDER)
+        else:
+            print("  Paid verification: NOT RUN "
+                  "(set EMAIL_VERIFY_PROVIDER + EMAIL_VERIFY_API_KEY)")
 
     if args.apply:
-        print("\n--apply passed, but there is nothing to write yet: paid_verify() "
-              "returns None until a provider is wired up. Free-check failures alone "
-              "are enough to permanently rule an address out, but this script "
-              "intentionally does not write partial state — wire up a provider first.")
+        print("")
+        print("=== writes ===")
+        print("  marked sendable=True  : %d" % writes["sendable_true"])
+        print("  marked sendable=False : %d" % writes["sendable_false"])
+        for verdict, n in sorted(writes["verdicts"].items(), key=lambda x: -x[1]):
+            print("    provider said %s: %d" % (verdict, n))
+        if not provider_live:
+            print("  nothing was marked sendable - that requires a provider "
+                  "'valid' verdict.")
 
     return 0
 
