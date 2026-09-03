@@ -167,6 +167,27 @@ class SendingEngine:
     
     # ============== MAIN SEND METHOD ==============
     
+
+    def _identity_for_gate(self, lead: dict, campaign_id: str) -> str:
+        """
+        The sending mailbox address — that is what carries the reputation and
+        therefore the budget, so the cap must be keyed on it rather than on the
+        campaign. Falls back to the campaign id only when no mailbox has been
+        assigned yet, which keeps an unassigned lead from sharing one bucket
+        with every other channel.
+        """
+        mailbox_id = lead.get("assigned_mailbox_id")
+        if mailbox_id:
+            try:
+                mailbox = self.mailbox_manager.get_mailbox(mailbox_id) or {}
+                addr = mailbox.get("email") or mailbox.get("from_email")
+                if addr:
+                    return str(addr).strip().lower()
+            except Exception:
+                logger.debug("could not resolve mailbox %s for budget identity",
+                             mailbox_id, exc_info=True)
+        return f"campaign:{campaign_id}"
+
     def send_email(
         self,
         lead_id: str,
@@ -196,11 +217,39 @@ class SendingEngine:
             if not lead:
                 return False, f"Lead {lead_id} not found", None
 
-            # ── Global bounce suppression check ──────────────────────────────
-            to_email = lead.get("email", "")
+            # ── Shared send gates ────────────────────────────────────────────
+            # This engine delivers its own mail (SMTP/SES), so it never passed
+            # through messaging.facade.send() and inherited none of its
+            # guarantees. It checked ONE of the three bounce lists — the line
+            # below, kept as a fast local path — and nothing else: no kill
+            # switch, no cross-channel budget, no unified suppression, no
+            # placeholder-domain blocklist. This is the path that over-sent in
+            # August. facade.gate() applies all of them before every message.
+            to_email = (lead.get("email") or "").strip().lower()
             if to_email and self.is_suppressed(to_email):
                 logger.info(f"Suppressed send to {to_email}: address is on bounce suppression list")
                 return False, f"Suppressed: {to_email} is on the global bounce list", None
+
+            identity = self._identity_for_gate(lead, campaign_id)
+            try:
+                from messaging import facade as _facade
+            except ImportError:  # pragma: no cover - packaging fallback
+                from backend.messaging import facade as _facade
+            gate_block = _facade.gate(to_email, identity=identity,
+                                      channel="outreach", transactional=False)
+            if gate_block:
+                reason, category = gate_block
+                logger.info("send gated (%s) to=%s campaign=%s: %s",
+                            category, to_email, campaign_id, reason)
+                _facade._log.record(identity=identity, to_email=to_email,
+                                    subject=None, channel="outreach",
+                                    status={"suppressed": "suppressed",
+                                            "budget": "budget_blocked"}.get(category, "failed"),
+                                    error=reason,
+                                    metadata={"campaign_id": campaign_id,
+                                              "lead_id": lead_id,
+                                              "step": step_number})
+                return False, f"{category}: {reason}", None
             # ─────────────────────────────────────────────────────────────────
 
             # ── Pre-send email validation (syntax + MX + role-based) ────────
@@ -385,6 +434,22 @@ class SendingEngine:
                 
                 # Increment mailbox send count
                 self.mailbox_manager.increment_send_count(mailbox_id)
+
+                # Count this send in the ONE log the cross-channel budget
+                # reads. Without it, budget.allows() sees zero outreach volume
+                # for the identity and every cap is computed against a
+                # fraction of the real number.
+                try:
+                    from messaging import facade as _f
+                except ImportError:  # pragma: no cover
+                    from backend.messaging import facade as _f
+                _f._log.record(
+                    identity=self._identity_for_gate(lead, campaign_id),
+                    to_email=(lead.get("email") or "").strip().lower(),
+                    subject=send_record.subject, channel="outreach",
+                    status="sent", provider_message_id=message_id,
+                    metadata={"campaign_id": campaign_id, "lead_id": lead_id,
+                              "step": step_number, "mailbox_id": mailbox_id})
                 
                 # Update campaign stats
                 self._update_campaign_stats(campaign_id, "sent")

@@ -281,3 +281,61 @@ def test_real_corporate_domain_still_sends(transport):
          patch.object(facade._budget, "allows", return_value=None), \
          patch.object(facade._log, "record", return_value="log-1"):
         assert _send(transport, to_email="first.last@kantar.com").delivered is True
+
+
+# ---------------------------------------------------------------------------
+# facade.gate() — the shared pre-send checks, for senders that deliver their
+# own mail. The v2 cold-outreach engine does its own SMTP/SES and so had none
+# of these: no kill switch, no cross-channel budget, no unified suppression,
+# no placeholder-domain blocklist. It is the path that over-sent in August.
+# ---------------------------------------------------------------------------
+def _gate(addr="person@kantar.com", **over):
+    kwargs = dict(identity="outreach@cogentixresearch.com", channel="outreach")
+    kwargs.update(over)
+    return facade.gate(addr, **kwargs)
+
+
+def test_gate_allows_a_clean_address():
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None):
+        assert _gate() is None
+
+
+def test_gate_honours_the_kill_switch(monkeypatch):
+    monkeypatch.setenv("SENDING_ENABLED", "false")
+    reason, category = _gate()
+    assert category == "disabled"
+
+
+def test_gate_blocks_suppressed_addresses():
+    with patch.object(facade._suppression, "is_suppressed", return_value=True), \
+         patch.object(facade._suppression, "reason_for", return_value="complaint"), \
+         patch.object(facade._budget, "allows") as allows:
+        reason, category = _gate()
+    assert category == "suppressed"
+    # Suppression before budget, so a suppressed address cannot burn quota.
+    allows.assert_not_called()
+
+
+def test_gate_blocks_on_budget():
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value="daily cap reached"):
+        reason, category = _gate()
+    assert category == "budget"
+
+
+@pytest.mark.parametrize("addr", ["first.last@domain.com", "someone@linkedin.com"])
+def test_gate_blocks_unsendable_domains(addr):
+    reason, category = _gate(addr)
+    assert category == "compliance"
+
+
+def test_gate_and_send_apply_the_same_rules(transport):
+    """The split must not let the two paths drift apart."""
+    with patch.object(facade._suppression, "is_suppressed", return_value=True), \
+         patch.object(facade._suppression, "reason_for", return_value="complaint"), \
+         patch.object(facade._budget, "allows", return_value=None), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        sent = _send(transport)
+        gated = _gate()
+    assert sent.category == gated[1] == "suppressed"
