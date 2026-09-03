@@ -54,6 +54,18 @@ from .workflow_engine import WorkflowEngine, WorkflowStatus
 logger = logging.getLogger(__name__)
 
 
+
+def _mock_sends_enabled() -> bool:
+    """
+    Fake deliveries are a test affordance and nothing else.
+
+    Read at call time and default OFF, so the only way to get a fabricated
+    "sent" is to ask for one explicitly.
+    """
+    return os.getenv("OUTREACH_ALLOW_MOCK_SENDS", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 class SendingEngine:
     """
     Core email sending engine with thread continuity.
@@ -568,16 +580,40 @@ class SendingEngine:
         Send email via configured provider.
         """
         provider = mailbox.get("provider", "gmail")
-        
+
         if provider == "ses":
             return self._send_via_ses(mailbox, send_record)
-        elif provider == "gmail" and self.gmail_service:
+        if provider == "gmail" and self.gmail_service:
             return self._send_via_gmail(mailbox, send_record)
-        elif provider == "smtp":
+        if provider == "smtp":
             return self._send_via_smtp(mailbox, send_record)
-        else:
-            # Mock send for testing
+
+        # NOT a mock. A misconfigured mailbox is a failure, not a delivery.
+        #
+        # This used to fall through to _mock_send(), which returns
+        # success=True with a fabricated "mock_..." provider id. The caller
+        # cannot tell that apart from a real send: it marks the lead sent,
+        # advances the workflow step, increments the mailbox counter and
+        # schedules the follow-up. An entire sequence could complete without a
+        # single email leaving the building.
+        #
+        # The most likely trigger is not an exotic provider name — it is
+        # provider="gmail" (the DEFAULT) with self.gmail_service unset, which
+        # is exactly the state this engine is constructed in unless a caller
+        # passes one.
+        #
+        # Mocking belongs in tests, where it can be injected deliberately.
+        if _mock_sends_enabled():
+            logger.warning("OUTREACH_ALLOW_MOCK_SENDS is on — faking a send to "
+                           "%s. This must never be set in production.",
+                           send_record.to_email)
             return self._mock_send(send_record)
+
+        reason = (f"mailbox provider {provider!r} is not usable"
+                  + (" (gmail selected but no gmail_service was provided)"
+                     if provider == "gmail" else ""))
+        logger.error("refusing to send to %s: %s", send_record.to_email, reason)
+        return False, {"error": reason}
     
     def _send_via_gmail(
         self,

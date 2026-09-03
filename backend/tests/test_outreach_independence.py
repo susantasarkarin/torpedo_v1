@@ -67,3 +67,38 @@ def test_gmail_requirement_can_be_relaxed_deliberately(monkeypatch):
     # Read at call time, so the policy changes without a deploy.
     monkeypatch.setenv("OUTREACH_REQUIRE_GMAIL", "true")
     assert _require_gmail() is True
+
+
+# ---------------------------------------------------------------------------
+# A misconfigured mailbox is a failure, not a delivery.
+#
+# _send_via_provider fell through to _mock_send(), which returns success=True
+# with a fabricated "mock_..." id. The caller cannot tell that from a real
+# send: it marks the lead sent, advances the step, and schedules the follow-up.
+# The trigger is not an exotic provider name — it is provider="gmail" (the
+# DEFAULT) with no gmail_service, which is how this engine is constructed
+# unless a caller passes one.
+# ---------------------------------------------------------------------------
+def test_mock_sends_are_off_unless_explicitly_enabled(monkeypatch):
+    from outreach_engine.sending_engine import _mock_sends_enabled
+    monkeypatch.delenv("OUTREACH_ALLOW_MOCK_SENDS", raising=False)
+    assert _mock_sends_enabled() is False
+    monkeypatch.setenv("OUTREACH_ALLOW_MOCK_SENDS", "true")
+    assert _mock_sends_enabled() is True
+
+
+def test_gmail_without_a_service_fails_instead_of_faking_a_send(monkeypatch):
+    from outreach_engine.sending_engine import SendingEngine
+    monkeypatch.delenv("OUTREACH_ALLOW_MOCK_SENDS", raising=False)
+
+    engine = SendingEngine.__new__(SendingEngine)   # no DB, no I/O
+    engine.gmail_service = None
+
+    record = type("R", (), {"to_email": "a@kantar.com", "message_id": "m1",
+                            "thread_id": None})()
+    ok, details = SendingEngine._send_via_provider(
+        engine, {"provider": "gmail"}, record)
+
+    assert ok is False
+    assert "gmail_service" in details["error"]
+    assert "mock" not in str(details).lower()
