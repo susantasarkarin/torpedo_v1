@@ -814,6 +814,43 @@ def _apply_unsubscribe(msg, to_email: str) -> str:
         logger.warning(f"[panel] could not build unsubscribe link for {to_email}: {e}")
         return "https://panel.surveyfieldwork.com/unsubscribe"
 
+
+def _panel_gate(to_email: str, channel: str):
+    """
+    Run the shared pre-send checks before a panel email leaves the process.
+
+    This sender is the highest-volume path in Torpedo — 11,302 messages on
+    2026-09-03 alone — and it consulted exactly one suppression list
+    (panel_email_suppression). It could not see the 11,508 addresses on the
+    outreach bounce list, so a person who hard-bounced or unsubscribed from
+    cold outreach stayed fully mailable here. Measured at the migration:
+    40,792 addresses were suppressed in only ONE of the three lists.
+
+    It also had no kill switch: SENDING_ENABLED=false stopped every other
+    sender and not this one, which is the wrong way round for the loudest one.
+
+    The BUDGET is deliberately not applied (check_budget=False). This job
+    enforces its own daily cap and runs at ~11,300/day, while
+    SEND_BUDGET_DEFAULT_DAILY is 1,500 — applying it here would silently cut
+    panel invitations by 88%. Set SEND_BUDGET_<identity>_DAILY to the real
+    figure and turn it on deliberately.
+
+    Returns None to proceed, or (reason, category) to refuse.
+    """
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    return _facade.gate(
+        (to_email or "").strip().lower(),
+        identity=SES_FROM_EMAIL, channel=channel,
+        transactional=True,      # a signup invitation carries its own opt-out
+        check_budget=False,
+        allow_free_webmail=True,   # panelists are consumers; gmail is normal here
+        raw=to_email,
+    )
+
+
 def send_invitation_email(
     to_email: str,
     first_name: str = "",
@@ -823,6 +860,12 @@ def send_invitation_email(
     Send a single invitation email via SES.
     Returns (success, details_dict).
     """
+    blocked = _panel_gate(to_email, "panel_invite")
+    if blocked:
+        reason, category = blocked
+        logger.info("panel send gated (%s) to=%s: %s", category, to_email, reason)
+        return False, {"error": category, "message": reason}
+
     try:
         client = _get_ses_client()
 
@@ -1054,6 +1097,12 @@ def send_login_invitation_email(
     Send a login reminder email to registered panelists via SES.
     Returns (success, details_dict).
     """
+    blocked = _panel_gate(to_email, "panel_login")
+    if blocked:
+        reason, category = blocked
+        logger.info("panel send gated (%s) to=%s: %s", category, to_email, reason)
+        return False, {"error": category, "message": reason}
+
     try:
         client = _get_ses_client()
 

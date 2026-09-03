@@ -109,20 +109,47 @@ def _render_format(template: str, first: str, last: str, domain: str) -> str:
 #                   Nobody receives mail at @linkedin.com. Free webmail is
 #                   excluded separately: a guessed first.last@gmail.com is a
 #                   stranger's mailbox, which is worse than a bounce.
-UNSENDABLE_DOMAINS = frozenset({
+# Two different problems, deliberately kept apart.
+#
+# NOT_A_MAILBOX is absolute: nothing here can receive mail from anyone, ever.
+# Template placeholders we failed to substitute, and social sites whose domain
+# got mistaken for an employer's because it came out of a profile URL.
+NOT_A_MAILBOX = frozenset({
     "domain.com", "example.com", "example.org", "example.net", "company.com",
     "yourcompany.com", "test.com", "email.com", "undefined", "null", "none",
     "linkedin.com", "www.linkedin.com", "facebook.com", "twitter.com", "x.com",
+})
+
+# FREE_WEBMAIL is contextual. These are REAL mailboxes belonging to real
+# people. They are wrong for B2B outreach — a guessed corporate address that
+# lands on gmail.com reaches a stranger rather than bouncing — but they are the
+# NORM for a consumer panel, where most panelists sign up with exactly these.
+#
+# Merging the two sets nearly caused an outage: putting the panel invitation
+# sender behind the shared gate would have blocked most of its ~11,300 daily
+# recipients, because the check that protects B2B lead generation is precisely
+# wrong for a consumer list.
+FREE_WEBMAIL = frozenset({
     "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "hotmail.com",
     "outlook.com", "live.com", "aol.com", "icloud.com", "protonmail.com",
     "mail.com", "rediffmail.com",
 })
 
+# Back-compat: the B2B meaning, which is what every existing caller wanted.
+UNSENDABLE_DOMAINS = NOT_A_MAILBOX | FREE_WEBMAIL
 
-def is_unsendable_domain(email: str) -> bool:
-    """True when the address's domain can never be a real corporate mailbox."""
+
+def is_unsendable_domain(email: str, allow_free_webmail: bool = False) -> bool:
+    """
+    True when the address's domain cannot be mailed in this context.
+
+    allow_free_webmail=True keeps only the absolute rule, for senders whose
+    audience is consumers (the panel) rather than corporate buyers.
+    """
     domain = (email or "").rsplit("@", 1)[-1].strip().lower()
-    return domain in UNSENDABLE_DOMAINS
+    if domain in NOT_A_MAILBOX:
+        return True
+    return not allow_free_webmail and domain in FREE_WEBMAIL
 
 
 def _is_valid_email(email: str) -> bool:

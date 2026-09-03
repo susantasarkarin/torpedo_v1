@@ -339,3 +339,51 @@ def test_gate_and_send_apply_the_same_rules(transport):
         sent = _send(transport)
         gated = _gate()
     assert sent.category == gated[1] == "suppressed"
+
+
+# ---------------------------------------------------------------------------
+# Free webmail is contextual, not absolute. Blocking gmail protects B2B lead
+# generation (a guessed corporate address landing on gmail reaches a stranger)
+# and is precisely WRONG for the consumer panel, where most of the ~11,300
+# daily recipients sign up with exactly these domains.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("addr", ["someone@gmail.com", "person@yahoo.co.in",
+                                  "user@outlook.com"])
+def test_free_webmail_is_blocked_for_b2b_but_allowed_for_consumers(addr):
+    from leads.bounce_recovery import is_unsendable_domain
+    assert is_unsendable_domain(addr) is True
+    assert is_unsendable_domain(addr, allow_free_webmail=True) is False
+
+
+@pytest.mark.parametrize("addr", ["first.last@domain.com", "x@linkedin.com",
+                                  "y@example.com"])
+def test_placeholder_domains_are_blocked_in_every_context(addr):
+    from leads.bounce_recovery import is_unsendable_domain
+    assert is_unsendable_domain(addr) is True
+    assert is_unsendable_domain(addr, allow_free_webmail=True) is True
+
+
+def test_gate_lets_a_panelist_through_on_gmail():
+    with patch.object(facade._suppression, "is_suppressed", return_value=False):
+        assert facade.gate("panelist@gmail.com", identity="panel@surveyfieldwork.com",
+                           channel="panel_invite", transactional=True,
+                           check_budget=False, allow_free_webmail=True) is None
+
+
+def test_gate_still_blocks_placeholders_for_the_panel():
+    reason, category = facade.gate("x@domain.com", identity="panel@surveyfieldwork.com",
+                                   channel="panel_invite", transactional=True,
+                                   check_budget=False, allow_free_webmail=True)
+    assert category == "compliance"
+
+
+def test_gate_can_skip_the_budget_without_skipping_suppression():
+    """The panel enforces its own cap; it must still honour suppression."""
+    with patch.object(facade._suppression, "is_suppressed", return_value=True), \
+         patch.object(facade._suppression, "reason_for", return_value="bounce"), \
+         patch.object(facade._budget, "allows") as allows:
+        reason, category = facade.gate("p@gmail.com", identity="panel@surveyfieldwork.com",
+                                       channel="panel_invite", check_budget=False,
+                                       allow_free_webmail=True, transactional=True)
+    assert category == "suppressed"
+    allows.assert_not_called()
