@@ -1688,37 +1688,6 @@ def _resolve_sender_for_campaign(db, campaign: dict) -> Optional[Dict[str, Any]]
                 "mailbox_doc": cand,
             }
 
-    # Fallback to SMTP mailbox for this business.
-    #
-    # Outreach is a Google-only channel by policy: every message leaves from a
-    # connected Workspace mailbox, never SMTP and never SES. Silently dropping
-    # to SMTP when the Gmail mailbox is not connected is worse than not
-    # sending — it changes the sending identity, and therefore the domain
-    # reputation and the threading, without anyone choosing it.
-    #
-    # OUTREACH_REQUIRE_GMAIL=false restores the old fallback for a deliberate
-    # migration; it is not the default.
-    if _require_gmail():
-        logger.error(
-            "no connected Gmail mailbox for business=%s — refusing to fall back "
-            "to SMTP. Connect the Workspace mailbox, or set "
-            "OUTREACH_REQUIRE_GMAIL=false to allow SMTP.", business)
-        return None
-
-    for cand in candidates:
-        if cand.get("provider") != "smtp":
-            continue
-        from_email = ((cand.get("email_address") or cand.get("email") or "").strip().lower())
-        if not from_email:
-            continue
-        if cand.get("smtp_host") and cand.get("smtp_port") and cand.get("smtp_username") and cand.get("smtp_password"):
-            return {
-                "from_email": from_email,
-                "display_name": cand.get("display_name") or default_display,
-                "transport": "smtp",
-                "mailbox_doc": cand,
-            }
-
     # Static fallback sender if that workspace mailbox exists.
     fallback_email = _BUSINESS_SENDER.get(business, "indira@surveyfieldwork.com").lower()
     if workspace_col is not None:
@@ -1731,6 +1700,40 @@ def _resolve_sender_for_campaign(db, campaign: dict) -> Optional[Dict[str, Any]]
                 "mailbox_doc": None,
             }
 
+    # SMTP is the last resort, and by policy not reached at all.
+    #
+    # Outreach is a Google-only channel: every message leaves from a connected
+    # Workspace mailbox, never SMTP and never SES. Silently dropping to SMTP
+    # changes the sending identity, and with it the domain reputation and the
+    # threading, without anyone choosing it. So this runs only after BOTH Gmail
+    # paths above have failed, and only when the policy is explicitly relaxed
+    # with OUTREACH_REQUIRE_GMAIL=false.
+    #
+    # Ordering matters, and getting it wrong cost me one pass: refusing BEFORE
+    # the static Gmail fallback made Survey Fieldwork and Cogentix resolve to
+    # nothing, even though indira@surveyfieldwork.com and
+    # susanta@cogentixresearch.com are connected and active. The refusal has to
+    # come last, after every Gmail route has been tried.
+    if not _require_gmail():
+        for cand in candidates:
+            if cand.get("provider") != "smtp":
+                continue
+            from_email = ((cand.get("email_address") or cand.get("email") or "").strip().lower())
+            if not from_email:
+                continue
+            if (cand.get("smtp_host") and cand.get("smtp_port")
+                    and cand.get("smtp_username") and cand.get("smtp_password")):
+                return {
+                    "from_email": from_email,
+                    "display_name": cand.get("display_name") or default_display,
+                    "transport": "smtp",
+                    "mailbox_doc": cand,
+                }
+
+    logger.error(
+        "no connected Gmail mailbox for business=%s — refusing to send. Connect "
+        "the Workspace mailbox, or set OUTREACH_REQUIRE_GMAIL=false to allow "
+        "SMTP.", business)
     return None
 
 
