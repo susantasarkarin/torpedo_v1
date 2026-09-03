@@ -498,6 +498,16 @@ def persist(lead: Dict[str, Any], result: Dict[str, Any],
 # BATCH RUN
 # ============================================================
 
+# Methods that mean "the model never answered", as opposed to "the model
+# answered and the answer was REVIEW". Only the second is a classification.
+ERROR_METHODS = frozenset({"error", "escalation_error"})
+
+# Consecutive model failures that mean the provider is down rather than the
+# leads being hard. Ten is well past any plausible run of individually-failing
+# leads and still cheap to reach.
+ABORT_AFTER = 10
+
+
 def run(dry_run: bool = False, limit: Optional[int] = None,
         threshold: float = CONFIDENCE_THRESHOLD,
         reclassify: bool = False) -> Dict[str, int]:
@@ -518,11 +528,48 @@ def run(dry_run: bool = False, limit: Optional[int] = None,
 
     stats = {b: 0 for b in VALID_BUCKETS}
     stats.update({REJECT_BUCKET: 0, REVIEW_BUCKET: 0,
-                  "scanned": 0, "written": 0, "excluded_pre_ai": 0})
+                  "scanned": 0, "written": 0, "excluded_pre_ai": 0,
+                  "model_errors": 0, "aborted_systemic": 0})
+
+    # A model outage is not a classification.
+    #
+    # `_classify_with` returns REVIEW when the model call itself fails, and
+    # `run` used to persist that like any other verdict — writing
+    # outreach_bucket=REVIEW, which is exactly the field this query selects on.
+    # The lead is then permanently excluded from re-classification for a reason
+    # that had nothing to do with the lead. Measured 2026-09-03 during the
+    # Bedrock "Operation not allowed" outage: 3,978 leads written off this way
+    # since 2026-09-01 22:35, growing by ~50 every 30 minutes as the scheduled
+    # task kept running against a dead endpoint.
+    #
+    # Two rules, the same ones the AI-classification backfill learned the
+    # expensive way:
+    #
+    #   1. An error result is NOT persisted. The lead stays unbucketed and is
+    #      picked up by the next run, which is the correct outcome.
+    #   2. Consecutive errors abort the batch. A per-lead verdict affects some
+    #      leads; an outage affects every lead in a row. That shape is the
+    #      signal, not the error text — matching on wording has failed twice.
+    consecutive_failures = 0
 
     for lead in cursor:
         stats["scanned"] += 1
         result = classify_lead(lead, threshold=threshold)
+
+        if result["method"] in ERROR_METHODS:
+            stats["model_errors"] += 1
+            consecutive_failures += 1
+            if consecutive_failures >= ABORT_AFTER:
+                logger.error(
+                    "%d consecutive model failures — aborting the batch. This "
+                    "is a provider outage, not a property of these leads, so "
+                    "they are left unbucketed for the next run. Last error: %s",
+                    consecutive_failures, str(result.get("reason"))[:200])
+                stats["aborted_systemic"] = 1
+                break
+            continue
+
+        consecutive_failures = 0
         stats[result["bucket"]] = stats.get(result["bucket"], 0) + 1
         if result["method"] == "exclusion_filter":
             stats["excluded_pre_ai"] += 1
