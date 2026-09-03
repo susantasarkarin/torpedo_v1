@@ -1622,6 +1622,20 @@ def run_enrollment_sync(trigger: str = "scheduled") -> dict:
         _ENROLL_SYNC_LOCK.release()
 
 
+
+def _require_gmail() -> bool:
+    """
+    Outreach sends from Google Workspace mailboxes only.
+
+    Read at call time so the policy can be relaxed for a migration without a
+    deploy. Defaults to ON: the SMTP path exists but is not the channel this
+    business runs on, and an unnoticed switch changes which domain is building
+    (or burning) reputation.
+    """
+    return os.getenv("OUTREACH_REQUIRE_GMAIL", "true").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
 def _resolve_sender_for_campaign(db, campaign: dict) -> Optional[Dict[str, Any]]:
     """
     Resolve the sender for a campaign with this priority:
@@ -1675,6 +1689,22 @@ def _resolve_sender_for_campaign(db, campaign: dict) -> Optional[Dict[str, Any]]
             }
 
     # Fallback to SMTP mailbox for this business.
+    #
+    # Outreach is a Google-only channel by policy: every message leaves from a
+    # connected Workspace mailbox, never SMTP and never SES. Silently dropping
+    # to SMTP when the Gmail mailbox is not connected is worse than not
+    # sending — it changes the sending identity, and therefore the domain
+    # reputation and the threading, without anyone choosing it.
+    #
+    # OUTREACH_REQUIRE_GMAIL=false restores the old fallback for a deliberate
+    # migration; it is not the default.
+    if _require_gmail():
+        logger.error(
+            "no connected Gmail mailbox for business=%s — refusing to fall back "
+            "to SMTP. Connect the Workspace mailbox, or set "
+            "OUTREACH_REQUIRE_GMAIL=false to allow SMTP.", business)
+        return None
+
     for cand in candidates:
         if cand.get("provider") != "smtp":
             continue
@@ -2284,6 +2314,19 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             return True
 
         # Check suppression
+        #
+        # The local bounce list is kept as the fast path, then the SHARED gate
+        # runs. This send path read outreach_bounce_suppression and nothing
+        # else, so it could not see the 29,288 addresses on the panel
+        # suppression list: someone who unsubscribed from the panel stayed
+        # fully mailable by cold outreach. The migration measured 40,792
+        # addresses suppressed in exactly one of the three lists.
+        #
+        # The gate also brings the SENDING_ENABLED kill switch and the
+        # per-identity budget. That budget matters here specifically: these are
+        # Gmail mailboxes with a hard ~2,000/day provider cap, and exceeding it
+        # is what happened in August. A cap enforced in our own process fails
+        # before Google's does.
         email = (lead_record.get("email") or "").lower().strip()
         if not email or db["outreach_bounce_suppression"].find_one({"email": email}):
             db["outreach_leads_v2"].update_one(
@@ -2359,6 +2402,35 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         from_email = sender_config["from_email"]
         display_name = sender_config["display_name"]
         sender_transport = sender_config["transport"]
+
+        # Shared send gates, keyed on the resolved Gmail identity — that is
+        # what carries the provider cap and the domain reputation.
+        try:
+            from messaging import facade as _facade
+        except ImportError:  # pragma: no cover - packaging fallback
+            from backend.messaging import facade as _facade
+        _gate_block = _facade.gate(
+            email, identity=sender_config["from_email"], channel="outreach")
+        if _gate_block:
+            _reason, _category = _gate_block
+            logger.warning("[Outreach] gated (%s) %s via %s: %s",
+                           _category, email, sender_config["from_email"], _reason)
+            _facade._log.record(
+                identity=sender_config["from_email"], to_email=email,
+                subject=None, channel="outreach",
+                status={"suppressed": "suppressed",
+                        "budget": "budget_blocked"}.get(_category, "failed"),
+                error=_reason,
+                metadata={"campaign_id": lead_record.get("campaign_id"),
+                          "lead_id": lead_record.get("lead_id")})
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": {"suppressed": "suppressed",
+                                              "budget": "budget_held",
+                                              "disabled": "paused"}.get(_category, "skipped_gate"),
+                          "last_send_error": f"{_category}: {_reason}"[:300],
+                          "updated_at": datetime.utcnow()}})
+            return False
         smtp_mailbox = sender_config.get("mailbox_doc") or {}
         business_label = BUSINESS_LABEL.get(business, business)
         campaign_ctx = campaign.get("business_context") or {}
@@ -2586,6 +2658,22 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         gmail_thread_id = send_result["thread_id"]
 
         now = datetime.utcnow()
+
+        # Count the send in the ONE log the cross-channel budget reads.
+        # Without this, budget.allows() sees zero volume for this Gmail
+        # identity and every cap is computed against a fraction of the real
+        # number — which is why the caps did not bind in August.
+        try:
+            _facade._log.record(
+                identity=from_email, to_email=email, subject=subject,
+                channel="outreach", status="sent",
+                provider_message_id=gmail_message_id,
+                metadata={"campaign_id": lead_record["campaign_id"],
+                          "lead_id": lead_record.get("lead_id"),
+                          "step": next_step_number, "send_id": send_id})
+        except Exception:
+            logger.warning("[Outreach] could not write the shared send log",
+                           exc_info=True)
 
         # Record send
         db["outreach_sends_v2"].insert_one({
