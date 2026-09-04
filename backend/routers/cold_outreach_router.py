@@ -1533,6 +1533,86 @@ async def track_click(send_id: str, url: str = Query(...)):
     return RedirectResponse(url=decoded_url, status_code=302)
 
 
+# ── Opt-out ───────────────────────────────────────────────────────────────────
+#
+# Public for the same reason the pixel is: the person clicking has no session,
+# and the link lives inside mail that has already been delivered. It writes to
+# messaging.suppression — the canonical list every sender consults — not to
+# panel_email_suppression, which nothing on this path reads.
+
+
+def _record_outreach_optout(email: str, source: str) -> None:
+    """Suppress the address everywhere, and close out its outreach rows."""
+    try:
+        from messaging import suppression as _suppression
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import suppression as _suppression
+
+    normalized = _suppression.normalize(email)
+    _suppression.suppress(normalized, reason="unsubscribed", source=source)
+    try:
+        get_db()["outreach_leads_v2"].update_many(
+            {"email": normalized},
+            {"$set": {"unsubscribed": True,
+                      "unsubscribed_at": datetime.utcnow(),
+                      "sendable": False,
+                      "workflow_status": "suppressed",
+                      "updated_at": datetime.utcnow()}})
+    except Exception as exc:
+        # The suppression write is the one that stops mail; this is bookkeeping.
+        logger.error("[outreach-unsub] lead rows not updated for %s: %s",
+                     normalized, exc)
+
+
+_UNSUB_PAGE = (
+    "<!doctype html><meta charset=utf-8>"
+    "<meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>Unsubscribed</title>"
+    "<div style=\"font:16px/1.6 Arial,sans-serif;max-width:32rem;margin:12vh auto;"
+    "padding:0 1.25rem;color:#1a1a1a\">"
+    "<h1 style='font-size:1.35rem;margin:0 0 .75rem'>You've been unsubscribed</h1>"
+    "<p style='margin:0;color:#555'>We won't email you again. Nothing else is "
+    "needed from you.</p></div>"
+)
+
+
+@public_router.get("/unsubscribe/{token}")
+async def outreach_unsubscribe(token: str):
+    """Human-facing opt-out. Acts on GET deliberately.
+
+    A confirmation step loses real opt-outs — people assume the click worked
+    and the next message is then a complaint, not a click. Mail-client link
+    prefetch can trigger this without a human, which costs us one address we
+    were not going to convert anyway. That trade runs one way.
+    """
+    from services.outreach_unsubscribe import read_token
+
+    email = read_token(token)
+    if email:
+        _record_outreach_optout(email, source="unsubscribe_link")
+    else:
+        logger.warning("[outreach-unsub] link carried no resolvable address")
+    # Identical response either way: this endpoint is public and must not
+    # confirm whether an address is one of ours.
+    return Response(content=_UNSUB_PAGE, media_type="text/html")
+
+
+@public_router.post("/unsubscribe/{token}/one-click")
+async def outreach_unsubscribe_one_click(token: str):
+    """RFC 8058 one-click target. Always 200 — a non-200 makes the mailbox
+    provider treat our unsubscribe as broken."""
+    from services.outreach_unsubscribe import read_token
+
+    try:
+        email = read_token(token)
+        if email:
+            _record_outreach_optout(email, source="one_click")
+    except Exception as exc:
+        logger.error("[outreach-unsub] one-click failed: %s", exc)
+    return {"status": "unsubscribed"}
+
+
+
 # â”€â”€ Helpers: inject pixel & rewrite links in outgoing HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _inject_open_tracking(html_body: str, send_id: str, base_url: str) -> str:
@@ -2682,6 +2762,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         # Collect step attachments (CSV files, etc.) if any
         step_attachments = step_template.get("attachments") or []
+
+
+        # ── Compliance footer ────────────────────────────────────────────────
+        # Every commercial message must carry the sender's postal address and a
+        # working opt-out. messaging.facade already refuses to send unless the
+        # two env vars exist, but that check only proves they are SET — nothing
+        # here ever put them into the message. Build the footer from the same
+        # configuration and refuse the send if it cannot be built, so the gate
+        # and the mail can never disagree.
+        try:
+            from services.outreach_unsubscribe import (compliance_footer,
+                                                       footer_blocker)
+        except ImportError:  # pragma: no cover - packaging fallback
+            from backend.services.outreach_unsubscribe import (compliance_footer,
+                                                               footer_blocker)
+        _footer_problem = footer_blocker()
+        if _footer_problem:
+            logger.error("[Outreach] refusing to send to %s: %s", email, _footer_problem)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"last_send_error": f"compliance: {_footer_problem}"[:300],
+                          "last_send_attempt_at": datetime.utcnow(),
+                          "updated_at": datetime.utcnow()}})
+            _release_daily_send_slot(db, from_email)
+            return False
+        body_html = body_html + compliance_footer(email, business_label)
 
         # Generate send_id BEFORE sending so the tracking pixel can embed it
         send_id = str(uuid.uuid4())
