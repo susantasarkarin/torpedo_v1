@@ -1246,6 +1246,8 @@ except Exception as e:
 try:
     from routers import cold_outreach_router as cold_outreach_router_module
     app.include_router(cold_outreach_router_module.router)
+    # Recipient-facing tracking endpoints, deliberately unauthenticated.
+    app.include_router(cold_outreach_router_module.public_router)
     print("✅ Cold Outreach router included")
 except Exception as e:
     # FAIL THE BOOT (TOR-05). A router that cannot mount used to print a

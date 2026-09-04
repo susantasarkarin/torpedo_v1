@@ -32,7 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote as _url_quote, unquote as _url_unquote
 
 from bson import ObjectId
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Request, UploadFile
+from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
+                     Query, Request, UploadFile)
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
 from pymongo import MongoClient
@@ -40,7 +41,51 @@ from pymongo import ReturnDocument as _ReturnDocument
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/cold-outreach", tags=["Cold Outreach"])
+# ---------------------------------------------------------------------------
+# AUTH
+#
+# This router was entirely public. Verified from the open internet against
+# production on 2026-09-03, with no credentials of any kind:
+#
+#   GET /api/cold-outreach/suppression   200 — 11,508 real recipients, their
+#                                              addresses and bounce subjects
+#   GET /api/cold-outreach/campaigns     200 — every campaign and its state
+#   GET /api/cold-outreach/mailboxes     200 — sending identities
+#
+# The read side is a third-party personal-data disclosure. The write side is
+# worse, because the same router carries POST .../launch, POST .../pause,
+# DELETE /suppression/{email} and DELETE /mailboxes/{id}: every safety control
+# built in this work — the kill switch, the pause, the suppression list — was
+# reversible by anyone who could reach the domain.
+#
+# Same pattern as LEADS_AUTH_ENABLED / DELIVERABILITY_AUTH_ENABLED: on by
+# default, with an escape hatch that logs loudly when used.
+COLD_OUTREACH_AUTH_ENABLED = os.getenv(
+    "COLD_OUTREACH_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
+_outreach_deps = []
+if COLD_OUTREACH_AUTH_ENABLED:
+    try:
+        from ..session_state import verify_session as _verify_session
+    except ImportError:
+        from session_state import verify_session as _verify_session
+    _outreach_deps.append(Depends(_verify_session))
+    logger.info("[cold-outreach] session auth enabled on /api/cold-outreach/*")
+else:
+    logger.error(
+        "[cold-outreach] session auth DISABLED — campaigns, mailboxes and the "
+        "suppression list are publicly readable AND writable. Unset "
+        "COLD_OUTREACH_AUTH_ENABLED to restore the gate."
+    )
+
+router = APIRouter(prefix="/api/cold-outreach", tags=["Cold Outreach"],
+                   dependencies=_outreach_deps)
+
+# The open-tracking pixel and the click redirect are fetched by RECIPIENTS'
+# mail clients, which have no session and never will. They also live inside
+# emails already delivered, so gating them would retroactively break links in
+# mail that has left the building. They carry an unguessable send_id and expose
+# nothing, so they stay on a separate, deliberately public router.
+public_router = APIRouter(prefix="/api/cold-outreach", tags=["Cold Outreach"])
 
 SEQUENCE_STEPS = [0, 3, 6, 11]   # Day offsets: Day 1, 4, 7, 12 (0-indexed)
 DUAL_FIT_GAP_DAYS = 21           # Gap between sequences for Dual Fit leads
@@ -1437,7 +1482,7 @@ _TRANSPARENT_PIXEL = _b64_module.b64decode(
 )
 
 
-@router.get("/track/open/{send_id}")
+@public_router.get("/track/open/{send_id}")
 async def track_open(send_id: str):
     """
     Records an email-open event and returns a 1Ã—1 transparent PNG.
@@ -1459,7 +1504,7 @@ async def track_open(send_id: str):
     )
 
 
-@router.get("/track/click/{send_id}")
+@public_router.get("/track/click/{send_id}")
 async def track_click(send_id: str, url: str = Query(...)):
     """
     Records a click event and 302-redirects to the original URL.
@@ -1530,7 +1575,12 @@ _OUTREACH_TEST_OVERRIDE_EMAIL: Optional[str] = None
 _BUSINESS_SENDER: Dict[str, str] = {
     "sfw": "indira@surveyfieldwork.com",
     "cogentix": "meera@cogentixresearch.com",
-    "bimwave": "susanta@cogentixresearch.com",   # update when bimwave mailbox added
+    # susanta@bimwavesolutions.com is connected and active in
+    # torpedo_gmail.workspace_mailboxes. Until 2026-09-04 this pointed at
+    # susanta@cogentixresearch.com, so every BIMwave send would have left from
+    # a Cogentix address — the cross-brand identity leak that is named in the
+    # 2026-08-25 pause reason.
+    "bimwave": "susanta@bimwavesolutions.com",
 }
 
 _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
