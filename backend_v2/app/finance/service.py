@@ -66,7 +66,7 @@ class InvoiceService:
 
     async def create_invoice(
         self, *, org_id: str, actor: str, customer_account_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str,
-        opportunity_id: str | None = None,
+        opportunity_id: str | None = None, due_at: datetime | None = None,
     ) -> Invoice:
         subtotal, tax_total, total = compute_totals(line_items, currency=currency)
         seq = await self._sequences.next(org_id=org_id, sequence_name="INV")
@@ -76,11 +76,17 @@ class InvoiceService:
                 customer_account_id=customer_account_id, opportunity_id=opportunity_id, invoice_number=f"INV-{seq:06d}",
                 line_items=line_items, gst_details=gst_details,
                 subtotal=subtotal, tax_total=tax_total, total=total,
-                amount_paid=Money(amount_minor=0, currency=currency), balance_due=total,
+                amount_paid=Money(amount_minor=0, currency=currency), balance_due=total, due_at=due_at,
             )
         )
         await self._activity(org_id=org_id, actor=actor, type="invoice_created", subject_id=invoice.id, payload={"total_minor": total.amount_minor})
         return invoice
+
+    async def list_open(self, *, org_id: str) -> list[Invoice]:
+        """The deterministic candidate set for AR follow-up and payment matching
+        (Slice 17) — an invoice not in `sent`/`partially_paid` has no balance an
+        AI-driven decision could meaningfully act on."""
+        return await self._invoices.find_all({"org_id": org_id, "status": {"$in": ["sent", "partially_paid"]}})
 
     async def submit_invoice(self, *, actor: str, invoice_id: str) -> Invoice:
         invoice = await self._get_or_raise(invoice_id)
@@ -146,7 +152,8 @@ class BillService:
         self._activities = activities
 
     async def create_bill(
-        self, *, org_id: str, actor: str, vendor_account_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str
+        self, *, org_id: str, actor: str, vendor_account_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str,
+        due_at: datetime | None = None,
     ) -> Bill:
         subtotal, tax_total, total = compute_totals(line_items, currency=currency)
         seq = await self._sequences.next(org_id=org_id, sequence_name="BILL")
@@ -156,11 +163,15 @@ class BillService:
                 vendor_account_id=vendor_account_id, bill_number=f"BILL-{seq:06d}",
                 line_items=line_items, gst_details=gst_details,
                 subtotal=subtotal, tax_total=tax_total, total=total,
-                amount_paid=Money(amount_minor=0, currency=currency), balance_due=total,
+                amount_paid=Money(amount_minor=0, currency=currency), balance_due=total, due_at=due_at,
             )
         )
         await self._activity(org_id=org_id, actor=actor, type="bill_created", subject_id=bill.id, payload={"total_minor": total.amount_minor})
         return bill
+
+    async def list_open(self, *, org_id: str) -> list[Bill]:
+        """The deterministic candidate set for AP follow-up (Slice 17)."""
+        return await self._bills.find_all({"org_id": org_id, "status": {"$in": ["approved", "partially_paid"]}})
 
     async def submit_bill(self, *, actor: str, bill_id: str) -> Bill:
         bill = await self._get_or_raise(bill_id)

@@ -673,15 +673,57 @@ is a real AI decision, not a second layer of hard-coded rules.
   exactly the no-fake-completion failure this rebuild's discipline exists to
   prevent.
 
+**Phase 1, slice 17 (`app/finance/ai_finance.py`): AI Finance.** The user raised
+the testing bar explicitly for this slice: prove AI can participate in money
+movement **without becoming the accounting authority**.
+
+- **`AIFinanceService` writes to Mongo nowhere.** The only write paths are the
+  real, unchanged Slice 8 services — `PaymentService.record_payment()` (typed
+  `Money`, atomic version-guarded balance update, idempotent) and
+  `ReconciliationService.match()`. Whether a payment is "partial" or "full" was
+  never an AI decision — that's arithmetic `PaymentService` already computes
+  deterministically, and nothing here second-guesses it.
+- **Payment matching: deterministic candidates, AI picks, governed service
+  executes.** `InvoiceService.list_open()` (one new method) filtered to an
+  exact `balance_due` match against the `ReconciliationRecord`'s amount is the
+  *entire* candidate set the model is shown — the same "offer the walls, don't
+  ask the AI to build them" pattern as Slices 15-16. A model naming an invoice
+  outside that set is rejected outright. Only a confident `MATCH` calls
+  `record_payment()` + `match()`; `NO_MATCH`/`NEEDS_HUMAN_REVIEW`/a low-confidence
+  `MATCH` all leave the record `unmatched` for a human, exactly as Slice 8
+  already designed it to.
+- **"Never let AI infer financial truth from an email" — proven end-to-end,
+  not just asserted.** A test simulates Slice 12's exact write path for a
+  `PAYMENT`-classified email (`ReconciliationService.record_external_entry()`
+  only — the email alone never changes an invoice's status) and then this
+  slice's real matching step, showing the invoice stays `sent` until the
+  governed match actually executes and only then becomes `paid`.
+- **AP stays deliberately asymmetric with AR.** Matching an already-received
+  client payment to an invoice is safe to auto-apply at high confidence — the
+  money already arrived, this only decides where to record it. Actually paying
+  a supplier is a real outgoing transaction: `decide_ap_followup()` only ever
+  recommends `SCHEDULE_PAYMENT` (or another action) — no code path here calls
+  `record_payment(direction="made", ...)` automatically, proven by a test
+  asserting zero `Payment` records exist after the recommendation.
+- **`Invoice`/`Bill` gained two real fields**: `due_at` (optional — AR/AP
+  follow-up needs it to mean anything; `None` is legitimate, never defaulted to
+  a fabricated date) and `ai_decision_subject_id` (the
+  `Allocation`/`Survey.ai_decision_subject_id` traceability pattern from Slices
+  15-16, generalized again per explicit user instruction).
+- **Margin and the Cint→completes→billing chain are explicitly NOT built
+  here** — there is no `Survey`↔`Invoice` linkage in the schema yet beyond
+  `Invoice.opportunity_id` (Slice 10), and that chain is correctly sequenced as
+  Slice 18's scope, not faked to look further along than it is.
+
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
 real GSC/Cint/email-provider adapters (all blocked on credentials this environment
 doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`,
-`detect_triggers()`, or periodic email/lead-gen/outreach/allocation evaluation on
-a cadence (Phase 14 of the checklist — event/scheduler infrastructure); Slices
-17-19 (AI finance, Cint+billing+margin, full end-to-end orchestration). See
-`docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will
-look like when they land.
+`detect_triggers()`, or periodic email/lead-gen/outreach/allocation/finance
+evaluation on a cadence (Phase 14 of the checklist — event/scheduler
+infrastructure); Slices 18-19 (Cint+billing+margin, full end-to-end
+orchestration). See `docs/schema_catalogue.md` and `docs/endpoint_catalogue.md`
+for what those will look like when they land.
 
 ## Running
 

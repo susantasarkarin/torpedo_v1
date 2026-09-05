@@ -62,6 +62,12 @@ class Invoice(CanonicalDocument):
     balance_due: Money
     approved_by: str | None = None
     approved_at: datetime | None = None
+    due_at: datetime | None = None  # real, optional — AR follow-up (Slice 17) needs it
+    # to mean anything; None is a legitimate value (no payment terms agreed yet),
+    # never defaulted to a fabricated date.
+    ai_decision_subject_id: str | None = None  # traces the last AR-followup decision
+    # back to its AiProposal — the Allocation/Survey pattern (Slices 15-16),
+    # generalized here per explicit user instruction
 
 
 class Bill(CanonicalDocument):
@@ -77,6 +83,8 @@ class Bill(CanonicalDocument):
     balance_due: Money
     approved_by: str | None = None
     approved_at: datetime | None = None
+    due_at: datetime | None = None  # AP follow-up (Slice 17) — same honesty as Invoice.due_at
+    ai_decision_subject_id: str | None = None  # same traceability pattern as Invoice above
 
 
 class Payment(CanonicalDocument):

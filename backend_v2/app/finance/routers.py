@@ -9,13 +9,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.ai.decision_engine import Decision, DecisionEngine
+from app.ai.gpu_broker import GpuBroker
+from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, get_rbac_service, require_permission
 from app.db import get_database
+from app.finance.ai_finance import AIFinanceError, AIFinanceService
 from app.finance.models import Bill, BankAccount, CreditNote, Expense, GstDetails, Invoice, LineItem, Payment, ReconciliationRecord
 from app.finance.rewards_ledger import RewardLedgerEntry, RewardLedgerError, RewardLedgerService
 from app.finance.sequence import SequenceService
 from app.finance.service import BankAccountService, BillService, CreditNoteService, ExpenseService, FinanceError, InvoiceService, PaymentService, ReconciliationService
 from app.models.activity import Activity
+from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.models.money import Money
 from app.rbac.identity import ResolvedIdentity
@@ -26,6 +32,9 @@ from app.rbac.permissions import (
     CREDITNOTE_APPLY,
     CREDITNOTE_CREATE,
     EXPENSE_CREATE,
+    FINANCE_AI_AP,
+    FINANCE_AI_AR,
+    FINANCE_AI_MATCH,
     FINANCE_READ,
     INVOICE_CREATE,
     INVOICE_SEND,
@@ -82,6 +91,18 @@ def get_bank_account_service() -> BankAccountService:
 def get_reconciliation_service() -> ReconciliationService:
     db = get_database()
     return ReconciliationService(CanonicalRepository(db["reconciliation_records"], ReconciliationRecord), CanonicalRepository(db["payments"], Payment))
+
+
+def get_ai_finance_service() -> AIFinanceService:
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
+    engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
+    return AIFinanceService(
+        engine, get_invoice_service(), get_bill_service(), get_payment_service(), get_reconciliation_service(),
+        CanonicalRepository(db["payments"], Payment), CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
+        ai_proposals, CanonicalRepository(db["activities"], Activity),
+    )
 
 
 def get_reward_ledger_service() -> RewardLedgerService:
@@ -392,3 +413,44 @@ async def clawback_rewards(
 @router.get("/rewards/{panelist_person_id}/balance", response_model=Money)
 async def get_reward_balance(panelist_person_id: str, currency: str, identity: ResolvedIdentity = Depends(require_permission(REWARDS_READ)), svc: RewardLedgerService = Depends(get_reward_ledger_service)) -> Money:
     return await svc.get_balance(panelist_person_id, currency=currency)
+
+
+# -------------------------------------------------------------------------- AI finance
+
+
+class MatchPaymentRequest(BaseModel):
+    allow_overpayment: bool = False
+
+
+class MatchPaymentResponse(BaseModel):
+    decision: Decision
+    payment: Payment | None = None
+
+
+@router.post("/finance/invoices/{invoice_id}/ai/ar-followup", response_model=Decision)
+async def decide_ar_followup(invoice_id: str, identity: ResolvedIdentity = Depends(require_permission(FINANCE_AI_AR)), svc: AIFinanceService = Depends(get_ai_finance_service)) -> Decision:
+    try:
+        return await svc.decide_ar_followup(org_id=identity.org_id, actor=identity.user_id, invoice_id=invoice_id)
+    except AIFinanceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/finance/bills/{bill_id}/ai/ap-followup", response_model=Decision)
+async def decide_ap_followup(bill_id: str, identity: ResolvedIdentity = Depends(require_permission(FINANCE_AI_AP)), svc: AIFinanceService = Depends(get_ai_finance_service)) -> Decision:
+    try:
+        return await svc.decide_ap_followup(org_id=identity.org_id, actor=identity.user_id, bill_id=bill_id)
+    except AIFinanceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/finance/reconciliation/entries/{record_id}/ai-match", response_model=MatchPaymentResponse)
+async def ai_match_payment(
+    record_id: str, body: MatchPaymentRequest,
+    identity: ResolvedIdentity = Depends(require_permission(FINANCE_AI_MATCH)),
+    svc: AIFinanceService = Depends(get_ai_finance_service),
+) -> MatchPaymentResponse:
+    try:
+        decision, payment = await svc.match_payment_to_invoice(org_id=identity.org_id, actor=identity.user_id, reconciliation_record_id=record_id, allow_overpayment=body.allow_overpayment)
+    except AIFinanceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return MatchPaymentResponse(decision=decision, payment=payment)

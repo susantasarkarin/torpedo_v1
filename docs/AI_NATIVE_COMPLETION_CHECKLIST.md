@@ -114,10 +114,12 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 |---|---|
 | Partial payment accounting | **DONE (Slice 8)** — `PaymentService.record_payment`, tested |
 | Payment reversal | **DONE (Slice 8)** — tested |
-| AI-driven AR follow-up (vs. fixed-schedule reminders) | NOT_STARTED |
-| AI-driven AP follow-up | NOT_STARTED |
-| AI-assisted bank↔payment↔invoice reconciliation | NOT_STARTED — `ReconciliationService` (Slice 8) proves the model + match invariant only, no matching intelligence |
+| AI-driven AR follow-up (vs. fixed-schedule reminders) | **TESTED** (2026-09-06, Slice 17) — `app.finance.ai_finance.AIFinanceService.decide_ar_followup()`, real `DecisionEngine.decide()` call using real evidence (balance due, days overdue via new `Invoice.due_at`, payment history). Proven to never alter the invoice's balance/status/total regardless of the decision — the AI decides the *response*, it never touches the ledger |
+| AI-driven AP follow-up | **TESTED** — `decide_ap_followup()`, deliberately asymmetric with AR: `SCHEDULE_PAYMENT` is a recommendation only, no code path here ever calls `record_payment(direction="made", ...)` automatically — proven by a test asserting zero `Payment` records exist after the decision |
+| AI-assisted bank↔payment↔invoice reconciliation | **TESTED** — `match_payment_to_invoice()`. Candidates are deterministic (`InvoiceService.list_open()` filtered to an exact amount match against the `ReconciliationRecord`) — the AI picks among the offered set only, a fabricated invoice_id is rejected outright. Auto-apply calls the real, unchanged `PaymentService.record_payment()` + `ReconciliationService.match()` — this module never writes to Mongo directly |
+| "Never let AI infer financial truth from an email" | **TESTED end-to-end** — a test simulates Slice 12's exact `PAYMENT`-classification write path (`record_external_entry()` only, invoice untouched) followed by this slice's real matching step, proving an invoice only becomes `paid` through the governed match, never from the email alone |
 | Supplier reconciliation | **DONE (Slice 9)** — `SupplierReconciliationService`, flags disagreement, tested |
+| Margin (`Client → Study → Completes → Revenue/Cost`) | **NOT_STARTED, honestly, and correctly sequenced** — no `Survey`↔`Invoice` linkage exists beyond `Invoice.opportunity_id` (Slice 10); this is explicitly Slice 18's scope ("Cint + billing + margin"), not fabricated here |
 
 ## Phase 13 — Complete → billing → invoice → supplier bill → margin
 
@@ -210,3 +212,21 @@ deadline-driven triggers) are honestly NOT_STARTED — no persisted failure-rate
 metric and no `Study`/client-contact data model exist yet, and fabricating
 either would be exactly the no-fake-completion failure this rebuild's
 discipline exists to prevent. Test count: 289 → 307.
+
+**2026-09-06, continued — Slice 17 (AI Finance)**: the user raised the testing
+bar explicitly — prove AI can participate in money movement without becoming
+the accounting authority. `AIFinanceService` writes to Mongo nowhere; every
+actual balance change goes through the real, unchanged Slice 8
+`PaymentService`/`ReconciliationService`. AR follow-up and payment matching are
+proven never to alter a balance/status except through that governed path — a
+direct test simulates the exact "client says they paid invoice 1042" email
+scenario (Slice 12's `record_external_entry()`-only write) and shows the
+invoice stays `sent`, not `paid`, until this slice's real matching step
+executes. AP stays deliberately asymmetric: `decide_ap_followup()` never
+initiates an actual outgoing payment, only ever recommends one, proven by
+asserting zero `Payment` records exist after a `SCHEDULE_PAYMENT` decision.
+`Invoice`/`Bill` gained `due_at` (real, optional — AR/AP follow-up needs it to
+mean anything) and `ai_decision_subject_id` (the `Allocation`/`Survey`
+traceability pattern, Slices 15-16, generalized again). Margin/Cint/billing
+linkage is explicitly NOT started here — correctly sequenced to Slice 18, not
+fabricated to look further along. Test count: 307 → 323.

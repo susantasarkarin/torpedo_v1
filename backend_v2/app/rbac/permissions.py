@@ -113,3 +113,8 @@ SURVEY_AI_ALLOCATE = "survey.ai.allocate"  # system — called from the public t
 
 # AI operations — Slice 16.
 SURVEY_AI_OPERATIONS = "survey.ai.operations"  # system — the (future) scheduled caller
+
+# AI finance — Slice 17.
+FINANCE_AI_AR = "finance.ai.ar_followup"  # system — the (future) scheduled caller
+FINANCE_AI_AP = "finance.ai.ap_followup"
+FINANCE_AI_MATCH = "finance.ai.match_payment"
