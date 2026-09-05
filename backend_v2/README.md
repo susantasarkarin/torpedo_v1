@@ -597,13 +597,48 @@ already-governed service rather than a new one:
   Decision Engine, one schema" mandate applied to the schema itself, not just the
   engine.
 
+**Phase 1, slice 15 (`app/panel/ai_allocation.py`): AI survey pool + panel
+allocation.** Per explicit user instruction: a real `DecisionEngine.decide()`
+ranking, not a fixed-weights scoring formula relabeled AI.
+
+- **The >20% conversion gate is enforced by never offering the choice, not by
+  trusting the AI to decline it.** `SurveyService.list_eligible()` (one new
+  method, reusing the existing `CONVERSION_ELIGIBILITY_THRESHOLD` from Slice 9)
+  runs first, and its result is the *entire* candidate set the model is shown —
+  a test asserts the model's own received context excludes an ineligible survey
+  entirely, which is a stronger guarantee than "the model was told not to pick it."
+- **A model choosing outside the eligible set it was actually offered is
+  rejected outright**, not silently dropped from a list — the same
+  fail-loud-not-silent discipline every other AI-boundary slice already holds.
+- **Three real `Survey` fields added** (`category`, `length_minutes`,
+  `incentive`) as genuine allocation context — not fabricated data, just
+  ordinary survey attributes the model needs to reason about fit.
+- **"Decision memory" is real historical data re-queried on every call, not a
+  separate learning pipeline**: `historical_completion_rate`/
+  `historical_dropout_rate`/`previously_exposed_to_this_survey`/
+  `days_since_last_allocation`, computed fresh from `SurveyResponse`/`Allocation`
+  records each time — deliberately not a vector store or fine-tuning loop, per
+  the user's own "simplest architecture that works reliably" guidance.
+- **`AllocationService.allocate()` (Slice 9) executes the AI's ranked choice
+  completely unchanged** — the model's top choice plus its fallback ranking
+  (`decision.decision` + `decision.entities`, reusing Slice 11's generic schema
+  rather than inventing a new one) is handed straight to `allocate()`, which
+  already knows how to fall through a ranked list atomically. This slice adds no
+  new execution path, only the ranking layer in front of an existing one.
+  `Allocation.ai_decision_subject_id` (one new field) traces every AI-driven
+  allocation back to the `AiProposal` that chose it.
+- **Demographic profile-fit and fraud/risk signals are honestly not modeled** —
+  no consent-gated profile system or fraud-detection pipeline exists yet, and
+  passing a fabricated value for either was rejected as exactly the
+  no-fake-completion failure this rebuild's discipline exists to prevent.
+
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
 real GSC/Cint/email-provider adapters (all blocked on credentials this environment
 doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`, or
-periodic email/lead-gen/outreach evaluation on a cadence (Phase 14 of the
-checklist — event/scheduler infrastructure); Slices 15-19 (AI survey/panel,
-operations, finance, Cint+billing, full end-to-end orchestration). See
+periodic email/lead-gen/outreach/allocation evaluation on a cadence (Phase 14 of
+the checklist — event/scheduler infrastructure); Slices 16-19 (AI operations,
+finance, Cint+billing, full end-to-end orchestration). See
 `docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will
 look like when they land.
 

@@ -107,3 +107,6 @@ LEADGEN_AI_EVALUATE_ICP = "leadgen.ai.evaluate_icp"
 
 # AI outreach — Slice 14.
 OUTREACH_AI_DECIDE = "outreach.ai.decide"  # system — the (future) scheduled caller
+
+# AI panel allocation — Slice 15.
+SURVEY_AI_ALLOCATE = "survey.ai.allocate"  # system — called from the public traffic-redirect path, same as SURVEY_ALLOCATE

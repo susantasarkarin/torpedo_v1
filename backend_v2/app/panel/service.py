@@ -69,11 +69,18 @@ class SurveyService:
         self._surveys = surveys
         self._activities = activities
 
-    async def create_survey(self, *, org_id: str, actor: str, provider: str, external_id: str, quota_remaining: int, cpi: Money, conversion_rate: float) -> Survey:
+    async def create_survey(
+        self, *, org_id: str, actor: str, provider: str, external_id: str, quota_remaining: int, cpi: Money, conversion_rate: float,
+        category: str | None = None, length_minutes: int | None = None, incentive: Money | None = None,
+    ) -> Survey:
         if provider not in SURVEY_PROVIDERS:
             raise SurveyError(f"unsupported provider {provider!r} — only {SURVEY_PROVIDERS} exist in v2, CPX was removed entirely")
         return await self._surveys.insert(
-            Survey(org_id=org_id, created_by=actor, updated_by=actor, provider=provider, external_id=external_id, quota_remaining=quota_remaining, cpi=cpi, conversion_rate=conversion_rate)
+            Survey(
+                org_id=org_id, created_by=actor, updated_by=actor, provider=provider, external_id=external_id,
+                quota_remaining=quota_remaining, cpi=cpi, conversion_rate=conversion_rate,
+                category=category, length_minutes=length_minutes, incentive=incentive,
+            )
         )
 
     async def set_eligibility(self, *, actor: str, survey_id: str, is_active_in_pool: bool, activated_at) -> Survey:
@@ -93,6 +100,16 @@ class SurveyService:
             updated_by=actor,
         )
 
+    async def list_eligible(self, *, org_id: str) -> list[Survey]:
+        """The deterministic gate, run *before* any AI ranking ever sees a
+        candidate list — a survey at or below `CONVERSION_ELIGIBILITY_THRESHOLD`,
+        not accepting pool traffic, or out of quota is never offered to the AI as
+        a choice at all (Slice 15: 'AI must not be allowed to bypass ... the >20%
+        conversion gate' — the gate is enforced by never presenting the option,
+        not by trusting the AI to decline it)."""
+        surveys = await self._surveys.find_all({"org_id": org_id, "eligibility_is_active_in_pool": True})
+        return [s for s in surveys if s.quota_remaining > 0 and s.conversion_rate > CONVERSION_ELIGIBILITY_THRESHOLD]
+
     async def _get_or_raise(self, survey_id: str) -> Survey:
         survey = await self._surveys.get(survey_id)
         if survey is None:
@@ -106,7 +123,10 @@ class AllocationService:
         self._allocations = allocations
         self._activities = activities
 
-    async def allocate(self, *, org_id: str, actor: str, candidate_survey_ids: list[str], person_id: str, vendor_id: str, country_code: str, respondent_ref: str, provider: SurveyProvider) -> Allocation:
+    async def allocate(
+        self, *, org_id: str, actor: str, candidate_survey_ids: list[str], person_id: str, vendor_id: str, country_code: str,
+        respondent_ref: str, provider: SurveyProvider, ai_decision_subject_id: str | None = None,
+    ) -> Allocation:
         existing = await self._allocations.find_one({"respondent_ref": respondent_ref})
         if existing:
             raise SurveyError(f"respondent_ref {respondent_ref!r} was already allocated — duplicate allocations are rejected, not replayed")
@@ -133,7 +153,7 @@ class AllocationService:
                 Allocation(
                     org_id=org_id, created_by=actor, updated_by=actor,
                     survey_id=survey.id, person_id=person_id, vendor_id=vendor_id, country_code=country_code,
-                    respondent_ref=respondent_ref, redirect_url=redirect_url,
+                    respondent_ref=respondent_ref, redirect_url=redirect_url, ai_decision_subject_id=ai_decision_subject_id,
                 )
             )
             await self._activities.insert(

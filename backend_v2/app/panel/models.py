@@ -35,6 +35,15 @@ class Survey(CanonicalDocument):
     conversion_rate: float  # PROJECTION
     eligibility_is_active_in_pool: bool = False  # AUTHORITATIVE — Torpedo's own decision
     eligibility_activated_at: datetime | None = None  # AUTHORITATIVE
+    # Real, ordinary survey attributes (Slice 15) — not fabricated, just fields
+    # every panel survey actually has, needed as genuine AI-allocation context
+    # (app.panel.ai_allocation). Demographic profile-fit and fraud/risk signals are
+    # deliberately NOT added here — those need a consent-gated profile system and a
+    # fraud-detection pipeline neither of which exists yet; see that module's
+    # docstring for the honest accounting of what's real context vs. not yet built.
+    category: str | None = None
+    length_minutes: int | None = None
+    incentive: Money | None = None
 
 
 class Allocation(CanonicalDocument):
@@ -49,6 +58,9 @@ class Allocation(CanonicalDocument):
     respondent_ref: str
     redirect_url: str
     status: str = "allocated"  # allocated -> resolved (a SurveyResponse now exists for it)
+    ai_decision_subject_id: str | None = None  # links back to the AiProposal that chose this
+    # survey for this panelist (Slice 15's "decision memory") — None for allocations
+    # made outside the AI ranking path (e.g. a direct manual/API allocation)
 
 
 class SurveyResponse(CanonicalDocument):

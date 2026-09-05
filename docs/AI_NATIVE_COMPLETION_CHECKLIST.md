@@ -81,7 +81,11 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Item | Status |
 |---|---|
 | Deterministic >20% conversion eligibility gate | **TESTED** (2026-09-06) — `CONVERSION_ELIGIBILITY_THRESHOLD` in `app.panel.service`, enforced inside `_reserve_quota()` so it applies on every retry, not just the first check |
-| AI ranking within the eligible set | NOT_STARTED — blocked on AI Gateway (Phase 2/3) |
+| AI ranking within the eligible set | **TESTED** (2026-09-06, Slice 15) — `app.panel.ai_allocation.PanelAllocationAIService`, real `DecisionEngine.decide()` call, not a fixed-weights formula. The eligible set (`SurveyService.list_eligible()`) is computed *before* the model is ever called, so an ineligible survey is never offered as a choice — proven by asserting the model's own received context excludes it |
+| Panelist suitability using real historical signal | **TESTED** — `historical_completion_rate`/`historical_dropout_rate`/`previously_exposed_to_this_survey`/`days_since_last_allocation`, all computed fresh from real `SurveyResponse`/`Allocation` records on every call ("decision memory" without a separate ML/vector pipeline) |
+| Model choosing outside the eligible set | **TESTED** — rejected outright, not silently dropped |
+| Decision→allocation traceability | **TESTED** — `Allocation.ai_decision_subject_id` links back to the `AiProposal` that chose it |
+| Demographic profile-fit / fraud-risk signals in allocation context | **NOT_STARTED, honestly** — no consent-gated profile system or fraud-detection pipeline exists yet; not fabricated as context |
 | Panelist→survey suitability ranking | NOT_STARTED |
 | Atomic allocation mechanics | **DONE (Slice 9)** — `AllocationService`, tested |
 
@@ -166,3 +170,21 @@ one schema instead of each inventing its own. Every external boundary these thre
 slices touch (`GSCProvider`, `EmailIngestionProvider`) stays a `Protocol` with a
 credential-absent stub that fails loud — nothing pretends a live integration works.
 Test count: 246 → 278.
+
+**2026-09-06, continued — Slice 15 (AI Survey Pool + Panel Allocation)**: per
+explicit user instruction, this is a real AI ranking, not a deterministic scoring
+formula relabeled AI. `SurveyService.list_eligible()` is the hard gate (>20%
+conversion, active-in-pool, quota>0) run *before* the model ever sees a candidate
+list — a test asserts the model's own received context excludes an ineligible
+survey, not just that the model declined it. `Survey` gained three real fields
+(`category`, `length_minutes`, `incentive`) as genuine allocation context;
+demographic profile-fit and fraud/risk signals are explicitly not modeled yet (no
+consent-gated profile system or fraud pipeline exists) and are not faked as
+context. "Decision memory" is real historical data (completion/dropout rate, prior
+exposure to the same survey, allocation recency) re-queried from
+`SurveyResponse`/`Allocation` on every call — no vector store, no fine-tuning
+loop, per the user's own "simplest architecture that works reliably" guidance.
+`AllocationService.allocate()` (Slice 9) executes the AI's ranked choice
+unchanged, including its existing atomic quota/fallback mechanics — this slice
+adds no new execution path, only the ranking layer in front of it. Test count:
+278 → 289.

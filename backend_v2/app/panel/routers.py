@@ -20,18 +20,24 @@ import json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
+from app.ai.decision_engine import Decision, DecisionEngine
+from app.ai.gpu_broker import GpuBroker
+from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.tools import ToolRegistry
 from app.auth.dependencies import require_permission
 from app.db import get_database
 from app.finance.rewards_ledger import RewardLedgerEntry, RewardLedgerService
 from app.models.activity import Activity
+from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.models.money import Money
+from app.panel.ai_allocation import PanelAllocationAIError, PanelAllocationAIService
 from app.panel.callback_security import SignatureConfigError, SignatureInvalid
 from app.panel.models import Allocation, SURVEY_PROVIDERS, Supplier, Survey, SurveyResponse, SupplierReconciliationRecord, TrafficSource
 from app.panel.providers import SurveyProvider, SurveyProviderUnavailable, SurveyProjection
 from app.panel.service import AllocationService, CallbackService, SupplierReconciliationService, SupplierService, SurveyError, SurveyService, TrafficSourceService
 from app.rbac.identity import ResolvedIdentity
-from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ, SURVEY_RECONCILE
+from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_AI_ALLOCATE, SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ, SURVEY_RECONCILE
 
 router = APIRouter()
 
@@ -56,6 +62,16 @@ def get_survey_service() -> SurveyService:
 def get_allocation_service() -> AllocationService:
     db = get_database()
     return AllocationService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
+
+
+def get_panel_allocation_ai_service() -> PanelAllocationAIService:
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
+    return PanelAllocationAIService(
+        engine, get_survey_service(), get_allocation_service(),
+        CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation),
+    )
 
 
 def get_callback_service() -> CallbackService:
@@ -104,6 +120,13 @@ class AllocateRequest(BaseModel):
     respondent_ref: str
 
 
+class AiAllocateRequest(BaseModel):
+    person_id: str
+    vendor_id: str
+    country_code: str
+    respondent_ref: str
+
+
 class CreateSupplierRequest(BaseModel):
     name: str
     provider: str
@@ -142,6 +165,29 @@ async def set_survey_eligibility(survey_id: str, body: SetEligibilityRequest, id
         return await svc.set_eligibility(actor=identity.user_id, survey_id=survey_id, is_active_in_pool=body.is_active_in_pool, activated_at=body.activated_at)
     except SurveyError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+class AiAllocateResponse(BaseModel):
+    decision: Decision
+    allocation: Allocation | None = None
+
+
+@router.post("/traffic/{traffic_source_id}/allocate/ai", response_model=AiAllocateResponse)
+async def ai_allocate(
+    traffic_source_id: str,
+    body: AiAllocateRequest,
+    identity: ResolvedIdentity = Depends(require_permission(SURVEY_AI_ALLOCATE)),
+    svc: PanelAllocationAIService = Depends(get_panel_allocation_ai_service),
+    provider: SurveyProvider = Depends(get_survey_provider),
+) -> AiAllocateResponse:
+    try:
+        decision, allocation = await svc.evaluate_and_allocate(
+            org_id=identity.org_id, actor=identity.user_id, person_id=body.person_id, vendor_id=body.vendor_id,
+            country_code=body.country_code, respondent_ref=body.respondent_ref, provider=provider,
+        )
+    except PanelAllocationAIError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return AiAllocateResponse(decision=decision, allocation=allocation)
 
 
 @router.post("/traffic/{traffic_source_id}/allocate", response_model=Allocation)
