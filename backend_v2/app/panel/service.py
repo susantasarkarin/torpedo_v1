@@ -51,6 +51,13 @@ MAX_ALLOCATION_RETRIES = 5
 
 TERMINAL_NO_CREDIT_STATUSES = ("terminated", "overquota", "quality_term")
 
+# A survey receives panel traffic only when its conversion rate clears this hard
+# eligibility boundary — deliberately deterministic, not an AI decision. Below/at
+# threshold, no ranking, no allocation, full stop; above it, which survey and how
+# much traffic still needs the AI-ranking layer (checklist: NOT_STARTED, needs the
+# AI gateway) but the eligibility gate itself doesn't wait on that.
+CONVERSION_ELIGIBILITY_THRESHOLD = 0.20
+
 
 class SurveyError(Exception):
     """Invalid request, no eligible survey, or a state a survey/allocation isn't in.
@@ -143,6 +150,8 @@ class AllocationService:
                 raise SurveyError(f"survey {survey_id} does not exist")
             if not survey.eligibility_is_active_in_pool or survey.quota_remaining <= 0:
                 raise SurveyError(f"survey {survey_id} has no eligible quota")
+            if survey.conversion_rate <= CONVERSION_ELIGIBILITY_THRESHOLD:
+                raise SurveyError(f"survey {survey_id} conversion rate {survey.conversion_rate} is at or below the {CONVERSION_ELIGIBILITY_THRESHOLD} eligibility threshold")
             try:
                 return await self._surveys.update(survey.id, survey.version, {"quota_remaining": survey.quota_remaining - 1}, updated_by=actor)
             except VersionConflict:

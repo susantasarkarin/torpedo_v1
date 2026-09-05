@@ -49,6 +49,7 @@ class GstDetails(BaseModel):
 
 class Invoice(CanonicalDocument):
     customer_account_id: str
+    opportunity_id: str | None = None  # set when created via app.crm.OpportunityService.convert_to_invoice()
     invoice_number: str
     status: str = "draft"  # draft -> pending_approval -> approved -> sent (immutable
     # from here on) -> partially_paid -> paid ; or -> void (only from draft/pending_approval)

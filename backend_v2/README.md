@@ -464,10 +464,47 @@ toward Operations/CRM completion, UI, reconciliation tooling, migration from v1,
 the real external-provider adapters every slice since 6 has deferred behind a
 `Protocol`.
 
-Not yet built: migrations from v1; the real AI-gateway integration and real
-send-provider/survey-provider adapters (all stubs, each swappable at one
-dependency-provider function). See `docs/schema_catalogue.md` and
-`docs/endpoint_catalogue.md` for what those will look like when they land.
+**Phase 1, slice 10: `app/crm/` (Opportunity) + two Operations detectors** — the
+first increment toward `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`'s AI-native target,
+scoped to exactly what's buildable without real external credentials or the AI
+Gateway (which itself is blocked on a GPU-broker resourcing decision — see that
+checklist).
+
+- **`Opportunity`** (`app/crm/`) built directly against schema_catalogue.md §2.2's
+  locked shape. `contact_id` is `person_id` here, applying the already-settled
+  "Person, not Contact" naming rather than reintroducing v1's terminology.
+  `is_valid_transition()` is a simple rule (any active stage ↔ any other active
+  stage, or close `won`/`lost`, terminal means terminal) rather than a full
+  transition table — deliberately simpler than `LeadState`'s, since Opportunity
+  stages don't carry the same audit-linearity requirement.
+- **`convert_to_invoice()` is the endpoint catalogue's integration made real**:
+  `POST /opportunities/{id}/convert` calls Slice 8's `InvoiceService.create_invoice()`
+  directly — never a second invoice-creation implementation — and only from `won`,
+  never repeatable once `Opportunity.converted_invoice_id` is set.
+  `test_convert_creates_a_draft_invoice_referencing_the_opportunity` and
+  `test_convert_is_not_repeatable` are the direct regression tests.
+- **The >20% survey-traffic eligibility gate is real and deterministic**
+  (`app.panel.service.CONVERSION_ELIGIBILITY_THRESHOLD`), enforced inside
+  `AllocationService._reserve_quota()` so it's re-checked on every version-conflict
+  retry, not just the first pass. Deliberately *not* an AI decision — the gate is a
+  hard boundary; which eligible survey gets how much traffic is the AI-ranking layer
+  this slice does not build.
+- **`StudyInactivityService.detect_and_flag()`** is the 7-day-no-traffic trigger,
+  idempotent within one inactivity episode (a scheduler running this every few
+  minutes won't spam duplicate flags for the same unresolved gap). It only raises a
+  `study_inactive_detected` Activity — it never pauses, closes, or reactivates
+  anything; that decision is explicitly deferred to the AI Decision Engine.
+- **Task/reminder entity deliberately not built**: no locked schema exists for it in
+  `schema_catalogue.md`, and inventing one under time pressure would be exactly the
+  kind of ungrounded construction this whole rebuild's discipline exists to prevent.
+
+Not yet built: migrations from v1; the AI Gateway/Decision Engine (blocked — see
+`docs/AI_NATIVE_COMPLETION_CHECKLIST.md` for the VM-hardware finding and the
+recommended on-demand GPU-broker path); GSC lead-gen, real Cint adapter, and real
+send-provider integration (all blocked on credentials this environment doesn't
+have); a scheduler to actually call `detect_and_flag()` on a cadence. See
+`docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will look
+like when they land.
 
 ## Running
 

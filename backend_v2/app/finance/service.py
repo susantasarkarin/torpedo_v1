@@ -65,14 +65,15 @@ class InvoiceService:
         self._activities = activities
 
     async def create_invoice(
-        self, *, org_id: str, actor: str, customer_account_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str
+        self, *, org_id: str, actor: str, customer_account_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str,
+        opportunity_id: str | None = None,
     ) -> Invoice:
         subtotal, tax_total, total = compute_totals(line_items, currency=currency)
         seq = await self._sequences.next(org_id=org_id, sequence_name="INV")
         invoice = await self._invoices.insert(
             Invoice(
                 org_id=org_id, created_by=actor, updated_by=actor,
-                customer_account_id=customer_account_id, invoice_number=f"INV-{seq:06d}",
+                customer_account_id=customer_account_id, opportunity_id=opportunity_id, invoice_number=f"INV-{seq:06d}",
                 line_items=line_items, gst_details=gst_details,
                 subtotal=subtotal, tax_total=tax_total, total=total,
                 amount_paid=Money(amount_minor=0, currency=currency), balance_due=total,

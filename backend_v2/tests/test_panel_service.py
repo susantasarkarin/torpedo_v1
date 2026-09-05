@@ -10,7 +10,7 @@ self-executed by a webhook, per register §5.7's "no exception").
 import hashlib
 import hmac as hmac_module
 import json
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mongomock_motor import AsyncMongoMockClient
@@ -20,6 +20,7 @@ from app.models.activity import Activity
 from app.models.base import CanonicalRepository
 from app.models.money import Money
 from app.panel.callback_security import SignatureConfigError, SignatureInvalid
+from app.panel.inactivity import StudyInactivityService
 from app.panel.models import SURVEY_PROVIDERS, Allocation, Supplier, Survey, SurveyResponse, SupplierReconciliationRecord, TrafficSource
 from app.panel.providers import SurveyProjection, SurveyProviderUnavailable
 from app.panel.service import AllocationService, CallbackService, SupplierReconciliationService, SupplierService, SurveyError, SurveyService
@@ -91,8 +92,13 @@ def reconciliation_service(db) -> SupplierReconciliationService:
     return SupplierReconciliationService(CanonicalRepository(db["supplier_reconciliation_records"], SupplierReconciliationRecord), CanonicalRepository(db["survey_responses"], SurveyResponse))
 
 
-async def _eligible_survey(survey_service: SurveyService, *, quota=1, external_id="s1") -> Survey:
-    survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id=external_id, quota_remaining=quota, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+@pytest.fixture
+def inactivity_service(db, activities) -> StudyInactivityService:
+    return StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), activities)
+
+
+async def _eligible_survey(survey_service: SurveyService, *, quota=1, external_id="s1", conversion_rate=0.3) -> Survey:
+    survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id=external_id, quota_remaining=quota, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=conversion_rate)
     return await survey_service.set_eligibility(actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
 
@@ -143,6 +149,27 @@ async def test_ineligible_survey_is_never_allocated_even_with_quota(survey_servi
     with pytest.raises(SurveyError):
         await allocation_service.allocate(org_id=ORG, actor="system", candidate_survey_ids=[survey.id], person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=provider)
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_survey_at_or_below_conversion_threshold_never_gets_traffic(survey_service: SurveyService, allocation_service: AllocationService):
+    """The hard eligibility boundary: conversion <= 20% -> no panel traffic at all,
+    regardless of quota/eligibility otherwise being fine. Deterministic, not an AI
+    ranking decision."""
+    for rate, ref in [(0.20, "r-exactly-20"), (0.19, "r-below-20")]:
+        survey = await _eligible_survey(survey_service, quota=5, external_id=f"low-{ref}", conversion_rate=rate)
+        provider = RecordingProvider()
+        with pytest.raises(SurveyError):
+            await allocation_service.allocate(org_id=ORG, actor="system", candidate_survey_ids=[survey.id], person_id="p1", vendor_id="v1", country_code="IN", respondent_ref=ref, provider=provider)
+        assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_survey_above_conversion_threshold_is_eligible(survey_service: SurveyService, allocation_service: AllocationService):
+    survey = await _eligible_survey(survey_service, quota=5, conversion_rate=0.21)
+    provider = RecordingProvider()
+    allocation = await allocation_service.allocate(org_id=ORG, actor="system", candidate_survey_ids=[survey.id], person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=provider)
+    assert allocation.survey_id == survey.id
 
 
 @pytest.mark.asyncio
@@ -325,3 +352,62 @@ async def test_reconciliation_matching_counts_is_not_flagged(reconciliation_serv
     record = await reconciliation_service.reconcile(org_id=ORG, actor="system", supplier_id="sup-1", survey_id=None, supplier_reported_count=0)
     assert record.discrepancy == 0
     assert record.status == "recorded"
+
+
+# --------------------------------------------------------------------------- study inactivity detection (Phase 11 trigger)
+
+
+@pytest.mark.asyncio
+async def test_survey_never_allocated_is_flagged_inactive(survey_service, inactivity_service, activities):
+    survey = await _eligible_survey(survey_service, quota=5)
+    now = datetime.now(timezone.utc)
+
+    flagged = await inactivity_service.detect_and_flag(org_id=ORG, as_of=now)
+    assert [s.id for s in flagged] == [survey.id]
+
+    flags = await activities.find_all({"type": "study_inactive_detected", "subject_id": survey.id})
+    assert len(flags) == 1
+
+
+@pytest.mark.asyncio
+async def test_survey_with_recent_allocation_is_not_flagged(survey_service, allocation_service, inactivity_service):
+    survey, _ = await _allocated(survey_service, allocation_service, RecordingProvider())
+    now = datetime.now(timezone.utc)
+
+    flagged = await inactivity_service.detect_and_flag(org_id=ORG, as_of=now)
+    assert flagged == []
+
+
+@pytest.mark.asyncio
+async def test_survey_with_only_stale_allocation_beyond_window_is_flagged(survey_service, db):
+    survey = await _eligible_survey(survey_service, quota=5)
+    stale_allocation = Allocation(
+        org_id=ORG, created_by="system", updated_by="system", survey_id=survey.id, person_id="p1", vendor_id="v1",
+        country_code="IN", respondent_ref="old-ref", redirect_url="https://x", created_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
+    await CanonicalRepository(db["allocations"], Allocation).insert(stale_allocation)
+
+    inactivity_service = StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
+    flagged = await inactivity_service.detect_and_flag(org_id=ORG, as_of=datetime.now(timezone.utc))
+    assert [s.id for s in flagged] == [survey.id]
+
+
+@pytest.mark.asyncio
+async def test_repeated_scans_within_the_same_window_do_not_spam_duplicate_flags(survey_service, inactivity_service, activities):
+    await _eligible_survey(survey_service, quota=5)
+    now = datetime.now(timezone.utc)
+
+    await inactivity_service.detect_and_flag(org_id=ORG, as_of=now)
+    await inactivity_service.detect_and_flag(org_id=ORG, as_of=now + timedelta(hours=1))
+
+    flags = await activities.find_all({"type": "study_inactive_detected"})
+    assert len(flags) == 1
+
+
+@pytest.mark.asyncio
+async def test_ineligible_survey_is_never_flagged(survey_service, inactivity_service, activities):
+    await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id="s1", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+    # deliberately never call set_eligibility
+
+    flagged = await inactivity_service.detect_and_flag(org_id=ORG, as_of=datetime.now(timezone.utc))
+    assert flagged == []

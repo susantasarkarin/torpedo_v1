@@ -85,3 +85,9 @@ SURVEY_ALLOCATE = "survey.allocate"  # system — called from the public traffic
 # endpoint after its own rate-limit/fraud gates, never exposed to a plain user session
 SURVEY_RECONCILE = "survey.reconcile"  # system/cron
 SUPPLIER_MANAGE = "supplier.manage"
+
+# CRM — schema_catalogue.md §2.2 / endpoint_catalogue.md's Opportunity rows.
+OPPORTUNITY_CREATE = "opportunity.create"
+OPPORTUNITY_UPDATE = "opportunity.update"
+OPPORTUNITY_READ = "opportunity.read"
+OPPORTUNITY_CONVERT = "opportunity.convert"
