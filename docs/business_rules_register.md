@@ -1,0 +1,518 @@
+# Torpedo Business-Rule, Defect & Unresolved-Decision Register
+
+> Generated: 2026-09-05 | Phase 0 (forensic audit) deliverable | **Rev 2 — defect reclassification applied**
+> Method: five parallel forensic extraction passes (finance/GST, survey/quota allocation, panel rewards, lead classification/scoring, outreach/suppression/RBAC), each reading the actual running code — not documentation — and citing every claim to a `file:line`. Builds on, and does not repeat, the router/Celery/dependency inventory in [codebase_inventory.md](codebase_inventory.md) and the TOR-01…TOR-64 defect register in [audit_gap_analysis_response.md](audit_gap_analysis_response.md) / [audit_remediation_status.md](audit_remediation_status.md).
+
+## Classification scheme
+
+Rev 1 of this register used a single `[DECIDE]` tag for everything unresolved. That was wrong, and dangerously so: it invited the rebuild team to treat proven bugs as open business questions, and to "resolve" them by writing the broken behaviour into the v2 specification. Rev 2 splits them:
+
+| Tag | Meaning | Who resolves it | Can it become a v2 rule? |
+|---|---|---|---|
+| `[VERIFIED]` | Rule is clearly implemented, or its absence is deliberately correct | — | Yes — preserve |
+| `[EXTRACT]` | Behaviour exists but is ambiguous, inconsistent, or lives outside this repo — **must still be recovered before deciding whether to preserve it** | Engineer, by further investigation | Not yet — recover first |
+| `[DECIDE]` | The system needs a rule here and code has none or an arbitrary one. **A business owner must choose the intended behaviour.** | Business owner / accountant / legal | Yes, once chosen |
+| `[DEFECT]` | **Evidence already proves v1's behaviour is wrong or unsafe.** No business input is needed to know it is wrong. | Engineering, by fixing it | **Never.** A defect is not a specification. |
+
+`[DEFECT]` items carry a severity: **P0** (security, money, or legal exposure; **or** a structural defect that makes business state unsound — absent canonical identity, split-brain writes, a "canonical" store that can diverge permanently, runtime-selected databases — fix before or during Phase 1), **P1** (correctness/data-integrity defect that will corrupt v2 if ported), **P2** (architecture/observability defect that raises the cost of everything downstream).
+
+> **P0 convention widened 2026-09-05 by owner decision.** P0 originally meant live security/money/legal exposure only. It now also covers defects that destroy the *soundness of business state* even where nothing is currently exploitable or mis-billed — because a system with no stable identity and two disagreeing copies of its own data cannot be reasoned about, and every later fix built on it inherits the doubt. D-16, D-20, D-21 were raised under this convention; D-22 was added under it.
+
+Some items are split: the *bug* is a `[DEFECT]` and the *policy question it exposes* is a separate `[DECIDE]`. These are marked "**+ DECIDE:**" inline. Resolving the decision does not close the defect, and vice versa.
+
+**Update rule:** when a `[DECIDE]` is answered, rewrite it as `[VERIFIED]` with the decision and its owner recorded. When a `[DEFECT]` is fixed, move it to the changelog at the bottom — do not delete it, since v1 data migrated into v2 may still carry its damage.
+
+---
+
+## 0. The pattern that repeats across every domain
+
+Five independent audits, of five unrelated subsystems, converged on the same five anti-patterns. This is the most important finding in the register — it says the problem is systemic, not local to any one module:
+
+1. **Parallel, competing implementations of the same decision.** Finance has five independent subtotal/tax re-implementations. Survey allocation has two entire competing engines. Lead classification has five or six independently-weighted scoring systems. Outreach has five send pipelines. RBAC has three "resolve current user's roles" implementations that disagree.
+2. **A well-built subsystem that production doesn't actually call.** `SurveyAllocationService` is atomic and race-safe — and `traffic.py` never invokes it. `outreach_engine/sending_engine.py` is fully migrated to the send facade — and isn't mounted. `import_gating.py`'s duplicate check is a stub that always returns "no duplicate."
+3. **Non-atomic counters guarding money, quota, or send volume** — several with a documented incident already caused by exactly this.
+4. **AI-outage-as-business-verdict**, in several disguises — already responsible for 3,978 permanent false `REVIEW` verdicts during the 2026-09-01 Bedrock outage.
+5. **No reconciliation between Torpedo's internal view and the external system it depends on** for completes, or for reward balances.
+
+## 0.1 Global v2 invariants (derived from the above)
+
+These are not suggestions. Each is a direct negation of a pattern proven to have caused damage in v1, and each should be enforceable by test or CI ratchet, not by reviewer vigilance:
+
+- **I-1 · One authoritative implementation per business decision.** Any second implementation of a scoring, classification, tax, quota, or budget rule is a defect by definition, regardless of correctness.
+- **I-2 · No dead or orphaned "correct" subsystem.** If a safety-critical component is not on the live call path, it is not a safeguard — it is a liability that makes the system look safer than it is. Every such component needs a test proving production actually reaches it.
+- **I-3 · Atomic by construction for money, quota, and sending.** Read-then-write on any counter that gates money, inventory, or outbound volume is prohibited. Ledgers are append-only; balances are derived and re-derivable.
+- **I-4 · AI failure is never a business verdict.** An outage must be representable in a state disjoint from every legitimate verdict, and must be impossible to persist into a business field by omission.
+- **I-5 · Every external dependency that keeps a count gets a reconciliation job**, with an explicit discrepancy policy — surfacing disagreement, never silently correcting it.
+- **I-6 · No write path may persist data that has not passed through a canonical, collection-bound model.** *(Added 2026-09-05, from the entity-map pass — see below.)* A model that exists but isn't enforced at the write site provides zero protection: v1's own `schemas.InvoiceCreate` has correct types and is never called by any endpoint. This must be structural — the persistence layer should make `insert_one` with a raw dict impossible — not a lint rule or a review checklist item.
+- **I-7 · All persisted and application-level timestamps are timezone-aware UTC.** *(Added 2026-09-05, from Slice 3 engineering — see §8.)* Database driver configuration must preserve timezone awareness; individual domain models must not compensate for driver misconfiguration by patching `tzinfo` at each call site.
+
+## 0.2 Phase 1 authorization gate (mandatory)
+
+Raised from a `[DECIDE]` in Rev 1 to a **P0 defect and a hard gate** in Rev 2, per §5.6:
+
+Closing **D-01 and D-14 together** as one gate. They are stated as a single requirement deliberately: fixing the resolver while leaving the wildcard admin bypass intact satisfies neither half, and that is precisely the failure mode the register uncovered.
+
+> **No authentication path may grant implicit administrator privileges, and administrator/wildcard privileges must not imply financial approval authority. Financial approval authority must be explicitly granted through the approval-policy mechanism.**
+>
+> Effective permissions must be resolved from the canonical organisation/user/role model, server-side, with deny-by-default enforcement.
+
+Phase 1 cannot be declared complete while any code path can synthesize a role the user's canonical record does not grant, **or** while any wildcard/administrative grant confers approval authority that was not explicitly issued through the approval policy of §5.7. The four acceptance tests in §5.7 are part of this gate.
+
+---
+
+## 1. Finance / GST / Invoicing / Payments
+
+*Scope: `backend/routers/finance.py` (4126 lines), `backend/tasks/finance_tasks.py`, `backend/segment_to_finance.py`, `backend/routers/operations.py`, seed/CSV importers.*
+
+### 1.1 Money representation / arithmetic
+
+- `[DEFECT · P1]` All monetary fields are native Python floats — no `Decimal`/`Decimal128` anywhere. Confirms and generalizes TOR-44 well beyond the two lines originally cited. Money in binary floating point is a correctness defect for a ledger, not a style choice. (finance.py: no `Decimal` import at all)
+- `[DEFECT · P2]` Purchase-order, estimate, invoice, bill, and project-invoice totals each have their **own** hand-written float-sum implementation — five code paths, no shared helper. Violates **I-1**. (finance.py:1790-1794, 2176-2180, 2601-2605, 2927-2938; operations.py:622-624)
+- `[DEFECT · P1]` Invoice/estimate/project-invoice paths trust a client-supplied per-item `tax_amount` verbatim, while bill/PO paths recompute it server-side. A client can submit an invoice whose `tax_amount` doesn't match `tax_rate × amount` and the server totals it unchecked. Client-controlled tax on a statutory document is unsafe regardless of what the intended tax rule turns out to be. (finance.py:2176-2180 vs 2601-2605 vs 2927-2938)
+- `[DEFECT · P1]` No rounding is applied anywhere in the live write path — totals are stored with full binary noise; 2dp rounding exists only in CSV export and offline seed scripts, so stored and exported figures can disagree. **+ DECIDE:** which rounding convention applies (per-line vs per-total, half-up vs banker's) is an accountant's decision. (finance.py:2178-2181, 1792-1794, 2603-2606; contrast export-time rounding at 1932-1936)
+- `[DEFECT · P1]` Payment allocation `$inc`s raw floats onto `amount_paid`/`balance_due`/`total_receivables`/`total_payables` with no rounding and no reconciliation — drift accumulates unboundedly over a ledger's life with no corrective mechanism. (finance.py:3501-3528, 3552-3580)
+- `[DEFECT · P1]` "Fully paid" uses a bare `<= 0` float comparison with no epsilon, while the offline seed importers explicitly use a `0.005` epsilon *specifically to dodge float noise* — the live path lacks the tolerance its own sibling code proves is necessary. Invoices can stick as unpaid by a fraction of a paisa, or flip to paid early on a small negative. (finance.py:3513, 3565 vs seed_invoices_csv.py:135-140)
+
+### 1.2 GST / tax
+
+> **DECISION B-01 (2026-09-05, business owner): Torpedo issues statutory GST invoices in India — it is the system of record for tax documents.** Under the register's own priority hierarchy (legal/compliance outranks v1 behaviour), every "missing tax rule" below therefore ceases to be an open question and becomes a **P0 compliance defect**. Torpedo is currently issuing statutory documents that do not carry a legally-required tax breakdown. The specific rates and treatments still require accountant sign-off (B-03), but their *absence* is no longer a `[DECIDE]`.
+
+- `[DEFECT · P0 — compliance]` **No CGST/SGST/IGST split exists anywhere** — only a flat per-item `tax_rate`, with no intra-state vs inter-state determination from the parties' state codes. A statutory Indian GST invoice must show the correct tax components; Torpedo cannot currently produce one. (grep for cgst|sgst|igst in finance.py: zero matches)
+- `[DEFECT · P0 — compliance]` No reverse-charge, export/SEZ, or LUT handling. `gst_treatment` only gates "is GSTIN mandatory," never alters computation, invoice series, or reporting — so zero-rated and reverse-charge supplies are indistinguishable from ordinary ones on the issued document. (finance.py:315-317, 583-593)
+- `[DEFECT · P1 — compliance]` Tax is computed from a client-supplied or defaulted flat rate with no HSN/SAC-linked rate lookup, so the rate printed on a statutory invoice is unvalidated against the item being sold. (finance.py:1591, 457-471)
+- `[DECIDE · B-06]` No TDS computation or field in any live write path — `tds_amount` appears only as a pass-through in one-off historical CSV migration scripts, sourced from a prior Zoho export column. Whether Torpedo must handle TDS deduction remains an accountant call. (seed_invoices_csv.py:193, 375)
+- `[VERIFIED]` GSTIN/PAN/IFSC format validated by regex when present; GSTIN required only for `registered_regular`/`registered_composition`. (finance.py:291-317, 586-593)
+- `[DEFECT · P2]` The hardcoded default tax rate `18` is duplicated as a bare magic number in two independent code paths with no shared constant and no per-HSN/SAC lookup. **+ DECIDE:** whether a blanket default rate is acceptable at all, versus requiring an explicit rate per item. (finance.py:1591, 1662; operations.py:608-609)
+
+### 1.3 Invoice / estimate / bill lifecycle & immutability
+
+- `[DEFECT · P0]` `update_invoice`/`update_bill`/`update_estimate`/`update_purchase_order` perform an unconditional `$set` of the whole client payload with **no status guard** — a `sent` or `paid` invoice can be silently rewritten via `PUT`, with no immutability, no re-approval, and no audit diff. Statutory documents that can be edited after issue are a legal exposure, not a design preference. (finance.py:2217-2236, 2625-2643, 1806-1851, 2949-2966)
+- `[DEFECT · P1]` On update, `subtotal`/`tax_total`/`total_amount`/`balance_due` are **not** recalculated from edited `items` — they change only if the caller happens to include those exact fields. Edited line items silently desync from stored totals. (finance.py:2219-2236)
+- `[DEFECT · P1]` `total_receivables`/`total_payables` are adjusted on create and soft-delete but **never on update** — an edited invoice total silently drifts from the customer's running balance. (finance.py:2187-2191, 2251-2256 vs 2217-2236)
+- `[DEFECT · P2]` Purchase orders are hard-deleted with no dependency check against bills, while every other document type soft-deletes; customers are hard-deleted while vendors are soft-deleted. Two asymmetric deletion philosophies for symmetrical entities, in the same module. (finance.py:2969-2978 vs 2646-2676; 667-697 vs 1050-1126)
+- `[DEFECT · P1]` No transition validation of any kind exists — there is no send/approve/void endpoint, so `draft → paid` directly, or reopening `paid → draft`, is permitted. (finance.py — full endpoint listing shows only generic CRUD)
+
+> **DECISION B-05 (2026-09-05, business owner): the v2 invoice state machine is**
+> `draft → pending_approval → approved → sent → partially_paid → paid`, with `overdue` **derived** from due date + outstanding balance (never a stored status), and **immutability beginning at `sent`.**
+> Consequences now settled, not open: a `sent` invoice is append-only — corrections go through the credit-note instrument of §1.6, never a field update. Transitions are explicit endpoints, not generic `PUT`s, and skipping or reversing a transition is rejected. The `pending_approval → approved` edge is the hook for B-07's separation-of-duties thresholds (still open). This closes the `+ DECIDE` formerly attached to this item and to §1.3's first bullet; both remain open **defects** until implemented.
+
+### 1.4 Payment allocation
+
+- `[DEFECT · P1]` No validation that a payment's `amount` doesn't exceed `balance_due` — overpayment drives the balance negative with no cap and no credit-balance concept to absorb it. **+ DECIDE:** whether overpayment should be rejected or captured as customer credit. (finance.py:3485-3534)
+- `[DEFECT · P0]` Payment recording is **not transactional**: insert payment → `$inc` invoice → re-fetch and flip paid-status → update customer totals are four independent Mongo operations with no session or `with_transaction` anywhere in the file. A crash mid-sequence leaves money recorded against an unupdated invoice, with no compensating action. (finance.py:3497-3528; confirmed no `start_session` usage anywhere in the module)
+- `[DEFECT · P0]` No idempotency key on `payments_received`/`payments_made` — unlike invoices (unique index) and unlike webhook flows elsewhere in this same codebase. Replaying a payment request or webhook twice double-applies every `$inc`. (contrast indexes.py:308, routers/traffic.py:2119)
+- `[DEFECT · P1]` The paid-status flip re-fetches after `$inc` instead of using `find_one_and_update`'s return value — two concurrent partial payments can both read a stale positive balance and both skip the flip. (finance.py:3511-3517, 3563-3569)
+- `[DEFECT · P1]` Nothing verifies a payment's `invoice_id` belongs to its `customer_id` — cash can be silently allocated against any invoice regardless of customer. (finance.py:3489-3528)
+
+### 1.5 Numbering / sequencing
+
+- `[DEFECT · P1]` Every document-number generator is `estimated_document_count()+1+offset` — a non-transactional metadata count, not a live query. Concurrent creation generates duplicate numbers, and the count never decreases after deletion, so numbers are neither gap-free nor reliably unique even without a race. (finance.py:142-181)
+- `[DEFECT · P1]` Only `invoice_number` carries a unique index — bills, estimates, POs, and payments have none, so duplicate numbers for those types succeed silently. (indexes.py:307)
+- `[DEFECT · P2]` `operations.py`'s project-invoicing path computes and checks an `idempotency_key` before insert; the primary `POST /finance/invoices/` endpoint writing the same collection does not. Two call sites, materially different guarantees. Violates **I-1**. (operations.py:536-546, 626-639 vs finance.py:2160-2214)
+
+### 1.6 Credit notes / refunds
+
+> **Contingency resolved by B-01.** With Torpedo confirmed as the issuer of statutory GST invoices, a credit-note mechanism is legally required (a GST credit note is the only lawful instrument for reducing output tax liability on an already-issued invoice). This is no longer a question of whether, only of form.
+
+- `[DEFECT · P0 — compliance]` **No credit-note, debit-note, or refund entity exists anywhere.** The only correction mechanism for a sent invoice is the unrestricted `PUT` of §1.3 — i.e. statutory history is currently rewritten in place, which is both unlawful and unauditable. Requires its own gap-controlled numbering series. **+ DECIDE (B-03):** the accountant must still specify the form — credit note vs debit note vs adjustment vs refund, their series formats, and which correction types map to which instrument. (repo-wide grep: no relevant hits)
+- `[DEFECT · P1]` No void/reversal path for a recorded payment — a payment entered in error can only be "fixed" by mutating balances directly.
+
+### 1.7 Currency
+
+- `[DEFECT · P1]` The CRM-spine mirror call for new invoices defaults currency to `"USD"` while every other default in the module is `"INR"` — a direct contradiction that silently mislabels mirrored invoices. (finance.py:2203 vs 2444, 3299, 770, 1289)
+- `[DEFECT · P2]` Currency is stored and echoed but never used — dashboards and reports sum `total_amount` across documents of potentially different currencies as if directly additive. **+ DECIDE:** whether Torpedo is single-currency (in which case remove the field) or genuinely multi-currency (in which case it needs FX handling). (finance.py:3838-3906; finance_tasks.py:501-530)
+
+### 1.8 Cross-cutting reporting
+
+- `[DEFECT · P1]` "Net profit" mixes accrual filters inconsistently across its own three legs: sales filtered to `sent`/`paid`, expenses to `approved` only, bills summed across **all** statuses including drafts. The figure is not a coherent quantity under any accounting convention. (finance.py:3842-3891)
+- `[VERIFIED]` Expense approval defaults to auto-approved unless `requires_approval` is explicitly set — the only approval-workflow concept in the module. **+ DECIDE:** whether invoices/bills/POs need equivalent gates. (finance.py:3191)
+
+---
+
+## 2. Survey / Quota Allocation Engine (Cint, CPX)
+
+*Scope: `app/services/{cint_service,survey_allocation_service,cint_entrylink_service,cint_allocation_extension}.py`, `routers/traffic.py` (4701 lines — the actual production entry point), `app/routers/{cint,cpx,survey_allocation,survey_pool}.py`, `routers/cpx_api.py`, `tasks/cint_survey_scoring.py`.*
+
+### 2.0 Scope-defining findings
+
+- `[DEFECT · P1]` **Two parallel allocation engines exist and production uses the weaker one.** `SurveyAllocationService` is atomic and race-safe and is injected into `traffic.py` by `main.py` — but `traffic.py` never calls any method on it (zero call sites, confirmed by full read). Violates **I-1** and **I-2**. **+ DECIDE:** whether to wire production onto it or formally retire it. (survey_allocation_service.py; traffic.py)
+- `[DEFECT · P1]` `SurveyAllocationService.handle_callback` looks up the correct handler per event type and **never calls it** — every valid event falls through to an implicit `return None`, so its mounted router raises `AttributeError` on every real callback. The entire callback surface of the "correct" engine is non-functional. (survey_allocation_service.py:741-761)
+
+### 2.1 Qualification / entry-time routing
+
+- `[VERIFIED]` Production entry tries CPX first (8s timeout), falls back to CINT only if CPX fails and a country code is present, whole allocation capped at 15s; adhoc single-project requests explicitly skip the fallback rather than silently diverting traffic. (traffic.py:3043-3073, 3032-3042)
+- `[VERIFIED]` CINT candidates pass a 3-pass waterfall quality floor; a more permissive floor set is used only for the CPX-terminated→CINT fallback, on the documented rationale that "any survey beats terminating the respondent." (traffic.py:539-606)
+- `[DECIDE]` `CintOpportunity.survey_quotas` (nested/cell-level quotas) is persisted from every webhook but never read or enforced — confirmed zero consumers repo-wide. Whether Torpedo must enforce cell quotas locally, or may rely on Cint's server-side enforcement, is a supplier-contract question. Currently it is neither enforced nor documented as delegated.
+
+### 2.2 Quota atomicity
+
+- `[VERIFIED]` The (unused) `SurveyAllocationService` uses `findOneAndUpdate` with a compound filter and rollback on race-loss — genuinely race-safe. (survey_allocation_service.py:541-589)
+- `[DEFECT · P1]` Production has **no atomic counter for CINT** — only a soft pacing check reading a cache up to 5-10 minutes stale, so two concurrent respondents can both pass a check for a survey with room for one. Violates **I-3**. (traffic.py:1280-1294; tasks/cint_survey_cleanup.py:51-65)
+- `[DEFECT · P1]` Auto-pause-on-low-conversion has two implementations reading **different threshold sources**: the dead path reads a configurable settings document, the live path hardcodes both threshold and session-minimum. An operator changing the setting changes nothing in production. (survey_allocation_service.py:1088-1109 vs traffic.py:1704-1725)
+- `[DEFECT · P2]` `CintAllocationExtension` writes metrics under one field-name schema while its own sibling method reads an older schema nothing writes anymore — that method can never fire, and both are dead code regardless. (cint_allocation_extension.py:180-231, 292-347)
+
+### 2.3 Country / supplier allocation & scoring
+
+- `[VERIFIED]` GeoIP-verified country is preferred over declared country specifically to avoid Cint GeoIP-mismatch terminations; cross-country fallback is explicitly refused. (traffic.py:695-792, 1239-1243)
+- `[VERIFIED]` CINT candidates are ranked by a documented weighted composite, weights env-overridable. **+ DECIDE:** the normalization constants ("$5 CPI = full score", "$0.20/min = full score") are undocumented magic numbers needing business validation. (traffic.py:608-693)
+- `[DEFECT · P2]` `survey_pool.py` defines `/top-by-country` **twice** with different normalization logic; FastAPI silently uses the second, leaving the first unreachable. (survey_pool.py:103-137, 195-226)
+
+### 2.4 Completion / termination / quota-full decisions
+
+- `[DEFECT · P2]` **Four separate status-mapping dictionaries** exist with inconsistent value sets and casing, no shared code — changing one outcome rule requires touching up to four places. Violates **I-1**. (cint_service.py:927-940; cint_entrylink_service.py:297-304; traffic.py:1568-1574; cpx_api.py:97-123)
+- `[DEFECT · P1]` `/api/cint/status` — described in its own docstring as "the CORRECT endpoint" for respondent-level Cint Exchange links — computes the right internal action and **never acts on it** ("TODO: Implement actual crediting... For now, log and acknowledge"). Any traffic routed here gets no crediting, no quota decrement, no termination record. (routers/cint.py:417-503)
+- `[VERIFIED]` `quality_terminate` is deliberately excluded from conversion and buyer-stats calculations, tracked separately — a documented, intentional rule. (traffic.py:1660-1673)
+
+### 2.5 Explainability
+
+- `[DEFECT · P2]` The live path persists no allocation-decision record — candidate scores and the winning choice are only `print()`-ed, never written to a queryable collection, so no completed request can be reconstructed except by grepping logs. The dead engine does this correctly, which is precisely the **I-2** trap. (traffic.py; contrast survey_allocation_service.py:714-735)
+
+### 2.6 EPC / CPI / IR — two confirmed live bugs
+
+- `[DEFECT · P1]` CPI filtering compares `revenue_per_interview.value` (a **string** in Mongo) against another string with `$gte` — lexicographic, not numeric (`"9.5" >= "10.0"` is `True`). Silently corrupts CPI filtering across the digit boundary. (cint_service.py:1757-1768)
+- `[DEFECT · P1]` The companion cleanup query compares that same string field against a Python float with `$lt` — per BSON type ordering, numbers always sort before strings, so this branch is **permanently a no-op** and low-CPI surveys are never deleted. (cint_service.py:1853-1870)
+- `[DECIDE]` EPC is never calculated — passed through verbatim from a legacy offerwall field, while production scores on a home-grown "RPCM" proxy that is a different metric. Which metric should drive allocation is a commercial decision. (cint_service.py:567; traffic.py:608-656)
+
+### 2.7 Fraud / respondent quality
+
+- `[VERIFIED]` CPX postback validation, duplicate/reversal detection, WebView-UA blocking, and a single-use `ext_user_id` entry guard all exist and mostly fail safe.
+- `[DEFECT · P0]` The Cint outcome callback — the actual production complete/terminate/quota-full handler — has **no signature or HMAC verification at all**, while the JSON webhook endpoints in the same system do verify a signature header. A forged `status=complete` redirect triggers crediting, vendor redirect, and metrics increments with no fraud check. (traffic.py:1533-1832 vs routers/cint.py:117-133)
+- `[DECIDE]` No minimum-time-in-survey / TLOI fraud gate at outcome time — TLOI is only a future-ranking penalty. Whether to reject implausibly fast completes is a supplier-quality policy decision.
+
+### 2.8 Supplier reconciliation
+
+- `[DEFECT · P1]` **No reconciliation module, job, or function exists anywhere** (repo-wide search for "reconcil": zero matches in Cint/CPX code). Torpedo's observed completes and the supplier's reported figures are never compared. Violates **I-5**. **+ DECIDE:** cadence and discrepancy policy once the mechanism exists.
+
+### 2.9 Duplicate implementations
+
+- `[DEFECT · P2]` Cint entry-link building/signing is implemented **three times** with different schemes (HMAC-SHA1 project-level, HMAC-SHA256 respondent-level explicitly documented as "isolated," and a third inline in `traffic.py`). A change to the signing rule must land in three places to stay consistent. Violates **I-1**.
+
+---
+
+## 3. Panel Rewards (points / payout)
+
+*Scope: `routers/{panel,panel_admin,panel_invitations,panel_ses_webhook,cpx_api}.py`, `Campaign_platform/src/panel/**`.*
+
+### 3.0 The headline finding
+
+- `[EXTRACT]` **This repository only ever reads panelist reward data.** Nothing here writes an earned ledger entry, increments the balance, or processes a redemption; `rewards_balance` is set to a literal `0.0` at signup/import and never touched again. The real crediting logic lives in an external SFW Node.js service outside this repo and **must be recovered from there before any v2 reward rule can be written.** This is the single largest `[EXTRACT]` in the register.
+
+### 3.1 Architecture / ledger vs. balance
+
+- `[EXTRACT]` `panel_rewards` is shaped like an append-only ledger and indexed as one, but nothing in this repo inserts into it. The spendable balance is a separate mutable field read directly at login — never derived by summing the ledger. Two sources of truth with no reconciliation code between them, and the authoritative writer is external. Violates **I-3** and **I-5** as observed, but confirmation requires the external service.
+- `[EXTRACT]` No atomic `$inc` of `rewards_balance` exists here; whether the external writer guards against a negative balance is unverifiable from this repo.
+
+### 3.2 Earning rules
+
+- `[EXTRACT]` `SurveyItem.reward_points` is read straight off the survey document with no floor/ceiling validation, defaulting to `0` if absent.
+> **DECISION B-02 (2026-09-05, business owner): Torpedo becomes the system of record for panel reward points in v2.** This is a build decision, not a preservation decision — the earning path, ledger, clawback, redemption, KYC gate and balance derivation described below **do not exist in this repository and must be designed from scratch**, then migrated into from the external SFW service (whose current balances become the migration source of truth per spec §41-42, with per-panelist reconciliation before cutover).
+>
+> Because Torpedo will own the money, every contingent item in this section resolves to a real defect or a real requirement, and invariants **I-3** (append-only ledger, derived balance, atomic mutation) and **I-5** (reconciliation against SFW during and after migration) become mandatory here rather than advisory.
+
+- `[REQUIREMENT · v2]` The FAQ promises points "credited immediately after successful completion," and no code path here performs that crediting — `cpx_api.py` writes only to `survey_transactions`, never touching rewards. v2 must bridge completion → ledger entry, idempotently (spec §36: a replayed postback must not double-credit).
+- `[DECIDE]` No referral reward program exists anywhere. Whether one is wanted is a product decision, and is *not* blocked by B-02.
+
+### 3.3 Rejected completes / clawback
+
+- `[VERIFIED]` `cpx_api.py` correctly detects a reversal (prior `completed` + new `status=2` → `reversed`). (cpx_api.py:97-123, 189-224)
+- `[DEFECT · P0 — contingency resolved by B-02]` The reversal is recorded only on `survey_transactions` and **nothing propagates it to the reward ledger or balance** — no clawback, no debit, no audit trail. With Torpedo owning rewards in v2, this is a money defect outright: a supplier can reverse a complete and the panelist keeps the points. v2 needs an explicit, audited, visible clawback that can never drive a balance negative (spec §14).
+- `[DEFECT · P1]` CPX postback hash validation is **silently skipped when `CPX_SECRET_KEY` is unset**, and the handler returns HTTP 200 even on hash failure — forged completion and reversal signals are indistinguishable downstream from genuine ones without inspecting raw logs. Fail-open on a financial signal. (cpx_api.py:72-94, 130-278)
+- `[DEFECT · P2]` The FAQ states duplicate accounts "will be detected and terminated" and points forfeited; detection is an exact case-insensitive email match with no device/IP signal, and no forfeiture code exists at all. A stated user-facing policy that cannot be enforced. (panel.py:311-313)
+
+### 3.4 Redemption
+
+- `[DEFECT · P1]` **The redemption UI is a non-functional mockup shipped to real users** — the "Redeem Points" button has no click handler, the four reward-catalog tiles are static divs, and the API client defines no redeem method. Users are shown a redemption path that cannot be taken. (PanelRewards.jsx:43-45, 137-198; panelApi.js:184-188)
+- `[REQUIREMENT · v2]` No redemption endpoint exists in this backend at all — only read-only balance/history/listing endpoints. Per B-02, v2 must build the full redemption path: request → approval → payout → ledger debit, idempotent against double-submission (spec §36), with the balance never able to go negative.
+- `[REQUIREMENT · v2]` The ₹100 minimum and the "no fees" promise are published commitments to panelists and become enforceable v2 rules under B-02. **+ DECIDE:** the currency model — the panel accepts signups from any country while rewards are hardcoded INR with no FX table; either restrict signup or specify per-currency conversion at redemption.
+- `[DEFECT · P0 — compliance]` A ₹10,000 lifetime-earnings KYC/identity-verification threshold is published in the Terms page with no check, flag, or gating logic anywhere in the backend. With B-02 making Torpedo the payer, this is an unimplemented control on Torpedo's own payout obligation, not someone else's. (Terms.jsx:45)
+
+### 3.5 Expiry
+
+- `[VERIFIED]` Copy states points never expire, and the code correspondingly has no expiry field, TTL index, or expiry job — absence is consistent with stated policy.
+- `[DECIDE]` The same copy conditions this on the account "remaining active" and warns 12+ month inactive accounts may be closed. No inactivity tracking or forfeiture exists. Whether to implement dormancy is a product/legal decision.
+
+---
+
+## 4. Lead Classification / Scoring / ICP / Deduplication
+
+*Scope: `backend/leads/**`, `agents/{opportunity_scoring_agent,ml_lead_scorer,lead_prioritizer,deduplication}.py`, `email_classification/**`, `lead_gen_mcp/**`, `routers/vendor_leads.py`.*
+
+### 4.0 The headline finding
+
+> **DECISION B-04 (2026-09-05, business owner): `icp_config.py`'s 3/2/2/1 scale (title 3 · industry 2 · country 2 · seniority 1, qualifying at ≥4) is the canonical ICP scorer.** The outreach qualification gate is already coupled to this scale (`MIN_ICP_SCORE=4`) and it carries the BIMwave industry/keyword guardrail, so this is the fewest-moving-parts choice.
+> Disposition of the others, per spec §3 (nothing may disappear accidentally): `lead_gen_mcp/scorer.py`'s 0.0-1.0 scorer and `canonical_ingestion.compute_icp_basket`'s 0-9 keyword scorer are **REMOVE**, not demote — but their two hard-won fixes must be carried across to the canonical implementation before deletion: the empty-industry guard (`"" in kw` matching everything) and the tie-breaking rule that routes ambiguous leads to unqualified rather than resolving by list order. Deleting them without porting those guards would re-open two incidents that are already closed.
+
+- `[DEFECT · P1]` **Five or six competing, independently-weighted implementations of what should be one decision**, several live simultaneously and disagreeing. Violates **I-1**. Canonical scorer settled by B-04; the classification-taxonomy precedence below is still unresolved.
+
+  | Concern | Competing implementations |
+  |---|---|
+  | ICP match score | `icp_config.py` (3/2/2/1pt, threshold ≥4) · `lead_gen_mcp/scorer.py` (0.40/0.25/0.25/0.10, threshold 0.30) · `canonical_ingestion.compute_icp_basket` (4/2/3pt, threshold 4) |
+  | Bucket/brand classification | `bucket_classifier.py` (Bedrock → SFW/Cogentix/BIM/REJECT/REVIEW) · `ai_classifier.py` (persona/department) · `canonical_ingestion.classify_lead_ai` (→ client/vendor/unknown) · `gemini_enrichment.classify_lead` (CLIENT/VENDOR/RECRUITER/SPAM) |
+  | Dedup | hash-index · live regex with its own unpooled Mongo client · a stub that always returns "no duplicate" · a SQLite store |
+  | Lead priority | `ml_lead_scorer.py` · `lead_prioritizer.py` (separately tuned weights) |
+
+### 4.1 Deterministic pre-filter
+
+- `[VERIFIED]` Hardcoded exclusion lists reject leads before any model call, with well-reasoned carve-outs (seniority marker overrides soft exclusions; past-tense disqualifiers only when leading; generic titles only disqualify short titles lacking supporting data). (bucket_classifier.py:115-170)
+- `[DECIDE]` The lists are hand-maintained with no versioning and no measured precision/recall, despite the module calling this "the cheapest quality lever in the pipeline." Ownership and review cadence need an owner.
+
+### 4.2 AI bucket/brand classification
+
+- `[VERIFIED]` Strict-JSON contract into exactly one of SFW/Cogentix/BIM/REJECT; any schema violation routes to REVIEW rather than being guessed. Confidence threshold 0.7.
+- `[VERIFIED — exemplary, post-incident]` Model-call failures are **not** persisted as verdicts, and 10 consecutive failures abort the batch as an outage signal — added after the 2026-09-01 Bedrock outage wrote 3,978 permanent false `REVIEW` verdicts. **This is the reference implementation for I-4.** (bucket_classifier.py:501-577)
+- `[DEFECT · P2]` The cheap→smart escalation is a no-op — both roles resolve to the same model, so sub-threshold leads skip escalation entirely and fall to REVIEW. The confidence architecture exists but does nothing. (bucket_classifier.py:332-345)
+- `[DEFECT · P1]` No defined precedence between `outreach_bucket`, `classification`, and `category` — a lead can carry all three, from three disagreeing systems, with no rule for which wins. **+ DECIDE (open):** B-04 settled the ICP *score*; it did not settle which *classification taxonomy* is canonical. `bucket_classifier`'s SFW/Cogentix/BIM/REJECT/REVIEW is the only one that maps to brands and the only one with correct outage handling, so it is the natural candidate — but the client/vendor and CLIENT/VENDOR/RECRUITER/SPAM taxonomies serve different consumers and may need to survive as separate, explicitly-named fields rather than being collapsed.
+
+### 4.3 ICP scoring
+
+- `[DEFECT · P1 — resolution known (B-04)]` Three independently-tuned formulas on three incompatible scales (0-8/threshold 4; 0.0-1.0/threshold 0.30; 0-9/threshold 4). The outreach gate is coupled to only one of them, so leads scored by the others are gated against a scale they were never measured on. **Migration consequence:** every lead currently carrying a score from a non-canonical scorer must be re-scored on the 3/2/2/1 scale during migration — an existing stored score cannot simply be copied across, because the numbers are not comparable.
+- `[VERIFIED, documented self-correction]` A prior version scored an empty `industry` as matching every keyword (`"" in kw` is always `True`), putting 99.8% of a "Dual Fit" basket there on no evidence. Patched with a length guard.
+- `[VERIFIED, documented self-correction]` ICP ties were once broken by list order, which a dry run showed would move 10,790 leads into BIMwave "on the strength of no evidence at all." Ties and sub-threshold scores now both route to unqualified.
+- `[DEFECT · P2]` Two live code paths still reference the retired "Dual Fit" basket, reachable if anything still writes that segment value — an undocumented seam left by the fix above.
+
+### 4.4 Cold-outreach qualification gate (TOR-57)
+
+- `[VERIFIED]` A single funnel checks email → ICP score/bracket → bucket confidence → suppression, returning the first failing reason. `check_email()` returns `"no_email"` before any other gate — this is the TOR-57 gate. Four further email sub-gates sit upstream, and a missing pattern-confidence fails closed. (outreach_qualification.py:146-201, 283-350)
+- `[VERIFIED, documented incident]` The provenance check was added after 2,888 leads with guessed `email_source` values sat under clean `email_status` values and sailed through ungated.
+- `[VERIFIED, documented bug — wrong from the first commit]` Suppression checks originally read an empty collection in the wrong database instead of the real 11,508-doc suppression store the send router populates.
+- `[DECIDE]` No maintained metric exists for gate attrition — the numbers baked into code comments are point-in-time incident figures, not a dashboard. Whether this warrants standing instrumentation is an ops decision.
+
+### 4.5 Brand routing
+
+- `[VERIFIED]` Brand assignment is a deterministic static map decided once at classification time, never re-decided at send time.
+- `[VERIFIED, documented incident + fix]` "One person, one brand" — first enrollment wins. Before the fix, 9,747 people were enrolled across all three brands (82% purely from basket-recomputation drift as data filled in), and 2,402 addresses had already received cold email from all three.
+- `[DEFECT · P2]` Because the basket decision comes from three disagreeing implementations, no authoritative answer exists to "why did this lead go to BIMwave and not Cogentix." Observability defect inherited from §4.3.
+
+### 4.6 AI-outage vs. business-verdict
+
+- `[VERIFIED — correct pattern]` `bucket_classifier`, `bedrock_client`, and the reply-intent classifier all distinguish AI failure from a genuine verdict via raising or a disjoint `UNKNOWN` sentinel plus status field.
+- `[DEFECT · P1]` `reply_sentiment.py` / `reply_intent.py` silently write `neutral`/`other` with `confidence=0.0` on **any** exception including provider outages, and callers persist this without checking confidence — an outage is indistinguishable from a genuine neutral reply in the stored field. Violates **I-4**. (reply_sentiment.py:215-292, 317-364)
+- `[DEFECT · P1]` `ml_lead_scorer`'s failure path returns a fabricated mid-range score (`probability=0.35`, `recommendation="medium_priority"`) with **no error flag at all**. Violates **I-4**. (ml_lead_scorer.py:489-506)
+- `[DEFECT · P2]` `gemini_enrichment.classify_lead` returns `UNKNOWN` correctly but fabricates `buying_intent=0.5`/`priority="MEDIUM"` alongside it — plausible business signals attached to a failed call. (gemini_enrichment.py:282-299)
+- `[DEFECT · P1]` No codebase-wide convention exists for signaling AI unavailability — three incompatible shapes coexist. **This is exactly the class of defect that caused the 3,978-verdict incident.** **+ DECIDE:** which convention becomes canonical (recommend the `bucket_classifier` pattern).
+
+### 4.7 Deduplication
+
+- `[DEFECT · P1]` `import_gating.py`'s `_find_duplicate_in_db` is a **stub that builds a query and discards it** ("Mock database query" is a comment, not code), unconditionally returning "no duplicate" — so the `estimated_duplicates` count shown in the import-approval UI never reflects a real database duplicate. Users approve imports on a fabricated number. (import_gating.py:72-150, 330-341)
+- `[DEFECT · P1]` Four non-communicating dedup stores exist, with no single answer to "has this person already entered the system." One bypasses the pooled Mongo client fix (TOR-12) applied everywhere else. Violates **I-1**.
+- `[DEFECT · P2]` Three uncoordinated daily processing caps (1000 / 500 / 200) in three files. **+ DECIDE:** what the real cap is.
+
+### 4.8 Vendor-leads promotion
+
+- `[DEFECT · P1]` Transfer into `vendor_leads` — and onward into a real billing or panel vendor — is gated only on "has an email" and "not already transferred." **None** of the ICP, bucket-confidence, or dedup checks apply, so a `REJECT`-classified lead can be promoted to a paying vendor, bypassing every rule in §4.2-4.5. (vendor_leads.py:221-320, 459-562)
+
+---
+
+## 5. Outreach / Suppression / Send Budget / RBAC
+
+*Scope: `backend/messaging/**`, `campaigns/suppression.py`, `deliverability/**`, `outreach/**`, `outreach_engine/**`, `sales/outreach_pipeline.py`, `app/services/outreach/**`, `routers/cold_outreach_router.py`, `rbac/**`, `auth.py`, `middleware/**`.*
+
+### 5.1 Five send pipelines
+
+- `[VERIFIED]` Pipelines 1 (`leads/outreach_mailer.py`) and 2 (the mounted `cold_outreach_router.py` v2 engine) are fully migrated to the shared facade; #2 adds its own atomic per-mailbox cap and bounce-risk guard.
+- `[DEFECT · P2]` Pipeline 3 (`outreach_engine/sending_engine.py`) is fully facade-migrated but **not mounted anywhere** — a correct implementation that production cannot reach. Textbook **I-2**.
+- `[DEFECT · P0]` Pipeline 4 (`sales/outreach_pipeline.py`) is **mounted and live** and never calls the facade: no kill switch, no cross-channel budget, no unified send log, no CAN-SPAM footer. It checks suppression only against one legacy collection. (sales/outreach_pipeline.py:66-109, 231-314)
+- `[DEFECT · P0]` Pipeline 5 (`app/services/outreach/*`) sends with **zero suppression, budget, or kill-switch checks of any kind**. Currently dormant (nothing invokes it) but fully wired — it bypasses everything the moment anything calls it. (app/services/outreach/email_sender.py:43-138)
+- `[DEFECT · P1]` The "send test email" endpoint sends real mail with no suppression, no budget, and **no kill-switch check** — `SENDING_ENABLED=false` does not stop it. (cold_outreach_router.py:603-716)
+- `[DEFECT · P1]` Panel drip re-engagement (bulk marketing) is not kill-switch gated. **+ DECIDE:** panel *transactional* mail (verification, password reset) is deliberately exempt per its own docstring — confirm that exemption is intended and bounded to genuinely transactional messages.
+
+### 5.2 Suppression
+
+- `[VERIFIED]` The canonical list reads through two legacy collections on a miss, so migration can only ever suppress *more*; checks fail closed; writes mirror to the legacy panel store.
+- `[DEFECT · P1]` A **second independent** `SuppressionListManager` points at the same collection with its own non-fail-closed check, no legacy read-through, and an extra implicit rule the canonical module lacks. Two suppression implementations with different safety properties, both live. Violates **I-1**. (campaigns/suppression.py:36-117)
+- `[DEFECT · P0]` Pipeline 4's bounce handler writes new suppressions **only** to a legacy collection — never canonical, never mirrored — so an address that hard-bounces there stays mailable by panel sending. Suppression that doesn't propagate is a legal exposure. (sales/outreach_pipeline.py:557-588)
+
+### 5.3 Send budget
+
+- `[DEFECT · P1]` The shared cross-channel budget is **read-then-compare, not atomic** — its own docstring documents the identical race, fixed with an atomic counter *in a different pipeline*, while this module was never converted. Violates **I-3**. (messaging/budget.py:63-104)
+- `[VERIFIED]` The v2 engine's per-mailbox daily cap **is** atomic (`find_one_and_update` + `$inc`), built explicitly after a real incident: 2,004 sends against a 2,000 cap. This is the reference implementation for **I-3**. (cold_outreach_router.py:1922-1966)
+- `[DEFECT · P1]` Pipeline 5 reintroduces the exact filter-then-increment race the v2 engine was rewritten to eliminate. (app/services/outreach/scheduler.py:80-115; tasks/outreach_tasks.py:135-178)
+- `[DEFECT · P2]` Four inconsistent provider daily-limit constants across four modules — no authoritative answer to "what is this identity's cap." **+ DECIDE:** the real per-provider limits. (messaging/budget.py; deliverability/models.py; cold_outreach_router.py; app/services/outreach/sender_manager.py)
+- `[VERIFIED]` `count_sends()` fails closed on DB error (reports an impossibly large count, blocking sends rather than under-counting) — correct fail-safe.
+
+### 5.4 Compliance & kill switch
+
+- `[VERIFIED]` The facade refuses bulk mail unless postal address and unsubscribe URL are configured; the v2 engine independently builds and verifies its footer per message and refuses to send if it cannot build one honestly.
+- `[DEFECT · P0]` That footer check is local to the v2 engine — Pipelines 4 and 5 have **no compliance-footer verification at all**, so CAN-SPAM-required content is unverified on live outbound mail.
+- `[DEFECT · P1]` The kill switch only reaches code that calls the facade. It does **not** reach the test-send endpoint, Pipelines 4 or 5, panel drips, or panel transactional mail. A kill switch with known bypasses is not a kill switch. Violates **I-2**.
+
+### 5.5 Provider adapters & deliverability
+
+- `[VERIFIED]` The v2 engine isolates Gmail vs SMTP behind helpers with no provider branching in business logic; the facade itself takes a transport callable and imports no provider library.
+- `[DEFECT · P2]` The test-send endpoint inlines raw Gmail-API and raw `smtplib` calls directly in the router body, interleaved with business logic.
+- `[DECIDE]` The DNS-based domain health score (SPF/DKIM/DMARC/MX) is computed for dashboards but consulted by no send path — a domain scoring "F" is not throttled. Whether deliverability health should gate sending is a policy decision. (A separate, real bounce-risk gate does exist in the v2 engine.)
+
+### 5.6 RBAC / permissions
+
+- `[VERIFIED]` `RBAC_ENABLED` defaults off, read fresh per call; when disabled every check short-circuits to allow. This is the fixed TOR-04 finding (one reader, `rbac/flags.py`).
+- `[DEFECT · P0 — PHASE 1 GATE]` **Three "resolve current user's roles" implementations disagree, and the operative one hardcodes `roles: ["admin"]` for every successfully verified session token, regardless of the user's actual database roles.** No middleware sets the alternative it would otherwise consult, so this is the live path for any request using the app's normal auth mechanism; the other two correctly look up real roles and default to `["user"]`. Effect: **the fine-grained permission system is defeated for every authenticated user the moment `RBAC_ENABLED=true`.** This is not "how should RBAC work" — the fallback is objectively incompatible with the intended authorization model. Gated by §0.2. (rbac/decorators.py:89-107 vs app/security.py:65-75 vs auth.py:258-293)
+- `[VERIFIED]` The internal-service-token bypass fails closed when unset, requires ≥32 chars, and uses constant-time comparison — the hardened TOR-50 fix.
+- `[DEFECT · P1 — policy settled by B-07, see §5.7]` The approval-authority subsystem (per-user/role amount ceilings for invoice/bill/payment/expense approval) is fully modeled with **zero call sites outside its own module** — no endpoint enforces an approval permission or ceiling. Dead safety capability; **I-2** again. Consequently no self-approval guard exists in either direction — the question was unasked, not answered. B-07 now defines what must call it; the defect remains open until it is actually wired.
+- `[DEFECT · P1]` No self-assignment guard on role or permission grants — any caller holding the role-assign permission can grant roles to themselves. (Self-*deletion* is correctly blocked, which shows the guard pattern was known and simply not applied here.) (routers/users.py:298-321, 378-404 vs 281-285)
+- `[DEFECT · P2]` Two of four named rate-limit policies (signup, password-reset) are defined but wired to no endpoint. (middleware/rate_limit.py:136-139)
+
+### 5.7 Approval authority & separation of duties
+
+> **DECISION B-07 (2026-09-05, business owner): approval is a first-class, centrally-evaluated policy — not per-endpoint logic.** The mechanism is settled here; the INR threshold values remain configurable business policy and are deliberately *not* fixed by this decision.
+
+**Operations that require approval** (each above a role-specific threshold, except clawback which always requires it):
+
+| Operation | Approval rule |
+|---|---|
+| Invoice | Required above role-specific threshold |
+| Vendor bill | Required above role-specific threshold |
+| Payment | Required above role-specific threshold |
+| Expense | Required above role-specific threshold |
+| Credit note | Required above role-specific threshold |
+| Refund | Required above role-specific threshold |
+| Reward clawback | **Always required; no self-approval** |
+| Material customer/account financial adjustment | Required above threshold |
+
+**Core rules:**
+
+- Thresholds are defined **per role**, never hard-coded into endpoints. A threshold of `0` means every transaction of that type requires approval.
+- Below-threshold transactions may be auto-approved **only** where a business rule explicitly permits it.
+- The requester **cannot approve their own transaction**, regardless of role.
+- Approval authority is evaluated **at the time of approval**, not at creation.
+- An approver cannot approve above their effective ceiling.
+- Approval is an explicit state transition: `pending_approval → approved → executable`.
+- Rejection is terminal for that attempt; a new approval cycle is required after material modification.
+- **Any material change to an approved financial object invalidates the approval** and returns it to `pending_approval`.
+- Approval and rejection each create an immutable `Activity` record.
+- Approval decisions require idempotency and optimistic concurrency protection.
+- No endpoint may execute a financially consequential operation merely because the caller holds general write permission.
+- **Admin is not an automatic approval bypass.** Administrative privilege and financial approval authority are separate concepts.
+- Impersonation cannot be used to satisfy a separation-of-duties requirement.
+- System and AI agents **cannot approve** financial transactions (consistent with spec §31: no agent may modify money).
+
+**Single authority.** `RBACService.get_approval_authority()` / `can_approve_amount()` become the sole evaluator of this decision. No approval logic may be reimplemented inside the invoice, payment, expense, bill, credit-note, or reward services — all of them call the same policy service. This is **I-1** applied to authorization: a second approval implementation is a defect by definition, even if correct.
+
+**What this decision surfaces:**
+
+- `[DEFECT · P0 — compounds D-01]` The `admin` role currently bypasses **all** fine-grained permission checks, which under B-07 would silently confer unlimited approval authority. Fixing D-01 (the auth fallback that hardcodes `admin`) is therefore **necessary but not sufficient** — the approval codes must additionally be carved out of the admin wildcard, or every admin becomes an unlimited approver by construction. (rbac/decorators.py:164-167, 252-253, 297-298, 331-332; rbac/simple.py:20-46 grants admin `"*"`)
+- `[DEFECT · P1]` Only **four** `.approve` permission codes exist (invoice, bill, payment, expense). B-07 requires four more — credit note, refund, reward clawback, and material account adjustment — none of which have permission codes, and three of which have no underlying entity either (credit note per D-11, refund per D-11, clawback per D-12). The approval model cannot be completed before those entities exist. (rbac/permissions.py:44, 52, 57, 62)
+- `[REQUIREMENT · v2]` No mechanism currently exists to invalidate an approval on material modification, because no approval is ever evaluated (the subsystem has zero call sites). "Material" must be defined per entity — at minimum amount, tax, payee/payer, and line items — and enforced server-side, not by client convention.
+
+**Scope of the Phase 1 gate.** Phase 1 proves the **mechanism is correct on all available approval-enabled operations** — invoice, bill, payment, expense. It does **not** require credit note, refund, reward clawback, or material account adjustment to exist; those wire into the same policy service when their entities land in Phases 3 and 4. Requiring future entities prematurely would make the gate uncloseable. The gate criterion is therefore *"every approval-enabled operation that exists is centrally evaluated and passes the tests below"*, and each later phase re-runs these same tests against the operations it adds.
+
+**Phase 1 acceptance tests (mandatory — gate criteria):**
+
+> **Given** a financial operation requiring approval, **when** the creator attempts to approve it, **then** the request is rejected regardless of role.
+>
+> **Given** an approver whose ceiling is below the transaction amount, **when** they attempt approval, **then** approval is rejected.
+>
+> **Given** an authorized approver within their ceiling, **when** they approve, **then** the operation transitions atomically to `approved` and records the approval activity.
+>
+> **Given** an approved transaction is materially modified, **when** the modification is committed, **then** the previous approval is invalidated and a new approval is required.
+
+---
+
+## 6. Defect register — ranked
+
+**P0 — live security, money, or legal exposure. Fix before or during Phase 1.**
+
+| # | Defect | §  |
+|---|---|---|
+| D-01 | Auth fallback hardcodes `admin` for every verified session token — defeats all fine-grained permissions | 5.6 |
+| D-02 | Sent/paid invoices are freely rewritable via unguarded `PUT`; no immutability on statutory documents | 1.3 |
+| D-03 | Payment recording is non-transactional across four Mongo ops | 1.4 |
+| D-04 | No idempotency on payments — replay double-applies every increment | 1.4 |
+| D-05 | Pipeline 4 sends live mail with no kill switch, budget, unified log, or CAN-SPAM footer | 5.1, 5.4 |
+| D-06 | Pipeline 5 sends with zero suppression/budget/kill-switch (dormant but fully wired) | 5.1 |
+| D-07 | Pipeline 4 bounce suppressions never propagate to canonical — hard-bounced addresses stay mailable elsewhere | 5.2 |
+| D-08 | Cint outcome callback accepts forged completes — no signature verification on the production handler | 2.7 |
+| D-09 | **No CGST/SGST/IGST split** — statutory GST invoices issued without a legally-required tax breakdown *(escalated by B-01)* | 1.2 |
+| D-10 | **No reverse-charge / export / SEZ / LUT handling** — zero-rated and RCM supplies indistinguishable on the issued document *(escalated by B-01)* | 1.2 |
+| D-11 | **No credit-note instrument** — statutory history is corrected by rewriting it in place, which is both unlawful and unauditable *(escalated by B-01)* | 1.6 |
+| D-12 | **Supplier reversal never reaches the reward ledger** — panelist keeps points on a reversed complete *(escalated by B-02)* | 3.3 |
+| D-13 | **Published ₹10,000 KYC threshold is unimplemented** on what B-02 makes Torpedo's own payout obligation | 3.4 |
+| D-14 | **The `admin` wildcard would confer unlimited financial approval authority** — B-07 separates admin privilege from approval authority, so fixing D-01 alone is insufficient; approval codes must be carved out of the admin bypass *(surfaced by B-07)* | 5.7 |
+| D-15 | ~~**Write-target injection**: `outreach/router.py` exposed the database name as a caller-supplied HTTP query parameter via a FastAPI dependency-injection mistake~~ — **FIXED 2026-09-05.** Correction to the original finding: this router is not mounted anywhere in `main.py` (confirmed by repo-wide search), so it was not reachable from the internet — severity as *found* should have read "real defect in dead code," not "live exposure." Still fixed as defense-in-depth: a bound `get_outreach_db()` dependency replaces all 23 occurrences of the caller-controllable `Depends(get_database)` pattern in that file. | entity_map.md §3 |
+| D-16 | **Database topology ambiguity / cross-database shadow writes** — one env var (`db_pools.py`) silently determines where ~40 collections live; the Celery/background layer writes to `campaign_platform` while the API layer operates on `finance_db`/`crm_db`/`email_automation`. Genuine split-brain business state. *(Raised P1→P0 by owner, 2026-09-05)* | 1.8, entity_map.md §1 |
+| D-20 | **Non-transactional canonical mirroring** — the CRM spine presents itself as canonical while every write into it goes through eleven exception-swallowing, non-transactional mirrors; only 5 of 11 have any reconcile, and the reconcile runs *backward* into the collections the spine is meant to supersede. It can diverge permanently while claiming authority. *(Raised P1→P0 by owner)* | v2_locked_principles.md §2 |
+| D-21 | **Runtime database selection** — subsystems choosing their database via request parameters, import-time probes (`mail_segregation_agent.py:76-80`), CLI parameters, or environment ambiguity; plus four collection names passed where database names were expected, each silently creating an empty database. *(Raised P2→P0 by owner)* | v2_locked_principles.md §2 |
+| D-33 | *(P0 — money exposure, live)* **Payment `amount` is unvalidated client JSON fed directly into four `$inc` operations, and payments can never be reversed.** `finance.py:3491` checks truthiness only — `"abc"` passes, negatives pass — then the raw value `$inc`s `balance_due`, `amount_paid`, `total_paid` and `total_receivables` (`:3506-3525`). **A single malformed request corrupts four monetary fields across two collections.** There is **no delete or void endpoint for payments at all**, so the corruption is permanent and the `$inc` side effects cannot be undone. The CSV path coerces `float()`; the API path does not. | 1.4, data_lineage_map.md D2 |
+| D-26 | *(P0 — live security exposure)* **Plaintext secrets in MongoDB, and an API that echoes one back.** `smtp_password`, `aws_access_key_id`, `aws_secret_access_key` (`cold_outreach_router.py:276, 282-283`), Gmail OAuth `access_token`/`refresh_token` (`gmail_service.py:244-245`), and a **full Google service-account JSON including `private_key`** (`gmail_workspace_service.py:195-199`, whose own comment claims "encrypted in production" while the write performs no encryption) are all stored in cleartext. Worse: the create-mailbox endpoint strips `smtp_password` from its response but **not** the AWS keys — it returns the secret access key to the caller (`cold_outreach_router.py:286-288`). The intended indirection (`Mailbox.credentials_id`, `outreach_engine/models.py:181`) exists and is unused. | data_lineage_map.md D3 |
+| D-27 | *(P0 — legal exposure)* **Suppression reason is destructively overwritten — the legal basis for suppression is destroyed in place.** `messaging/suppression.py:184` `$set`s `reason` unconditionally, so an address that *unsubscribed* and later *bounced* now reads `bounced`. The record of who exercised an opt-out right is silently replaced by a deliverability fact. Under GDPR/CAN-SPAM the question "who opted out, and when" is currently unanswerable for any address that later bounced. | 5.2, data_lineage_map.md D3 |
+| D-23 | **CPX postback hash validation fails open on a payout signal** — when `CPX_SECRET_KEY` is unset, validation is silently skipped; the handler returns HTTP 200 even on hash failure, so forged completion and reversal signals are indistinguishable from genuine ones without inspecting raw logs. **Running in production today.** The v2 removal decision does *not* mitigate this: it requires either a v1 patch or an explicit accepted-risk with a hard CPX switch-off date. *(Raised §3.3 P1 → P0 as a standalone operational risk, per owner, 2026-09-05)* | 3.3 |
+| D-22 | **No canonical identity exists** — there is no globally stable `person_id` or `account_id` anywhere in v1; ~15 person-stores and ~9 company-stores across 8 databases are joined only by lowercased-email and normalized-name string matching. Every downstream identity, merge, and migration defect derives from this. *(Added as P0 by owner; previously carried as a structural finding rather than a numbered defect)* | entity_map.md §0.1, §2.1-2.2 |
+
+**P1 — correctness/data-integrity. Will corrupt v2 if ported.**
+
+**D-34** the vendor-delete outstanding-balance guard is **permanently inert** — `finance.py:1064` reads `vendor.get("balance_due")` as its safety check, but **no writer ever sets `balance_due` on a vendor**, so a vendor with real outstanding payables can always be deleted · **D-35** `generate_payment_number` uses a **shared counter across two collections** (`count(received) + count(made) + 1`), so `RCV-` and `PAY-` sequences interleave and collide under concurrency; the CSV importer sets no payment number at all while the search endpoint filters on it · **D-36** CSV-imported invoices and bills write `total` but **not** `total_amount`, while the dashboard aggregates `$total_amount` — **every CSV-originated document is silently excluded from revenue reporting** · **D-37** expense `approval_status` is derived as `requires_approval and "pending" or "approved"` (`finance.py:3191`), so **any client can self-approve an expense by omitting one boolean**; it also doubles as the soft-delete tombstone. Directly contradicts the B-07 approval policy · **D-38** `total_receivables`/`total_payables`/`total_paid` are `$inc`-ed with raw amounts and **no FX normalisation**, while production demonstrably holds INR, USD and EUR invoices — these AR/AP scalars are arithmetically meaningless sums · **D-39** `panel_sessions` has **no index of any kind and no TTL** — every authenticated panel request collection-scans, and expired session credentials accumulate indefinitely · **D-28** the global outreach kill switch (`outreach_kill_switch`) is **read** at `cold_outreach_router.py:2418-2421` and fails safe to *paused* when the document is missing — but **no code anywhere writes it**. An operationally load-bearing gate with no write path; see the note below, this may explain the standing outreach pause · **D-29** the `campaigns` collection has **no working writer**: `Campaign.created_by` is required (`campaigns/models.py:208`) and `create_campaign()` never passes it, so every call raises `ValidationError` before reaching `insert_one` · **D-30** mailbox bounce-rate auto-pause is silently dead — `mailbox_manager.py:370-379` computes `bounce_rate_24h` by querying `outreach_sends_v2` on `mailbox_id`, a field the live router writer never sets, so the query matches zero documents and the safety control never fires · **D-31** `outreach_sends_v2.clicks[]` is an **unbounded array grown from an unauthenticated public endpoint** (`cold_outreach_router.py:1508-1527`) — anyone holding a `send_id` can append to the document without limit, and `url` is only scheme-checked · **D-32** `daily_sent_count`/`hourly_sent_count` (router writer) vs `daily_send_count`/`hourly_send_count` (MailboxManager) — a one-letter spelling divergence means the router-written counters are never incremented by anything and sit permanently at `0` · **D-17** 96% of all Mongo writes (319/331 insert sites) bypass Pydantic validation entirely via unvalidated `Dict[str,Any]` request bodies — the systemic root cause of the float-money defect, not confined to finance (see entity_map.md §0.2, §3) · **D-18** the only account-merge implementation doesn't update external cross-references and is silently undone by the nightly reconcile re-adopting merged accounts as fresh ones (entity_map.md §2.8) · **D-19** brand has no relationship model anywhere in v1 — the "first brand wins" policy is a workaround for a missing `AccountBrandRelationship` entity, not a design decision to preserve (entity_map.md §2.3) · Money as float throughout (1.1) · client-controlled `tax_amount` (1.1) · no rounding in write path (1.1) · float drift in allocation (1.1) · missing paid-status epsilon (1.1) · unvalidated HSN/SAC-linked tax rate (1.2) · totals not recomputed on update (1.3) · receivables drift on update (1.3) · no state-transition validation (1.3) · unvalidated overpayment (1.4) · read-after-write paid-flip race (1.4) · payment/customer mismatch unchecked (1.4) · race-prone document numbering (1.5) · missing unique indexes on bills/estimates/POs/payments (1.5) · no payment void/reversal path (1.6) · USD/INR default contradiction (1.7) · incoherent net-profit calculation (1.8) · two allocation engines, production uses the weaker (2.0) · `handle_callback` never calls its handler (2.0) · no atomic CINT quota counter (2.2) · auto-pause reads a threshold production ignores (2.2) · `/api/cint/status` is a TODO stub (2.4) · lexicographic CPI comparison (2.6) · permanently-no-op cleanup query (2.6) · no supplier reconciliation (2.8) · CPX hash validation fails open (3.3) · redemption UI is a mockup shipped to users (3.4) · six competing lead-scoring systems (4.0) · no precedence between three classification fields (4.2) · three incompatible ICP scales (4.3) · silent AI-outage-as-verdict in sentiment/intent (4.6) · fabricated ML fallback score (4.6) · no outage-signaling convention (4.6) · dedup stub returns fabricated counts to approvers (4.7) · four dedup stores (4.7) · vendor promotion bypasses every gate (4.8) · test-send bypasses kill switch (5.1) · panel drips not kill-switch gated (5.1) · second suppression implementation without fail-closed (5.2) · non-atomic shared budget (5.3) · Pipeline 5 budget race (5.3) · kill switch has known bypasses (5.4) · approval subsystem has zero call sites (5.6) · no self-assignment guard on role grants (5.6)
+
+**P2 — architecture/observability. Raises the cost of everything downstream.**
+
+Five subtotal implementations (1.1) · duplicated tax-rate magic number (1.2) · asymmetric deletion philosophies (1.3) · idempotency in one invoice path only (1.5) · currency stored but unused (1.7) · dead metrics schema mismatch (2.2) · duplicate route registration (2.3) · four status maps (2.4) · no persisted allocation decisions (2.5) · three entry-link signers (2.9) · unenforceable duplicate-account policy (3.3) · no-op escalation tier (4.2) · orphaned Dual Fit paths (4.3) · brand routing unexplainable (4.5) · fabricated enrichment signals on failure (4.6) · three uncoordinated daily caps (4.7) · orphaned facade-migrated pipeline (5.1) · four daily-limit constants (5.3) · inlined provider logic (5.5) · unwired rate-limit policies (5.6)
+
+---
+
+## 7. Genuine business decisions — the `[DECIDE]` queue
+
+These need an owner, not an engineer. Ranked by what they block.
+
+### Resolved (2026-09-05)
+
+| # | Decision | Answer | Consequence |
+|---|---|---|---|
+| B-01 | Does Torpedo issue statutory GST invoices in India? | **Yes — system of record for tax documents** | Escalated D-09/D-10/D-11 to P0 compliance defects. Phase 3 now needs a real tax engine, not a `tax_rate` field. |
+| B-02 | Is Torpedo the system of record for reward points? | **Yes — Torpedo owns rewards in v2** | Escalated D-12/D-13 to P0. Ledger, clawback, redemption and KYC must be **built**, then migrated into from SFW with per-panelist reconciliation. |
+| B-04 | Which ICP scorer is canonical? | **`icp_config.py`, 3/2/2/1, qualify at ≥4** | Other two scorers are REMOVE — but their empty-industry guard and tie-breaking rule must be ported first. All non-canonical stored scores need re-scoring at migration. |
+| B-05 | Invoice state machine and immutability point? | **`draft → pending_approval → approved → sent → partially_paid → paid`; `overdue` derived; immutable at `sent`** | Corrections go through the credit-note instrument (B-03). Transitions become explicit endpoints. The `approved` edge is B-07's hook. |
+| B-07 | Which operations need separated create/approve, at what thresholds? | **Eight operations listed in §5.7; mechanism fixed, INR amounts left configurable** | `RBACService` becomes the single approval authority. Surfaced a P0 (admin wildcard would confer unlimited approval — compounds D-01) and a P1 (four required `.approve` codes don't exist, three of their entities don't either). Four acceptance tests added to the Phase 1 gate. |
+
+### Still open
+
+| # | Decision | Owner | Blocks |
+|---|---|---|---|
+| B-03 | **What form does an invoice correction take** — credit note vs debit note vs adjustment vs refund — and what are their numbering series and rounding rules? Now legally constrained by B-01, so this is about form, not whether. | Accountant | Phase 3 |
+| B-06 | **What are the real per-provider daily send caps** (four contradictory constants exist today), and **is TDS deduction required**? | Ops / Accountant | Phase 5 (Outreach) |
+| B-09 | **What are the v2 primary-allocator quality floors, now that CPX is being removed?** Removing the CPX-first branch promotes Cint's *fallback* floors (`MIN_CINT_FALLBACK_IR=0`, `MIN_CINT_FALLBACK_CONV=0`, `MIN_CINT_FALLBACK_CPI=0.05`) to the primary path. Those were set on the rationale "any survey beats terminating the respondent" — defensible for a last-resort fallback, not obviously right as the only allocator. **These must not become v2 primary rules by default.** | Business owner (commercial) | Phase 4 (Panel/Research), and the CPX removal work itself |
+| B-08 | **Which classification taxonomy is canonical**, and do the client/vendor and CLIENT/VENDOR/RECRUITER/SPAM taxonomies survive as separate named fields or collapse into one? *(Surfaced by B-04 — it settled the score, not the taxonomy.)* | Business owner | Phase 6 |
+
+Surfaced by the data lineage map (2026-09-05), not Phase-1 blocking:
+
+| # | Decision | Owner | Blocks |
+|---|---|---|---|
+| B-10 | Is suppression `reason` a single current value or an append-only list of events? An opt-out is currently overwritten by a later bounce, destroying the legal basis for suppression (D-27). | Business owner / legal | Domain 3 migration |
+| B-11 | Does v2 retain message bodies, and for how long? Three contradictory positions coexist today across four collections. | Business owner / legal | Domain 3 migration |
+| B-12 | Which of the three mailbox registries is canonical? | Ops | Domain 3 migration |
+| B-13 | Confirm no rewards liability exists off-system beyond what SFW holds, before treating the rewards domain as greenfield. | Business owner | Phase 4 build (not migration — nothing to migrate) |
+| B-14 | Is a customer's true balance `opening_balance + total_receivables`, or just the latter? `opening_balance` is captured everywhere and read nowhere. | Accountant | Every reported AR/AP figure |
+| B-15 | Keep, model properly, or discard the `branch` field? No master data or API path exists, but it's rendered in two detail pages today. | Business owner | Domain 2 migration |
+
+Secondary, not Phase-1 blocking: nested Cint cell-quota enforcement vs delegation (2.1) · EPC vs RPCM as the allocation metric (2.6) · minimum-time fraud gate (2.7) · referral programme (3.2) · panel currency model / FX at redemption (3.4) · dormancy-inactivity policy (3.5) · exclusion-list ownership and review cadence (4.1) · gate-attrition instrumentation (4.4) · whether deliverability health should gate sending (5.5) · confirmation that the panel-transactional kill-switch exemption is intended and bounded (5.1).
+
+---
+
+## 8. V2 engineering findings (post-Phase-0, found during construction)
+
+Distinct from §6: these are defects found while *building* v2, not v1 forensic findings. Kept in their own section because they're a different kind of evidence — proof that the discipline this register enforces (§0.1's invariants, tested-not-assumed) catches real bugs before they ship, not just documents them after the fact.
+
+### EF-01 — Naive/aware datetime boundary defect (Phase 1 Slice 3, 2026-09-05)
+
+MongoDB driver deserialization (Motor/PyMongo) returns UTC datetimes **without timezone information by default**, unless `tz_aware=True` is explicitly set on the client — silently discarding the tzinfo that every write in `backend_v2` already attaches (`CanonicalDocument`'s `_utcnow()`). Caught by Slice 3's session-expiry tests (`TypeError: can't compare offset-naive and offset-aware datetimes`), not by inspection — the same class of defect this register found in v1 (naive-vs-aware `created_at`, data_lineage_map.md D2/D3), reintroduced by the driver's default rather than by application code. Fixed once, at the client boundary (`backend_v2/app/db.py`, `tz_aware=True`), not by patching `tzinfo` into individual comparisons — see invariant I-7 above.
+
+---
+
+## Changelog
+
+- **2026-09-05 Rev 19** — Phase 1 Slice 9 (`backend_v2/app/panel/`) closed D-08 (no signature verification on the production outcome callback) and D-23 (CPX hash validation failing open) with a single real HMAC implementation (`verify_hmac_signature`, `hmac.compare_digest`) that fails closed on a missing secret and rejects a mismatched signature — both defects were the same failure shape (missing-or-skippable verification on a payout-gating signal) and are now closed the same way. The register §2.0/§2.2 dead-allocation-engine findings ("`SurveyAllocationService` is atomic and race-safe... but `traffic.py` never calls any method on it"; "no atomic counter for CINT — only a soft pacing check reading a cache up to 5-10 minutes stale") are closed: `AllocationService.allocate()` is the one path, atomic via `CanonicalRepository`'s own version-guard plus bounded retry (no raw-Motor exception needed, unlike Slices 7-8's `BudgetService`/`SequenceService`). §2.8 ("no reconciliation module... exists anywhere") is closed by `SupplierReconciliationService`, which flags disagreement and never auto-corrects either count (I-5). D-12's clawback boundary (Slice 8) gets its real caller here — a `"complete"` callback credits the reward ledger directly, but a `"reversed"` callback deliberately does **not** self-execute a clawback: it raises a flagged Activity naming the exact amount, because register §5.7 gives clawback no exception and `RBACService.can_approve()` refuses any non-`"user"` principal unconditionally — a human still calls Slice 8's approval-gated `POST /rewards/clawback`. **CPX is structurally excluded, not merely unbuilt**: `Survey.provider`/`Supplier.provider` are restricted to a closed set (`("cint",)`) with a dedicated model-shape guard test, per v2_locked_principles.md §1.10. `POST /surveys/{id}/callback` is the one endpoint in this codebase that deliberately bypasses the normal `get_current_identity`/`require_permission` chain — a real webhook can't present a Torpedo session; signature verification is its authentication, proven narrow by a dedicated test rather than left as an implicit exception. **This closes the coordinated Slice 7→8→9 wave.** Test count: 163 → 184 (98 before the wave). One full integration run (`pytest tests/`) passes across all nine slices combined, past the ~150+ target set at the wave's start. Next: user's call — Operations/CRM completion, UI, migration from v1, or real external-provider adapters (Cint/SMTP-SES-Gmail/AI-gateway), all currently stubs behind `Protocol` boundaries.
+- **2026-09-05 Rev 18** — Phase 1 Slice 8 (`backend_v2/app/finance/`) closed D-33, D-11, D-10, D-35, D-37, and D-26 (reapplied to bank data) in code, with D-12 given a real, tested, approval-gated write path (`RewardLedgerService.clawback()`) deliberately scoped as a **boundary**, not full integration, per the user's own three-slice split — Slice 9 wires the caller. D-38's class of defect (drifting AR/AP-style scalars) is avoided by design: no rollup scalar exists anywhere in this slice for a `$inc` to drift against. Invoice/Bill lifecycle (`draft -> pending_approval -> approved -> sent`) and the approval semantics (idempotent same-approver re-approval, rejected different-approver, self-approval always blocked, admin wildcard never satisfies an approval permission per D-14) were built directly against `endpoint_catalogue.md`'s already-deep-dived Finance section rather than reinvented. Two approval checks used deliberately for two different gate shapes: `RBACService.can_approve()` (two-actor, creator≠approver) for invoice/bill/expense approval and payment reversal; `RBACService.get_approval_ceiling()` (single-actor) for credit-note issuance, matching the catalogue's single approval-gated creation endpoint rather than an invented submit/approve lifecycle. **Found and fixed a real bug in Slice 1's foundation while building this**: `CanonicalRepository.update()` had no equivalent of `insert()`'s Mongo-safe serialization, so passing a live `Money` value into an update's `changes` dict raised `bson.errors.InvalidDocument` — fixed once in `update()` itself, not per call site. Deliberately deferred and stated once rather than silently absent: multi-invoice split payments, a distinct customer-refund entity/workflow, `finance.account_adjustment.approve` (no entity to gate yet), D-34 (no vendor-delete endpoint exists to guard), D-36 (no CSV import path in this slice), D-13 (panel/rewards-specific, Slice 9's scope), and a live bank-feed reconciliation ingestion pipeline. Test count: 120 → 163. Next: Slice 9 (Survey/Panel, CPX fully removed), then one full integration run across Slices 7-9.
+- **2026-09-05 Rev 17** — Phase 1 Slice 7 (`backend_v2/app/outreach/`) closed D-05, D-06, D-07, D-26, D-27 (re-proven against its new home), and D-28 in code, with regression tests named after each: one `MessagingFacade.send()` path replaces both of v1's competing pipelines, gated by kill switch, suppression, an atomic per-mailbox daily-budget reservation, and a minimal CAN-SPAM footer check, in that fixed order, with no bypass parameter anywhere (closing the P1 list's "test-send bypasses kill switch" alongside the P0s). `KillSwitchService` adds the write path D-28 found missing while deliberately keeping v1's fail-safe-to-paused default. `BudgetService` is a narrow, documented exception to "every write goes through `CanonicalRepository`" — see its module docstring for why the atomicity guarantee holds regardless. `record_bounce()` closes D-07 by routing provider-reported bounces through the same canonical `SuppressionService` every send path already checks. `Mailbox.credentials_id` (D-26) is now a regression-tested model-shape invariant, not just a runtime behavior. AI drafting (`MessageDrafter`) was proven, not just built, to pass through every gate a caller-supplied message would. Two Slice 6 modules relocated (not duplicated) to their architecturally correct homes as a prerequisite: `Suppression`/`SuppressionService` to `app/outreach/suppression.py`, `AiProposal` to `app/models/ai_proposal.py`; `app/leadgen/service.py` now imports both. Test count: 98 → 120. Next: Slice 8 (Finance).
+- **2026-09-05 Rev 16** — Added §8 (V2 engineering findings) and EF-01 (naive/aware datetime boundary defect, found and fixed during Phase 1 Slice 3). Added invariant I-7 (all timestamps timezone-aware UTC; driver must preserve it, models must not compensate for driver misconfiguration). This is the register's first entry documenting a defect caught *by* the v2 build discipline rather than *in* v1 — recorded per owner instruction, distinct from §6's v1 forensic ranking.
+- **2026-09-05 Rev 15** — Six-document reconciliation pass run; full findings in [phase0_reconciliation.md](phase0_reconciliation.md). Five real cross-document inconsistencies found and fixed: (1) the lead state machine self-contradicted itself — `lead_generation_specification.md` §7 drew `CONTACTABLE` as a persisted pipeline state while §9 four sections later required it never be stored, corrected to match the (already-correct) top-level diagram and endpoint catalogue; (2) `v2_locked_principles.md` used `Person` in one principle and `Contact/Relationship` in another for the same entity, corrected to `Person` throughout with the terminology supersession recorded; (3) **P0 count corrected: the table has held 23 entries since Rev 10, not the 21 the last changelog arithmetic claimed** — a one-item slip in Rev 8's "15→18" (should have read 19) compounded through Rev 9's uncounted addition of D-23 and Rev 10's "18→21"; old entries left as dated historical record rather than rewritten, this entry is the correction; (4) a duplicated "secondary decisions" bullet list in §7 merged into one; (5) `tds_amount` was silently absent from `schema_catalogue.md` despite B-06 being open — added as `[OPEN — B-06]`, matching how B-11/B-14 were already handled. Everything else on the reconciliation checklist (orphaned rules, CPX leakage into build docs, screens calling nonexistent endpoints, AI capabilities vs. permission model, decisions silently defaulted) checked clean — reported explicitly in the reconciliation doc rather than left implicit. **Phase 0 is closed.** Phase 1 (organisation, identity, Account, Person, Activity, Opportunity, permissions, audit, schema validation, migrations, events, idempotency) can begin.
+- **2026-09-05 Rev 14** — Added [screen_catalogue.md](screen_catalogue.md) (spec §32), grounded in `frontend_inventory.md`'s real ~95-route v1 inventory rather than an invented screen list. Two of that inventory's "confirmed bugs" (dated 2026-05-16) were spot-checked before use and found already fixed — the Finance double-`/finance/finance/` route prefix, and the secondary frontend's broken auth (the `frontend/` directory no longer exists at all, consistent with the register's own TOR-30 fix). Both corrected in the catalogue rather than carried forward as live findings. Every v1 route received a disposition (KEEP/MERGE/REPLACE/REMOVE); notable mergers collapse v1's Sales/Finance/Operations/Vendor-portal duplicate account-and-vendor screens into one permission-scoped view, matching the entity-map's account-store consolidation. Four deep-dives, one of them (`/panel/rewards`) explicitly framed as a from-nothing rebuild, not a migration — v1's redeem button has never had a click handler and the collection behind the page has zero writers, so no prior session of this page has ever shown a real number. All six documents required by the reconciliation pass now exist. No new defects; one disposition correction (LinkedIn automation screen confirmed dead, `REMOVE`) already implied by existing findings.
+- **2026-09-05 Rev 13** — Added [endpoint_catalogue.md](endpoint_catalogue.md) (spec §31), organized to mirror the schema catalogue's seven domains. Ten governing rules (§0) stated once rather than per-endpoint, closing D-01/D-14/D-15 (caller-controlled auth/db params — now structurally forbidden), D-04 (payment idempotency — now a required header), and the concurrency race behind the read-after-write payment defect (§1.4) via a mandatory `version`/`If-Match` check on every update. Deep-dived the seven highest-risk endpoints (`POST /people/resolve`, invoice approval, payment recording, reward redemption, survey allocation, the single outreach send facade) against the full column set — each explicitly states which register defect it closes and why the endpoint's construction, not just its documentation, prevents recurrence. `POST /outreach/send` is named as the **only** send path in v2, closing the five-pipeline problem (D-05/D-06) by removing the possibility of a second one rather than by policy. No new defects or decisions surfaced. Next: Screen Catalogue (§32), then the six-document reconciliation pass.
+- **2026-09-05 Rev 12** — Added [schema_catalogue.md](schema_catalogue.md) (spec §30), covering ~25 entities across Identity, CRM, Finance, Panel/Rewards, Survey, Outreach, and Governance domains, built directly from entity_map.md/data_lineage_map.md/lead_generation_specification.md rather than re-deriving field detail. Locks the six mandatory audit fields (`org_id` included — v1 has zero tenancy fields anywhere, per D-19/D-22) and the money shape (`{amount_minor, currency}`, never float/string) as schema-level rules, not conventions. Two entities are net-new construction with no v1 precedent: `AccountBrandRelationship` and `RewardLedgerEntry`. Three fields left explicitly open pending existing decisions (B-11 message retention, B-14 opening balance) rather than forced to a default. No new defects or decisions — this is synthesis of already-locked findings into contract form, per spec's own definition of what §30 is for.
+- **2026-09-05 Rev 11** — Added [lead_generation_specification.md](lead_generation_specification.md), written before the Endpoint (§31) and Screen (§32) catalogues so both can build against a settled lead-gen state machine rather than retrofit one. Locks the `LeadRelationship`-attached-to-`Person`/`Account` model (never a copy), the source/ingestion/identity-resolution/enrichment/qualification/enrollment pipeline, and the contactability-is-never-frozen-onto-the-lead rule (the direct fix for the mechanism behind the 41,746-enrollment incident in §4.5). Resolves the open item under B-08: the qualification state machine *is* the classification-precedence resolution. Two new decisions: B-16 (referral source in scope?), B-17 (which external-research connectors are actually launch-scope vs. aspirational). **Scope correction to Rev 10's framing:** "Phase 0 substantially complete" meant Phase 0 of the v2 rebuild — not the v2 project as a whole. Remaining before schema implementation: Endpoint Catalogue, Screen Catalogue.
+- **2026-09-05 Rev 10** — Data lineage map (`docs/data_lineage_map.md`) completed for all six domains via three parallel field-extraction passes. 16 new defects added (D-24 through D-39). Three placed at **P0** on the register's own convention (money/security/legal exposure, not the widened structural-unsoundness class): **D-26** (plaintext secrets including a full Gmail service-account key, and an API that echoes an AWS secret key back to the caller), **D-27** (suppression `reason` destructively overwritten — an opt-out's legal basis is erased by a later bounce), **D-33** (payment `amount` is unvalidated client JSON `$inc`-ed into four monetary fields, with no reversal path once corrupted). Remaining thirteen (D-24, D-25, D-28 through D-32, D-34 through D-39) placed at P1/P2 per the P1/P2 bullet lists. Six new business decisions (B-10 through B-15). Two live-production findings worth flagging above the fold: **D-28** — the global outreach kill switch is read as a fail-safe gate but has no writer anywhere in the codebase, which may be the actual mechanism behind the outreach pause recorded since 2026-08-25 (previously attributed solely to the Bedrock outage) — worth a direct production check, not a migration question. **Rewards domain confirmed empty** (lineage map §2.1): `panel_rewards` has zero write sites anywhere, and `rewards_balance` is initialized to `0.0` and never touched again — B-02 (Torpedo owns rewards) is 100% greenfield construction, not migration. P0 count: 18 → 21.
+- **2026-09-05 Rev 9** — **CPX marked for complete removal** (owner decision; see [v2_locked_principles.md](v2_locked_principles.md) §1.10 for full scope). All CPX databases, collections, adapters, callbacks, credentials, webhooks and allocation paths are `REMOVE`, not migrated. Principle 10 locked; all ten v2 principles now locked. Two items deliberately kept open by this decision rather than closed by it: (a) **live v1 CPX defects are not mitigated by a v2 removal decision** — the fail-open postback hash validation on a payout signal is running today and needs either a v1 fix or an explicit accepted-risk with a switch-off date; (b) **CPX payout history** (`survey_transactions`, real `amount_usd` against real panelists) needs an archival/migration disposition, not a delete. One removal-order caution recorded in entity_map.md §2.6: deleting the CPX-first allocation branch promotes Cint's *fallback* quality floors to primary, and those floors were deliberately relaxed for fallback use.
+- **2026-09-05 Rev 8** — Severity convention widened by owner decision: P0 now covers structural defects that make business state unsound, not only live security/money/legal exposure. D-16 (P1→P0), D-20 (P1→P0), D-21 (P2→P0) reclassified accordingly; D-22 added at P0 (no canonical identity exists anywhere in v1 — previously carried only as a structural finding in entity_map.md, now a numbered defect so it appears in the ranked register). Principles 1-9 in [v2_locked_principles.md](v2_locked_principles.md) locked; principle 10 (CPX removal) still blocked on confirmation. P0 count: 15 → 18 (D-15 remains fixed).
+- **2026-09-05 Rev 7** — D-15 fixed in code (`backend/outreach/router.py`): replaced 23 caller-controllable `Depends(get_database)` sites with a bound `get_outreach_db()` dependency. Correction to Rev 6: this router is not mounted anywhere in `main.py`, so the finding was a real defect in unreachable code, not a live exposure — severity note added rather than silently downgraded. Added [v2_locked_principles.md](v2_locked_principles.md), which reconciles ten proposed v2 architecture principles against existing findings, adds D-20 (non-transactional CRM-spine mirroring, P1) and D-21 (runtime-selected databases outside db_pools, P2), and flags a CPX-removal instruction as **unconfirmed** — no record of that decision exists in this conversation or in memory, so it is not being acted on without explicit sign-off. P0 count: 15 (unchanged — D-15 fixed, no new P0s added; D-16 stays P1 per the register's existing severity convention, disagreement flagged for the user).
+- **2026-09-05 Rev 6** — Canonical entity map completed as [entity_map.md](entity_map.md), synthesizing three forensic passes (database/collection inventory, model/index catalogue, identity-chain tracing). Headline: v1 has no person or company entity (~15 and ~9 partial stores respectively, joined only by string matching), and 96% of writes bypass schema validation entirely. Added invariant I-6 (no write path may persist unvalidated data) and five new defects: D-15 (P0 — write-target injection in the outreach router, HTTP-controllable database selection), D-16 (P1 — background tasks silently read/write a different database than the API), D-17 (P1 — the systemic, codebase-wide version of the float-money defect), D-18 (P1 — the only merge implementation is undone by its own reconcile job), D-19 (P1 — brand has no relationship model; existing "first brand wins" policy is a workaround, not a decision to preserve). P0 count: 14 → 15.
+- **2026-09-05 Rev 5** — Decision layer frozen. D-01 and D-14 merged into a single mandatory Phase-1 security gate (§0.2), stated as one requirement so that fixing the auth resolver without removing the admin approval wildcard cannot pass. Phase-1 gate scope clarified in §5.7: the mechanism must be correct on all *available* approval-enabled operations (invoice/bill/payment/expense), not blocked on entities that Phases 3-4 create; later phases re-run the same four tests against the operations they add. Next Phase 0 deliverable: canonical entity map.
+- **2026-09-05 Rev 4** — B-07 resolved and recorded as §5.7: eight operations require approval, evaluated centrally by `RBACService` as the single authority, with per-role thresholds left configurable (mechanism fixed, economics deferred). Four acceptance tests added to the Phase 1 gate (§0.2), which now also asserts that administrative privilege does not confer approval authority. Surfaced D-14 (admin wildcard would grant unlimited approval — compounds D-01) and a P1 gap: four of the eight required `.approve` permission codes do not exist, and three of their underlying entities (credit note, refund, clawback) do not exist either, so the approval model cannot be completed before D-11/D-12 are built. P0 count: 13 → 14. **All Phase-1-blocking decisions are now closed.**
+- **2026-09-05 Rev 3** — Business decisions B-01, B-02, B-04, B-05 answered and recorded inline at the sections they govern. B-01 (statutory GST) and B-02 (Torpedo owns rewards) escalated five items to P0: D-09 (no CGST/SGST/IGST split), D-10 (no reverse-charge/export/SEZ), D-11 (no credit-note instrument), D-12 (reward reversal never reaches the ledger), D-13 (unimplemented KYC threshold). B-04 designated `icp_config.py` canonical with a port-then-delete condition on two incident fixes. B-05 specified the invoice state machine with immutability at `sent`. New decision B-08 surfaced by B-04. P0 count: 8 → 13.
+- **2026-09-05 Rev 2** — Split `[DECIDE]` into `[DECIDE]` (business owner chooses) and `[DEFECT]` (evidence proves v1 wrong), so known bugs cannot be laundered into v2 requirements. Added §0.1 global invariants I-1…I-5 and §0.2 Phase 1 authorization gate. RBAC auth-fallback finding raised from decision to P0 defect D-01. Added ranked defect register (§6) and business-decision queue (§7).
+- **2026-09-05 Rev 1** — Initial register from five parallel forensic extraction passes.
