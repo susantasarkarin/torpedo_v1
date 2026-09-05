@@ -498,13 +498,67 @@ checklist).
   `schema_catalogue.md`, and inventing one under time pressure would be exactly the
   kind of ungrounded construction this whole rebuild's discipline exists to prevent.
 
-Not yet built: migrations from v1; the AI Gateway/Decision Engine (blocked — see
-`docs/AI_NATIVE_COMPLETION_CHECKLIST.md` for the VM-hardware finding and the
-recommended on-demand GPU-broker path); GSC lead-gen, real Cint adapter, and real
-send-provider integration (all blocked on credentials this environment doesn't
-have); a scheduler to actually call `detect_and_flag()` on a cadence. See
-`docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will look
-like when they land.
+**Phase 1, slice 11: `app/ai/`** — the AI Gateway + Decision Engine, architected per
+an explicit user decision after the Slice 10 VM-hardware audit: inference never runs
+in-process on the small Torpedo VM (2 vCPU/3.8GB, already resource-tight). Instead:
+
+```text
+backend_v2 (this VM)  --HTTP-->  AI Gateway  --acquire()-->  GPU Broker  --rent-->  GPU node (RunPod, elsewhere)
+```
+
+- **`app/ai/gpu_lease.py` + `app/ai/gpu_broker.py` are ports, not imports**, of v1's
+  already-mature (uncommitted) `backend/infra/gpu_lease.py`/`gpu_broker.py` — v1 and
+  v2 run in separate venvs/worktrees/processes, so there's no runtime path to
+  `from infra import gpu_lease` without breaking the isolation this whole rebuild is
+  built on. `POD_NAME_PREFIX` is `torpedo-v2-glm` (v1 uses `torpedo-glm`) so each
+  system's orphan-reaper is blind to the other's pods even if they share one RunPod
+  account. The registry lives in v2's own `ai_gpu_leases` collection, not v1's
+  `torpedo_settings.gpu_leases` — a deliberate isolation-over-cost-sharing tradeoff.
+- **Bug found and fixed while porting, not carried forward**: v1's version used
+  `requests` (blocking) and `time.sleep()` in its poll/retry loops — fine from a
+  synchronous Celery worker (v1's context), but a real problem in FastAPI's async
+  world: a blocking `time.sleep()` inside a coroutine freezes every other request
+  that worker is serving, and a cold start is up to 45 minutes. Rewritten with
+  `httpx.AsyncClient`/`asyncio.sleep` throughout so provisioning can run inside a
+  request handler without stalling the whole process.
+- **`GpuBroker` is a documented, narrow exception to "every write goes through
+  `CanonicalRepository`"** — the third instance of this pattern (after
+  `BudgetService`, `SequenceService`): the registry document is operational
+  infrastructure state, and single-flight provisioning needs a conditional atomic
+  `update_one` the version-guard can't express.
+- **`LLMProvider` is the fifth Protocol-boundary implementation** in this codebase
+  (`AIClassifier`, `SendProvider`, `MessageDrafter`, `SurveyProvider`, now this) —
+  `GpuBrokerLLMProvider` is the real implementation, tested against a faked
+  `httpx.MockTransport`, never a real network call.
+- **`DecisionEngine.decide()` never executes an action** — it produces a `Decision`
+  (master-prompt §7's schema, field-for-field) and persists it as an `AiProposal`
+  (Slice 6/7's model, reused rather than duplicated per I-1). A caller reads the
+  `Decision` and acts through whatever permission-gated domain service already
+  exists — the same I-4 separation ("AI proposes, a deterministic function or a
+  human decides") every prior AI-adjacent slice already held, now applied to a real
+  model boundary instead of a fake `PassthroughAIClassifier`.
+- **`requires_human_approval=True` is never auto-appliable, regardless of
+  confidence** — mirrors `RBACService.can_approve()`'s refusal to let a wildcard or
+  system principal stand in for real approval authority. `AiProposal.status` stays
+  binary (Slice 6's documented scope); the flag survives inside `proposed_fields`
+  rather than being silently collapsed into "rejected" without a trace.
+- **The tool registry is deliberately not live LLM-invoked function-calling yet** —
+  a caller assembles context using registered tools before calling `decide()`; the
+  model doesn't autonomously invoke anything mid-conversation. Real agentic
+  tool-calling needs a running model to validate against (which model, whether it
+  supports structured tool calls), which needs the credential below.
+- Deployed to the VM as part of the same `torpedo-backend-v2.service` — safe,
+  because the gateway itself is lightweight orchestration (HTTP calls to RunPod, one
+  Mongo document), not the model. Nothing runs a GPU until `GPU_BROKER_ENABLED=true`
+  and a real `RUNPOD_API_KEY` are both set, which they deliberately are not yet.
+
+Not yet built: migrations from v1; actually renting a GPU node (blocked on
+`RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
+GSC lead-gen, real Cint adapter, and real send-provider integration (all blocked on
+credentials this environment doesn't have); wiring `DecisionEngine.decide()` into
+real domain callers (Slices 12-16); a scheduler to run `GpuBroker.sweep()` or
+`detect_and_flag()` on a cadence (Phase 14). See `docs/schema_catalogue.md` and
+`docs/endpoint_catalogue.md` for what those will look like when they land.
 
 ## Running
 

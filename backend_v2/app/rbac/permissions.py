@@ -91,3 +91,7 @@ OPPORTUNITY_CREATE = "opportunity.create"
 OPPORTUNITY_UPDATE = "opportunity.update"
 OPPORTUNITY_READ = "opportunity.read"
 OPPORTUNITY_CONVERT = "opportunity.convert"
+
+# AI Gateway / GPU broker — docs/AI_NATIVE_COMPLETION_CHECKLIST.md Phase 2/3.
+AI_READ = "ai.read"  # broker status — safe, no cost implication
+AI_ADMIN = "ai.admin"  # kill switch — same "separate from ordinary read" pattern as OUTREACH_ADMIN

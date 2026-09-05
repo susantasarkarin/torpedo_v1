@@ -34,11 +34,19 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 
 | Item | Status |
 |---|---|
-| Provider-neutral AI Gateway (port v1's `ai_governance/` pattern into v2) | NOT_STARTED |
-| On-demand GPU broker as the default local-inference backend | NOT_STARTED (blocked — see above) |
-| Central decision-contract schema (`decision`/`confidence`/`requires_human_approval`/...) | NOT_STARTED |
-| Tool registry + governance validator (AI never gets unrestricted DB access) | NOT_STARTED |
-| Decision audit log (model, confidence, action, result) | NOT_STARTED |
+| GPU lease manager (`app.ai.gpu_lease`, ported from `backend/infra/gpu_lease.py`) | **TESTED** (2026-09-06) — 11 tests. Ported, not imported (separate venv/worktree); fixed a real bug in the port: v1's `time.sleep()`/`requests` would freeze an async FastAPI worker for the length of a cold start, converted to `httpx.AsyncClient`/`asyncio.sleep` throughout |
+| GPU broker / single-flight registry (`app.ai.gpu_broker`, ported from `backend/infra/gpu_broker.py`) | **TESTED** — 11 tests covering the four bugs worth testing (two processes provisioning at once, a node nothing shuts down, a busy node shut down mid-batch, a registry pointing at a dead pod). Own collection (`ai_gpu_leases`, v2's own db) — deliberately not sharing v1's `torpedo_settings.gpu_leases`, so v2's isolation from v1 holds even for this |
+| Actually renting a real GPU node | **NOT_STARTED — blocked on `RUNPOD_API_KEY`**, confirmed absent from this environment. `GPU_BROKER_ENABLED` also unset (off by default, as designed) |
+| `LLMProvider` Protocol + `GpuBrokerLLMProvider` (`app.ai.llm`) | **TESTED** — 4 tests, fifth instance of this codebase's Protocol-boundary pattern |
+| Central decision-contract schema (`app.ai.decision_engine.Decision`) | **TESTED** — matches master-prompt §7 field-for-field |
+| `DecisionEngine.decide()` — context → model → structured decision → audit log | **TESTED** — 9 tests. Never executes an action; a caller reads the `Decision` and acts through existing permission-gated services |
+| Tool registry (`app.ai.tools.ToolRegistry`) | **TESTED**, deliberately minimal — a caller-driven context-fetcher registry, not live LLM-invoked function-calling (that needs a real running model to validate against, which needs the credential above) |
+| Decision audit log | **DONE** — reuses `AiProposal` (Slice 6/7), not a second entity; `status` stays binary (`approved`/`rejected`) per its documented Slice 6 scope, with `requires_human_approval` preserved inside `proposed_fields` rather than silently collapsed |
+| Governance validator (AI never gets unrestricted DB access) | Structurally true by construction — nothing in `app.ai` imports a `CanonicalRepository` for any entity other than `AiProposal` (the audit log itself) |
+| `GET /ai/gpu/status`, `POST /ai/gpu/shutdown` | **TESTED** — deployed |
+| Real agentic tool-calling (model autonomously invoking registered tools) | NOT_STARTED — needs a running model to validate against |
+| Wiring `DecisionEngine.decide()` into real domain callers (email, AR follow-up, survey ranking, ...) | NOT_STARTED — Slices 12-16 |
+| Scheduled `sweep()` (idle/orphan reaping on a cadence) | NOT_STARTED — Phase 14 (scheduler infrastructure) |
 
 ## Phase 6 — GSC lead generation + ICP
 
@@ -115,10 +123,17 @@ credentials or AI Gateway needed, 24 new tests, 208/208 total. Deployed to the V
 (see deployment log at the bottom of this file once it lands).
 
 **What's next is genuinely blocked, not just unscheduled**: every remaining phase
-(2/3 AI Gateway+Decision Engine, 6 GSC lead-gen, 7 email AI + real send provider, 10
-real Cint adapter, most of 12's AI-driven AR/AP) needs either the GPU-broker
-resourcing decision or real third-party credentials this environment doesn't have.
+(6 GSC lead-gen, 7 email AI + real send provider, 10 real Cint adapter, most of 12's
+AI-driven AR/AP) needs real third-party credentials this environment doesn't have.
 Building any of them against a mock and calling it done would be the exact
 no-fake-completion failure this checklist exists to catch — so they stay
-`NOT_STARTED` until one of those two things actually happens, not because the work
-was skipped.
+`NOT_STARTED` until credentials actually arrive, not because the work was skipped.
+
+**2026-09-06, later the same day**: Slice 11 (Phase 2/3, AI Gateway + Decision
+Engine) landed, architected per an explicit user decision — inference never runs
+in-process on the small Torpedo VM; `app.ai.gpu_lease`/`app.ai.gpu_broker` (ported
+from v1's already-mature, uncommitted `backend/infra/gpu_lease.py`/`gpu_broker.py`)
+rent a GPU node elsewhere (RunPod) only for the minutes it's used. The plumbing —
+lease/broker/LLM-provider/decision-engine/tool-registry, 38 tests — is real and
+deployed; actually renting a node is the one piece still blocked, on
+`RUNPOD_API_KEY`, confirmed absent. Test count: 208 → 246.
