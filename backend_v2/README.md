@@ -632,13 +632,54 @@ ranking, not a fixed-weights scoring formula relabeled AI.
   passing a fabricated value for either was rejected as exactly the
   no-fake-completion failure this rebuild's discipline exists to prevent.
 
+**Phase 1, slice 16 (`app/panel/ai_operations.py`): AI Operations.** Per explicit
+user instruction: the 7-day-no-traffic condition (and two more real triggers
+added alongside it) is a hard, deterministic trigger — what happens *afterward*
+is a real AI decision, not a second layer of hard-coded rules.
+
+- **Three real, computable triggers** feed `OperationsAIService.detect_triggers()`:
+  `no_traffic_7_days` (reuses Slice 10's `StudyInactivityService` unchanged),
+  `low_conversion` (a nominally-eligible survey whose live `conversion_rate` has
+  already fallen to/below Slice 9/15's threshold — meaning the deterministic
+  allocation gate is silently refusing it traffic and nobody's looked at why),
+  `high_dropout` (a real rate computed from that survey's own `SurveyResponse`
+  records, gated by a minimum sample size so five unlucky responses don't trigger
+  an investigation).
+- **The response is a real `DecisionEngine.decide()` call**, validated against a
+  closed action set (`INVESTIGATE`/`REQUEST_CLIENT_STATUS`/`PAUSE`/`CLOSE`/
+  `REACTIVATE`/`ESCALATE`/`NO_ACTION`) with a state-validity guard enforced in
+  code, not trusted from the model: `CLOSED` is terminal, `REACTIVATE` is only
+  valid from `PAUSED`/`PENDING_CLIENT_RESPONSE`. `INVESTIGATE` calls the real
+  `SurveyService.refresh_projection()` (Slice 9) to pull fresh provider numbers
+  before anything else decides on stale data.
+- **Same-day-same-trigger idempotency** — `AiProposal.subject_id` is keyed on
+  `(survey_id, trigger_type, date)`, so a future scheduler (Phase 14, not yet
+  built) running this hourly won't re-decide, and re-act on, the same
+  still-unresolved condition every run.
+- **`Survey` gained `operational_status` and `ai_decision_subject_id`** — the
+  latter generalizing `Allocation.ai_decision_subject_id` (Slice 15) into a
+  repeatable pattern per explicit user instruction: "I would use the same
+  pattern throughout the rest of Torpedo." Every AI-driven operational decision
+  traces back to the exact `AiProposal` that made it, the same way every
+  AI-driven allocation already does.
+- **`REQUEST_CLIENT_STATUS` records real state but sends no email** — there is
+  no verified path from a `Survey` to a client contact address yet (that
+  linkage is Finance/CRM territory, Slices 17-18's problem). Two triggers from
+  the fuller wishlist are honestly not built: supplier/provider-failure-rate (no
+  persisted failure-rate metric exists — `AllocationService` already silently
+  releases quota and moves on for a provider timeout, Slice 9) and
+  client-response/deadline-driven triggers (no `Study` entity distinct from
+  `Survey`, no deadline field). Fabricating either as a working trigger would be
+  exactly the no-fake-completion failure this rebuild's discipline exists to
+  prevent.
+
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
 real GSC/Cint/email-provider adapters (all blocked on credentials this environment
-doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`, or
-periodic email/lead-gen/outreach/allocation evaluation on a cadence (Phase 14 of
-the checklist — event/scheduler infrastructure); Slices 16-19 (AI operations,
-finance, Cint+billing, full end-to-end orchestration). See
+doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`,
+`detect_triggers()`, or periodic email/lead-gen/outreach/allocation evaluation on
+a cadence (Phase 14 of the checklist — event/scheduler infrastructure); Slices
+17-19 (AI finance, Cint+billing+margin, full end-to-end orchestration). See
 `docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will
 look like when they land.
 

@@ -44,6 +44,19 @@ class Survey(CanonicalDocument):
     category: str | None = None
     length_minutes: int | None = None
     incentive: Money | None = None
+    # AI-driven operations state (Slice 16) — see app.panel.ai_operations for the
+    # closed set and the state-validity guard. Distinct from
+    # eligibility_is_active_in_pool: that field gates ALLOCATION specifically;
+    # this one is the human-facing operational lifecycle (a paused/closed survey
+    # also has eligibility_is_active_in_pool=False, but the reverse isn't
+    # true — a survey can be temporarily ineligible for allocation, e.g. quota
+    # exhausted, while still operationally ACTIVE).
+    operational_status: str = "ACTIVE"
+    # Traces the *last* AI decision made about this survey back to its AiProposal
+    # — the same AiProposal -> business transaction -> transaction.ai_decision_subject_id
+    # chain `Allocation.ai_decision_subject_id` (Slice 15) established, generalized
+    # here per explicit user instruction to use it "throughout the rest of Torpedo."
+    ai_decision_subject_id: str | None = None
 
 
 class Allocation(CanonicalDocument):

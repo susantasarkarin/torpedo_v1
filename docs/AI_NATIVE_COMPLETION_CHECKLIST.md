@@ -101,8 +101,12 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Item | Status |
 |---|---|
 | 7-day-no-traffic trigger | **TESTED** (2026-09-06) — `app.panel.inactivity.StudyInactivityService.detect_and_flag()`, idempotent within one inactivity episode, 5 tests |
-| AI investigation/decision (pause/close/reactivate/escalate) | NOT_STARTED — blocked on AI Gateway (Phase 2/3); the detector only flags via one `study_inactive_detected` Activity, it never acts |
-| Scheduler entrypoint to run detection periodically | NOT_STARTED — belongs to Phase 14 (event/scheduler infrastructure), not built yet; `detect_and_flag()` is callable but nothing calls it on a cadence |
+| AI investigation/decision (pause/close/reactivate/escalate) | **TESTED** (2026-09-06, Slice 16) — `app.panel.ai_operations.OperationsAIService`, a real `DecisionEngine.decide()` call per trigger, not hard-coded if/else. Three real, computable triggers: `no_traffic_7_days` (reuses the detector above), `low_conversion` (a nominally-eligible survey whose live conversion has fallen to/below the Slice 9/15 threshold), `high_dropout` (real `SurveyResponse`-derived rate, gated by a minimum sample size) |
+| Deterministic guardrails around the AI's operational decision | **TESTED** — closed action set (`INVESTIGATE`/`REQUEST_CLIENT_STATUS`/`PAUSE`/`CLOSE`/`REACTIVATE`/`ESCALATE`/`NO_ACTION`), `CLOSED` is terminal, `REACTIVATE` only valid from `PAUSED`/`PENDING_CLIENT_RESPONSE`, same-day-same-trigger idempotency |
+| `Survey.operational_status` + `ai_decision_subject_id` (traceability) | **TESTED** — the `Allocation.ai_decision_subject_id` pattern from Slice 15, generalized per explicit user instruction |
+| Supplier/provider-failure-rate trigger | **NOT_STARTED, honestly** — no persisted per-provider failure counter exists; `AllocationService` already releases quota and moves on silently on a provider timeout (Slice 9), it doesn't record a failure-rate metric anywhere yet |
+| Client-response/deadline/change-request triggers | **NOT_STARTED, honestly** — there is no `Study` entity distinct from `Survey`, no client-contact linkage, no deadline field; `REQUEST_CLIENT_STATUS` records real state but does not send an email, because no verified path from a survey to a client contact exists yet (Finance/CRM territory, Slices 17-18) |
+| Scheduler entrypoint to run detection periodically | NOT_STARTED — belongs to Phase 14 (event/scheduler infrastructure), not built yet; `detect_triggers()`/`detect_and_flag()` are callable but nothing calls them on a cadence |
 
 ## Phase 12 — Finance AI (AR/AP, reconciliation)
 
@@ -188,3 +192,21 @@ loop, per the user's own "simplest architecture that works reliably" guidance.
 unchanged, including its existing atomic quota/fallback mechanics — this slice
 adds no new execution path, only the ranking layer in front of it. Test count:
 278 → 289.
+
+**2026-09-06, continued — Slice 16 (AI Operations)**: per explicit user
+instruction not to turn every operational workflow into hard-coded rules either.
+Three real, computable hard triggers (`no_traffic_7_days`, `low_conversion`,
+`high_dropout`) feed a real `DecisionEngine.decide()` call; the response
+(`INVESTIGATE`/`REQUEST_CLIENT_STATUS`/`PAUSE`/`CLOSE`/`REACTIVATE`/`ESCALATE`/
+`NO_ACTION`) is validated against a closed set and a state-validity guard
+(`CLOSED` terminal, `REACTIVATE` only from `PAUSED`/`PENDING_CLIENT_RESPONSE`)
+before any write happens. Same-day-same-trigger idempotency prevents a future
+scheduler from re-deciding an unresolved condition every run. `Survey` gained
+`operational_status` and `ai_decision_subject_id` — the latter generalizing
+Slice 15's `Allocation.ai_decision_subject_id` pattern per explicit user
+instruction to use it "throughout the rest of Torpedo." Two triggers named in
+the user's fuller wishlist (supplier/provider-failure-rate, client-response/
+deadline-driven triggers) are honestly NOT_STARTED — no persisted failure-rate
+metric and no `Study`/client-contact data model exist yet, and fabricating
+either would be exactly the no-fake-completion failure this rebuild's
+discipline exists to prevent. Test count: 289 → 307.

@@ -110,3 +110,6 @@ OUTREACH_AI_DECIDE = "outreach.ai.decide"  # system — the (future) scheduled c
 
 # AI panel allocation — Slice 15.
 SURVEY_AI_ALLOCATE = "survey.ai.allocate"  # system — called from the public traffic-redirect path, same as SURVEY_ALLOCATE
+
+# AI operations — Slice 16.
+SURVEY_AI_OPERATIONS = "survey.ai.operations"  # system — the (future) scheduled caller

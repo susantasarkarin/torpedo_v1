@@ -32,12 +32,14 @@ from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.models.money import Money
 from app.panel.ai_allocation import PanelAllocationAIError, PanelAllocationAIService
+from app.panel.ai_operations import OperationsAIError, OperationsAIService
 from app.panel.callback_security import SignatureConfigError, SignatureInvalid
+from app.panel.inactivity import StudyInactivityService
 from app.panel.models import Allocation, SURVEY_PROVIDERS, Supplier, Survey, SurveyResponse, SupplierReconciliationRecord, TrafficSource
 from app.panel.providers import SurveyProvider, SurveyProviderUnavailable, SurveyProjection
 from app.panel.service import AllocationService, CallbackService, SupplierReconciliationService, SupplierService, SurveyError, SurveyService, TrafficSourceService
 from app.rbac.identity import ResolvedIdentity
-from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_AI_ALLOCATE, SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ, SURVEY_RECONCILE
+from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_AI_ALLOCATE, SURVEY_AI_OPERATIONS, SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ, SURVEY_RECONCILE
 
 router = APIRouter()
 
@@ -71,6 +73,18 @@ def get_panel_allocation_ai_service() -> PanelAllocationAIService:
     return PanelAllocationAIService(
         engine, get_survey_service(), get_allocation_service(),
         CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation),
+    )
+
+
+def get_operations_ai_service() -> OperationsAIService:
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
+    engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
+    inactivity = StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
+    return OperationsAIService(
+        engine, get_survey_service(), inactivity, CanonicalRepository(db["surveys"], Survey),
+        CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), ai_proposals,
     )
 
 
@@ -136,6 +150,15 @@ class CreateTrafficSourceRequest(BaseModel):
     vendor_id: str
     country_code: str
     campaign_ref: str
+
+
+class OperationsDecideRequest(BaseModel):
+    trigger_type: str
+
+
+class OperationsTriggerResponse(BaseModel):
+    survey_id: str
+    trigger_type: str
 
 
 class ReconcileRequest(BaseModel):
@@ -251,3 +274,22 @@ async def create_traffic_source(body: CreateTrafficSourceRequest, identity: Reso
 @router.post("/suppliers/{supplier_id}/reconcile", response_model=SupplierReconciliationRecord)
 async def reconcile_supplier(supplier_id: str, body: ReconcileRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_RECONCILE)), svc: SupplierReconciliationService = Depends(get_reconciliation_service)) -> SupplierReconciliationRecord:
     return await svc.reconcile(org_id=identity.org_id, actor=identity.user_id, supplier_id=supplier_id, survey_id=body.survey_id, supplier_reported_count=body.supplier_reported_count)
+
+
+@router.get("/surveys/operations/triggers", response_model=list[OperationsTriggerResponse])
+async def detect_operations_triggers(identity: ResolvedIdentity = Depends(require_permission(SURVEY_AI_OPERATIONS)), svc: OperationsAIService = Depends(get_operations_ai_service)) -> list[OperationsTriggerResponse]:
+    triggered = await svc.detect_triggers(org_id=identity.org_id)
+    return [OperationsTriggerResponse(survey_id=survey.id, trigger_type=trigger_type) for survey, trigger_type in triggered]
+
+
+@router.post("/surveys/{survey_id}/operations/decide", response_model=Decision)
+async def decide_operations_response(
+    survey_id: str, body: OperationsDecideRequest,
+    identity: ResolvedIdentity = Depends(require_permission(SURVEY_AI_OPERATIONS)),
+    svc: OperationsAIService = Depends(get_operations_ai_service),
+    provider: SurveyProvider = Depends(get_survey_provider),
+) -> Decision:
+    try:
+        return await svc.evaluate_and_act(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, trigger_type=body.trigger_type, provider=provider)
+    except OperationsAIError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
