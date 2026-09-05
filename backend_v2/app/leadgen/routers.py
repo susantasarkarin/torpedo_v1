@@ -16,6 +16,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.ai.decision_engine import Decision, DecisionEngine
+from app.ai.gpu_broker import GpuBroker
+from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, require_permission
 from app.db import get_database
 from app.identity.facet_service import FacetService
@@ -23,15 +27,20 @@ from app.identity.facets import AuthIdentity, CustomerBilling, EmployeeRecord, L
 from app.identity.models import Account, AccountBrandRelationship, Person
 from app.identity.service import IdentityService
 from app.leadgen.ai import AIClassificationResult, AIClassifier
+from app.leadgen.ai_leadgen import LeadGenAIError, LeadGenAIService
+from app.leadgen.ai_outreach import OutreachAIError, OutreachAIService
+from app.leadgen.gsc import GSCProvider, GSCProviderUnavailable, SearchSignal
 from app.leadgen.models import DeadLetterEvent, LeadEnrollment, RawLeadEvent
 from app.models.ai_proposal import AiProposal
 from app.leadgen.scoring import ICPProfile
 from app.leadgen.service import LeadGenError, LeadGenService, QualificationResult
+from app.outreach.routers import get_outreach_service, get_send_provider
 from app.outreach.suppression import Suppression, SuppressionService
+from app.emailai.drafting import EmailMessageDrafter
 from app.models.activity import Activity
 from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
-from app.rbac.permissions import LEAD_ASSIGN, LEAD_ENROLL, LEAD_INGEST, LEAD_QUALIFY, LEAD_READ
+from app.rbac.permissions import LEAD_ASSIGN, LEAD_ENROLL, LEAD_INGEST, LEAD_QUALIFY, LEAD_READ, LEADGEN_AI_EVALUATE_ICP, LEADGEN_AI_GENERATE, OUTREACH_AI_DECIDE
 
 router = APIRouter()
 
@@ -77,6 +86,50 @@ def get_leadgen_service() -> LeadGenService:
         dead_letters=CanonicalRepository(db["dead_letters"], DeadLetterEvent),
         activities=CanonicalRepository(db["activities"], Activity),
     )
+
+
+class NullGSCProvider:
+    """Stand-in until Google Search Console credentials are supplied — no GSC
+    credentials exist in this environment. Raises rather than returning a fake
+    empty-but-successful analytics result, so a caller can't mistake "not
+    configured" for "no search signals today"."""
+
+    async def get_search_analytics(self, *, site_url: str, days: int = 28) -> list[SearchSignal]:
+        raise GSCProviderUnavailable("GSC integration is not configured — no credentials in this environment")
+
+
+def get_gsc_provider() -> GSCProvider:
+    return NullGSCProvider()
+
+
+def get_leadgen_ai_service() -> LeadGenAIService:
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
+    return LeadGenAIService(engine, get_leadgen_service())
+
+
+def get_outreach_ai_service() -> OutreachAIService:
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
+    return OutreachAIService(
+        engine, get_leadgen_service(), get_outreach_service(get_send_provider()),
+        EmailMessageDrafter(llm), CanonicalRepository(db["lead_enrollments"], LeadEnrollment),
+    )
+
+
+class DecideOutreachRequest(BaseModel):
+    mailbox_id: str
+
+
+class GenerateLeadsRequest(BaseModel):
+    site_url: str
+    internal_context: dict = {}
+
+
+class EvaluateIcpRequest(BaseModel):
+    prospect_context: dict
 
 
 class IngestRequest(BaseModel):
@@ -160,4 +213,43 @@ async def enroll_lead(
     try:
         return await svc.enroll(actor=identity.user_id, lead_state_id=lead_state_id, brand_id=body.brand_id)
     except LeadGenError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/leads/generate")
+async def generate_leads(
+    body: GenerateLeadsRequest,
+    identity: ResolvedIdentity = Depends(require_permission(LEADGEN_AI_GENERATE)),
+    svc: LeadGenAIService = Depends(get_leadgen_ai_service),
+    gsc: GSCProvider = Depends(get_gsc_provider),
+):
+    try:
+        return await svc.generate_leads(org_id=identity.org_id, actor=identity.user_id, site_url=body.site_url, gsc=gsc, internal_context=body.internal_context)
+    except LeadGenAIError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
+@router.post("/leads/{lead_state_id}/evaluate-icp", response_model=Decision)
+async def evaluate_icp(
+    lead_state_id: str,
+    body: EvaluateIcpRequest,
+    identity: ResolvedIdentity = Depends(require_permission(LEADGEN_AI_EVALUATE_ICP)),
+    svc: LeadGenAIService = Depends(get_leadgen_ai_service),
+) -> Decision:
+    try:
+        return await svc.evaluate_icp(org_id=identity.org_id, lead_state_id=lead_state_id, prospect_context=body.prospect_context)
+    except LeadGenAIError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/enrollments/{enrollment_id}/outreach-decide", response_model=Decision)
+async def decide_outreach(
+    enrollment_id: str,
+    body: DecideOutreachRequest,
+    identity: ResolvedIdentity = Depends(require_permission(OUTREACH_AI_DECIDE)),
+    svc: OutreachAIService = Depends(get_outreach_ai_service),
+) -> Decision:
+    try:
+        return await svc.decide_and_act(org_id=identity.org_id, actor=identity.user_id, enrollment_id=enrollment_id, mailbox_id=body.mailbox_id)
+    except OutreachAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

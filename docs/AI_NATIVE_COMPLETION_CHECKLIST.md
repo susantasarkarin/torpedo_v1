@@ -52,15 +52,29 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 
 | Item | Status |
 |---|---|
-| GSC data ingestion | NOT_STARTED (blocked — credentials) |
-| AI ICP scoring reusing `app.leadgen.scoring` | NOT_STARTED |
+| `GSCProvider` Protocol + `NullGSCProvider` (fails loud, never a fake empty result) | **TESTED** (2026-09-06, Slice 13) |
+| `LeadGenAIService.generate_leads()` — AI proposes candidates from GSC signals, real leads created via Slice 6's `LeadGenService.ingest()` (identity resolution/dedup reused, not rebuilt) | **TESTED** — 9 tests, including a real "different contact, same company → same Account, new Person" dedup proof |
+| "No fictional companies" guard — a candidate without a model-named `company_domain` is skipped, never defaulted | **TESTED** |
+| `LeadGenAIService.evaluate_icp()` — AI-driven classification (`OUTREACH`/`RESEARCH`/`HOLD`/`REJECT` + score/fit_reasons/risks in `Decision.extracted_entities`), not a fixed arithmetic score | **TESTED** — coexists with, does not replace, `app.leadgen.scoring.score_lead()` (a different question — B-04 qualification threshold vs. broader commercial fit) |
+| Actual GSC API data | **NOT_STARTED — blocked on Google credentials**, confirmed absent |
 
 ## Phase 7 — AI outreach + email intelligence
 
 | Item | Status |
 |---|---|
-| Email classification/extraction/summarization | NOT_STARTED |
-| AI-drafted outreach through `MessageDrafter` (already a tested `Protocol`, Slice 7) | Protocol exists, no real drafter |
+| Email classification (closed `EMAIL_CLASSIFICATIONS` set, real `DecisionEngine` call) | **TESTED** (Slice 12) — deterministic dict-dispatch routing, never fuzzy string matching |
+| Entity extraction | **TESTED** — via `Decision.extracted_entities`, the same field ICP evaluation uses (one schema, per master-prompt §1) |
+| Email → CRM (`SALES_LEAD` → Slice 6's `LeadGenService.ingest()`) | **TESTED** |
+| Email → Finance (`INVOICE`/`PAYMENT`/`BILL` → Slice 8's `ReconciliationService.record_external_entry()`, never touches a balance) | **TESTED** |
+| Email → suppression (`UNSUBSCRIBE` → Slice 7's `SuppressionService.suppress()`) | **TESTED** |
+| Duplicate email / duplicate classification → no duplicate action | **TESTED** — idempotent on the email itself, reconstructs the prior `Decision` from its `AiProposal` rather than re-deciding |
+| AI-drafted outreach through `MessageDrafter` (Slice 7's `Protocol`) | **TESTED** (Slice 12) — `EmailMessageDrafter` is the real implementation, reused unchanged by Slice 14's outreach drafting too |
+| AI follow-up decision → send through the real `MessagingFacade` (suppression/kill-switch/budget/footer/idempotency all still enforced) | **TESTED** — including the direct regression: a suppressed address is never sent to even when the AI decision says to send |
+| Follow-up idempotent across a simulated worker restart | **TESTED** |
+| Real mailbox polling (`EmailIngestionProvider`) | NOT_STARTED — blocked on email provider credentials, confirmed absent |
+| ICP→outreach decision (`OutreachAIService.decide_and_act()`, Slice 14) | **TESTED** — 6 tests. Reuses Slice 6's `check_contactability()` and Slice 7's `MessagingFacade` wholesale; `LeadEnrollment.sequence_state` (one new field) is the persisted outreach-sequence state (`OUTREACH_READY→CONTACTED→...→STOPPED`), the AI decides transitions, this service only validates the closed set |
+| Contactability as a hard boundary the AI cannot override | **TESTED** — a suppressed contact is never sent to even when the AI decision says `CONTACTED` + `send_message` |
+| Contact selection among multiple contacts at one account | **NOT_STARTED, honestly** — `LeadState.person_id` is singular in this data model; there is no "list every contact at this account" query built yet. Faking a selection algorithm over a single-item list was rejected as decoration, not built as a stand-in |
 
 ## Phase 8-9 — Survey Pool AI + panelist allocation AI
 
@@ -137,3 +151,18 @@ rent a GPU node elsewhere (RunPod) only for the minutes it's used. The plumbing 
 lease/broker/LLM-provider/decision-engine/tool-registry, 38 tests — is real and
 deployed; actually renting a node is the one piece still blocked, on
 `RUNPOD_API_KEY`, confirmed absent. Test count: 208 → 246.
+
+**2026-09-06, continued — Slices 12/13/14 (real AI-driven business logic, not
+scaffolding, per explicit user instruction not to pause for credentials)**: Email
+AI (classification/entity-extraction/CRM-routing/finance-routing/follow-up), GSC
+lead generation + ICP evaluation, and the ICP→outreach decision flow all landed,
+each routed through the *same* `DecisionEngine` (no isolated per-domain decision
+engines, per the user's explicit §1 mandate) and each reusing an existing,
+already-governed service for every actual write (Slice 6's `LeadGenService.ingest()`,
+Slice 7's `MessagingFacade`/`SuppressionService`, Slice 8's
+`ReconciliationService.record_external_entry()`). `Decision` gained one field
+(`extracted_entities: dict`) so email entity extraction and ICP scoring could reuse
+one schema instead of each inventing its own. Every external boundary these three
+slices touch (`GSCProvider`, `EmailIngestionProvider`) stays a `Protocol` with a
+credential-absent stub that fails loud — nothing pretends a live integration works.
+Test count: 246 → 278.

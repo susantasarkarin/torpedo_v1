@@ -552,13 +552,60 @@ backend_v2 (this VM)  --HTTP-->  AI Gateway  --acquire()-->  GPU Broker  --rent-
   Mongo document), not the model. Nothing runs a GPU until `GPU_BROKER_ENABLED=true`
   and a real `RUNPOD_API_KEY` are both set, which they deliberately are not yet.
 
+**Phase 1, slices 12-14: real AI-driven business logic**, built per explicit user
+instruction not to pause for missing credentials — the internal workflow is real
+and tested now, only the external boundary (GSC/email-provider credentials) stays
+disabled. All three route through the *same* `DecisionEngine` (no isolated
+per-domain decision engines) and every actual write reuses an existing,
+already-governed service rather than a new one:
+
+- **Slice 12 (`app/emailai/`)**: `EmailAIService.analyze_and_route()` classifies an
+  `InboundEmail` into a closed set (`SALES_LEAD`/`INVOICE`/`UNSUBSCRIBE`/...) via a
+  real `DecisionEngine.decide()` call, then deterministically dispatches —
+  `SALES_LEAD` calls Slice 6's `LeadGenService.ingest()` (identity resolution/dedup
+  reused, not rebuilt), `UNSUBSCRIBE` calls Slice 7's `SuppressionService.suppress()`,
+  `INVOICE`/`PAYMENT`/`BILL` calls Slice 8's `ReconciliationService.record_external_entry()`
+  (never touches a balance). Idempotent on the email itself — a duplicate analysis
+  reconstructs the prior `Decision` from its `AiProposal` rather than re-deciding
+  and re-routing. `EmailAIService.decide_followup()` drafts and sends through the
+  *real* `MessagingFacade` (`EmailMessageDrafter` implements Slice 7's
+  `MessageDrafter` `Protocol`) — suppression/kill-switch/budget/footer/idempotency
+  all still enforced; a suppressed address is never sent to even when the AI
+  decision says to send.
+- **Slice 13 (`app/leadgen/gsc.py` + `ai_leadgen.py`)**: `LeadGenAIService.generate_leads()`
+  proposes candidates from GSC signals (`GSCProvider` — the seventh Protocol
+  boundary in this codebase), and every candidate becomes a real lead only through
+  Slice 6's `ingest()`. A candidate without a model-named `company_domain` is
+  skipped, never defaulted — "no fictional companies," enforced structurally.
+  `evaluate_icp()` is the AI's classification (`OUTREACH`/`RESEARCH`/`HOLD`/`REJECT`
+  + score/fit_reasons/risks in `Decision.extracted_entities`), coexisting with,
+  not replacing, `app.leadgen.scoring.score_lead()` — the two answer different
+  questions (broad commercial fit vs. B-04's specific qualification threshold).
+- **Slice 14 (`app/leadgen/ai_outreach.py`)**: `OutreachAIService.decide_and_act()`
+  is the ICP→outreach flow. `LeadEnrollment` gained one field
+  (`sequence_state: OUTREACH_READY→CONTACTED→...→STOPPED`) — the AI decides
+  transitions, this service only validates the closed set, same discipline as
+  `app.crm`'s `Opportunity.stage`. Reuses Slice 6's `check_contactability()` and
+  Slice 7's `MessagingFacade` wholesale; contactability is a hard boundary the AI
+  cannot override, proven by a direct test. Contact selection among multiple
+  contacts at one account is honestly **not built** — `LeadState.person_id` is
+  singular in this data model, and faking a selection algorithm over a
+  single-item list was rejected as decoration.
+- **One schema change enabled all three**: `Decision` (Slice 11) gained
+  `extracted_entities: dict` so email entity extraction and ICP scoring share one
+  structured-payload field instead of each inventing its own — the same "one
+  Decision Engine, one schema" mandate applied to the schema itself, not just the
+  engine.
+
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
-GSC lead-gen, real Cint adapter, and real send-provider integration (all blocked on
-credentials this environment doesn't have); wiring `DecisionEngine.decide()` into
-real domain callers (Slices 12-16); a scheduler to run `GpuBroker.sweep()` or
-`detect_and_flag()` on a cadence (Phase 14). See `docs/schema_catalogue.md` and
-`docs/endpoint_catalogue.md` for what those will look like when they land.
+real GSC/Cint/email-provider adapters (all blocked on credentials this environment
+doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`, or
+periodic email/lead-gen/outreach evaluation on a cadence (Phase 14 of the
+checklist — event/scheduler infrastructure); Slices 15-19 (AI survey/panel,
+operations, finance, Cint+billing, full end-to-end orchestration). See
+`docs/schema_catalogue.md` and `docs/endpoint_catalogue.md` for what those will
+look like when they land.
 
 ## Running
 

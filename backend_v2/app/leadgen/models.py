@@ -72,6 +72,13 @@ class LeadEnrollment(CanonicalDocument):
     person_id: str
     account_id: str | None = None
     brand_id: str
+    # AI-driven outreach-sequence state (Slice 14) — deliberately a *different*
+    # state machine from LeadState.state above: that one tracks qualification
+    # (DISCOVERED->...->CONVERTED), this one tracks engagement within outreach
+    # once enrolled (OUTREACH_READY->CONTACTED->...). See app.leadgen.ai_outreach
+    # for the closed set and why the AI decides transitions rather than a fixed
+    # per-state rule.
+    sequence_state: str = "OUTREACH_READY"
 
 
 class DeadLetterEvent(CanonicalDocument):

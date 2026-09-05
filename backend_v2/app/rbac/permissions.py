@@ -95,3 +95,15 @@ OPPORTUNITY_CONVERT = "opportunity.convert"
 # AI Gateway / GPU broker — docs/AI_NATIVE_COMPLETION_CHECKLIST.md Phase 2/3.
 AI_READ = "ai.read"  # broker status — safe, no cost implication
 AI_ADMIN = "ai.admin"  # kill switch — same "separate from ordinary read" pattern as OUTREACH_ADMIN
+
+# Email AI — Slice 12.
+EMAIL_INGEST = "email.ingest"  # system — the (future) mailbox-polling caller
+EMAIL_ANALYZE = "email.analyze"
+EMAIL_READ = "email.read"
+
+# GSC lead generation / ICP — Slice 13.
+LEADGEN_AI_GENERATE = "leadgen.ai.generate"  # system — the (future) scheduled caller
+LEADGEN_AI_EVALUATE_ICP = "leadgen.ai.evaluate_icp"
+
+# AI outreach — Slice 14.
+OUTREACH_AI_DECIDE = "outreach.ai.decide"  # system — the (future) scheduled caller

@@ -12,8 +12,15 @@ Slice 6.
 
 **The structured decision contract matches master-prompt §7 field-for-field**
 (`decision`/`reasoning_summary`/`confidence`/`priority`/`entities`/`actions`/
-`follow_up_at`/`requires_human_approval`). `reasoning_summary` is a short business
-rationale, never a private chain-of-thought — the schema has no field to put one in.
+`follow_up_at`/`requires_human_approval`), plus one addition made in Slice 12:
+**`extracted_entities: dict`**. Email entity extraction (invoice numbers, amounts,
+dates, company names) and ICP evaluation (score/classification/fit_reasons/risks)
+both need a richer structured payload than a flat `list[str]` of entity references
+— rather than give each domain its own decision schema (exactly what §1 of the
+Slice 12-14 instruction forbids: "do not build isolated decision engines"), this one
+flexible field carries whatever structured payload a task needs, keeping one
+`Decision` shape for every task type. `entities` stays a `list[str]` of entity *ID*
+references (unchanged, already tested); `extracted_entities` is for the values.
 
 **`AiProposal.status` stays binary (`approved`/`rejected`)**, its documented Slice 6
 scope — a decision needing human approval is `status="rejected"` here too (not
@@ -58,6 +65,7 @@ class Decision(BaseModel):
     actions: list[str] = []
     follow_up_at: datetime | None = None
     requires_human_approval: bool = False
+    extracted_entities: dict = {}
 
     @field_validator("confidence")
     @classmethod
@@ -76,8 +84,10 @@ _DECISION_SYSTEM_PROMPT = (
     '{"decision": str, "reasoning_summary": str (a short business rationale, never '
     'chain-of-thought), "confidence": float 0-1, "priority": "LOW"|"MEDIUM"|"HIGH"|'
     '"CRITICAL", "entities": [str], "actions": [str], "follow_up_at": ISO-8601 '
-    "datetime or null, \"requires_human_approval\": bool}. You do not execute "
-    "actions yourself — you only decide and explain."
+    'datetime or null, "requires_human_approval": bool, "extracted_entities": '
+    "{} (a flat object for any structured, task-specific data — invoice numbers, "
+    "amounts, dates, ICP scores, fit reasons, whatever this task calls for)}. "
+    "You do not execute actions yourself — you only decide and explain."
 )
 
 
