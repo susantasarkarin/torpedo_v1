@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # failure mode) — see that module's docstring.
     survey_callback_signing_secret: str | None = None
 
+    # HMAC secret for the Phase 14 scheduler tick endpoint (app.scheduler.routers)
+    # — a systemd timer calls it, not a logged-in user, so it's authenticated the
+    # same way the survey callback above is: fails closed (SignatureConfigError)
+    # on an unset secret, never a silent skip.
+    scheduler_signing_secret: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -787,13 +787,76 @@ Not yet built: migrations from v1; actually renting a GPU node (blocked on
 the live Cint API, real GSC signals, and a real email send/ingestion provider
 (all blocked on credentials this environment doesn't have — `CINT_API_KEY`/
 `CINT_SUPPLIER_CODE`, Google Search Console credentials, and an
-email-provider credential scheme, respectively); a scheduler to run
-`GpuBroker.sweep()`, `detect_and_flag()`, `detect_triggers()`, or periodic
-email/lead-gen/outreach/allocation/finance evaluation on a cadence (Phase 14 of
-the checklist — event/scheduler infrastructure); automatic Lead→Opportunity and
+email-provider credential scheme, respectively); automatic Lead→Opportunity and
 Lead→Outreach-enrollment conversion (both currently manual/ops decisions, by
 design — see Slice 18 above). See `docs/schema_catalogue.md` and
 `docs/endpoint_catalogue.md` for what those will look like when they land.
+
+**Phase 1, slice 19 (`app/scheduler/`): the Phase 14 scheduler/event bus.**
+Every real detector Slices 12-18 built (`OperationsAIService.detect_triggers()`,
+`InvoiceService.list_open()`, a lead never ICP-evaluated, an email never
+classified, ...) was a function nobody called on a cadence — this slice is
+the heartbeat that calls them.
+
+- **`Event` (`app/scheduler/models.py`) is a real `CanonicalDocument`** —
+  `event_type`/`entity_type`/`entity_id`/`occurred_at`/`processing_status`
+  (`PENDING`/`PROCESSING`/`PROCESSED`/`FAILED`), plus `dedupe_key` (the whole
+  idempotency mechanism), `payload` (detection-time context), `result`
+  (processing-time outcome), `attempts`/`last_error`. Two dedupe-key shapes:
+  one-shot conditions (never-ICP-evaluated, never-classified) key on the
+  entity alone; recurring conditions (overdue invoice, low-conversion survey)
+  key on `(entity, today's date)`, so a still-true condition gets a fresh look
+  every day without a same-day rerun spamming a second `Event`.
+- **`EventDetectionService` (`app/scheduler/detectors.py`) is pure
+  candidate-generation, no model call anywhere in it** — same "offer the
+  walls" discipline every AI slice already applies, here applied to *deciding
+  what needs an AI decision* rather than to the decision itself. Seven real,
+  computable triggers: `survey_operations_trigger` (reuses
+  `OperationsAIService.detect_triggers()` wholesale), `ar_followup_due`/
+  `ap_followup_due` (reuse `InvoiceService`/`BillService.list_open()`),
+  `reconciliation_unmatched` (a new `ReconciliationService.list_unmatched()`
+  method, same pattern), `lead_icp_evaluation_due` (a qualified-or-further
+  `LeadState` never ICP-evaluated — real `Account.industry`/`domain` and
+  `Person.title` become the AI's context, nothing fabricated),
+  `email_classification_due` (an `InboundEmail` with `classification is
+  None`), `outreach_followup_due` (a non-`STOPPED` `LeadEnrollment` stale past
+  a 3-day window — skipped entirely, honestly, for any org with no active
+  `Mailbox` configured yet, rather than inventing a `mailbox_id`). A "new GSC
+  opportunity" trigger and a "pending panelist allocation" trigger were
+  deliberately not built: no site-registry entity exists in the schema to
+  poll for the first, and allocation happens per-respondent at request time,
+  not on a schedule, for the second — inventing either would be exactly the
+  no-fake-completion failure this rebuild's discipline exists to prevent.
+- **`EventOrchestrator` (`app/scheduler/orchestrator.py`) dispatches to the
+  *same* real AI service every prior slice already built and tested** — never
+  a new decision path, never a second `DecisionEngine`. Claiming an `Event` is
+  single-flight via `CanonicalRepository.update()`'s existing
+  optimistic-concurrency guarantee (a version-guarded `PENDING/FAILED ->
+  PROCESSING` transition; a lost race is `VersionConflict`, counted as
+  skipped, not an error). A recoverable failure — and every real handler call
+  raises `LLMUnavailable` right now, since no GPU credential exists — is
+  recorded on the `Event` (`FAILED`, `attempts += 1`, `last_error`), retryable
+  up to `MAX_ATTEMPTS` (5) before it needs a human, not fabricated as success
+  and not silently dropped. An exception outside the documented set of
+  domain/infra errors is left to propagate — a real bug, not an expected
+  failure mode, and deliberately not hidden behind the same "just retry"
+  bucket.
+- **Not Celery, deliberately** — the VM is 2 vCPU / 3.8GB with swap already
+  saturated (`docs/AI_NATIVE_COMPLETION_CHECKLIST.md`'s hard-blockers table);
+  a broker + separate worker process is real new infrastructure weight this
+  platform doesn't need yet. `POST /internal/scheduler/tick`
+  (`app/scheduler/routers.py`) runs one detection+processing cycle on the
+  same FastAPI process already running, called by a systemd timer
+  (`deploy/torpedo-v2-scheduler.timer`, every 5 minutes) via
+  `deploy/scheduler_tick.sh`. The endpoint is HMAC-signed exactly like Cint's
+  outcome callback (`app.panel.callback_security`, reused unchanged) — a
+  systemd timer is not a logged-in Torpedo user, and an unset
+  `SCHEDULER_SIGNING_SECRET` fails closed, never silently skips verification.
+  `GET /internal/scheduler/events` is the normal permission-gated
+  observability endpoint for a human to inspect pending/failed/processed
+  events without shell access. Nothing about `EventOrchestrator`'s own code
+  knows or cares how it's invoked — swapping to Celery later, if the platform
+  outgrows this, needs zero change to it or to the detectors.
 
 ## Running
 
@@ -804,3 +867,24 @@ uvicorn app.main:app --reload
 
 Requires `MONGO_URI` and `MONGO_DB_NAME` in the environment (see `app/config.py`) — there
 is no fallback default database name, deliberately, per D-16.
+
+### Running the Phase 14 scheduler
+
+Install the systemd timer on the VM (repeat after any pull that changes
+`deploy/`):
+
+```
+chmod +x /var/www/torpedo-v2/backend_v2/deploy/scheduler_tick.sh
+cp /var/www/torpedo-v2/backend_v2/deploy/torpedo-v2-scheduler.service /etc/systemd/system/
+cp /var/www/torpedo-v2/backend_v2/deploy/torpedo-v2-scheduler.timer /etc/systemd/system/
+# /etc/torpedo-v2-scheduler.env must set SCHEDULER_SIGNING_SECRET — put it there
+# directly on the server, never in a commit or a chat prompt.
+systemctl daemon-reload
+systemctl enable --now torpedo-v2-scheduler.timer
+```
+
+`app/config.py`'s `Settings.scheduler_signing_secret` must be set to the exact
+same value (the FastAPI process's own `.env`, not `/etc/torpedo-v2-scheduler.env`
+— they're two different processes reading two different files, deliberately,
+so the API and the timer can be redeployed independently) — an unset secret on
+either side fails closed rather than silently accepting an unsigned tick.

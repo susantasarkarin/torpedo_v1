@@ -125,3 +125,9 @@ SURVEY_MARGIN_READ = "survey.margin.read"
 
 # Integration/diagnostics status — Slice 18/19.
 INTEGRATIONS_STATUS_READ = "integrations.status.read"
+
+# Event/scheduler orchestration — Phase 14. The tick endpoint itself is
+# HMAC-signed, not require_permission-gated (a systemd timer, not a logged-in
+# user, calls it — same pattern as the Cint outcome callback), so only the
+# human-facing observability endpoint needs a permission constant.
+SCHEDULER_READ = "scheduler.read"

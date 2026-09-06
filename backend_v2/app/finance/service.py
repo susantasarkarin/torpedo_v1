@@ -497,6 +497,13 @@ class ReconciliationService:
             ReconciliationRecord(org_id=org_id, created_by=actor, updated_by=actor, source=source, external_reference=external_reference, amount=amount)
         )
 
+    async def list_unmatched(self, *, org_id: str) -> list[ReconciliationRecord]:
+        """The deterministic candidate set for Phase 14's scheduled reconciliation
+        trigger — exactly what `AIFinanceService.match_payment_to_invoice()` needs
+        to be pointed at, same "list_open() feeds the scheduler" pattern as
+        InvoiceService/BillService above."""
+        return await self._records.find_all({"org_id": org_id, "status": "unmatched"})
+
     async def match(self, *, actor: str, record_id: str, payment_id: str) -> ReconciliationRecord:
         record = await self._records.get(record_id)
         if record is None:

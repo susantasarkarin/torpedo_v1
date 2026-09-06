@@ -46,7 +46,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | `GET /ai/gpu/status`, `POST /ai/gpu/shutdown` | **TESTED** — deployed |
 | Real agentic tool-calling (model autonomously invoking registered tools) | NOT_STARTED — needs a running model to validate against |
 | Wiring `DecisionEngine.decide()` into real domain callers (email, AR follow-up, survey ranking, ...) | NOT_STARTED — Slices 12-16 |
-| Scheduled `sweep()` (idle/orphan reaping on a cadence) | NOT_STARTED — Phase 14 (scheduler infrastructure) |
+| Scheduled `sweep()` (idle/orphan reaping on a cadence) | NOT_STARTED — the Phase 14 scheduler now exists and could call this on the same cadence, but `GpuBroker.sweep()` itself isn't yet one of the seven wired triggers (`EventDetectionService`/`EventOrchestrator`); a real, small follow-up, not fabricated here |
 
 ## Phase 6 — GSC lead generation + ICP
 
@@ -109,7 +109,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | `Survey.operational_status` + `ai_decision_subject_id` (traceability) | **TESTED** — the `Allocation.ai_decision_subject_id` pattern from Slice 15, generalized per explicit user instruction |
 | Supplier/provider-failure-rate trigger | **NOT_STARTED, honestly** — no persisted per-provider failure counter exists; `AllocationService` already releases quota and moves on silently on a provider timeout (Slice 9), it doesn't record a failure-rate metric anywhere yet |
 | Client-response/deadline/change-request triggers | **NOT_STARTED, honestly** — there is no `Study` entity distinct from `Survey`, no client-contact linkage, no deadline field; `REQUEST_CLIENT_STATUS` records real state but does not send an email, because no verified path from a survey to a client contact exists yet (Finance/CRM territory, Slices 17-18) |
-| Scheduler entrypoint to run detection periodically | NOT_STARTED — belongs to Phase 14 (event/scheduler infrastructure), not built yet; `detect_triggers()`/`detect_and_flag()` are callable but nothing calls them on a cadence |
+| Scheduler entrypoint to run detection periodically | **TESTED, running** (2026-09-06, Slice 19) — `app.scheduler.detectors.EventDetectionService.detect_survey_operations()` calls `OperationsAIService.detect_triggers()` (which itself calls `StudyInactivityService.detect_and_flag()`) every 5 minutes via the Phase 14 scheduler; see Phase 14 below |
 
 ## Phase 12 — Finance AI (AR/AP, reconciliation)
 
@@ -140,9 +140,11 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 
 | Item | Status |
 |---|---|
-| Internal event mechanism (`lead.created`, `invoice.overdue`, ...) | NOT_STARTED |
-| Scheduler/background continuous loop | NOT_STARTED |
-| Idempotent action execution under the event loop | Idempotency patterns exist per-slice (Slice 7/8/9 idempotency keys), not yet a general event-bus guarantee |
+| Internal event mechanism (`Event` model — `event_type`/`entity_type`/`entity_id`/`occurred_at`/`processing_status`) | **TESTED** (2026-09-06, Slice 19) — `app.scheduler.models.Event`, a real `CanonicalDocument` |
+| Deterministic detection → idempotent `Event` creation | **TESTED** — `app.scheduler.detectors.EventDetectionService`, seven real triggers (see Phase 11/12/6/7 rows below), each reusing an existing detector/query, never reimplementing one |
+| Scheduler/background continuous loop | **TESTED, running** — `POST /internal/scheduler/tick` (HMAC-signed, same mechanism as the Cint outcome callback) + a systemd timer (`backend_v2/deploy/torpedo-v2-scheduler.timer`, every 5 minutes) calling it on the same FastAPI process. Deliberately not Celery — the VM's hardware constraints (this checklist's own hard-blockers table) make a broker + worker process real new weight the platform doesn't need yet; `EventOrchestrator` doesn't know or care how it's invoked, so this is swappable later without touching detector/orchestrator code |
+| Idempotent action execution under the event loop | **TESTED** — single-flight claiming via `CanonicalRepository.update()`'s existing optimistic-concurrency guarantee (`PENDING/FAILED -> PROCESSING`, a lost race is `VersionConflict`, counted as skipped); a recoverable failure (every real handler call raises `LLMUnavailable` right now, no GPU credential) is recorded on the `Event` and retried up to `MAX_ATTEMPTS` (5), never fabricated as success |
+| Observability | **TESTED** — `GET /internal/scheduler/events`, permission-gated, for a human to inspect pending/failed/processed events without shell access |
 
 ---
 
@@ -292,3 +294,48 @@ provider credentials (`SendProvider`/`EmailIngestionProvider`) — every code pa
 behind each of these fails loud with a distinct, named exception rather than a
 fabricated success. Software-complete and credential-blocked are two different
 statuses, tracked separately throughout this document on purpose.
+
+**2026-09-06, continued — Slice 19 (Phase 14: scheduler/event bus)**: per
+explicit user direction after the Slice 18 completion report — build the
+autonomous operating loop's heartbeat *before* activating any external
+credential, because until something calls `detect_triggers()`/`list_open()`/etc.
+on a cadence, every AI decision this rebuild built is still request-triggered
+only, never autonomous. `app.scheduler.models.Event` is a real
+`CanonicalDocument` (`event_type`/`entity_type`/`entity_id`/`occurred_at`/
+`processing_status`, plus `dedupe_key` for idempotency, `payload`/`result` for
+detection/processing context). `EventDetectionService` wires up seven real,
+computable triggers — `survey_operations_trigger`, `ar_followup_due`,
+`ap_followup_due`, `reconciliation_unmatched` (a new
+`ReconciliationService.list_unmatched()` method, same "list_open() feeds the
+scheduler" pattern as Slice 17's own methods), `lead_icp_evaluation_due` (a
+qualified-or-further `LeadState` never ICP-evaluated, using real
+`Account.industry`/`domain`/`Person.title` as context), `email_classification_due`,
+`outreach_followup_due` (skipped entirely for any org with no active `Mailbox`
+configured — never a fabricated `mailbox_id`) — each reusing an existing
+detector/query rather than reimplementing one. Two triggers from the user's
+fuller wishlist ("new GSC opportunity", "pending panelist allocation") are
+honestly not built: no site-registry entity exists in the schema for the
+first, and allocation happens per-respondent at request time, not on a
+schedule, for the second. `EventOrchestrator` dispatches each `Event` to the
+*same* real AI service every prior slice already built — never a new decision
+path — claiming single-flight via `CanonicalRepository.update()`'s existing
+optimistic-concurrency guarantee, recording a recoverable failure
+(`LLMUnavailable`, right now, for every real handler call — no GPU credential
+exists yet) as `FAILED`/retryable up to `MAX_ATTEMPTS`, never fabricated as
+success. Per explicit user instruction, this is deliberately **not Celery** —
+the VM's hardware constraints (this checklist's own hard-blockers table) make
+a broker + worker process real new weight; `POST /internal/scheduler/tick`
+(HMAC-signed, reusing `app.panel.callback_security` unchanged) plus a systemd
+timer (`backend_v2/deploy/torpedo-v2-scheduler.timer`, every 5 minutes)
+achieves the same "runs on a cadence, idempotent, restart-safe" outcome on the
+same FastAPI process already running — `EventOrchestrator` itself doesn't know
+or care how it's invoked, so swapping to Celery later needs zero change to it.
+Test count: 345 → 380.
+
+**Recommended roadmap from here, per explicit user direction**: activate
+external integrations one at a time, not simultaneously — GPU/local model
+first (it proves the actual AI Gateway → DecisionEngine production path every
+other activation depends on), then Cint, then email, then GSC — followed by a
+controlled production pilot monitoring AI decisions, conversion, margin,
+failures, and human overrides. Credentials go into the server's environment
+mechanism directly, never into a chat prompt or a commit.

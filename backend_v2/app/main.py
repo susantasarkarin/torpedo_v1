@@ -11,6 +11,7 @@ from app.identity.routers import router as identity_router
 from app.leadgen.routers import router as leadgen_router
 from app.outreach.routers import router as outreach_router
 from app.panel.routers import router as panel_router
+from app.scheduler.routers import router as scheduler_router
 
 app = FastAPI(title="Torpedo v2", version="0.1.0")
 
@@ -22,6 +23,7 @@ app.include_router(panel_router, prefix="/api/v1", tags=["panel"])
 app.include_router(crm_router, prefix="/api/v1", tags=["crm"])
 app.include_router(ai_router, prefix="/api/v1", tags=["ai"])
 app.include_router(emailai_router, prefix="/api/v1", tags=["emailai"])
+app.include_router(scheduler_router, prefix="/api/v1", tags=["scheduler"])
 
 
 @app.get("/health")
