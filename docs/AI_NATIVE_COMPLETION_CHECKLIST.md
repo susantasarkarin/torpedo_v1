@@ -17,7 +17,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Blocker | Detail | Needed to unblock |
 |---|---|---|
 | **Local LLM inference on the prod VM** | VM is 2 vCPU / 3.8GB RAM, swap already 100% full (2046/2047MB) running v1 + Mongo + 4 Celery workers + SFW panel. No GPU. Cannot safely host even a small quantized model without risking an OOM crash of the live v1 service. | A resourcing decision: reuse the existing (stashed, uncommitted) `backend/infra/gpu_lease.py` on-demand GPU broker instead of in-process local inference, or explicitly approve resizing/adding a GPU to the VM. |
-| **Cint API credentials** | No live Cint credentials found in this environment; v1's existing `cint_integration.py`/`cint_service.py` is the exact defective implementation the audit (register D-defects §2.0-2.9) already found broken — reference only, not portable as-is. | Real Cint API credentials + sandbox access. |
+| **Cint API credentials** | `app.panel.cint_provider.CintSurveyProvider` (Slice 18) is a real, non-fake implementation of `SurveyProvider` — built from v1's actual verified `Supply/v1/SupplierLinks` entry-link endpoint/response shape (read from `cint_integration.py`/`cint_service.py` as reference, not copied as-is given register D-defects §2.0-2.9). No live `CINT_API_KEY`/`CINT_SUPPLIER_CODE` found in this environment, so it fails loud (`SurveyProviderUnavailable`) rather than faking a response. `refresh()` honestly does not implement v1's `LEGACY_SURVEY_DETAIL_ENDPOINT` — that endpoint is defined in v1 but never actually called anywhere in v1's own codebase, so its response shape is unverified and was not guessed at. | Real Cint API credentials + sandbox access, and (separately) verification of the legacy survey-detail endpoint's actual response shape before `refresh()` can be implemented for real. |
 | **GSC / Google Search Console** | Only a stub reference in `seo_agent.py`; no working lead-gen pipeline exists in v1 or v2. | Google service-account/OAuth credentials for Search Console API. |
 | **Real email sending (SMTP/SES/Gmail)** | `app.outreach.providers.SendProvider` is a tested `Protocol` with only a stub implementation (`StubSendProvider`) in v2. | Real provider credentials (v1's `outreach_engine`/`gmail_service` have some — need audit + credential migration, not reuse of v1's plaintext storage per D-26). |
 
@@ -83,6 +83,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Deterministic >20% conversion eligibility gate | **TESTED** (2026-09-06) — `CONVERSION_ELIGIBILITY_THRESHOLD` in `app.panel.service`, enforced inside `_reserve_quota()` so it applies on every retry, not just the first check |
 | AI ranking within the eligible set | **TESTED** (2026-09-06, Slice 15) — `app.panel.ai_allocation.PanelAllocationAIService`, real `DecisionEngine.decide()` call, not a fixed-weights formula. The eligible set (`SurveyService.list_eligible()`) is computed *before* the model is ever called, so an ineligible survey is never offered as a choice — proven by asserting the model's own received context excludes it |
 | Panelist suitability using real historical signal | **TESTED** — `historical_completion_rate`/`historical_dropout_rate`/`previously_exposed_to_this_survey`/`days_since_last_allocation`, all computed fresh from real `SurveyResponse`/`Allocation` records on every call ("decision memory" without a separate ML/vector pipeline) |
+| Real economic context (`client_rate_minor` alongside `cpi_minor`) for margin-aware ranking | **TESTED** (2026-09-06, Slice 18/19) — `_survey_context()` passes both raw figures; deliberately not a computed margin field, the model reasons about revenue-vs-cost from the two numbers directly rather than trusting a value this method would have to fabricate without a billing-service dependency |
 | Model choosing outside the eligible set | **TESTED** — rejected outright, not silently dropped |
 | Decision→allocation traceability | **TESTED** — `Allocation.ai_decision_subject_id` links back to the `AiProposal` that chose it |
 | Demographic profile-fit / fraud-risk signals in allocation context | **NOT_STARTED, honestly** — no consent-gated profile system or fraud-detection pipeline exists yet; not fabricated as context |
@@ -93,7 +94,9 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 
 | Item | Status |
 |---|---|
-| Real `CintProvider` behind `app.panel.providers.SurveyProvider` | NOT_STARTED (blocked — credentials) |
+| Real `CintSurveyProvider` behind `app.panel.providers.SurveyProvider` | **TESTED** (2026-09-06, Slice 18) — 5 tests. Real, verified base URLs/auth header/entry-link endpoint from v1's actual `cint_integration.py`; `get_survey_provider()` now returns this by default (was `StubSurveyProvider`, kept as a test-only double) |
+| Actually calling the live Cint API | **NOT_STARTED — blocked on `CINT_API_KEY`/`CINT_SUPPLIER_CODE`**, confirmed absent. `build_redirect_url()` raises `SurveyProviderUnavailable` rather than faking a redirect |
+| `refresh()` against Cint's real opportunity/quota data | **NOT_STARTED, honestly** — v1's `opportunities/v1/subscriptions/{supplier_code}` endpoint is a push/webhook subscription mechanism, not a pull-per-survey quota endpoint; v1's `LEGACY_SURVEY_DETAIL_ENDPOINT` is defined but never actually called anywhere in v1's own codebase, so its response shape is unverified and was not guessed at here |
 | `SurveyProvider` Protocol + fakes | **DONE (Slice 9)** |
 
 ## Phase 11 — Operations: inactive-study intelligence
@@ -119,7 +122,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | AI-assisted bank↔payment↔invoice reconciliation | **TESTED** — `match_payment_to_invoice()`. Candidates are deterministic (`InvoiceService.list_open()` filtered to an exact amount match against the `ReconciliationRecord`) — the AI picks among the offered set only, a fabricated invoice_id is rejected outright. Auto-apply calls the real, unchanged `PaymentService.record_payment()` + `ReconciliationService.match()` — this module never writes to Mongo directly |
 | "Never let AI infer financial truth from an email" | **TESTED end-to-end** — a test simulates Slice 12's exact `PAYMENT`-classification write path (`record_external_entry()` only, invoice untouched) followed by this slice's real matching step, proving an invoice only becomes `paid` through the governed match, never from the email alone |
 | Supplier reconciliation | **DONE (Slice 9)** — `SupplierReconciliationService`, flags disagreement, tested |
-| Margin (`Client → Study → Completes → Revenue/Cost`) | **NOT_STARTED, honestly, and correctly sequenced** — no `Survey`↔`Invoice` linkage exists beyond `Invoice.opportunity_id` (Slice 10); this is explicitly Slice 18's scope ("Cint + billing + margin"), not fabricated here |
+| Margin (`Client → Study → Completes → Revenue/Cost`) | **TESTED** (2026-09-06, Slice 18) — `app.panel.billing.SurveyBillingService.compute_margin()`; see Phase 13 below |
 
 ## Phase 13 — Complete → billing → invoice → supplier bill → margin
 
@@ -127,8 +130,11 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 |---|---|
 | Survey completion → reward credit | **DONE (Slice 9)** — `CallbackService`, tested |
 | Reward clawback on reversal (human-approval-gated) | **DONE (Slice 9)** — tested |
-| Complete → client billing rate → invoice linkage | NOT_STARTED |
-| Margin/profitability calculation (revenue − supplier cost) | NOT_STARTED |
+| Complete → billable completion (supplier-cost snapshot) | **TESTED** (2026-09-06, Slice 18) — `SurveyBillingService.record_billable_completion()`; idempotent against a later `Survey.cpi` change — an already-billable response is never re-costed |
+| Billable completions → client invoice | **TESTED** — `generate_client_invoice()`, requires both `Survey.opportunity_id` and `Survey.client_rate` (raises rather than fabricating either); never double-bills an already-invoiced completion; writes only through the real, unchanged `InvoiceService` |
+| Billable completions → supplier bill | **TESTED** — `generate_supplier_bill()`, same discipline, writes only through `BillService` |
+| Margin/profitability calculation (revenue − supplier cost) | **TESTED** — `compute_margin()`; reports `margin_pct: None` (never a fabricated 0%/100%) when there's no `client_rate` to compute revenue from |
+| `Survey.opportunity_id`/`client_rate`, `SurveyResponse.billable`/`supplier_cost`/`client_invoice_id`/`supplier_bill_id` | **TESTED** — new fields, all additive |
 
 ## Phase 14 — End-to-end orchestration + event bus
 
@@ -230,3 +236,59 @@ mean anything) and `ai_decision_subject_id` (the `Allocation`/`Survey`
 traceability pattern, Slices 15-16, generalized again). Margin/Cint/billing
 linkage is explicitly NOT started here — correctly sequenced to Slice 18, not
 fabricated to look further along. Test count: 307 → 323.
+
+**2026-09-06, continued — Slice 18 (the economic chain: Cint adapter + billing
++ margin) + final security/governance audit + end-to-end integration test**:
+closes the loop Slice 17 explicitly deferred. `app.panel.cint_provider.CintSurveyProvider`
+is a real (not stubbed) `SurveyProvider` implementation, built from v1's actual
+verified `Supply/v1/SupplierLinks` entry-link endpoint/auth-header shape (read
+from v1's `cint_integration.py` as reference material, not copied given register
+D-defects §2.0-2.9) — `get_survey_provider()` now returns it by default;
+`refresh()` honestly raises `SurveyProviderUnavailable` rather than parsing v1's
+never-actually-called `LEGACY_SURVEY_DETAIL_ENDPOINT`, whose response shape is
+unverified. `app.panel.billing.SurveyBillingService` is the new economic chain
+— `record_billable_completion()` (supplier-cost snapshot, idempotent against a
+later `Survey.cpi` change), `generate_client_invoice()`/`generate_supplier_bill()`
+(both require the real `Survey.opportunity_id`/`client_rate` fields added this
+slice, never double-bill, write only through the unchanged Slice 8
+`InvoiceService`/`BillService`), and `compute_margin()` (real revenue minus real
+supplier cost, `margin_pct: None` rather than a fabricated percentage when there's
+no client rate). `PanelAllocationAIService._survey_context()` gained
+`client_rate_minor` alongside `cpi_minor` as real margin-aware ranking context.
+
+The `ai_decision_subject_id` traceability pattern (Slices 15-17) was generalized
+to three more entities per the user's standing instruction to use it "throughout
+the rest of Torpedo": `InboundEmail` (stamped by `EmailAIService.analyze_and_route()`),
+`LeadEnrollment` (stamped by `OutreachAIService.decide_and_act()`), and `LeadState`
+(stamped by `LeadGenAIService.evaluate_icp()` — deliberately a *different* field
+from the pre-existing, locked `icp_score`, which stays owned exclusively by
+`app.leadgen.scoring`'s canonical scorer; a test proves both facts at once).
+
+A full security/governance audit (direct DB writes, ungoverned financial writes,
+unrestricted sends, suppression/quota bypass, missing authorization/idempotency/
+audit records, decisions without proposal records, proposals without entity
+traceability, candidate IDs outside the offered set) found one real cleanup item
+(an unused `payments_repo` constructor parameter on `AIFinanceService` — all
+payment writes already correctly went through the governed `PaymentService`; the
+dead parameter was removed) and the three traceability gaps above — everything
+else audited clean, by construction, across all seven AI-touched domains.
+
+One comprehensive end-to-end integration test
+(`tests/test_end_to_end_business_loop.py`) now proves the full business loop in
+one composed run: GSC signal → AI lead generation → real Account/Person → AI ICP
+evaluation → (manual, honestly-not-automated) Opportunity creation → Survey →
+eligibility gate → AI panel allocation → completion → billable completion →
+client invoice → supplier bill → invoice approval/send → client payment →
+AI-matched reconciliation → paid invoice → margin → AI operational evaluation →
+(manual, honestly-not-automated) outreach enrollment → AI outreach follow-up →
+final audit trail (exactly one `AiProposal` per AI decision, all through the
+*same* shared `DecisionEngine` instance — the literal, executable proof there is
+no second, isolated decision engine anywhere in this loop). Test count: 323 → 345.
+
+**What remains genuinely blocked, not just unscheduled**: `RUNPOD_API_KEY`
+(actually renting a GPU node), `CINT_API_KEY`/`CINT_SUPPLIER_CODE` (the live
+Cint API), Google Search Console credentials (real GSC signals), and real email
+provider credentials (`SendProvider`/`EmailIngestionProvider`) — every code path
+behind each of these fails loud with a distinct, named exception rather than a
+fabricated success. Software-complete and credential-blocked are two different
+statuses, tracked separately throughout this document on purpose.

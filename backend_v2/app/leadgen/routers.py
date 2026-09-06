@@ -237,7 +237,7 @@ async def evaluate_icp(
     svc: LeadGenAIService = Depends(get_leadgen_ai_service),
 ) -> Decision:
     try:
-        return await svc.evaluate_icp(org_id=identity.org_id, lead_state_id=lead_state_id, prospect_context=body.prospect_context)
+        return await svc.evaluate_icp(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, prospect_context=body.prospect_context)
     except LeadGenAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

@@ -86,6 +86,25 @@ async def _eligible_survey(svc: SurveyService, *, external_id: str, conversion_r
 
 
 @pytest.mark.asyncio
+async def test_context_carries_real_client_rate_alongside_cpi_for_margin_reasoning(db, survey_service, allocation_service):
+    """Slice 19's light-touch economic context: the model sees revenue-per-complete
+    (client_rate) next to cost-per-complete (cpi), never a fabricated margin figure."""
+    survey = await survey_service.create_survey(
+        org_id=ORG, actor=ACTOR, provider="cint", external_id="s1", quota_remaining=5,
+        cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3, client_rate=Money(amount_minor=1200, currency=CURRENCY),
+    )
+    survey = await survey_service.set_eligibility(actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    llm = FakeLLM(_decision(decision="NONE"))
+    svc = _service(db, llm, survey_service, allocation_service)
+
+    await svc.evaluate_and_allocate(org_id=ORG, actor=ACTOR, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=StubProvider())
+
+    offered = llm.calls[0]["context"]["eligible_surveys"][0]
+    assert offered["cpi_minor"] == 500
+    assert offered["client_rate_minor"] == 1200
+
+
+@pytest.mark.asyncio
 async def test_survey_at_or_below_conversion_threshold_is_never_offered_to_the_model(db, survey_service, allocation_service):
     ineligible = await _eligible_survey(survey_service, external_id="low", conversion_rate=0.15)
     eligible = await _eligible_survey(survey_service, external_id="high", conversion_rate=0.35)

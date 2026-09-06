@@ -107,7 +107,7 @@ class EmailAIService:
         if decision.decision not in EMAIL_CLASSIFICATIONS:
             raise EmailAIError(f"model returned an unrecognized email classification {decision.decision!r} — refusing to route")
 
-        await self._emails.update(email.id, email.version, {"classification": decision.decision, "classification_confidence": decision.confidence}, updated_by=actor)
+        await self._emails.update(email.id, email.version, {"classification": decision.decision, "classification_confidence": decision.confidence, "ai_decision_subject_id": email.id}, updated_by=actor)
         await self._route(org_id=org_id, actor=actor, email=email, decision=decision)
         return decision
 

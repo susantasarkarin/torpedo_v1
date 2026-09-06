@@ -57,6 +57,15 @@ class Survey(CanonicalDocument):
     # chain `Allocation.ai_decision_subject_id` (Slice 15) established, generalized
     # here per explicit user instruction to use it "throughout the rest of Torpedo."
     ai_decision_subject_id: str | None = None
+    # The commercial linkage (Slice 18) — real, optional fields, not fabricated.
+    # `opportunity_id` names which won `app.crm.Opportunity` this survey/study is
+    # delivering for (so its client Account is reachable via
+    # Opportunity.account_id); `client_rate` is what's charged to that client per
+    # completed interview, deliberately distinct from `cpi` (what's owed to the
+    # supplier for the same complete) — the whole point of Slice 18 is that these
+    # two numbers are never the same field.
+    opportunity_id: str | None = None
+    client_rate: Money | None = None
 
 
 class Allocation(CanonicalDocument):
@@ -92,6 +101,14 @@ class SurveyResponse(CanonicalDocument):
     # if anything — stored explicitly so a later "reversed" callback claws back exactly
     # what was credited, never a value re-derived from payout at reversal time
     reverses_response_id: str | None = None  # set on a "reversed" SurveyResponse, pointing at the original
+    # Billing (Slice 18) — set once, idempotently, by app.panel.billing.SurveyBillingService,
+    # never by CallbackService itself (the raw completion fact and its billing
+    # status are deliberately separate steps, the same "record now, reconcile
+    # later" separation Slice 8 already uses for payments vs. reconciliation).
+    billable: bool = False  # a "complete" that hasn't been reversed — set explicitly, never inferred at read time so a later reversal can't silently un-bill something already invoiced
+    supplier_cost: Money | None = None  # snapshot of Survey.cpi at the moment this was marked billable — deterministic, never AI-computed
+    client_invoice_id: str | None = None  # set once this complete is included on a client invoice — the guard against double-billing the same complete
+    supplier_bill_id: str | None = None  # same guard, supplier side
 
 
 class Supplier(CanonicalDocument):

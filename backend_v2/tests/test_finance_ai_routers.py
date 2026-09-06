@@ -67,7 +67,7 @@ def ai_finance_service(db) -> AIFinanceService:
     reconciliation_service = ReconciliationService(CanonicalRepository(db["reconciliation_records"], ReconciliationRecord), CanonicalRepository(db["payments"], Payment))
     llm = FakeLLM(json.dumps({"decision": "REMINDER", "reasoning_summary": "n/a", "confidence": 0.9, "priority": "LOW", "entities": [], "actions": [], "follow_up_at": None, "requires_human_approval": False, "extracted_entities": {}}))
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
-    return AIFinanceService(engine, invoice_service, bill_service, payment_service, reconciliation_service, CanonicalRepository(db["payments"], Payment), CanonicalRepository(db["reconciliation_records"], ReconciliationRecord), CanonicalRepository(db["ai_proposals"], AiProposal), activities)
+    return AIFinanceService(engine, invoice_service, bill_service, payment_service, reconciliation_service, CanonicalRepository(db["reconciliation_records"], ReconciliationRecord), CanonicalRepository(db["ai_proposals"], AiProposal), activities)
 
 
 @pytest.fixture

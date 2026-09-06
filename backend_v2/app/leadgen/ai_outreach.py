@@ -85,5 +85,5 @@ class OutreachAIService:
                 draft_context={"person_title": person.title, "reasoning": decision.reasoning_summary, "sequence_state": decision.decision},
             )
 
-        await self._enrollments.update(enrollment.id, enrollment.version, {"sequence_state": decision.decision}, updated_by=actor)
+        await self._enrollments.update(enrollment.id, enrollment.version, {"sequence_state": decision.decision, "ai_decision_subject_id": enrollment.id}, updated_by=actor)
         return decision

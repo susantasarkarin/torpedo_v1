@@ -127,6 +127,9 @@ async def test_first_contact_decision_sends_and_updates_sequence_state(db, ident
 
     updated = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).get(enrollment.id)
     assert updated.sequence_state == "CONTACTED"
+    assert updated.ai_decision_subject_id == enrollment.id
+    proposal = await CanonicalRepository(db["ai_proposals"], AiProposal).find_one({"subject_id": updated.ai_decision_subject_id, "task": "evaluate_outreach"})
+    assert proposal is not None
 
 
 @pytest.mark.asyncio

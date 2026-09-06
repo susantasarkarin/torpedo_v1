@@ -33,18 +33,26 @@ from app.models.base import CanonicalRepository
 from app.models.money import Money
 from app.panel.ai_allocation import PanelAllocationAIError, PanelAllocationAIService
 from app.panel.ai_operations import OperationsAIError, OperationsAIService
+from app.panel.billing import SurveyBillingError, SurveyBillingService
 from app.panel.callback_security import SignatureConfigError, SignatureInvalid
+from app.panel.cint_provider import CintSurveyProvider
 from app.panel.inactivity import StudyInactivityService
 from app.panel.models import Allocation, SURVEY_PROVIDERS, Supplier, Survey, SurveyResponse, SupplierReconciliationRecord, TrafficSource
 from app.panel.providers import SurveyProvider, SurveyProviderUnavailable, SurveyProjection
 from app.panel.service import AllocationService, CallbackService, SupplierReconciliationService, SupplierService, SurveyError, SurveyService, TrafficSourceService
+from app.crm.models import Opportunity
+from app.finance.models import Bill, GstDetails, Invoice
+from app.finance.routers import get_bill_service, get_invoice_service
 from app.rbac.identity import ResolvedIdentity
-from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_AI_ALLOCATE, SURVEY_AI_OPERATIONS, SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ, SURVEY_RECONCILE
+from app.rbac.permissions import SUPPLIER_MANAGE, SURVEY_AI_ALLOCATE, SURVEY_AI_OPERATIONS, SURVEY_ALLOCATE, SURVEY_BILLING_MANAGE, SURVEY_MANAGE, SURVEY_MARGIN_READ, SURVEY_READ, SURVEY_RECONCILE
 
 router = APIRouter()
 
 
 class StubSurveyProvider:
+    """Test-only double now — see `get_survey_provider()`. Kept here (not deleted)
+    because test files still import and override it directly."""
+
     async def build_redirect_url(self, *, survey: Survey, respondent_ref: str) -> str:
         return f"https://stub-provider.example/redirect?survey={survey.external_id}&r={respondent_ref}"
 
@@ -53,7 +61,11 @@ class StubSurveyProvider:
 
 
 def get_survey_provider() -> SurveyProvider:
-    return StubSurveyProvider()
+    """The real `CintSurveyProvider` (Slice 18) — not a stub. It already fails
+    loud (`SurveyProviderUnavailable`) when `CINT_API_KEY`/`CINT_SUPPLIER_CODE`
+    aren't configured, which is exactly "provider must fail clearly... never
+    return fake successful Cint data" — no extra fallback logic needed here."""
+    return CintSurveyProvider()
 
 
 def get_survey_service() -> SurveyService:
@@ -85,6 +97,14 @@ def get_operations_ai_service() -> OperationsAIService:
     return OperationsAIService(
         engine, get_survey_service(), inactivity, CanonicalRepository(db["surveys"], Survey),
         CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), ai_proposals,
+    )
+
+
+def get_billing_service() -> SurveyBillingService:
+    db = get_database()
+    return SurveyBillingService(
+        CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["surveys"], Survey),
+        CanonicalRepository(db["opportunities"], Opportunity), get_invoice_service(), get_bill_service(),
     )
 
 
@@ -150,6 +170,21 @@ class CreateTrafficSourceRequest(BaseModel):
     vendor_id: str
     country_code: str
     campaign_ref: str
+
+
+class GenerateInvoiceRequest(BaseModel):
+    gst_details: GstDetails
+    currency: str
+
+
+class GenerateBillRequest(BaseModel):
+    vendor_account_id: str
+    gst_details: GstDetails
+    currency: str
+
+
+class RecordBillableRequest(BaseModel):
+    survey_response_id: str
 
 
 class OperationsDecideRequest(BaseModel):
@@ -292,4 +327,39 @@ async def decide_operations_response(
     try:
         return await svc.evaluate_and_act(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, trigger_type=body.trigger_type, provider=provider)
     except OperationsAIError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+# --------------------------------------------------------------------------- billing / margin (Slice 18)
+
+
+@router.post("/survey-responses/{survey_response_id}/billing/mark-billable", response_model=SurveyResponse)
+async def mark_completion_billable(survey_response_id: str, identity: ResolvedIdentity = Depends(require_permission(SURVEY_BILLING_MANAGE)), svc: SurveyBillingService = Depends(get_billing_service)) -> SurveyResponse:
+    try:
+        return await svc.record_billable_completion(actor=identity.user_id, survey_response_id=survey_response_id)
+    except SurveyBillingError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/surveys/{survey_id}/billing/generate-invoice", response_model=Invoice)
+async def generate_client_invoice(survey_id: str, body: GenerateInvoiceRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_BILLING_MANAGE)), svc: SurveyBillingService = Depends(get_billing_service)) -> Invoice:
+    try:
+        return await svc.generate_client_invoice(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, gst_details=body.gst_details, currency=body.currency)
+    except SurveyBillingError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/surveys/{survey_id}/billing/generate-bill", response_model=Bill)
+async def generate_supplier_bill(survey_id: str, body: GenerateBillRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_BILLING_MANAGE)), svc: SurveyBillingService = Depends(get_billing_service)) -> Bill:
+    try:
+        return await svc.generate_supplier_bill(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, vendor_account_id=body.vendor_account_id, gst_details=body.gst_details, currency=body.currency)
+    except SurveyBillingError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/surveys/{survey_id}/margin")
+async def get_survey_margin(survey_id: str, identity: ResolvedIdentity = Depends(require_permission(SURVEY_MARGIN_READ)), svc: SurveyBillingService = Depends(get_billing_service)) -> dict:
+    try:
+        return await svc.compute_margin(survey_id=survey_id)
+    except SurveyBillingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

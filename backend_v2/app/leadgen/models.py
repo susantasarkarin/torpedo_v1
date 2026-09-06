@@ -79,6 +79,7 @@ class LeadEnrollment(CanonicalDocument):
     # for the closed set and why the AI decides transitions rather than a fixed
     # per-state rule.
     sequence_state: str = "OUTREACH_READY"
+    ai_decision_subject_id: str | None = None  # traces back to the AiProposal that last decided this enrollment's sequence_state
 
 
 class DeadLetterEvent(CanonicalDocument):

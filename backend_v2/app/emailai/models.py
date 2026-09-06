@@ -32,3 +32,4 @@ class InboundEmail(CanonicalDocument):
     thread_id: str | None = None
     classification: str | None = None  # set once, by analyze_and_route() — None until analyzed
     classification_confidence: float | None = None
+    ai_decision_subject_id: str | None = None  # traces back to the AiProposal that classified this email — same pattern as Allocation/Survey/Invoice/Bill

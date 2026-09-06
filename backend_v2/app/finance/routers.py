@@ -100,7 +100,7 @@ def get_ai_finance_service() -> AIFinanceService:
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return AIFinanceService(
         engine, get_invoice_service(), get_bill_service(), get_payment_service(), get_reconciliation_service(),
-        CanonicalRepository(db["payments"], Payment), CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
+        CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
         ai_proposals, CanonicalRepository(db["activities"], Activity),
     )
 

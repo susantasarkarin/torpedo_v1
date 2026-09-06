@@ -143,8 +143,15 @@ class PanelAllocationAIService:
         }
 
     def _survey_context(self, survey: Survey) -> dict:
+        # client_rate_minor (Slice 18) is real economic context, not fabricated —
+        # it's the same Survey.client_rate field SurveyBillingService bills from.
+        # Deliberately just the two raw numbers, not a computed margin per
+        # candidate: this method has no billing-service dependency, and the model
+        # is perfectly capable of reasoning about "revenue per complete vs. cost
+        # per complete" from the two figures directly.
         return {
             "survey_id": survey.id, "category": survey.category, "length_minutes": survey.length_minutes,
             "incentive_minor": survey.incentive.amount_minor if survey.incentive else None,
-            "cpi_minor": survey.cpi.amount_minor, "conversion_rate": survey.conversion_rate, "quota_remaining": survey.quota_remaining,
+            "cpi_minor": survey.cpi.amount_minor, "client_rate_minor": survey.client_rate.amount_minor if survey.client_rate else None,
+            "conversion_rate": survey.conversion_rate, "quota_remaining": survey.quota_remaining,
         }

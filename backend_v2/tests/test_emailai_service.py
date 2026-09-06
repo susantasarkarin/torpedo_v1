@@ -202,6 +202,20 @@ async def test_sales_lead_classification_creates_a_lead_via_existing_leadgen_pip
 
 
 @pytest.mark.asyncio
+async def test_classification_traces_back_to_the_ai_proposal_that_made_it(db, leadgen, suppression, reconciliation, outreach):
+    llm = FakeLLM(content=_classification(decision="SPAM", confidence=0.6))
+    svc = _service(db, llm, leadgen, suppression, reconciliation, outreach)
+    email = await _ingested_email(svc)
+
+    await svc.analyze_and_route(org_id=ORG, actor=ACTOR, email_id=email.id)
+
+    email_after = await CanonicalRepository(db["inbound_emails"], InboundEmail).get(email.id)
+    assert email_after.ai_decision_subject_id == email.id
+    proposal = await CanonicalRepository(db["ai_proposals"], AiProposal).find_one({"subject_id": email_after.ai_decision_subject_id, "task": "classify_email"})
+    assert proposal is not None
+
+
+@pytest.mark.asyncio
 async def test_unsubscribe_classification_suppresses_the_sender(db, leadgen, suppression, reconciliation, outreach):
     llm = FakeLLM(content=_classification(decision="UNSUBSCRIBE", confidence=0.99))
     svc = _service(db, llm, leadgen, suppression, reconciliation, outreach)

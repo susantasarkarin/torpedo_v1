@@ -194,7 +194,7 @@ async def test_excellent_icp_recommends_outreach(db, leadgen):
     llm = FakeLLM(content=_icp_decision(recommended_action="OUTREACH", score=92, classification="A"))
     svc = _service(db, llm, leadgen)
 
-    decision = await svc.evaluate_icp(org_id=ORG, lead_state_id="lead-1", prospect_context={"industry": "market research", "country": "IN"})
+    decision = await svc.evaluate_icp(org_id=ORG, actor=ACTOR, lead_state_id="lead-1", prospect_context={"industry": "market research", "country": "IN"})
     assert decision.decision == "OUTREACH"
     assert decision.extracted_entities["classification"] == "A"
     assert decision.extracted_entities["score"] == 92
@@ -205,7 +205,7 @@ async def test_poor_icp_recommends_reject(db, leadgen):
     llm = FakeLLM(content=_icp_decision(recommended_action="REJECT", score=12, classification="D", confidence=0.7))
     svc = _service(db, llm, leadgen)
 
-    decision = await svc.evaluate_icp(org_id=ORG, lead_state_id="lead-2", prospect_context={"industry": "unrelated retail", "country": "XX"})
+    decision = await svc.evaluate_icp(org_id=ORG, actor=ACTOR, lead_state_id="lead-2", prospect_context={"industry": "unrelated retail", "country": "XX"})
     assert decision.decision == "REJECT"
     assert decision.extracted_entities["classification"] == "D"
 
@@ -216,4 +216,21 @@ async def test_unrecognized_icp_recommendation_is_rejected(db, leadgen):
     svc = _service(db, llm, leadgen)
 
     with pytest.raises(LeadGenAIError):
-        await svc.evaluate_icp(org_id=ORG, lead_state_id="lead-3", prospect_context={})
+        await svc.evaluate_icp(org_id=ORG, actor=ACTOR, lead_state_id="lead-3", prospect_context={})
+
+
+@pytest.mark.asyncio
+async def test_evaluate_icp_traces_back_to_the_ai_proposal_without_touching_the_locked_scorer_field(db, identity, facets, leadgen):
+    """ai_decision_subject_id is a different signal from icp_score — icp_score
+    stays owned exclusively by app.leadgen.scoring's canonical scorer, per the
+    field's own locked-invariant comment in app.identity.facets."""
+    person = await identity.create_person(org_id=ORG, actor=ACTOR, primary_email="lead@example.com")
+    lead = await facets.attach_lead_state(actor=ACTOR, person_id=person.id, source_type="gsc_ai")
+    llm = FakeLLM(content=_icp_decision(recommended_action="OUTREACH"))
+    svc = _service(db, llm, leadgen)
+
+    await svc.evaluate_icp(org_id=ORG, actor=ACTOR, lead_state_id=lead.id, prospect_context={"industry": "market research"})
+
+    lead_after = await facets.get_lead_state(lead.id)
+    assert lead_after.ai_decision_subject_id == lead.id
+    assert lead_after.icp_score is None  # untouched — only app.leadgen.scoring may ever set this

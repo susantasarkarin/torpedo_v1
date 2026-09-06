@@ -98,7 +98,7 @@ def _service(db, llm, invoice_service, bill_service, payment_service, reconcilia
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return AIFinanceService(
         engine, invoice_service, bill_service, payment_service, reconciliation_service,
-        CanonicalRepository(db["payments"], Payment), CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
+        CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
         ai_proposals, CanonicalRepository(db["activities"], Activity),
     )
 

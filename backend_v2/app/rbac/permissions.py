@@ -118,3 +118,10 @@ SURVEY_AI_OPERATIONS = "survey.ai.operations"  # system — the (future) schedul
 FINANCE_AI_AR = "finance.ai.ar_followup"  # system — the (future) scheduled caller
 FINANCE_AI_AP = "finance.ai.ap_followup"
 FINANCE_AI_MATCH = "finance.ai.match_payment"
+
+# Survey billing/margin — Slice 18.
+SURVEY_BILLING_MANAGE = "survey.billing.manage"
+SURVEY_MARGIN_READ = "survey.margin.read"
+
+# Integration/diagnostics status — Slice 18/19.
+INTEGRATIONS_STATUS_READ = "integrations.status.read"

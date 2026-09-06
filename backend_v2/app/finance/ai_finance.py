@@ -102,7 +102,7 @@ class AIFinanceService:
     def __init__(
         self, decision_engine: DecisionEngine, invoice_service: InvoiceService, bill_service: BillService,
         payment_service: PaymentService, reconciliation_service: ReconciliationService,
-        payments_repo: CanonicalRepository[Payment], reconciliation_repo: CanonicalRepository[ReconciliationRecord],
+        reconciliation_repo: CanonicalRepository[ReconciliationRecord],
         ai_proposals: CanonicalRepository[AiProposal], activities: CanonicalRepository[Activity],
     ):
         self._decision_engine = decision_engine
@@ -110,7 +110,6 @@ class AIFinanceService:
         self._bill_service = bill_service
         self._payment_service = payment_service
         self._reconciliation_service = reconciliation_service
-        self._payments_repo = payments_repo
         self._reconciliation_repo = reconciliation_repo
         self._ai_proposals = ai_proposals
         self._activities = activities

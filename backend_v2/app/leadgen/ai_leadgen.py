@@ -86,8 +86,19 @@ class LeadGenAIService:
             results.append(result)
         return results
 
-    async def evaluate_icp(self, *, org_id: str, lead_state_id: str, prospect_context: dict) -> Decision:
+    async def evaluate_icp(self, *, org_id: str, actor: str, lead_state_id: str, prospect_context: dict) -> Decision:
         decision = await self._decision_engine.decide(org_id=org_id, task="evaluate_icp", subject_id=lead_state_id, context=prospect_context)
         if decision.decision not in RECOMMENDED_ACTIONS:
             raise LeadGenAIError(f"model returned an unrecognized ICP recommendation {decision.decision!r}")
+
+        # Traceability, not a state change: unlike LeadState.icp_score (owned
+        # exclusively by app.leadgen.scoring's canonical scorer), stamping
+        # ai_decision_subject_id here never touches that locked field. lead_state_id
+        # is caller-supplied and not always a real, persisted LeadState in every
+        # caller's flow (e.g. a dry-run evaluation) — silently skipping the stamp
+        # when there's no real lead to attach it to is not fabricating data, it's
+        # just declining to write traceability metadata onto nothing.
+        lead = await self._leadgen.get_lead(lead_state_id)
+        if lead is not None:
+            await self._leadgen._facets.update_lead_state(lead.id, lead.version, {"ai_decision_subject_id": lead_state_id}, updated_by=actor)
         return decision

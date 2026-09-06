@@ -715,15 +715,85 @@ movement **without becoming the accounting authority**.
   `Invoice.opportunity_id` (Slice 10), and that chain is correctly sequenced as
   Slice 18's scope, not faked to look further along than it is.
 
+**Phase 1, slice 18 (`app/panel/cint_provider.py`, `app/panel/billing.py`): the
+economic chain.** Cint adapter + completions → supplier cost → client billing →
+supplier bill → margin, the chain Slice 17 explicitly deferred.
+
+- **`CintSurveyProvider` is a real `SurveyProvider` implementation, not
+  another stub.** Base URLs, the raw (non-Bearer) auth header, and the entry-link
+  endpoint/response shape (`Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}`
+  → `{"SupplierLink": {"LiveLink": ...}}`) all come from reading v1's actual
+  `cint_integration.py`/`cint_service.py`, not guessed. `get_survey_provider()`
+  now returns this by default (`StubSurveyProvider` is kept, test-only).
+  `build_redirect_url()` raises `SurveyProviderUnavailable` when
+  `CINT_API_KEY`/`CINT_SUPPLIER_CODE` are absent, confirmed absent in this
+  environment — never a fabricated redirect. `refresh()` honestly does not
+  implement v1's `LEGACY_SURVEY_DETAIL_ENDPOINT`: that endpoint is defined in
+  v1 but never actually called anywhere in v1's own codebase, so its response
+  shape is unverified, and guessing at a parser for it would be exactly the
+  no-fake-completion failure this rebuild's discipline exists to prevent. v1's
+  opportunities/subscriptions endpoint is confirmed to be a push/webhook
+  subscription mechanism, not a pull-per-survey quota endpoint.
+- **`SurveyBillingService` writes to Mongo nowhere except through the real,
+  unchanged Slice 8 `InvoiceService`/`BillService`** — the same "AI/domain
+  logic never touches Mongo directly" discipline every prior slice enforces,
+  applied here to billing math rather than an AI decision.
+  `record_billable_completion()` snapshots `SurveyResponse.supplier_cost` from
+  `Survey.cpi` at the moment of completion, idempotently — a later `Survey.cpi`
+  change never re-costs an already-billable response.
+  `generate_client_invoice()`/`generate_supplier_bill()` both require the two
+  new `Survey` fields (`opportunity_id`, `client_rate`) this slice added,
+  raising rather than fabricating either when missing, and never double-bill
+  an already-invoiced/billed completion. `compute_margin()` reports real
+  revenue minus real supplier cost, and `margin_pct: None` (never a fabricated
+  0%/100%) when there's no `client_rate` to compute revenue from.
+- **`PanelAllocationAIService._survey_context()` gained `client_rate_minor`
+  alongside `cpi_minor`** — real economic context for margin-aware allocation
+  ranking, deliberately just the two raw figures rather than a computed margin
+  this method has no billing-service dependency to compute honestly.
+- **The `ai_decision_subject_id` traceability pattern (Slices 15-17) was
+  generalized to three more entities**, per the user's standing instruction to
+  use it "throughout the rest of Torpedo": `InboundEmail` (stamped by
+  `EmailAIService.analyze_and_route()`), `LeadEnrollment` (stamped by
+  `OutreachAIService.decide_and_act()`), and `LeadState` (stamped by
+  `LeadGenAIService.evaluate_icp()` — a deliberately *different* field from the
+  pre-existing, locked `icp_score`, which stays owned exclusively by
+  `app.leadgen.scoring`'s canonical scorer; never written by this or any other
+  AI path).
+- **A full security/governance audit** (direct DB writes from AI modules,
+  ungoverned financial writes, unrestricted sends, suppression/quota bypass,
+  missing authorization/idempotency/audit records, decisions without proposal
+  records, proposals without entity traceability, candidate IDs outside the
+  offered set) ran across all seven AI-touched domains. It found and fixed one
+  real cleanup item — an unused `payments_repo` constructor parameter on
+  `AIFinanceService` (all payment writes already correctly went through the
+  governed `PaymentService`) — plus the three traceability gaps above.
+  Everything else audited clean, by construction.
+- **One comprehensive end-to-end integration test**
+  (`tests/test_end_to_end_business_loop.py`) composes the full business loop in
+  a single run: GSC signal → AI lead generation → real Account/Person → AI ICP
+  evaluation → Opportunity → Survey → eligibility gate → AI panel allocation →
+  completion → billable completion → client invoice → supplier bill → invoice
+  approval/send → client payment → AI-matched reconciliation → paid invoice →
+  margin → AI operational evaluation → AI outreach follow-up → final audit
+  trail — proving, executably, that all six AI decisions in the loop share
+  exactly *one* `DecisionEngine` instance. Two hops are deliberately manual in
+  the test and documented as real, honest gaps rather than oversights:
+  Lead→Opportunity and Lead→Outreach-enrollment have no automatic conversion
+  path anywhere in the codebase.
+
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
-real GSC/Cint/email-provider adapters (all blocked on credentials this environment
-doesn't have); a scheduler to run `GpuBroker.sweep()`, `detect_and_flag()`,
-`detect_triggers()`, or periodic email/lead-gen/outreach/allocation/finance
-evaluation on a cadence (Phase 14 of the checklist — event/scheduler
-infrastructure); Slices 18-19 (Cint+billing+margin, full end-to-end
-orchestration). See `docs/schema_catalogue.md` and `docs/endpoint_catalogue.md`
-for what those will look like when they land.
+the live Cint API, real GSC signals, and a real email send/ingestion provider
+(all blocked on credentials this environment doesn't have — `CINT_API_KEY`/
+`CINT_SUPPLIER_CODE`, Google Search Console credentials, and an
+email-provider credential scheme, respectively); a scheduler to run
+`GpuBroker.sweep()`, `detect_and_flag()`, `detect_triggers()`, or periodic
+email/lead-gen/outreach/allocation/finance evaluation on a cadence (Phase 14 of
+the checklist — event/scheduler infrastructure); automatic Lead→Opportunity and
+Lead→Outreach-enrollment conversion (both currently manual/ops decisions, by
+design — see Slice 18 above). See `docs/schema_catalogue.md` and
+`docs/endpoint_catalogue.md` for what those will look like when they land.
 
 ## Running
 
