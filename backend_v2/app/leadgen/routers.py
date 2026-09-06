@@ -21,12 +21,15 @@ from app.ai.gpu_broker import GpuBroker
 from app.ai.llm import GpuBrokerLLMProvider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, require_permission
+from app.crm.models import Opportunity
+from app.crm.routers import get_opportunity_service
 from app.db import get_database
 from app.identity.facet_service import FacetService
 from app.identity.facets import AuthIdentity, CustomerBilling, EmployeeRecord, LeadState, PanelistProfile, VendorProfile
 from app.identity.models import Account, AccountBrandRelationship, Person
 from app.identity.service import IdentityService
 from app.leadgen.ai import AIClassificationResult, AIClassifier
+from app.leadgen.ai_conversion import LeadConversionAIError, LeadConversionAIService
 from app.leadgen.ai_leadgen import LeadGenAIError, LeadGenAIService
 from app.leadgen.ai_outreach import OutreachAIError, OutreachAIService
 from app.leadgen.gsc import GSCProvider, GSCProviderUnavailable, SearchSignal
@@ -40,7 +43,7 @@ from app.emailai.drafting import EmailMessageDrafter
 from app.models.activity import Activity
 from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
-from app.rbac.permissions import LEAD_ASSIGN, LEAD_ENROLL, LEAD_INGEST, LEAD_QUALIFY, LEAD_READ, LEADGEN_AI_EVALUATE_ICP, LEADGEN_AI_GENERATE, OUTREACH_AI_DECIDE
+from app.rbac.permissions import LEAD_ASSIGN, LEAD_ENROLL, LEAD_INGEST, LEAD_QUALIFY, LEAD_READ, LEADGEN_AI_CONVERT, LEADGEN_AI_EVALUATE_ICP, LEADGEN_AI_GENERATE, OUTREACH_AI_DECIDE
 
 router = APIRouter()
 
@@ -107,6 +110,26 @@ def get_leadgen_ai_service() -> LeadGenAIService:
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return LeadGenAIService(engine, get_leadgen_service())
+
+
+def get_lead_conversion_ai_service() -> LeadConversionAIService:
+    from app.config import get_settings
+    from app.finance.routers import get_invoice_service
+
+    db = get_database()
+    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
+    facets = FacetService(
+        people=CanonicalRepository(db["people"], Person), accounts=CanonicalRepository(db["accounts"], Account),
+        activities=CanonicalRepository(db["activities"], Activity), lead_states=CanonicalRepository(db["lead_states"], LeadState),
+        panelist_profiles=CanonicalRepository(db["panelist_profiles"], PanelistProfile), customer_billing=CanonicalRepository(db["customer_billing"], CustomerBilling),
+        vendor_profiles=CanonicalRepository(db["vendor_profiles"], VendorProfile), employee_records=CanonicalRepository(db["employee_records"], EmployeeRecord),
+        auth_identities=CanonicalRepository(db["auth_identities"], AuthIdentity),
+    )
+    return LeadConversionAIService(
+        engine, facets, get_opportunity_service(get_invoice_service()), CanonicalRepository(db["accounts"], Account),
+        shadow_mode=get_settings().ai_shadow_mode,
+    )
 
 
 def get_outreach_ai_service() -> OutreachAIService:
@@ -243,6 +266,24 @@ async def evaluate_icp(
         return await svc.evaluate_icp(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, prospect_context=body.prospect_context)
     except LeadGenAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+class AiConvertResponse(BaseModel):
+    decision: Decision
+    opportunity: Opportunity | None = None
+
+
+@router.post("/leads/{lead_state_id}/ai/convert", response_model=AiConvertResponse)
+async def ai_convert_lead(
+    lead_state_id: str,
+    identity: ResolvedIdentity = Depends(require_permission(LEADGEN_AI_CONVERT)),
+    svc: LeadConversionAIService = Depends(get_lead_conversion_ai_service),
+) -> AiConvertResponse:
+    try:
+        decision, opportunity = await svc.evaluate_and_convert(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id)
+    except LeadConversionAIError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return AiConvertResponse(decision=decision, opportunity=opportunity)
 
 
 @router.post("/enrollments/{enrollment_id}/outreach-decide", response_model=Decision)

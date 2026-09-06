@@ -106,6 +106,19 @@ class FakeOutreachAI:
         return _Decision("NURTURE")
 
 
+class FakeConversionAI:
+    def __init__(self, *, raises=None, opportunity=None):
+        self._raises = raises
+        self._opportunity = opportunity
+        self.calls: list[dict] = []
+
+    async def evaluate_and_convert(self, *, org_id, actor, lead_state_id):
+        self.calls.append({"lead_state_id": lead_state_id})
+        if self._raises:
+            raise self._raises
+        return _Decision("HOLD"), self._opportunity
+
+
 class _NoOpDetection:
     async def run_all(self, *, org_id, as_of=None):
         return {}
@@ -121,11 +134,12 @@ def events(db) -> CanonicalRepository[Event]:
     return CanonicalRepository(db["events"], Event)
 
 
-def _orchestrator(events, *, operations_ai=None, finance_ai=None, leadgen_ai=None, email_ai=None, outreach_ai=None) -> EventOrchestrator:
+def _orchestrator(events, *, operations_ai=None, finance_ai=None, leadgen_ai=None, email_ai=None, outreach_ai=None, conversion_ai=None) -> EventOrchestrator:
     return EventOrchestrator(
         events=events, detection=_NoOpDetection(),
         operations_ai=operations_ai or FakeOperationsAI(), finance_ai=finance_ai or FakeFinanceAI(),
         leadgen_ai=leadgen_ai or FakeLeadGenAI(), email_ai=email_ai or FakeEmailAI(), outreach_ai=outreach_ai or FakeOutreachAI(),
+        conversion_ai=conversion_ai or FakeConversionAI(),
         survey_provider=None,
     )
 
@@ -240,6 +254,30 @@ async def test_outreach_followup_event_dispatches_with_mailbox_id_from_payload(d
 
     await orchestrator.process_pending(org_id=ORG)
     assert outreach_ai.calls == [{"enrollment_id": "enr-1", "mailbox_id": "mailbox-1"}]
+
+
+@pytest.mark.asyncio
+async def test_lead_conversion_event_dispatches_to_conversion_ai(db, events):
+    conversion_ai = FakeConversionAI()
+    await _pending_event(events, event_type="lead_conversion_due", entity_type="lead_state", entity_id="lead-1")
+    orchestrator = _orchestrator(events, conversion_ai=conversion_ai)
+
+    await orchestrator.process_pending(org_id=ORG)
+    assert conversion_ai.calls == [{"lead_state_id": "lead-1"}]
+
+
+@pytest.mark.asyncio
+async def test_lead_conversion_event_result_includes_opportunity_id_when_converted(db, events):
+    class _Opportunity:
+        id = "opp-1"
+
+    conversion_ai = FakeConversionAI(opportunity=_Opportunity())
+    await _pending_event(events, event_type="lead_conversion_due", entity_type="lead_state", entity_id="lead-1")
+    orchestrator = _orchestrator(events, conversion_ai=conversion_ai)
+
+    await orchestrator.process_pending(org_id=ORG)
+    stored = (await events.find_all({}))[0]
+    assert stored.result["opportunity_id"] == "opp-1"
 
 
 # --------------------------------------------------------------------------- failure/retry mechanics

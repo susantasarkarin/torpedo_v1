@@ -527,3 +527,42 @@ Test count: 411 → 424. GPU activation itself remains
 `IMPLEMENTED — LIVE CREDENTIAL REQUIRED`, per `docs/GPU_ACTIVATION_RUNBOOK.md`
 — everything achievable without `RUNPOD_API_KEY` is now done. Phase 3
 (lead/sales/opportunity engine) is next.
+
+**2026-09-06, continued — Phase 3 (lead/sales/opportunity engine): AI-driven
+Lead → Opportunity conversion.** This closes the single most consistently-
+flagged gap across this entire rebuild — every README/checklist entry since
+Slice 18 named "no automatic Lead→Opportunity conversion anywhere in the
+codebase" as an honest, documented gap. `app.leadgen.ai_conversion.LeadConversionAIService`
+is the real fix, same architecture as every prior AI slice.
+
+- **Deterministic eligibility, same "offer the walls" discipline**: only a
+  `LeadState` already `QUALIFIED`/`ASSIGNED`/`ENROLLED` (cleared
+  `app.leadgen.scoring`'s canonical qualification bar) with a real
+  `account_id` is ever offered to the model as a candidate at all —
+  `list_conversion_eligible()`.
+- **A real architectural conflict was found and resolved, not papered
+  over**: `LeadState.ai_decision_subject_id` was already owned by ICP
+  evaluation (Slice 13). Reusing it for conversion would have silently
+  overwritten the ICP trace the moment a lead was evaluated for conversion.
+  Fixed by adding a second, distinct field —
+  `ai_conversion_decision_subject_id` — so two different AI decisions can
+  independently touch the same `LeadState` without one erasing the other's
+  audit trail.
+- **`LeadState.state = CONVERTED` was a reserved value with zero writers
+  anywhere in this codebase before this slice** (defined Slice 4/6, excluded
+  from `LeadGenService.ingest()`'s "reuse a non-terminal lead" query, but
+  never actually set). This is the first real writer.
+- **Shadow-mode gated — the sixth service this applies to.** Creating a real
+  `Opportunity` is consequential (it can become a real `Invoice` downstream
+  via `OpportunityService.convert_to_invoice()`), so `CONVERT` is held back
+  in shadow mode exactly like the other five gated execution points. HOLD/
+  REJECT/shadow-suppressed decisions still stamp
+  `ai_conversion_decision_subject_id` — the same "every decision is
+  auditable" discipline every other domain applies, and also what keeps
+  Phase 14's scheduler from re-offering the same lead on every single tick
+  (a human calling `POST /leads/{id}/ai/convert` directly has no such
+  one-shot gate, and can always reconsider a HELD lead on demand).
+- **Wired as an eighth Phase 14 scheduler trigger** (`lead_conversion_due`),
+  the same detect→event→orchestrator-dispatch pattern as the other seven.
+
+Test count: 424 → 440.

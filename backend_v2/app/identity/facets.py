@@ -40,6 +40,7 @@ class LeadState(CanonicalDocument):
     team: str | None = None
     icp_score: int | None = None  # set by app.leadgen.scoring's canonical scorer — never any other
     ai_decision_subject_id: str | None = None  # traces back to the AiProposal from the last evaluate_icp() call — a *different* signal from icp_score, never written by the scorer
+    ai_conversion_decision_subject_id: str | None = None  # traces back to the AiProposal from the last evaluate_and_convert() call (Phase 3) — a distinct field from the one above: two different AI decisions can each touch a LeadState, and each needs its own untouched trace
 
 
 class PanelistProfile(CanonicalDocument):

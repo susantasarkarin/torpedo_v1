@@ -6,7 +6,7 @@ condition (reusing an existing detector/query, never reimplementing one) and
 creates an idempotent `Event` for it, skipping if one already exists per
 `Event`'s own dedupe-key rules (see models.py).
 
-**Seven real, computable triggers — not the fuller wishlist, and that's
+**Eight real, computable triggers — not the fuller wishlist, and that's
 deliberate**:
 
 - `survey_operations_trigger` — reuses `OperationsAIService.detect_triggers()`
@@ -21,6 +21,11 @@ deliberate**:
   further state but has never been AI-ICP-evaluated (`ai_decision_subject_id`
   is still `None` — the Slice 18 traceability field, read here rather than a
   new one invented for this purpose).
+- `lead_conversion_due` (Phase 3) — a `LeadState` that's QUALIFIED-or-further,
+  has a real `account_id`, and has never had a conversion decision made about
+  it (`ai_conversion_decision_subject_id` — a field distinct from ICP's own
+  `ai_decision_subject_id`, since both AI decisions can independently touch
+  the same `LeadState`).
 - `email_classification_due` — an `InboundEmail` never classified.
 - `outreach_followup_due` — a `LeadEnrollment` not in a terminal sequence
   state, stale for longer than `OUTREACH_STALENESS_WINDOW`. Needs a real,
@@ -47,6 +52,7 @@ from app.emailai.models import InboundEmail
 from app.finance.service import BillService, InvoiceService, ReconciliationService
 from app.identity.models import Account, Person
 from app.identity.facets import LeadState
+from app.leadgen.ai_conversion import CONVERSION_ELIGIBLE_STATES as _CONVERSION_ELIGIBLE_LEAD_STATES
 from app.leadgen.models import ASSIGNED, ENROLLED, LeadEnrollment, QUALIFIED
 from app.models.base import CanonicalRepository
 from app.outreach.models import Mailbox
@@ -99,6 +105,7 @@ class EventDetectionService:
             "ap_followup_due": len(await self.detect_ap_followup(org_id=org_id)),
             "reconciliation_unmatched": len(await self.detect_reconciliation_unmatched(org_id=org_id)),
             "lead_icp_evaluation_due": len(await self.detect_lead_icp_evaluation(org_id=org_id)),
+            "lead_conversion_due": len(await self.detect_lead_conversion(org_id=org_id)),
             "email_classification_due": len(await self.detect_email_classification(org_id=org_id)),
             "outreach_followup_due": len(await self.detect_outreach_followup(org_id=org_id, as_of=as_of)),
         }
@@ -163,6 +170,23 @@ class EventDetectionService:
                 "title": person.title if person else None,
             }
             event = await self._create_if_new(org_id=org_id, event_type="lead_icp_evaluation_due", entity_type="lead_state", entity_id=lead.id, occurred_at=datetime.now(timezone.utc), dedupe_key=dedupe_key, payload={"prospect_context": prospect_context})
+            if event:
+                created.append(event)
+        return created
+
+    async def detect_lead_conversion(self, *, org_id: str) -> list[Event]:
+        """One-shot per lead, same as ICP evaluation above — a HOLD/REJECT
+        decision (or a shadow-suppressed CONVERT) still stamps
+        `ai_conversion_decision_subject_id` (see `LeadConversionAIService`'s
+        own docstring), which is exactly what clears this detector's own
+        query condition. A human isn't limited by this — the
+        `POST /leads/{id}/ai/convert` endpoint has no such gate and can
+        always be called again to reconsider a HELD lead directly."""
+        leads = await self._lead_states.find_all({"org_id": org_id, "state": {"$in": list(_CONVERSION_ELIGIBLE_LEAD_STATES)}, "ai_conversion_decision_subject_id": None, "account_id": {"$ne": None}})
+        created = []
+        for lead in leads:
+            dedupe_key = f"lead_conversion_due:{lead.id}"
+            event = await self._create_if_new(org_id=org_id, event_type="lead_conversion_due", entity_type="lead_state", entity_id=lead.id, occurred_at=datetime.now(timezone.utc), dedupe_key=dedupe_key, payload={})
             if event:
                 created.append(event)
         return created

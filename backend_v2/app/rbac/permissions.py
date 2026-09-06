@@ -105,6 +105,9 @@ EMAIL_READ = "email.read"
 LEADGEN_AI_GENERATE = "leadgen.ai.generate"  # system — the (future) scheduled caller
 LEADGEN_AI_EVALUATE_ICP = "leadgen.ai.evaluate_icp"
 
+# AI lead -> opportunity conversion — Phase 3 of the master completion program.
+LEADGEN_AI_CONVERT = "leadgen.ai.convert"  # system — the scheduled caller (app.scheduler)
+
 # AI outreach — Slice 14.
 OUTREACH_AI_DECIDE = "outreach.ai.decide"  # system — the (future) scheduled caller
 

@@ -32,6 +32,7 @@ from app.ai.decision_engine import DecisionEngineError
 from app.ai.llm import LLMUnavailable
 from app.emailai.service import EmailAIError, EmailAIService
 from app.finance.ai_finance import AIFinanceError, AIFinanceService
+from app.leadgen.ai_conversion import LeadConversionAIError, LeadConversionAIService
 from app.leadgen.ai_leadgen import LeadGenAIError, LeadGenAIService
 from app.leadgen.ai_outreach import OutreachAIError, OutreachAIService
 from app.models.base import CanonicalRepository, VersionConflict
@@ -42,7 +43,7 @@ from app.scheduler.models import FAILED, MAX_ATTEMPTS, PENDING, PROCESSED, PROCE
 
 _RECOVERABLE_ERRORS = (
     LLMUnavailable, DecisionEngineError, SurveyProviderUnavailable,
-    OperationsAIError, AIFinanceError, LeadGenAIError, EmailAIError, OutreachAIError,
+    OperationsAIError, AIFinanceError, LeadGenAIError, EmailAIError, OutreachAIError, LeadConversionAIError,
 )
 
 ACTOR = "system"
@@ -53,6 +54,7 @@ class EventOrchestrator:
         self, *, events: CanonicalRepository[Event], detection: EventDetectionService,
         operations_ai: OperationsAIService, finance_ai: AIFinanceService, leadgen_ai: LeadGenAIService,
         email_ai: EmailAIService, outreach_ai: OutreachAIService, survey_provider: SurveyProvider,
+        conversion_ai: LeadConversionAIService,
     ):
         self._events = events
         self._detection = detection
@@ -62,6 +64,7 @@ class EventOrchestrator:
         self._email_ai = email_ai
         self._outreach_ai = outreach_ai
         self._survey_provider = survey_provider
+        self._conversion_ai = conversion_ai
 
     async def run_detection_cycle(self, *, org_id: str) -> dict[str, int]:
         return await self._detection.run_all(org_id=org_id)
@@ -121,3 +124,7 @@ class EventOrchestrator:
     async def _handle_outreach_followup_due(self, event: Event) -> dict:
         decision = await self._outreach_ai.decide_and_act(org_id=event.org_id, actor=ACTOR, enrollment_id=event.entity_id, mailbox_id=event.payload["mailbox_id"])
         return {"decision": decision.decision, "confidence": decision.confidence}
+
+    async def _handle_lead_conversion_due(self, event: Event) -> dict:
+        decision, opportunity = await self._conversion_ai.evaluate_and_convert(org_id=event.org_id, actor=ACTOR, lead_state_id=event.entity_id)
+        return {"decision": decision.decision, "confidence": decision.confidence, "opportunity_id": opportunity.id if opportunity else None}

@@ -32,7 +32,7 @@ from app.finance.routers import get_reconciliation_service as get_finance_reconc
 from app.identity.models import Account, Person
 from app.identity.facets import LeadState
 from app.leadgen.models import LeadEnrollment
-from app.leadgen.routers import get_leadgen_ai_service, get_outreach_ai_service
+from app.leadgen.routers import get_lead_conversion_ai_service, get_leadgen_ai_service, get_outreach_ai_service
 from app.models.base import CanonicalRepository
 from app.outreach.models import Mailbox
 from app.panel.callback_security import SignatureConfigError, SignatureInvalid, verify_hmac_signature
@@ -72,6 +72,7 @@ def get_event_orchestrator() -> EventOrchestrator:
         email_ai=get_email_ai_service(),
         outreach_ai=get_outreach_ai_service(),
         survey_provider=get_survey_provider(),
+        conversion_ai=get_lead_conversion_ai_service(),
     )
 
 

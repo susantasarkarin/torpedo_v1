@@ -167,6 +167,9 @@ class FacetService:
     async def find_lead_state(self, query: dict) -> LeadState | None:
         return await self._lead_states.find_one(query)
 
+    async def list_lead_states(self, query: dict) -> list[LeadState]:
+        return await self._lead_states.find_all(query)
+
     async def get_lead_state(self, lead_state_id: str) -> LeadState | None:
         return await self._lead_states.get(lead_state_id)
 

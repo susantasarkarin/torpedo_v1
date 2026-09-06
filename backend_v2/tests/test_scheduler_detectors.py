@@ -221,6 +221,30 @@ async def test_lead_icp_detector_builds_real_context_from_account_and_person(db,
     assert ctx["title"] == "VP Insights"
 
 
+# --------------------------------------------------------------------------- lead_conversion_due
+
+
+@pytest.mark.asyncio
+async def test_lead_conversion_detector_only_fires_for_qualified_leads_with_a_real_account(db, detection):
+    lead_states = CanonicalRepository(db["lead_states"], LeadState)
+    eligible = await lead_states.insert(LeadState(org_id=ORG, created_by="system", updated_by="system", person_id="p1", source_type="gsc_ai", state="qualified", account_id="acct-1"))
+    await lead_states.insert(LeadState(org_id=ORG, created_by="system", updated_by="system", person_id="p2", source_type="gsc_ai", state="qualified", account_id=None))  # no account
+    await lead_states.insert(LeadState(org_id=ORG, created_by="system", updated_by="system", person_id="p3", source_type="gsc_ai", state="discovered", account_id="acct-2"))  # not yet qualified
+
+    created = await detection.detect_lead_conversion(org_id=ORG)
+    assert len(created) == 1
+    assert created[0].entity_id == eligible.id
+
+
+@pytest.mark.asyncio
+async def test_lead_conversion_detector_skips_leads_already_decided(db, detection):
+    lead_states = CanonicalRepository(db["lead_states"], LeadState)
+    await lead_states.insert(LeadState(org_id=ORG, created_by="system", updated_by="system", person_id="p1", source_type="gsc_ai", state="qualified", account_id="acct-1", ai_conversion_decision_subject_id="lead-1"))
+
+    created = await detection.detect_lead_conversion(org_id=ORG)
+    assert created == []
+
+
 # --------------------------------------------------------------------------- email_classification_due
 
 
@@ -295,5 +319,5 @@ async def test_run_all_aggregates_counts_across_every_detector(db, detection, in
     assert counts["survey_operations_trigger"] == 0
     assert set(counts.keys()) == {
         "survey_operations_trigger", "ar_followup_due", "ap_followup_due", "reconciliation_unmatched",
-        "lead_icp_evaluation_due", "email_classification_due", "outreach_followup_due",
+        "lead_icp_evaluation_due", "lead_conversion_due", "email_classification_due", "outreach_followup_due",
     }
