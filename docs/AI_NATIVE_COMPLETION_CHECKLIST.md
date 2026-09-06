@@ -476,3 +476,54 @@ complete for what's buildable without a live external credential; Phase 2
 (AI production platform / GPU activation) is next, per the program's own
 explicit phase order, and remains blocked on `RUNPOD_API_KEY`, confirmed
 absent.
+
+**2026-09-06, continued — Phase 2 of the autonomous end-to-end program (AI
+production platform), the non-GPU-dependent slice.** Re-verified state (git
+log, VM services, `RUNPOD_API_KEY`/`CINT_API_KEY` both still confirmed
+absent) before continuing, per the program's own "verify, don't assume"
+instruction.
+
+- **Prompt versioning**: `DecisionEngine.PROMPT_VERSION` ("v1") is now
+  recorded on every `AiProposal` (`prompt_version` field). Model/model
+  version were already captured (Slice 11); this closes the other half —
+  "did the prompt change" is now answerable the same way "did the model
+  change" already was.
+- **Adversarial hardening tests** (`tests/test_ai_decision_engine_adversarial.py`,
+  9 tests): the structural prompt-injection guarantee this codebase relies
+  on — business data (attacker-influenceable: an email body, a lead's
+  company name) is proven to reach only the user message's JSON `context`
+  key, byte-for-byte never touching the system prompt — is now an executable
+  test, not just an architectural claim. Plus: confidence-threshold boundary
+  (exactly 0.70 vs 0.699), a decision object wrapped in a list (rejected, not
+  silently unwrapped), extra unexpected fields (accepted, not rejected — not
+  the same failure mode as a malformed response), and regression coverage
+  for the new latency/token/prompt-version telemetry.
+- **AI evaluation harness** (`app.ai.evaluation.EvalCase`/`run_evaluation`/
+  `summarize`, `tests/test_ai_evaluation.py`, 4 tests): a real, reusable
+  harness — any `LLMProvider` in, a pass/fail/hallucination-rate summary out.
+  Runs against `FakeLLM` today (no real model exists yet); the exact same
+  harness runs against the real `GpuBrokerLLMProvider` with zero code change
+  the moment `RUNPOD_API_KEY` is configured — this is
+  `IMPLEMENTED — LIVE CREDENTIAL REQUIRED` for actual evaluation-against-a-
+  real-model, but the infrastructure itself is complete and tested now. Its
+  honest scope: fixture-specific acceptance + candidate-set-hallucination
+  detection, not general business-correctness scoring (that needs Phase 12's
+  real decision→outcome data, not a fixed fixture set).
+- **Everything else on Phase 2's list was already real**, verified rather
+  than re-built: GPU broker/lease (Slice 11, 38 tests, never run against real
+  hardware), structured JSON + schema validation (`Decision`'s own Pydantic
+  model), hallucinated-ID/candidate-set enforcement (per-domain, tested since
+  Slices 15-18), tool authorization (`ToolRegistry` is caller-driven only —
+  nothing is currently model-invoked, so "unauthorized tool call" risk is
+  zero by construction, confirmed via the existing
+  `test_tool_registry_is_described_to_the_model_but_never_auto_invoked`
+  test), duplicate-decision protection (per-domain idempotency, Slices 15-18),
+  AI cost/latency tracking (Phase 1, this same pass). Stale-proposal
+  protection needed no new work: date-scoped subject_ids (AR/AP/Operations)
+  already can't go stale by construction, and single-shot subject_ids
+  (allocation/match) don't recur by construction either.
+
+Test count: 411 → 424. GPU activation itself remains
+`IMPLEMENTED — LIVE CREDENTIAL REQUIRED`, per `docs/GPU_ACTIVATION_RUNBOOK.md`
+— everything achievable without `RUNPOD_API_KEY` is now done. Phase 3
+(lead/sales/opportunity engine) is next.

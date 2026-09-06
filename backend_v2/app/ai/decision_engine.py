@@ -48,6 +48,14 @@ from app.models.base import CanonicalRepository
 # question, answered once (register §4.2's bucket_classifier precedent).
 DECISION_CONFIDENCE_THRESHOLD = 0.70
 
+# Bumped whenever _DECISION_SYSTEM_PROMPT's wording changes in a way that could
+# shift a real model's behavior — recorded on every AiProposal (Phase 2
+# production-platform audit) so a real-world confidence/behavior shift can be
+# correlated to "did the prompt change" before "did the model change," the
+# same way model/model_version already let that question be asked about the
+# model itself.
+PROMPT_VERSION = "v1"
+
 PRIORITIES = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
 
@@ -126,6 +134,7 @@ class DecisionEngine:
                 status="approved" if decision.is_auto_appliable() else "rejected",
                 latency_ms=latency_ms, prompt_tokens=response.prompt_tokens,
                 completion_tokens=response.completion_tokens, total_tokens=response.total_tokens,
+                prompt_version=PROMPT_VERSION,
             )
         )
         return decision

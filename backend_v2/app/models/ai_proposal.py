@@ -55,6 +55,10 @@ class AiProposal(CanonicalDocument):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    # DecisionEngine.PROMPT_VERSION at the moment this decision was made —
+    # None for proposals from other write paths (message_drafting's own
+    # AiProposal, which isn't a DecisionEngine.decide() call).
+    prompt_version: str | None = None
 
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
