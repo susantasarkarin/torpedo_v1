@@ -19,7 +19,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | **Local LLM inference on the prod VM** | VM is 2 vCPU / 3.8GB RAM, swap already 100% full (2046/2047MB) running v1 + Mongo + 4 Celery workers + SFW panel. No GPU. Cannot safely host even a small quantized model without risking an OOM crash of the live v1 service. | A resourcing decision: reuse the existing (stashed, uncommitted) `backend/infra/gpu_lease.py` on-demand GPU broker instead of in-process local inference, or explicitly approve resizing/adding a GPU to the VM. |
 | **Cint API credentials** | `app.panel.cint_provider.CintSurveyProvider` (Slice 18) is a real, non-fake implementation of `SurveyProvider` — built from v1's actual verified `Supply/v1/SupplierLinks` entry-link endpoint/response shape (read from `cint_integration.py`/`cint_service.py` as reference, not copied as-is given register D-defects §2.0-2.9). No live `CINT_API_KEY`/`CINT_SUPPLIER_CODE` found in this environment, so it fails loud (`SurveyProviderUnavailable`) rather than faking a response. `refresh()` honestly does not implement v1's `LEGACY_SURVEY_DETAIL_ENDPOINT` — that endpoint is defined in v1 but never actually called anywhere in v1's own codebase, so its response shape is unverified and was not guessed at. | Real Cint API credentials + sandbox access, and (separately) verification of the legacy survey-detail endpoint's actual response shape before `refresh()` can be implemented for real. |
 | **GSC / Google Search Console** | Only a stub reference in `seo_agent.py`; no working lead-gen pipeline exists in v1 or v2. | Google service-account/OAuth credentials for Search Console API. |
-| **Real email sending (SMTP/SES/Gmail)** | `app.outreach.providers.SendProvider` is a tested `Protocol` with only a stub implementation (`StubSendProvider`) in v2. | Real provider credentials (v1's `outreach_engine`/`gmail_service` have some — need audit + credential migration, not reuse of v1's plaintext storage per D-26). |
+| **Real email sending (SMTP)** | `app.outreach.smtp_provider.SmtpSendProvider` (Slice 21) is a real implementation — `get_send_provider()` returns it by default now, not `StubSendProvider` (kept, test-only). Fails loud (`SendProviderUnavailable`) when unconfigured. | Real `SMTP_HOST`/`SMTP_USERNAME`/`SMTP_PASSWORD`, confirmed absent from this environment. Gmail-OAuth (v1's `gmail_service.py`/`gmail_workspace_service.py`) is a separate, larger credential-management scope not built here — SMTP is the practical first real transport. |
 
 ## Phase 5 — CRM commercial spine (Opportunity, Task)
 
@@ -43,6 +43,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | `DecisionEngine.decide()` — context → model → structured decision → audit log | **TESTED** — 9 tests. Never executes an action; a caller reads the `Decision` and acts through existing permission-gated services |
 | Tool registry (`app.ai.tools.ToolRegistry`) | **TESTED**, deliberately minimal — a caller-driven context-fetcher registry, not live LLM-invoked function-calling (that needs a real running model to validate against, which needs the credential above) |
 | Decision audit log | **DONE** — reuses `AiProposal` (Slice 6/7), not a second entity; `status` stays binary (`approved`/`rejected`) per its documented Slice 6 scope, with `requires_human_approval` preserved inside `proposed_fields` rather than silently collapsed |
+| Human review queue (approve/reject/modify/defer/escalate) | **TESTED** (2026-09-06, Slice 22) — `app.governance.approvals.ApprovalService` + `GET/POST /governance/proposals`. `reviewed_by`/`reviewed_at`/`review_action`/`review_notes` on `AiProposal` are additive and independent of `status` (the system's own auto-apply verdict) — a human review never rewrites what the system already decided. Deliberately does not (yet) re-execute a shadow-mode-suppressed action on APPROVE — see the module's own docstring for why that's the honest next increment, not built prematurely |
 | Governance validator (AI never gets unrestricted DB access) | Structurally true by construction — nothing in `app.ai` imports a `CanonicalRepository` for any entity other than `AiProposal` (the audit log itself) |
 | `GET /ai/gpu/status`, `POST /ai/gpu/shutdown` | **TESTED** — deployed |
 | Real agentic tool-calling (model autonomously invoking registered tools) | NOT_STARTED — needs a running model to validate against |
@@ -370,3 +371,49 @@ suite + real end-to-end test against the live model → shadow-mode window →
 progressive autonomy) written now, so the moment the credential is configured
 server-side, activation goes straight into disciplined validation. Test
 count: 380 → 385.
+
+**2026-09-06, continued — master completion-and-productionization audit
+(user's 45-section program)**: audited the actual current repository (git
+log, live VM state, targeted greps) rather than trusting prior-session
+assumptions, per the program's own explicit instruction. Found and flagged
+one issue entirely outside Torpedo v2's scope: a live-looking Gmail app
+password hardcoded in `scripts/email/test_smtp.py` (a single commit, outside
+both `backend/` and `backend_v2/`) — reported to the user directly; rotating
+or scrubbing it is the user's call, not something touched unilaterally.
+Built a completion matrix across the program's domain list; most items were
+already real (verified, not re-guessed) or honestly credential-blocked. Two
+concrete gaps were real and tractable, and got fixed this pass:
+
+- **Slice 21 — real SMTP send transport.** `get_send_provider()` had
+  returned `StubSendProvider()` unconditionally in production since Slice 7 —
+  every AI-decided and human-triggered email send "succeeded" against a
+  fabricated `stub-{uuid}` id, even outside shadow mode, exactly the kind of
+  appearance-over-reality gap the program's own §43 exists to catch.
+  `app.outreach.smtp_provider.SmtpSendProvider` is the real replacement
+  (stdlib `smtplib`, wrapped in `asyncio.to_thread()` so it never blocks the
+  event loop — no new async-SMTP dependency added, matching the "don't
+  over-engineer" instruction), credential-gated via `SMTP_HOST`/
+  `SMTP_USERNAME`/`SMTP_PASSWORD` and failing loud (`SendProviderUnavailable`,
+  a `SendFailed` subclass — `MessagingFacade.send()`'s existing failure
+  handling applies unchanged) when unconfigured, confirmed absent from this
+  environment. `GET /integrations/status`'s `email_send_provider` now checks
+  the real env vars instead of being hardcoded `NOT_CONFIGURED`.
+- **Slice 22 — the human review queue.** `AiProposal`'s own docstring had
+  flagged this gap since Slice 6/7 ("never 'pending' yet, no human review
+  queue built"). `app.governance.approvals.ApprovalService` +
+  `GET/POST /governance/proposals` let a human record a real verdict
+  (APPROVE/REJECT/MODIFY/DEFER/ESCALATE + notes) on any AI proposal, with
+  reviewer/timestamp captured — additive to, and independent of, `status`
+  (the system's own auto-apply verdict), which a review never rewrites.
+  Deliberately does not yet re-execute a shadow-mode-suppressed action on
+  APPROVE — each of the five gated services has its own idempotency/
+  candidate-set discipline, and wiring generic review-triggered re-execution
+  before the shadow-mode validation program has actually run would be the
+  same half-correct-shortcut failure mode the program's §43 names explicitly.
+  This is the honest next increment, not silently pretended to already work.
+
+Test count: 385 → 405. The program's remaining 43 sections span a genuinely
+multi-week scope (a full admin/BI frontend doesn't exist in this repository
+at all; cost/observability/evaluation-framework infrastructure is real,
+valuable, unbuilt work) — not claimed complete here, per the program's own
+explicit instruction not to declare completion prematurely.

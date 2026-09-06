@@ -53,6 +53,6 @@ async def integrations_status(identity: ResolvedIdentity = Depends(require_permi
         "gpu_credential": _configured("RUNPOD_API_KEY"),
         "gsc": "NOT_CONFIGURED",  # no GSC credential scheme has been designed yet — see app.leadgen.gsc's module docstring
         "cint": _configured("CINT_API_KEY", "CINT_SUPPLIER_CODE"),
-        "email_send_provider": "NOT_CONFIGURED",  # app.outreach.providers.SendProvider — StubSendProvider is the only implementation that exists
+        "email_send_provider": _configured("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD"),  # app.outreach.smtp_provider.SmtpSendProvider — real, fails loud when unconfigured
         "email_ingestion_provider": "NOT_CONFIGURED",  # app.emailai.providers.EmailIngestionProvider — no implementation exists yet, stub or real
     }

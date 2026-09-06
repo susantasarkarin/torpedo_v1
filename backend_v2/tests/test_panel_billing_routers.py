@@ -133,11 +133,28 @@ async def test_margin_for_unknown_survey_is_400(client: TestClient, auth_service
 async def test_integrations_status_reports_credential_blocked_boundaries_not_secrets(client: TestClient, auth_service, rbac_service, monkeypatch):
     monkeypatch.delenv("CINT_API_KEY", raising=False)
     monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("SMTP_USERNAME", raising=False)
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
     token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
 
     resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     body = resp.json()
+    assert body["email_send_provider"] == "NOT_CONFIGURED"
     assert body["cint"] == "NOT_CONFIGURED"
     assert body["gpu_credential"] == "NOT_CONFIGURED"
     assert "CINT_API_KEY" not in str(body)  # never echoes the secret's value, only presence/absence
+
+
+@pytest.mark.asyncio
+async def test_integrations_status_reports_email_send_provider_configured_once_smtp_credentials_exist(client: TestClient, auth_service, rbac_service, monkeypatch):
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "sender@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "app-password")
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
+
+    resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["email_send_provider"] == "CONFIGURED"
+    assert "app-password" not in str(body)  # never echoes the secret's value, only presence/absence

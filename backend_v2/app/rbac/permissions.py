@@ -131,3 +131,7 @@ INTEGRATIONS_STATUS_READ = "integrations.status.read"
 # user, calls it — same pattern as the Cint outcome callback), so only the
 # human-facing observability endpoint needs a permission constant.
 SCHEDULER_READ = "scheduler.read"
+
+# Human approval / review queue — Slice 22.
+GOVERNANCE_READ = "governance.read"
+GOVERNANCE_REVIEW = "governance.review"

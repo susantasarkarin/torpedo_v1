@@ -898,6 +898,35 @@ against real business data before it's trusted to execute anything.
   straight into disciplined validation rather than a design conversation once
   the credential lands.
 
+**Phase 1, slices 21-22 — from a user-issued master completion audit.**
+Re-verified actual current state before acting (git log, live VM,
+targeted greps for mocks/TODOs/direct-DB-access/hardcoded secrets) rather
+than trusting prior-session assumptions. Two real, tractable gaps found and
+fixed:
+
+- **`app.outreach.smtp_provider.SmtpSendProvider`** (Slice 21) replaces
+  `StubSendProvider` as `get_send_provider()`'s production default —
+  `StubSendProvider` had been returning a fabricated success for every
+  AI-decided and human-triggered send since Slice 7, even outside shadow
+  mode. The real provider uses stdlib `smtplib` via `asyncio.to_thread()`
+  (no new async-SMTP dependency — `requirements.txt` stays at 8 packages),
+  and fails loud (`SendProviderUnavailable`, a `SendFailed` subclass, so
+  `MessagingFacade.send()`'s existing failure handling needs no changes) when
+  `SMTP_HOST`/`SMTP_USERNAME`/`SMTP_PASSWORD` are absent, confirmed absent
+  here. `StubSendProvider` stays, test-only.
+- **`app.governance.approvals.ApprovalService`** (Slice 22) is the human
+  review queue `AiProposal`'s own docstring flagged as missing since Slice
+  6/7. `GET/POST /governance/proposals` lets a human record APPROVE/REJECT/
+  MODIFY/DEFER/ESCALATE + notes on any proposal — `reviewed_by`/`reviewed_at`/
+  `review_action`/`review_notes` are additive, independent of `status` (the
+  system's own auto-apply verdict, never rewritten by a review). Deliberately
+  does not yet re-execute a shadow-mode-suppressed action on APPROVE — the
+  module's own docstring explains why that's the honest next increment.
+
+A hardcoded Gmail app password was found in `scripts/email/test_smtp.py`
+(outside both `backend/` and `backend_v2/`) during this audit and reported
+directly to the user — rotating/scrubbing it is their call, not touched here.
+
 ## Running
 
 ```

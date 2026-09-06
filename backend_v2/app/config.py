@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # validation phase (docs/AI_NATIVE_COMPLETION_CHECKLIST.md) is complete.
     ai_shadow_mode: bool = True
 
+    # Real SMTP transport for app.outreach.smtp_provider.SmtpSendProvider
+    # (Slice 21) — one globally configured relay, not yet a per-Mailbox
+    # credential store (Mailbox.credentials_id is accepted by the SendProvider
+    # Protocol but not yet resolved against anything real). An unset host/
+    # username/password means SmtpSendProvider fails loud on every send
+    # attempt (SendProviderUnavailable), never a silent stub success.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

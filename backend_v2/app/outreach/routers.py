@@ -2,12 +2,11 @@
 HTTP surface for outreach. Same discipline as `app.leadgen.routers`: every write
 derives `org_id` from the resolved identity, permission-gated throughout.
 
-`StubSendProvider` is this slice's `PassthroughAIClassifier` equivalent — no real
-SMTP/SES/Gmail adapter exists yet (out of scope, same reasoning as leadgen deferring
-a real `AIClassifier`). It always reports success rather than always failing so the
-full facade (kill switch, suppression, budget, footer check, unified log) is
-exercisable end-to-end through HTTP before a real adapter is wired; swapping one in is
-a one-line change to `get_send_provider()`, not a redesign of this router.
+`StubSendProvider` is a test-only double now — see `get_send_provider()`
+(Slice 21, same upgrade `get_survey_provider()` got in Slice 18: a real
+`SmtpSendProvider`, not a stub, is the production default, and it already
+fails loud when unconfigured rather than faking success). Kept here, not
+deleted, because test files still import and override it directly.
 """
 
 from __future__ import annotations
@@ -36,12 +35,18 @@ router = APIRouter()
 
 
 class StubSendProvider:
+    """Test-only now — see get_send_provider()'s docstring above."""
+
     async def send(self, *, mailbox_credentials_id: str, to_email: str, subject: str, body: str) -> ProviderSendResult:
         return ProviderSendResult(provider_message_id=f"stub-{uuid.uuid4()}")
 
 
 def get_send_provider() -> SendProvider:
-    return StubSendProvider()
+    from app.config import get_settings
+    from app.outreach.smtp_provider import SmtpSendProvider
+
+    settings = get_settings()
+    return SmtpSendProvider(host=settings.smtp_host, port=settings.smtp_port, username=settings.smtp_username, password=settings.smtp_password)
 
 
 def get_outreach_service(provider: SendProvider = Depends(get_send_provider)) -> MessagingFacade:

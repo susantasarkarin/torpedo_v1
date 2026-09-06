@@ -7,6 +7,7 @@ from app.ai.routers import router as ai_router
 from app.crm.routers import router as crm_router
 from app.emailai.routers import router as emailai_router
 from app.finance.routers import router as finance_router
+from app.governance.routers import router as governance_router
 from app.identity.routers import router as identity_router
 from app.leadgen.routers import router as leadgen_router
 from app.outreach.routers import router as outreach_router
@@ -24,6 +25,7 @@ app.include_router(crm_router, prefix="/api/v1", tags=["crm"])
 app.include_router(ai_router, prefix="/api/v1", tags=["ai"])
 app.include_router(emailai_router, prefix="/api/v1", tags=["emailai"])
 app.include_router(scheduler_router, prefix="/api/v1", tags=["scheduler"])
+app.include_router(governance_router, prefix="/api/v1", tags=["governance"])
 
 
 @app.get("/health")

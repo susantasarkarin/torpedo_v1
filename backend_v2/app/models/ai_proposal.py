@@ -12,11 +12,24 @@ one. Building Slice 7's AI-drafting path made the cost of leaving it under `lead
 concrete — `app.outreach` would have needed to import a leadgen-owned model, or (worse)
 build a second `AiProposal`-shaped record of its own, which is exactly the I-1
 violation this move exists to prevent. `app.leadgen` now imports from here.
+
+**Human review queue, Slice 22.** `status` stays exactly what it always was — the
+*system's* own auto-apply verdict (`DecisionEngine.is_auto_appliable()` at the moment
+the decision was made), never touched by a human review. `reviewed_by`/`reviewed_at`/
+`review_action`/`review_notes` are a completely separate, additive concept: whether a
+*human* has since looked at this proposal and recorded a verdict, independent of
+whether the system executed anything. This is the real answer to the docstring note
+this field used to carry ("never 'pending' yet, no human review queue built") — see
+`app.governance.approvals.ApprovalService`.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.models.base import CanonicalDocument
+
+REVIEW_ACTIONS = frozenset({"APPROVE", "REJECT", "MODIFY", "DEFER", "ESCALATE"})
 
 
 class AiProposal(CanonicalDocument):
@@ -26,4 +39,8 @@ class AiProposal(CanonicalDocument):
     model_version: str
     confidence: float
     proposed_fields: dict
-    status: str  # "approved" | "rejected" — never "pending" yet, no human review queue built
+    status: str  # "approved" | "rejected" — the system's own auto-apply verdict, set once, never changed by a human review
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_action: str | None = None  # one of REVIEW_ACTIONS, once reviewed
+    review_notes: str | None = None
