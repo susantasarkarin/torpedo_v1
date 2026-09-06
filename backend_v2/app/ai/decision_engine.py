@@ -33,6 +33,7 @@ UI) is deferred, not silently collapsed into "rejected" without a trace.
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 
 from pydantic import BaseModel, ValidationError, field_validator
@@ -106,7 +107,9 @@ class DecisionEngine:
             {"role": "user", "content": json.dumps({"task": task, "context": context, "available_tools": self._tools.describe_all()})},
         ]
 
+        started_at = time.perf_counter()
         response = await self._llm.chat(messages=messages, response_format={"type": "json_object"})
+        latency_ms = (time.perf_counter() - started_at) * 1000
 
         try:
             decision = Decision.model_validate(json.loads(response.content))
@@ -121,6 +124,8 @@ class DecisionEngine:
                 task=task, subject_id=subject_id, model=response.model, model_version=response.model,
                 confidence=decision.confidence, proposed_fields=decision.model_dump(mode="json"),
                 status="approved" if decision.is_auto_appliable() else "rejected",
+                latency_ms=latency_ms, prompt_tokens=response.prompt_tokens,
+                completion_tokens=response.completion_tokens, total_tokens=response.total_tokens,
             )
         )
         return decision

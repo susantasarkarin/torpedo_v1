@@ -1,20 +1,35 @@
 """FastAPI entrypoint. Domain routers are mounted as their slices land — see
 README.md for what exists so far."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.ai.routers import router as ai_router
 from app.crm.routers import router as crm_router
+from app.db import get_database
 from app.emailai.routers import router as emailai_router
 from app.finance.routers import router as finance_router
 from app.governance.routers import router as governance_router
 from app.identity.routers import router as identity_router
+from app.indexes import ensure_indexes
 from app.leadgen.routers import router as leadgen_router
 from app.outreach.routers import router as outreach_router
 from app.panel.routers import router as panel_router
 from app.scheduler.routers import router as scheduler_router
 
-app = FastAPI(title="Torpedo v2", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Real, enforced idempotency (app.indexes) — never fires against
+    # TestClient(app) used directly (no `with` block), which is how every
+    # test in this codebase uses it, so this only ever runs against the real
+    # deployed database.
+    await ensure_indexes(get_database())
+    yield
+
+
+app = FastAPI(title="Torpedo v2", version="0.1.0", lifespan=lifespan)
 
 app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
 app.include_router(leadgen_router, prefix="/api/v1", tags=["leadgen"])

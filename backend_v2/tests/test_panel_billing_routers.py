@@ -4,14 +4,14 @@ diagnostic. Permission enforcement is what's new at this layer; billing/margin
 mechanics are exhaustively covered in test_panel_billing.py.
 """
 
-from datetime import timezone
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
 from app.ai.gpu_broker import GpuBroker
-from app.ai.routers import get_gpu_broker
+from app.ai.routers import get_events_repository_for_status, get_gpu_broker, get_proposals_repository_for_status
 from app.auth.dependencies import get_auth_service, get_rbac_service
 from app.auth.models import Credential, Session
 from app.auth.service import AuthService
@@ -22,12 +22,14 @@ from app.finance.sequence import SequenceService
 from app.finance.service import BillService, InvoiceService
 from app.main import app
 from app.models.activity import Activity
+from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.panel.models import Survey, SurveyResponse
 from app.panel.routers import get_billing_service
 from app.rbac.models import ApprovalAuthority, Role, UserRole
 from app.rbac.permissions import INTEGRATIONS_STATUS_READ, SURVEY_MARGIN_READ
 from app.rbac.service import RBACService
+from app.scheduler.models import Event
 
 ORG_A = "org-A"
 
@@ -95,13 +97,15 @@ def billing_service(db, invoice_service, bill_service):
 
 
 @pytest.fixture
-def client(auth_service, rbac_service, billing_service, invoice_service, bill_service, gpu_broker) -> TestClient:
+def client(db, auth_service, rbac_service, billing_service, invoice_service, bill_service, gpu_broker) -> TestClient:
     app.dependency_overrides[get_auth_service] = lambda: auth_service
     app.dependency_overrides[get_rbac_service] = lambda: rbac_service
     app.dependency_overrides[get_billing_service] = lambda: billing_service
     app.dependency_overrides[get_invoice_service] = lambda: invoice_service
     app.dependency_overrides[get_bill_service] = lambda: bill_service
     app.dependency_overrides[get_gpu_broker] = lambda: gpu_broker
+    app.dependency_overrides[get_events_repository_for_status] = lambda: CanonicalRepository(db["events"], Event)
+    app.dependency_overrides[get_proposals_repository_for_status] = lambda: CanonicalRepository(db["ai_proposals"], AiProposal)
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -145,6 +149,24 @@ async def test_integrations_status_reports_credential_blocked_boundaries_not_sec
     assert body["cint"] == "NOT_CONFIGURED"
     assert body["gpu_credential"] == "NOT_CONFIGURED"
     assert "CINT_API_KEY" not in str(body)  # never echoes the secret's value, only presence/absence
+    assert body["scheduler_events"] == {"FAILED": 0, "PENDING": 0, "PROCESSED": 0, "PROCESSING": 0}
+    assert body["governance_pending_review"] == 0
+
+
+@pytest.mark.asyncio
+async def test_integrations_status_reports_real_scheduler_and_governance_activity(client: TestClient, auth_service, rbac_service, db):
+    await CanonicalRepository(db["events"], Event).insert(
+        Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-1", occurred_at=datetime.now(timezone.utc), dedupe_key="k1", processing_status="FAILED")
+    )
+    await CanonicalRepository(db["ai_proposals"], AiProposal).insert(
+        AiProposal(org_id=ORG_A, created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved")
+    )
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
+
+    resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["scheduler_events"]["FAILED"] == 1
+    assert body["governance_pending_review"] == 1
 
 
 @pytest.mark.asyncio

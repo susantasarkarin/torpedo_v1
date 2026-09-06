@@ -19,14 +19,25 @@ from app.ai.gpu_broker import GpuBroker
 from app.auth.dependencies import require_permission
 from app.config import get_settings
 from app.db import get_database
+from app.models.ai_proposal import AiProposal
+from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
 from app.rbac.permissions import AI_ADMIN, AI_READ, INTEGRATIONS_STATUS_READ
+from app.scheduler.models import EVENT_STATUSES, Event
 
 router = APIRouter()
 
 
 def get_gpu_broker() -> GpuBroker:
     return GpuBroker(get_database()["ai_gpu_leases"])
+
+
+def get_events_repository_for_status() -> CanonicalRepository[Event]:
+    return CanonicalRepository(get_database()["events"], Event)
+
+
+def get_proposals_repository_for_status() -> CanonicalRepository[AiProposal]:
+    return CanonicalRepository(get_database()["ai_proposals"], AiProposal)
 
 
 @router.get("/ai/gpu/status")
@@ -44,8 +55,17 @@ def _configured(*env_vars: str) -> str:
 
 
 @router.get("/integrations/status")
-async def integrations_status(identity: ResolvedIdentity = Depends(require_permission(INTEGRATIONS_STATUS_READ)), broker: GpuBroker = Depends(get_gpu_broker)) -> dict:
+async def integrations_status(
+    identity: ResolvedIdentity = Depends(require_permission(INTEGRATIONS_STATUS_READ)),
+    broker: GpuBroker = Depends(get_gpu_broker),
+    events: CanonicalRepository[Event] = Depends(get_events_repository_for_status),
+    proposals: CanonicalRepository[AiProposal] = Depends(get_proposals_repository_for_status),
+) -> dict:
     gpu_broker_status = await broker.status()
+
+    scheduler_counts = {status: len(await events.find_all({"org_id": identity.org_id, "processing_status": status})) for status in sorted(EVENT_STATUSES)}
+    pending_review = len(await proposals.find_all({"org_id": identity.org_id, "reviewed_by": None}))
+
     return {
         "ai_gateway": "READY",  # the gateway code path itself always exists; whether a model answers depends on the GPU broker below
         "ai_shadow_mode": "ON" if get_settings().ai_shadow_mode else "OFF",  # ON = decisions recorded, execution suppressed (Allocation/Operations/Finance-match/Email-send/Outreach-send)
@@ -55,4 +75,11 @@ async def integrations_status(identity: ResolvedIdentity = Depends(require_permi
         "cint": _configured("CINT_API_KEY", "CINT_SUPPLIER_CODE"),
         "email_send_provider": _configured("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD"),  # app.outreach.smtp_provider.SmtpSendProvider — real, fails loud when unconfigured
         "email_ingestion_provider": "NOT_CONFIGURED",  # app.emailai.providers.EmailIngestionProvider — no implementation exists yet, stub or real
+        # Phase 14 scheduler activity, by processing_status, for this org — real
+        # counts from app.scheduler.models.Event, not a separate mocked metric.
+        "scheduler_events": scheduler_counts,
+        # Phase 1 production-foundations audit: the human review queue's own
+        # backlog size — a real signal for "is anyone keeping up with shadow-mode
+        # review," not a fabricated dashboard number.
+        "governance_pending_review": pending_review,
     }

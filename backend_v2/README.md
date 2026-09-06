@@ -927,6 +927,20 @@ A hardcoded Gmail app password was found in `scripts/email/test_smtp.py`
 (outside both `backend/` and `backend_v2/`) during this audit and reported
 directly to the user — rotating/scrubbing it is their call, not touched here.
 
+**Phase 1 of the user's dependency-aware master program ("production
+foundations")** followed: a second hardcoded credential (a Cint API key +
+supplier code, across six `scripts/` files) found and reported the same way;
+a fake-provider re-audit confirming no `Protocol` boundary silently fakes
+success in production; real AI cost/latency signal
+(`AiProposal.latency_ms`/`prompt_tokens`/`completion_tokens`/`total_tokens`,
+measured or parsed from the real endpoint, never invented); real, enforced
+idempotency (`app.indexes.ensure_indexes()`, compound unique indexes on
+`send_log_entries`/`payments`/`events`, wired to a FastAPI `lifespan` hook
+that's inert during tests); and `GET /integrations/status` extended with
+real scheduler and governance-queue activity counts. See
+`docs/AI_NATIVE_COMPLETION_CHECKLIST.md`'s Rev 30-equivalent entry for the
+full detail. Test count: 405 → 411.
+
 ## Running
 
 ```

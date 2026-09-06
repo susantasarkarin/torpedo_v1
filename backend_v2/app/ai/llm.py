@@ -32,6 +32,13 @@ class LLMUnavailable(Exception):
 class LLMResponse:
     content: str
     model: str
+    # Real token usage, parsed from the OpenAI-compatible endpoint's own
+    # `usage` object when the real server includes one — never fabricated.
+    # `None` (not 0) when the server doesn't report it, so a caller can tell
+    # "not measured" apart from "measured as zero."
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class LLMProvider(Protocol):
@@ -80,4 +87,8 @@ class GpuBrokerLLMProvider:
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailable(f"model response did not match the expected shape: {exc}") from exc
 
-        return LLMResponse(content=content, model=endpoint.model)
+        usage = data.get("usage") or {}
+        return LLMResponse(
+            content=content, model=endpoint.model,
+            prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"),
+        )

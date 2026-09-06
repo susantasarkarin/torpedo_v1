@@ -417,3 +417,62 @@ multi-week scope (a full admin/BI frontend doesn't exist in this repository
 at all; cost/observability/evaluation-framework infrastructure is real,
 valuable, unbuilt work) — not claimed complete here, per the program's own
 explicit instruction not to declare completion prematurely.
+
+**2026-09-06, continued — Phase 1 of the dependency-aware program (production
+foundations): security audit, fake-provider audit, AI cost/latency tracking,
+retry/idempotency hardening, observability.**
+
+- **Security**: re-scanned the whole tracked repository (not just
+  `backend_v2`) for hardcoded credentials. Found and reported directly to the
+  user — never touched unilaterally — a live-looking Cint API key + supplier
+  code (`6777`) hardcoded across six `scripts/cint/`, `scripts/diagnostics/`,
+  `scripts/entry_links/` files (in addition to the Gmail app password already
+  found last pass). `Campaign_platform/.env.production` was checked and ruled
+  out — one line, a public frontend `VITE_API_URL`, not a secret.
+- **Fake-provider audit**: grepped `backend_v2/app/` for
+  fake/mock/stub/dummy/placeholder classes, TODO/FIXME/HACK markers, and
+  hardcoded-success returns. Found exactly two `Stub*` classes
+  (`StubSendProvider`, `StubSurveyProvider`) — both already confirmed
+  test-only, neither reachable as a production default (verified in the prior
+  Slice 21 pass and this one). Confirmed every `Protocol` boundary's actual
+  production default: real-and-credential-gated (Cint, SMTP) or
+  honestly-`NullXProvider`-and-failing-loud (GSC) — never a silent fake
+  success anywhere in production code.
+- **AI cost/latency tracking** (`AiProposal.latency_ms`/`prompt_tokens`/
+  `completion_tokens`/`total_tokens`, `LLMResponse` gained the same three
+  token fields): latency is measured with real wall-clock timing
+  (`time.perf_counter()`) around every `DecisionEngine.decide()` call — works
+  today even against `FakeLLM` in tests (near-zero, still real, never
+  fabricated). Token counts are parsed from the real OpenAI-compatible
+  endpoint's own `usage` object (`GpuBrokerLLMProvider` already targets
+  `/chat/completions`, which vLLM/most OpenAI-compatible servers populate)
+  when present, `None` — never `0`, never invented — when absent. A
+  dollar-cost-per-decision figure is deliberately NOT computed: no real GPU
+  $/hour rate is configured anywhere in this codebase, and inventing one
+  would be exactly the fabricated-data failure this rebuild's discipline
+  exists to prevent.
+- **Retry/idempotency hardening** (`app.indexes.ensure_indexes()`, called
+  from a new FastAPI `lifespan` startup hook — confirmed to never fire
+  against `TestClient(app)` used directly, which is how all 405 pre-existing
+  tests use it, so this only ever runs against the real deployed database):
+  real, enforced compound unique indexes on `(org_id, idempotency_key)` for
+  `send_log_entries`/`payments` and on `dedupe_key` for `events` — the exact
+  "no index infrastructure exists yet" gap `app.outreach.service`'s own
+  module docstring named since Slice 7. Every idempotency check in this
+  codebase was already a `find_one`-before-`insert` (correct for the
+  practical sequential-retry case); the index is the backstop for genuine
+  concurrent races, turning a previously-silent duplicate-write possibility
+  into a loud, unswallowed `DuplicateKeyError`.
+- **Observability**: extended `GET /integrations/status` (already the
+  de facto system-health endpoint) with `scheduler_events` (real
+  PENDING/PROCESSING/PROCESSED/FAILED counts from `app.scheduler.models.Event`)
+  and `governance_pending_review` (real backlog size from the Slice 22 review
+  queue) rather than building a duplicate endpoint — closing the "single
+  glance production health" gap on top of infrastructure that already existed
+  (`/ai/gpu/status`, `/internal/scheduler/events`).
+
+Test count: 405 → 411. Phase 1 (production foundations) is substantively
+complete for what's buildable without a live external credential; Phase 2
+(AI production platform / GPU activation) is next, per the program's own
+explicit phase order, and remains blocked on `RUNPOD_API_KEY`, confirmed
+absent.

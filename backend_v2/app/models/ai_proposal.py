@@ -40,6 +40,22 @@ class AiProposal(CanonicalDocument):
     confidence: float
     proposed_fields: dict
     status: str  # "approved" | "rejected" — the system's own auto-apply verdict, set once, never changed by a human review
+
+    # Real AI cost/observability signal (Phase 1 production-foundations audit).
+    # latency_ms is always measurable (wall-clock around the model call) —
+    # populated for every decision, including against FakeLLM in tests, where
+    # it's simply near-zero, still real. Token counts are parsed from the real
+    # OpenAI-compatible endpoint's own `usage` object when present; `None`
+    # (never fabricated, never defaulted to 0) when the server doesn't report
+    # them. A dollar cost-per-decision figure is deliberately NOT computed
+    # here — no real GPU $/hour rate is configured anywhere in this codebase,
+    # and inventing one would be exactly the fabricated-data failure this
+    # rebuild's discipline exists to prevent.
+    latency_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_action: str | None = None  # one of REVIEW_ACTIONS, once reviewed
