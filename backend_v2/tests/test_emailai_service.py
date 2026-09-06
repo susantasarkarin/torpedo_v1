@@ -228,6 +228,54 @@ async def test_unsubscribe_classification_suppresses_the_sender(db, leadgen, sup
 
 
 @pytest.mark.asyncio
+async def test_outreach_reply_deterministically_marks_the_enrollment_responded(db, identity, leadgen, suppression, reconciliation, outreach):
+    """A real reply is a fact, not an AI guess — this must be set here,
+    deterministically, never left for the next scheduled evaluate_outreach()
+    call to infer."""
+    person = await identity.create_person(org_id=ORG, actor=ACTOR, primary_email="lead@acme.com")
+    enrollment = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).insert(
+        LeadEnrollment(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, lead_state_id="lead-1", person_id=person.id, brand_id="brand-1", sequence_state="CONTACTED")
+    )
+    llm = FakeLLM(content=_classification(decision="OUTREACH_REPLY", confidence=0.95))
+    svc = _service(db, llm, leadgen, suppression, reconciliation, outreach)
+    email = await _ingested_email(svc, from_address="lead@acme.com")
+
+    await svc.analyze_and_route(org_id=ORG, actor=ACTOR, email_id=email.id)
+
+    updated = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).get(enrollment.id)
+    assert updated.sequence_state == "RESPONDED"
+
+
+@pytest.mark.asyncio
+async def test_outreach_reply_from_an_unknown_address_is_classified_but_changes_nothing(db, leadgen, suppression, reconciliation, outreach):
+    llm = FakeLLM(content=_classification(decision="OUTREACH_REPLY", confidence=0.95))
+    svc = _service(db, llm, leadgen, suppression, reconciliation, outreach)
+    email = await _ingested_email(svc, from_address="stranger@nowhere.example")
+
+    decision = await svc.analyze_and_route(org_id=ORG, actor=ACTOR, email_id=email.id)
+    assert decision.decision == "OUTREACH_REPLY"  # classified correctly — just nothing real to act on
+
+    enrollments = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).find_all({})
+    assert enrollments == []
+
+
+@pytest.mark.asyncio
+async def test_outreach_reply_never_reopens_a_stopped_enrollment(db, identity, leadgen, suppression, reconciliation, outreach):
+    person = await identity.create_person(org_id=ORG, actor=ACTOR, primary_email="lead@acme.com")
+    enrollment = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).insert(
+        LeadEnrollment(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, lead_state_id="lead-1", person_id=person.id, brand_id="brand-1", sequence_state="STOPPED")
+    )
+    llm = FakeLLM(content=_classification(decision="OUTREACH_REPLY", confidence=0.95))
+    svc = _service(db, llm, leadgen, suppression, reconciliation, outreach)
+    email = await _ingested_email(svc, from_address="lead@acme.com")
+
+    await svc.analyze_and_route(org_id=ORG, actor=ACTOR, email_id=email.id)
+
+    updated = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).get(enrollment.id)
+    assert updated.sequence_state == "STOPPED"  # unchanged
+
+
+@pytest.mark.asyncio
 async def test_payment_classification_records_a_reconciliation_candidate_never_touches_a_balance(db, leadgen, suppression, reconciliation, outreach):
     content = _classification(decision="PAYMENT", confidence=0.85, extracted_entities={"amount": {"amount_minor": 50000, "currency": "INR"}})
     llm = FakeLLM(content=content)

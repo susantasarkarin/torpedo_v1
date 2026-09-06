@@ -115,6 +115,26 @@ async def test_person_identity_stable_across_multiple_identifier_lookups(svc: Id
     assert from_signup.person_id == from_enrichment.person_id
 
 
+@pytest.mark.asyncio
+async def test_find_person_by_email_is_read_only_never_creates(svc: IdentityService):
+    """Phase 4 (outreach-reply detection) needs 'does this address belong to
+    someone we already know', not 'resolve or create an identity for it' —
+    the distinguishing behavior from resolve_person()."""
+    found = await svc.find_person_by_email(org_id=ORG, email="stranger@nowhere.example")
+    assert found is None
+
+    people = await svc._people.find_all({"org_id": ORG})
+    assert people == []  # no side effect — unlike resolve_person(), nothing was created
+
+
+@pytest.mark.asyncio
+async def test_find_person_by_email_matches_case_and_whitespace_insensitively(svc: IdentityService):
+    resolution = await svc.resolve_person(org_id=ORG, actor=ACTOR, email="dave@example.com", name="Dave Diaz")
+    found = await svc.find_person_by_email(org_id=ORG, email="  Dave@Example.com  ")
+    assert found is not None
+    assert found.id == resolution.person_id
+
+
 # ---------------------------------------------------------------------------
 # Account resolution
 # ---------------------------------------------------------------------------

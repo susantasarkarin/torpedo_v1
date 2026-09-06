@@ -566,3 +566,37 @@ is the real fix, same architecture as every prior AI slice.
   the same detect→event→orchestrator-dispatch pattern as the other seven.
 
 Test count: 424 → 440.
+
+**2026-09-06, continued — Phase 4 (AI outreach): deterministic reply
+detection.** Audited Phase 4's list against what already existed
+(sequencing/follow-up/scheduling/suppression/bounce/budget/kill-switch/
+idempotency were all already real, from Slices 7/14/19) and found one
+concrete, honest gap: `LeadEnrollment.sequence_state` could reach
+`RESPONDED`, but nothing ever set it from a real inbound reply — only the
+AI's own scheduled `evaluate_outreach()` re-evaluation could *guess* at it
+from indirect context (contactability, ICP score), never from the actual
+fact that someone replied.
+
+- **`EMAIL_CLASSIFICATIONS` gained `OUTREACH_REPLY`.** When
+  `EmailAIService._route()` sees it, it deterministically (no AI judgment
+  involved in the *action*, only in the classification itself) looks up the
+  sender via a new `IdentityService.find_person_by_email()` — a pure,
+  read-only lookup, deliberately distinct from `resolve_person()`, which
+  would incorrectly create a new `Person` for a stranger who happens to
+  email in. If a matching, non-`STOPPED` `LeadEnrollment` exists, its
+  `sequence_state` is set to `RESPONDED` — a real fact, recorded the moment
+  it's known, not inferred later on a schedule.
+- **A second, separate finding from the same pass**: `classify_email` had
+  no `task_instructions` at all — unlike every other AI task in this
+  codebase, the model was never explicitly told what `EMAIL_CLASSIFICATIONS`'
+  actual values are. Fixed with `_CLASSIFY_TASK_INSTRUCTIONS`, enumerating
+  the full closed set plus `extracted_entities` guidance for SALES_LEAD/
+  INVOICE/PAYMENT/BILL — a real correctness fix that predates and is
+  independent of the `OUTREACH_REPLY` addition, surfaced by the same
+  "why isn't this classification obviously reachable" audit question.
+- **Multi-contact outreach remains honestly not built** — `LeadState.person_id`
+  is still singular in this data model (unchanged since Slice 14's own note);
+  faking a selection algorithm over what's still a single-item list would be
+  decoration, not a feature.
+
+Test count: 440 → 445.

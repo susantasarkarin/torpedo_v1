@@ -18,6 +18,12 @@ EMAIL_CLASSIFICATIONS = frozenset(
         "SALES_LEAD", "EXISTING_CLIENT", "SUPPLIER", "CINT", "PANEL", "FINANCE",
         "INVOICE", "PAYMENT", "BILL", "MEETING", "SUPPORT", "COMPLAINT",
         "UNSUBSCRIBE", "SPAM", "IRRELEVANT", "OTHER",
+        # Phase 4 (AI outreach) — a real reply to an outreach sequence, distinct
+        # from EXISTING_CLIENT/SUPPORT: this classification is what lets
+        # EmailAIService._route() deterministically mark the matching
+        # LeadEnrollment RESPONDED, a real fact rather than the AI *guessing*
+        # at reply status the next time it re-evaluates on a schedule.
+        "OUTREACH_REPLY",
     }
 )
 

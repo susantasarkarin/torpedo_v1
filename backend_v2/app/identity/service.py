@@ -192,6 +192,14 @@ class IdentityService:
     async def get_person(self, person_id: str) -> Person | None:
         return await self._people.get(person_id)
 
+    async def find_person_by_email(self, *, org_id: str, email: str) -> Person | None:
+        """A pure, read-only lookup — unlike `resolve_person()`, never creates
+        a new `Person` when nothing matches. For callers (Phase 4's outreach-
+        reply detection) that need to know "does this address belong to
+        someone we already know," not "resolve or create an identity for
+        this address"."""
+        return await self._people.find_one({"org_id": org_id, "primary_email": _normalize_email(email), "status": ACTIVE})
+
     async def _finalize_person_match(
         self, person: Person, rule: str, confidence: float, *, needs_review: bool, actor: str
     ) -> PersonResolution:

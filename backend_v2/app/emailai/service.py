@@ -49,6 +49,25 @@ from app.outreach.suppression import SuppressionService
 # — see module docstring for why this is a deliberate, conservative default.
 _NO_AUTOMATED_ACTION = frozenset({"EXISTING_CLIENT", "SUPPLIER", "CINT", "PANEL", "MEETING", "SUPPORT", "COMPLAINT", "SPAM", "IRRELEVANT", "OTHER"})
 
+# Phase 1 production-foundations audit finding, fixed here: classify_email()
+# previously passed no task instructions at all — the model had nothing
+# explicit telling it what EMAIL_CLASSIFICATIONS' actual values are, unlike
+# every other AI task in this codebase (leadgen/allocation/operations/finance
+# all pass an explicit instructions string). Every value below must stay in
+# sync with EMAIL_CLASSIFICATIONS itself.
+_CLASSIFY_TASK_INSTRUCTIONS = (
+    "Classify this inbound email as 'decision', exactly one of: SALES_LEAD (a "
+    "new prospect inquiry), EXISTING_CLIENT, SUPPLIER, CINT, PANEL, FINANCE, "
+    "INVOICE (mentions an invoice), PAYMENT (claims a payment was made — "
+    "evidence only, never proof), BILL, MEETING, SUPPORT, COMPLAINT, "
+    "UNSUBSCRIBE, SPAM, IRRELEVANT, OTHER, or OUTREACH_REPLY (a reply from "
+    "someone we previously sent a cold outreach email to). For SALES_LEAD, "
+    "populate 'extracted_entities' with contact_email/contact_name/"
+    "company_domain/company_name/title where mentioned. For INVOICE/PAYMENT/"
+    "BILL, populate 'extracted_entities.amount' with {amount_minor, currency} "
+    "where a specific amount is mentioned."
+)
+
 
 class EmailAIError(Exception):
     """The model returned a classification outside the closed set, or a routed
@@ -110,7 +129,10 @@ class EmailAIService:
             if existing_proposal:
                 return Decision.model_validate(existing_proposal.proposed_fields)
 
-        context = {"from_address": email.from_address, "to_address": email.to_address, "subject": email.subject, "body": email.body}
+        context = {
+            "task_instructions": _CLASSIFY_TASK_INSTRUCTIONS,
+            "from_address": email.from_address, "to_address": email.to_address, "subject": email.subject, "body": email.body,
+        }
         decision = await self._decision_engine.decide(org_id=org_id, task="classify_email", subject_id=email.id, context=context)
 
         if decision.decision not in EMAIL_CLASSIFICATIONS:
@@ -143,6 +165,19 @@ class EmailAIService:
                     org_id=org_id, actor=actor, source="email", external_reference=email.id,
                     amount=Money(amount_minor=int(amount_data.get("amount_minor", 0)), currency=amount_data.get("currency", "INR")),
                 )
+
+        elif classification == "OUTREACH_REPLY":
+            # A real reply is a fact, not an AI guess — set deterministically
+            # here, never left for the next scheduled evaluate_outreach() call
+            # to infer from indirect context. Silently does nothing if the
+            # sender isn't a known Person, has no enrollment, or is already
+            # STOPPED — this classification only ever *records* a real signal
+            # it can act on, it never fabricates one.
+            person = await self._leadgen._identity.find_person_by_email(org_id=org_id, email=email.from_address)
+            if person:
+                enrollment = await self._leadgen._enrollments.find_one({"org_id": org_id, "person_id": person.id, "sequence_state": {"$ne": "STOPPED"}})
+                if enrollment:
+                    await self._leadgen._enrollments.update(enrollment.id, enrollment.version, {"sequence_state": "RESPONDED"}, updated_by=actor)
 
         elif classification not in _NO_AUTOMATED_ACTION:
             raise EmailAIError(f"classification {classification!r} is in EMAIL_CLASSIFICATIONS but has no routing rule — this is a real gap, not a silent no-op")
