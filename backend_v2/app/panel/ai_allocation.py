@@ -74,12 +74,21 @@ class PanelAllocationAIService:
     def __init__(
         self, decision_engine: DecisionEngine, surveys: SurveyService, allocations: AllocationService,
         survey_responses: CanonicalRepository[SurveyResponse], allocation_repo: CanonicalRepository[Allocation],
+        shadow_mode: bool = False,
     ):
         self._decision_engine = decision_engine
         self._surveys = surveys
         self._allocations = allocations
         self._survey_responses = survey_responses
         self._allocation_repo = allocation_repo
+        # Shadow mode (app.config.Settings.ai_shadow_mode, default True in
+        # production): the model's proposal is still made and still recorded
+        # as an AiProposal — nothing about decision-making changes — but the
+        # real allocation this method would otherwise execute is suppressed.
+        # Exists so a newly-activated inference backend (a real GPU/model,
+        # not a fake) can be watched against real business events before it's
+        # trusted to actually place a real person into a real paid survey.
+        self._shadow_mode = shadow_mode
 
     async def evaluate_and_allocate(
         self, *, org_id: str, actor: str, person_id: str, vendor_id: str, country_code: str, respondent_ref: str, provider: SurveyProvider,
@@ -114,7 +123,7 @@ class PanelAllocationAIService:
             if survey_id not in eligible_ids:
                 raise PanelAllocationAIError(f"model chose survey {survey_id!r}, which was not in the eligible set it was offered")
 
-        if not decision.is_auto_appliable():
+        if not decision.is_auto_appliable() or self._shadow_mode:
             return decision, None
 
         allocation = await self._allocations.allocate(

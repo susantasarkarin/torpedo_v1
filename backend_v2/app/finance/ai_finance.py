@@ -104,6 +104,7 @@ class AIFinanceService:
         payment_service: PaymentService, reconciliation_service: ReconciliationService,
         reconciliation_repo: CanonicalRepository[ReconciliationRecord],
         ai_proposals: CanonicalRepository[AiProposal], activities: CanonicalRepository[Activity],
+        shadow_mode: bool = False,
     ):
         self._decision_engine = decision_engine
         self._invoice_service = invoice_service
@@ -113,6 +114,12 @@ class AIFinanceService:
         self._reconciliation_repo = reconciliation_repo
         self._ai_proposals = ai_proposals
         self._activities = activities
+        # See PanelAllocationAIService's constructor docstring comment. AR/AP
+        # follow-up never execute anything to begin with (recommendation-only
+        # by design, per this module's own docstring) — shadow mode only
+        # matters for match_payment_to_invoice(), the one path here that
+        # actually records a Payment.
+        self._shadow_mode = shadow_mode
 
     # ------------------------------------------------------------------ AR
 
@@ -203,7 +210,7 @@ class AIFinanceService:
         if decision.decision not in MATCH_SENTINELS and decision.decision not in candidate_ids:
             raise AIFinanceError(f"model matched invoice {decision.decision!r}, which was not in the candidate set it was offered")
 
-        if decision.decision in MATCH_SENTINELS or not decision.is_auto_appliable():
+        if decision.decision in MATCH_SENTINELS or not decision.is_auto_appliable() or self._shadow_mode:
             return decision, None
 
         payment = await self._payment_service.record_payment(

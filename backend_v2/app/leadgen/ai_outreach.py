@@ -50,12 +50,17 @@ class OutreachAIError(Exception):
 
 
 class OutreachAIService:
-    def __init__(self, decision_engine: DecisionEngine, leadgen: LeadGenService, outreach: MessagingFacade, drafter: EmailMessageDrafter, enrollments: CanonicalRepository[LeadEnrollment]):
+    def __init__(self, decision_engine: DecisionEngine, leadgen: LeadGenService, outreach: MessagingFacade, drafter: EmailMessageDrafter, enrollments: CanonicalRepository[LeadEnrollment], shadow_mode: bool = False):
         self._decision_engine = decision_engine
         self._leadgen = leadgen
         self._outreach = outreach
         self._drafter = drafter
         self._enrollments = enrollments
+        # See PanelAllocationAIService's constructor docstring comment. Scoped
+        # to the actual send only — the sequence_state label update below
+        # stays live even in shadow mode, same reasoning as EmailAIService's
+        # classification.
+        self._shadow_mode = shadow_mode
 
     async def decide_and_act(self, *, org_id: str, actor: str, enrollment_id: str, mailbox_id: str) -> Decision:
         enrollment = await self._enrollments.get(enrollment_id)
@@ -77,7 +82,7 @@ class OutreachAIService:
         if decision.decision not in OUTREACH_SEQUENCE_STATES:
             raise OutreachAIError(f"model returned an unrecognized outreach sequence state {decision.decision!r}")
 
-        if "send_message" in decision.actions and decision.is_auto_appliable() and contactable and person and person.primary_email:
+        if "send_message" in decision.actions and decision.is_auto_appliable() and not self._shadow_mode and contactable and person and person.primary_email:
             idempotency_key = f"outreach-ai:{enrollment.id}:{decision.decision}"
             await self._outreach.send(
                 org_id=org_id, actor=actor, mailbox_id=mailbox_id, to_email=person.primary_email,

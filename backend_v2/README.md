@@ -858,6 +858,46 @@ the heartbeat that calls them.
   knows or cares how it's invoked — swapping to Celery later, if the platform
   outgrows this, needs zero change to it or to the detectors.
 
+**Phase 1, slice 20 (`app.config.Settings.ai_shadow_mode`): the GPU/model
+activation safety gate.** Per explicit user instruction, this landed *before*
+any GPU credential — the point is that a newly-activated inference backend
+(a real Hugging Face model, not `FakeLLM`) must be watched making decisions
+against real business data before it's trusted to execute anything.
+
+- **Defaults to `True`, in production, deliberately.** `ai_shadow_mode`
+  suppresses exactly five execution points — the ones that send an email,
+  allocate a real panelist, pause/close/reactivate a survey, or record a
+  payment match (`PanelAllocationAIService.evaluate_and_allocate()`,
+  `OperationsAIService.evaluate_and_act()`, `AIFinanceService.match_payment_to_invoice()`,
+  `EmailAIService.decide_followup()`, `OutreachAIService.decide_and_act()`).
+  Decision-making itself never changes: `DecisionEngine.decide()` still runs,
+  still records an `AiProposal`, so the audit trail for later comparison
+  exists exactly as it would live — only the governed-service call each of
+  those five points would otherwise make is held back.
+- **Deliberately narrow scope.** Email classification, lead ingestion,
+  suppression, and reconciliation-candidate recording (all already
+  informational/protective/internal, never externally consequential, per
+  each module's own pre-existing docstring) stay live even in shadow mode —
+  gating them would suppress the CRM/audit trail the rest of the platform
+  needs to keep functioning, for no safety benefit. AR/AP follow-up were
+  already recommendation-only before this slice and needed no new gate.
+- **Every constructor default is `shadow_mode=False`** — all 385 existing
+  tests (which construct these five services directly, without passing the
+  parameter) are completely unaffected; only the real DI providers in each
+  domain's `routers.py` read `Settings.ai_shadow_mode` and wire it through.
+  Five new regression tests (one per gated service) prove execution is
+  suppressed while the `AiProposal` is still recorded with the status
+  (`approved`) it would have auto-applied under.
+- **`GET /api/v1/integrations/status`** reports `ai_shadow_mode: "ON"/"OFF"` —
+  the one place an operator checks current state without shell access.
+- **`docs/GPU_ACTIVATION_RUNBOOK.md`** is the step-by-step activation
+  checklist (provision → verify model → resilience testing → run the full
+  suite + the real end-to-end test against the live model → shadow-mode
+  validation window → progressive autonomy) to execute once `RUNPOD_API_KEY`
+  is configured server-side — written now, deliberately, so activation goes
+  straight into disciplined validation rather than a design conversation once
+  the credential lands.
+
 ## Running
 
 ```

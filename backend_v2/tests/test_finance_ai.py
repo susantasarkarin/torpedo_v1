@@ -93,13 +93,14 @@ def reconciliation_service(db) -> ReconciliationService:
     return ReconciliationService(CanonicalRepository(db["reconciliation_records"], ReconciliationRecord), CanonicalRepository(db["payments"], Payment))
 
 
-def _service(db, llm, invoice_service, bill_service, payment_service, reconciliation_service) -> AIFinanceService:
+def _service(db, llm, invoice_service, bill_service, payment_service, reconciliation_service, shadow_mode=False) -> AIFinanceService:
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return AIFinanceService(
         engine, invoice_service, bill_service, payment_service, reconciliation_service,
         CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
         ai_proposals, CanonicalRepository(db["activities"], Activity),
+        shadow_mode=shadow_mode,
     )
 
 
@@ -269,6 +270,25 @@ async def test_match_auto_applies_through_the_real_payment_and_reconciliation_se
     updated_record = await CanonicalRepository(db["reconciliation_records"], ReconciliationRecord).get(record.id)
     assert updated_record.status == "matched"
     assert updated_record.payment_id == payment.id
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_records_the_decision_but_never_records_a_payment(db, invoice_service, bill_service, payment_service, reconciliation_service, rbac):
+    """Phase 14 continued — same shadow-mode discipline as
+    PanelAllocationAIService/OperationsAIService, applied to the one path
+    here that actually moves money."""
+    invoice = await _full_invoice(invoice_service, rbac)
+    record = await reconciliation_service.record_external_entry(org_id=ORG, actor=ACTOR, source="bank_statement", external_reference="stmt-1", amount=invoice.total)
+    svc = _service(db, FakeLLM(_decision(decision=invoice.id, confidence=0.95)), invoice_service, bill_service, payment_service, reconciliation_service, shadow_mode=True)
+
+    decision, payment = await svc.match_payment_to_invoice(org_id=ORG, actor=ACTOR, reconciliation_record_id=record.id)
+    assert decision.decision == invoice.id
+    assert payment is None
+
+    unchanged_invoice = await invoice_service._invoices.get(invoice.id)
+    assert unchanged_invoice.status == "sent"
+    unchanged_record = await CanonicalRepository(db["reconciliation_records"], ReconciliationRecord).get(record.id)
+    assert unchanged_record.status == "unmatched"
 
 
 @pytest.mark.asyncio

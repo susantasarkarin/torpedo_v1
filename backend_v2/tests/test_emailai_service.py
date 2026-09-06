@@ -148,13 +148,14 @@ def ai_proposals(db) -> CanonicalRepository[AiProposal]:
     return CanonicalRepository(db["ai_proposals"], AiProposal)
 
 
-def _service(db, llm, leadgen, suppression, reconciliation, outreach) -> EmailAIService:
+def _service(db, llm, leadgen, suppression, reconciliation, outreach, shadow_mode=False) -> EmailAIService:
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return EmailAIService(
         emails=CanonicalRepository(db["inbound_emails"], InboundEmail), ai_proposals=ai_proposals,
         activities=CanonicalRepository(db["activities"], Activity), decision_engine=engine, leadgen=leadgen,
         suppression=suppression, reconciliation=reconciliation, outreach=outreach, drafter=EmailMessageDrafter(llm),
+        shadow_mode=shadow_mode,
     )
 
 
@@ -328,6 +329,28 @@ async def test_followup_decision_sends_through_the_real_messaging_facade(db, lea
     assert decision.decision == "SEND_FOLLOWUP"
     assert len(send_provider.calls) == 1
     assert send_provider.calls[0][0] == email.from_address
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_records_the_decision_but_never_sends(db, leadgen, suppression, reconciliation, outreach, send_provider):
+    """Phase 14 continued — same shadow-mode discipline as the other four
+    gated services, applied to the one send path in this module."""
+    await _resumed_mailbox(db)
+    followup_content = _classification(decision="SEND_FOLLOWUP", confidence=0.9, actions=["send_response"])
+    llm = FakeLLM(content=followup_content)
+    svc = _service(db, llm, leadgen, suppression, reconciliation, outreach, shadow_mode=True)
+    email = await _ingested_email(svc)
+
+    async def fake_chat(self, *, messages, response_format=None):
+        if any("draft business email" in str(m.get("content", "")).lower() for m in messages):
+            return LLMResponse(content=json.dumps({"subject": "Re: quote", "body": BODY_OK, "confidence": 0.9}), model="fake-model")
+        return LLMResponse(content=followup_content, model="fake-model")
+
+    llm.chat = fake_chat.__get__(llm)
+
+    decision = await svc.decide_followup(org_id=ORG, actor=ACTOR, email_id=email.id, mailbox_id=MAILBOX_ID)
+    assert decision.decision == "SEND_FOLLOWUP"
+    assert send_provider.calls == []
 
 
 @pytest.mark.asyncio

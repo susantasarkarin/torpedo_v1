@@ -104,6 +104,7 @@ class OperationsAIService:
         self, decision_engine: DecisionEngine, surveys: SurveyService, inactivity: StudyInactivityService,
         survey_repo: CanonicalRepository[Survey], survey_responses: CanonicalRepository[SurveyResponse],
         activities: CanonicalRepository[Activity], ai_proposals: CanonicalRepository[AiProposal],
+        shadow_mode: bool = False,
     ):
         self._decision_engine = decision_engine
         self._surveys = surveys
@@ -112,6 +113,12 @@ class OperationsAIService:
         self._survey_responses = survey_responses
         self._activities = activities
         self._ai_proposals = ai_proposals
+        # See PanelAllocationAIService's constructor docstring comment — same
+        # mechanism, same reason. Unlike Allocation/Finance's confidence gate,
+        # this module has never had an auto-apply threshold (a valid decision
+        # always acted, by design) — shadow mode is the first point anything
+        # here can be suppressed at all.
+        self._shadow_mode = shadow_mode
 
     async def detect_triggers(self, *, org_id: str, as_of: datetime | None = None) -> list[tuple[Survey, str]]:
         """One trigger per survey per run, in priority order (no traffic is the
@@ -168,7 +175,8 @@ class OperationsAIService:
         if decision.decision not in OPERATIONS_ACTIONS:
             raise OperationsAIError(f"model returned an unrecognized operations action {decision.decision!r}")
 
-        await self._act(org_id=org_id, actor=actor, survey=survey, decision=decision, subject_id=subject_id, provider=provider)
+        if not self._shadow_mode:
+            await self._act(org_id=org_id, actor=actor, survey=survey, decision=decision, subject_id=subject_id, provider=provider)
         return decision
 
     async def _act(self, *, org_id: str, actor: str, survey: Survey, decision: Decision, subject_id: str, provider: SurveyProvider | None) -> None:

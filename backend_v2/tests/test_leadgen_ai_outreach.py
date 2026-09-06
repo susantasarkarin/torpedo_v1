@@ -108,9 +108,9 @@ async def _setup_enrollment(db, identity, *, email="prospect@acme.com") -> tuple
     return enrollment, person
 
 
-def _service(db, llm, leadgen, outreach) -> OutreachAIService:
+def _service(db, llm, leadgen, outreach, shadow_mode=False) -> OutreachAIService:
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
-    return OutreachAIService(engine, leadgen, outreach, EmailMessageDrafter(llm), CanonicalRepository(db["lead_enrollments"], LeadEnrollment))
+    return OutreachAIService(engine, leadgen, outreach, EmailMessageDrafter(llm), CanonicalRepository(db["lead_enrollments"], LeadEnrollment), shadow_mode=shadow_mode)
 
 
 @pytest.mark.asyncio
@@ -130,6 +130,24 @@ async def test_first_contact_decision_sends_and_updates_sequence_state(db, ident
     assert updated.ai_decision_subject_id == enrollment.id
     proposal = await CanonicalRepository(db["ai_proposals"], AiProposal).find_one({"subject_id": updated.ai_decision_subject_id, "task": "evaluate_outreach"})
     assert proposal is not None
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_records_the_decision_but_never_sends(db, identity, leadgen, outreach, send_provider):
+    """Phase 14 continued — same shadow-mode discipline as the other four
+    gated services. sequence_state still updates (an informational label,
+    not the consequential action shadow mode holds back) — only the send is
+    suppressed."""
+    enrollment, person = await _setup_enrollment(db, identity)
+    llm = FakeLLM(_decision(decision="CONTACTED", confidence=0.9, actions=["send_message"]))
+    svc = _service(db, llm, leadgen, outreach, shadow_mode=True)
+
+    decision = await svc.decide_and_act(org_id=ORG, actor=ACTOR, enrollment_id=enrollment.id, mailbox_id=MAILBOX_ID)
+    assert decision.decision == "CONTACTED"
+    assert send_provider.calls == []
+
+    updated = await CanonicalRepository(db["lead_enrollments"], LeadEnrollment).get(enrollment.id)
+    assert updated.sequence_state == "CONTACTED"
 
 
 @pytest.mark.asyncio

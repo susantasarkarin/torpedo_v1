@@ -110,12 +110,15 @@ def get_leadgen_ai_service() -> LeadGenAIService:
 
 
 def get_outreach_ai_service() -> OutreachAIService:
+    from app.config import get_settings
+
     db = get_database()
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return OutreachAIService(
         engine, get_leadgen_service(), get_outreach_service(get_send_provider()),
         EmailMessageDrafter(llm), CanonicalRepository(db["lead_enrollments"], LeadEnrollment),
+        shadow_mode=get_settings().ai_shadow_mode,
     )
 
 

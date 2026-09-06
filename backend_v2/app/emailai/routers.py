@@ -32,6 +32,8 @@ router = APIRouter()
 
 
 def get_email_ai_service() -> EmailAIService:
+    from app.config import get_settings
+
     db = get_database()
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
@@ -46,6 +48,7 @@ def get_email_ai_service() -> EmailAIService:
         reconciliation=get_reconciliation_service(),
         outreach=get_outreach_service(get_send_provider()),
         drafter=EmailMessageDrafter(llm),
+        shadow_mode=get_settings().ai_shadow_mode,
     )
 
 

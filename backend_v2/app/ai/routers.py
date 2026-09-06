@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends
 
 from app.ai.gpu_broker import GpuBroker
 from app.auth.dependencies import require_permission
+from app.config import get_settings
 from app.db import get_database
 from app.rbac.identity import ResolvedIdentity
 from app.rbac.permissions import AI_ADMIN, AI_READ, INTEGRATIONS_STATUS_READ
@@ -47,6 +48,7 @@ async def integrations_status(identity: ResolvedIdentity = Depends(require_permi
     gpu_broker_status = await broker.status()
     return {
         "ai_gateway": "READY",  # the gateway code path itself always exists; whether a model answers depends on the GPU broker below
+        "ai_shadow_mode": "ON" if get_settings().ai_shadow_mode else "OFF",  # ON = decisions recorded, execution suppressed (Allocation/Operations/Finance-match/Email-send/Outreach-send)
         "gpu_broker": "READY" if gpu_broker_status["state"] == "ready" else ("DISABLED" if not (os.getenv("GPU_BROKER_ENABLED") or "").strip() else "UNAVAILABLE"),
         "gpu_credential": _configured("RUNPOD_API_KEY"),
         "gsc": "NOT_CONFIGURED",  # no GSC credential scheme has been designed yet — see app.leadgen.gsc's module docstring

@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     # on an unset secret, never a silent skip.
     scheduler_signing_secret: str | None = None
 
+    # Phase 14 continued — the AI Gateway activation safety gate. Defaults to
+    # True: a newly-activated inference backend (a real GPU/model, not the
+    # test double every unit test still uses) must be watched making
+    # decisions against real business events before it's trusted to actually
+    # send an email, allocate a real panelist, pause/close a survey, or
+    # record a payment match. Every AiProposal is still created and recorded
+    # in shadow mode — decision-making itself never changes — only the
+    # governed-service execution each of those five decision points would
+    # otherwise trigger is suppressed. Flip to False only after the shadow-mode
+    # validation phase (docs/AI_NATIVE_COMPLETION_CHECKLIST.md) is complete.
+    ai_shadow_mode: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:

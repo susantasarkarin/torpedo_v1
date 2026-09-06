@@ -68,6 +68,7 @@ class EmailAIService:
         reconciliation: ReconciliationService,
         outreach: MessagingFacade,
         drafter: EmailMessageDrafter,
+        shadow_mode: bool = False,
     ):
         self._emails = emails
         self._ai_proposals = ai_proposals
@@ -78,6 +79,14 @@ class EmailAIService:
         self._reconciliation = reconciliation
         self._outreach = outreach
         self._drafter = drafter
+        # See PanelAllocationAIService's constructor docstring comment. Scoped
+        # to decide_followup()'s send only — classification and _route()'s
+        # CRM/suppression/reconciliation-candidate writes stay live even in
+        # shadow mode: they're internal, reversible, already-governed records
+        # (never an external contact, never a balance), not the "sends
+        # emails/allocates traffic/moves money" class of action shadow mode
+        # exists to hold back.
+        self._shadow_mode = shadow_mode
 
     async def ingest_email(
         self, *, org_id: str, actor: str, provider: str, provider_message_id: str,
@@ -158,7 +167,7 @@ class EmailAIService:
         }
         decision = await self._decision_engine.decide(org_id=org_id, task="email_followup_decision", subject_id=email.id, context=context)
 
-        if "send_response" in decision.actions and decision.is_auto_appliable():
+        if "send_response" in decision.actions and decision.is_auto_appliable() and not self._shadow_mode:
             idempotency_key = f"email-followup:{email.id}:{decision.decision}"
             await self._outreach.send(
                 org_id=org_id, actor=actor, mailbox_id=mailbox_id, to_email=email.from_address,

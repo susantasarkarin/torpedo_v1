@@ -36,7 +36,8 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 |---|---|
 | GPU lease manager (`app.ai.gpu_lease`, ported from `backend/infra/gpu_lease.py`) | **TESTED** (2026-09-06) — 11 tests. Ported, not imported (separate venv/worktree); fixed a real bug in the port: v1's `time.sleep()`/`requests` would freeze an async FastAPI worker for the length of a cold start, converted to `httpx.AsyncClient`/`asyncio.sleep` throughout |
 | GPU broker / single-flight registry (`app.ai.gpu_broker`, ported from `backend/infra/gpu_broker.py`) | **TESTED** — 11 tests covering the four bugs worth testing (two processes provisioning at once, a node nothing shuts down, a busy node shut down mid-batch, a registry pointing at a dead pod). Own collection (`ai_gpu_leases`, v2's own db) — deliberately not sharing v1's `torpedo_settings.gpu_leases`, so v2's isolation from v1 holds even for this |
-| Actually renting a real GPU node | **NOT_STARTED — blocked on `RUNPOD_API_KEY`**, confirmed absent from this environment. `GPU_BROKER_ENABLED` also unset (off by default, as designed) |
+| Actually renting a real GPU node | **NOT_STARTED — blocked on `RUNPOD_API_KEY`**, confirmed absent from this environment. `GPU_BROKER_ENABLED` also unset (off by default, as designed). `docs/GPU_ACTIVATION_RUNBOOK.md` is the exact 18-step checklist to run once it's configured server-side |
+| Shadow-mode activation safety gate (`Settings.ai_shadow_mode`) | **TESTED** (2026-09-06, Slice 20) — defaults `True` in production; suppresses exactly the five execution points that send an email, allocate a panelist, pause/close a survey, or record a payment match, while `DecisionEngine.decide()` keeps recording every `AiProposal` normally. 5 new regression tests (one per gated service). Built *before* the GPU credential, deliberately — so activation goes straight into the runbook's shadow-mode validation phase rather than a design conversation once the key lands |
 | `LLMProvider` Protocol + `GpuBrokerLLMProvider` (`app.ai.llm`) | **TESTED** — 4 tests, fifth instance of this codebase's Protocol-boundary pattern |
 | Central decision-contract schema (`app.ai.decision_engine.Decision`) | **TESTED** — matches master-prompt §7 field-for-field |
 | `DecisionEngine.decide()` — context → model → structured decision → audit log | **TESTED** — 9 tests. Never executes an action; a caller reads the `Decision` and acts through existing permission-gated services |
@@ -339,3 +340,33 @@ other activation depends on), then Cint, then email, then GSC — followed by a
 controlled production pilot monitoring AI decisions, conversion, margin,
 failures, and human overrides. Credentials go into the server's environment
 mechanism directly, never into a chat prompt or a commit.
+
+**2026-09-06, continued — Slice 20 (shadow-mode activation safety gate)**:
+per explicit user direction, built *before* touching `RUNPOD_API_KEY` (still
+confirmed absent) — GPU activation must go through a shadow-mode validation
+window first, so the mechanism that enables that has to exist before the
+credential does, not be designed under time pressure after it lands.
+`Settings.ai_shadow_mode` (default `True` in production) is a single,
+narrowly-scoped gate across exactly the five points in this codebase where an
+AI decision triggers real external/financial consequence: panel allocation,
+survey pause/close/reactivate/escalate + provider refresh, payment matching,
+and two email-send paths (email follow-up, outreach follow-up). Every one of
+those methods still calls `DecisionEngine.decide()` and still records a real
+`AiProposal` — decision-making is completely unaffected — only the
+governed-service execution each would otherwise trigger is suppressed.
+Deliberately NOT gated: email classification, lead ingestion (CRM record
+creation), suppression, reconciliation-candidate recording, and outreach's
+`sequence_state` label update — all already informational, protective, or
+internal-only by each module's own pre-existing design, not the "sends
+emails/allocates traffic/moves money" class of action the user's shadow-mode
+instruction named. Every constructor's default is `shadow_mode=False`, so all
+385 pre-existing tests (which construct these services directly) are
+completely unaffected — only the five real DI providers (one per gated
+service, across `panel`/`finance`/`emailai`/`leadgen`'s `routers.py`) read
+`Settings.ai_shadow_mode` and wire it through. `GET /api/v1/integrations/status`
+now reports `ai_shadow_mode: "ON"/"OFF"`. `docs/GPU_ACTIVATION_RUNBOOK.md` is
+the full 18-step checklist (provision → verify model → resilience → full
+suite + real end-to-end test against the live model → shadow-mode window →
+progressive autonomy) written now, so the moment the credential is configured
+server-side, activation goes straight into disciplined validation. Test
+count: 380 → 385.

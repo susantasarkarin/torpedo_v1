@@ -77,9 +77,9 @@ def inactivity(db) -> StudyInactivityService:
     return StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
 
 
-def _service(db, llm, survey_service, inactivity) -> OperationsAIService:
+def _service(db, llm, survey_service, inactivity, shadow_mode=False) -> OperationsAIService:
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
-    return OperationsAIService(engine, survey_service, inactivity, CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), CanonicalRepository(db["ai_proposals"], AiProposal))
+    return OperationsAIService(engine, survey_service, inactivity, CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), CanonicalRepository(db["ai_proposals"], AiProposal), shadow_mode=shadow_mode)
 
 
 async def _live_survey(svc: SurveyService, *, external_id="s1", conversion_rate=0.3, quota=5) -> Survey:
@@ -149,6 +149,24 @@ async def test_closed_surveys_are_never_offered_to_detection(db, survey_service,
 
 
 # --------------------------------------------------------------------------- evaluate_and_act (AI decides, code enforces)
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_records_the_decision_but_never_pauses_the_survey(db, survey_service, inactivity):
+    """Phase 14 continued — same shadow-mode discipline as
+    PanelAllocationAIService: the decision is made and recorded, but this
+    module's only auto-apply-by-design action (a real operational state
+    change) is suppressed."""
+    survey = await _live_survey(survey_service)
+    svc = _service(db, FakeLLM(_decision(decision="PAUSE")), survey_service, inactivity, shadow_mode=True)
+
+    decision = await svc.evaluate_and_act(org_id=ORG, actor=ACTOR, survey_id=survey.id, trigger_type="no_traffic_7_days")
+    assert decision.decision == "PAUSE"
+
+    unchanged = await survey_service._surveys.get(survey.id)
+    assert unchanged.operational_status == ACTIVE
+    assert unchanged.eligibility_is_active_in_pool is True
+    assert unchanged.ai_decision_subject_id is None  # _act() never ran at all
 
 
 @pytest.mark.asyncio

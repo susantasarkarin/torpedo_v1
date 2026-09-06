@@ -79,16 +79,21 @@ def get_allocation_service() -> AllocationService:
 
 
 def get_panel_allocation_ai_service() -> PanelAllocationAIService:
+    from app.config import get_settings
+
     db = get_database()
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return PanelAllocationAIService(
         engine, get_survey_service(), get_allocation_service(),
         CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation),
+        shadow_mode=get_settings().ai_shadow_mode,
     )
 
 
 def get_operations_ai_service() -> OperationsAIService:
+    from app.config import get_settings
+
     db = get_database()
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
@@ -97,6 +102,7 @@ def get_operations_ai_service() -> OperationsAIService:
     return OperationsAIService(
         engine, get_survey_service(), inactivity, CanonicalRepository(db["surveys"], Survey),
         CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), ai_proposals,
+        shadow_mode=get_settings().ai_shadow_mode,
     )
 
 

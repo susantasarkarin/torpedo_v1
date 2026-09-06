@@ -71,9 +71,9 @@ def allocation_service(db) -> AllocationService:
     return AllocationService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
 
 
-def _service(db, llm, survey_service, allocation_service) -> PanelAllocationAIService:
+def _service(db, llm, survey_service, allocation_service, shadow_mode=False) -> PanelAllocationAIService:
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
-    return PanelAllocationAIService(engine, survey_service, allocation_service, CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation))
+    return PanelAllocationAIService(engine, survey_service, allocation_service, CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation), shadow_mode=shadow_mode)
 
 
 async def _eligible_survey(svc: SurveyService, *, external_id: str, conversion_rate: float = 0.3, quota: int = 5) -> Survey:
@@ -153,6 +153,28 @@ async def test_model_choosing_a_survey_outside_the_eligible_set_is_rejected(db, 
 
     allocations = await CanonicalRepository(db["allocations"], Allocation).find_all({})
     assert allocations == []
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_records_the_decision_but_never_allocates(db, survey_service, allocation_service):
+    """Phase 14 continued — an activated GPU/model backend must be watched
+    before it's trusted to place a real person into a real paid survey.
+    Shadow mode suppresses execution even at high confidence; the AiProposal
+    is still recorded, so the audit trail exists for comparison."""
+    survey = await _eligible_survey(survey_service, external_id="s1")
+    llm = FakeLLM(_decision(decision=survey.id, confidence=0.95))
+    svc = _service(db, llm, survey_service, allocation_service, shadow_mode=True)
+
+    decision, allocation = await svc.evaluate_and_allocate(org_id=ORG, actor=ACTOR, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=StubProvider())
+    assert decision.decision == survey.id
+    assert allocation is None
+
+    survey_after = await survey_service._surveys.get(survey.id)
+    assert survey_after.quota_remaining == 5  # never reserved
+
+    proposal = await CanonicalRepository(db["ai_proposals"], AiProposal).find_one({"task": "evaluate_panel_allocation"})
+    assert proposal is not None
+    assert proposal.status == "approved"  # would have auto-applied, had shadow mode not held it back
 
 
 @pytest.mark.asyncio

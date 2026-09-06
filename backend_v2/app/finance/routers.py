@@ -94,6 +94,8 @@ def get_reconciliation_service() -> ReconciliationService:
 
 
 def get_ai_finance_service() -> AIFinanceService:
+    from app.config import get_settings
+
     db = get_database()
     llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
@@ -102,6 +104,7 @@ def get_ai_finance_service() -> AIFinanceService:
         engine, get_invoice_service(), get_bill_service(), get_payment_service(), get_reconciliation_service(),
         CanonicalRepository(db["reconciliation_records"], ReconciliationRecord),
         ai_proposals, CanonicalRepository(db["activities"], Activity),
+        shadow_mode=get_settings().ai_shadow_mode,
     )
 
 
