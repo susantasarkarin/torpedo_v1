@@ -16,6 +16,7 @@ from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, get_rbac_service, require_permission
 from app.db import get_database
 from app.finance.ai_finance import AIFinanceError, AIFinanceService
+from app.finance.analytics import FinanceAnalyticsService
 from app.finance.models import Bill, BankAccount, CreditNote, Expense, GstDetails, Invoice, LineItem, Payment, ReconciliationRecord
 from app.finance.rewards_ledger import RewardLedgerEntry, RewardLedgerError, RewardLedgerService
 from app.finance.sequence import SequenceService
@@ -35,6 +36,7 @@ from app.rbac.permissions import (
     FINANCE_AI_AP,
     FINANCE_AI_AR,
     FINANCE_AI_MATCH,
+    FINANCE_ANALYTICS_READ,
     FINANCE_READ,
     INVOICE_CREATE,
     INVOICE_SEND,
@@ -63,6 +65,11 @@ def get_invoice_service() -> InvoiceService:
 def get_bill_service() -> BillService:
     db = get_database()
     return BillService(CanonicalRepository(db["bills"], Bill), get_sequence_service(), CanonicalRepository(db["activities"], Activity))
+
+
+def get_finance_analytics_service() -> FinanceAnalyticsService:
+    db = get_database()
+    return FinanceAnalyticsService(CanonicalRepository(db["invoices"], Invoice), CanonicalRepository(db["bills"], Bill))
 
 
 def get_payment_service() -> PaymentService:
@@ -457,3 +464,13 @@ async def ai_match_payment(
     except AIFinanceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return MatchPaymentResponse(decision=decision, payment=payment)
+
+
+@router.get("/finance/analytics/ar-ageing")
+async def ar_ageing(identity: ResolvedIdentity = Depends(require_permission(FINANCE_ANALYTICS_READ)), svc: FinanceAnalyticsService = Depends(get_finance_analytics_service)) -> dict:
+    return await svc.ar_ageing(org_id=identity.org_id)
+
+
+@router.get("/finance/analytics/ap-ageing")
+async def ap_ageing(identity: ResolvedIdentity = Depends(require_permission(FINANCE_ANALYTICS_READ)), svc: FinanceAnalyticsService = Depends(get_finance_analytics_service)) -> dict:
+    return await svc.ap_ageing(org_id=identity.org_id)

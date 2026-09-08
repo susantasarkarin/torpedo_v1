@@ -630,3 +630,36 @@ credential to exist first:
 `app.emailai.providers.EmailIngestionProvider`: `IMPLEMENTED — LIVE
 CREDENTIAL REQUIRED` (real IMAP/Gmail OAuth credentials, confirmed absent).
 Test count: 445 → 447.
+
+**2026-09-08, continued — Phases 6-8 audited, found genuinely blocked
+beyond the credential itself, not just unscheduled.** Phase 6 (GSC): unlike
+email ingestion, there is still no site-registry entity anywhere in the
+schema (no "which websites do we own/monitor" concept exists) — Slice 19
+already reasoned through this exact gap and declined to fabricate one, and
+that reasoning holds; wiring a scheduler trigger with nothing real to
+iterate over would be decoration, not infrastructure, so this stays
+correctly `IMPLEMENTED — LIVE CREDENTIAL REQUIRED` (GSCProvider Protocol +
+NullGSCProvider + generate_leads()/evaluate_icp() consumers, unchanged).
+Phase 7 (market research engine) and Phase 8 (Cint) were already
+substantially real from Slices 9/15/16/18 — re-verified, nothing new found.
+Moved to Phase 9, where a real gap existed.
+
+**Phase 9 (finance): AR/AP ageing.** Audited the finance module for
+"ageing/profitability/cash-flow" and found zero matches anywhere — every
+number `AIFinanceService.decide_ar_followup()`/`decide_ap_followup()`
+(Slice 17) reasons from per-invoice was never exposed as an aggregate
+report. `app.finance.analytics.FinanceAnalyticsService.ar_ageing()`/
+`ap_ageing()` are real, deterministic aggregations (no AI decision
+involved) over the exact same candidate sets `InvoiceService.list_open()`/
+`BillService.list_open()` already provide — bucketed into the standard
+current/1-30/31-60/61-90/90+ days-overdue convention. **Currency-safe by
+construction**: every bucket is keyed `(currency, age_bucket)`, never
+`age_bucket` alone — a naive sum across an INR invoice and a USD invoice
+would silently produce a meaningless blended number, exactly the kind of
+correctness bug this rebuild's `Money` discipline exists to prevent
+elsewhere. `GET /finance/analytics/ar-ageing`/`ap-ageing`, permission-gated.
+Client/study/supplier profitability and cash-flow intelligence remain
+real, valuable, unbuilt next increments — not attempted this pass, to keep
+this one coherent rather than half-finishing several at once.
+
+Test count: 447 → 459.

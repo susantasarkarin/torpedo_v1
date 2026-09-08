@@ -14,12 +14,14 @@ from mongomock_motor import AsyncMongoMockClient
 from app.auth.dependencies import get_auth_service, get_rbac_service
 from app.auth.models import Credential, Session
 from app.auth.service import AuthService
+from app.finance.analytics import FinanceAnalyticsService
 from app.finance.models import Bill, BankAccount, CreditNote, Expense, Invoice, Payment, ReconciliationRecord
 from app.finance.routers import (
     get_bank_account_service,
     get_bill_service,
     get_credit_note_service,
     get_expense_service,
+    get_finance_analytics_service,
     get_invoice_service,
     get_payment_service,
     get_reconciliation_service,
@@ -33,7 +35,7 @@ from app.main import app
 from app.models.activity import Activity
 from app.models.base import CanonicalRepository
 from app.rbac.models import ApprovalAuthority, Role, UserRole
-from app.rbac.permissions import INVOICE_CREATE, INVOICE_SEND, INVOICE_SUBMIT
+from app.rbac.permissions import FINANCE_ANALYTICS_READ, INVOICE_CREATE, INVOICE_SEND, INVOICE_SUBMIT
 from app.rbac.service import RBACService
 
 ORG_A = "org-A"
@@ -74,6 +76,11 @@ def bill_service(db, sequences) -> BillService:
 
 
 @pytest.fixture
+def finance_analytics_service(db) -> FinanceAnalyticsService:
+    return FinanceAnalyticsService(CanonicalRepository(db["invoices"], Invoice), CanonicalRepository(db["bills"], Bill))
+
+
+@pytest.fixture
 def payment_service(db, sequences) -> PaymentService:
     return PaymentService(CanonicalRepository(db["payments"], Payment), CanonicalRepository(db["invoices"], Invoice), CanonicalRepository(db["bills"], Bill), sequences, CanonicalRepository(db["activities"], Activity))
 
@@ -104,7 +111,7 @@ def reward_ledger_service(db) -> RewardLedgerService:
 
 
 @pytest.fixture
-def client(auth_service, rbac_service, invoice_service, bill_service, payment_service, expense_service, credit_note_service, bank_account_service, reconciliation_service, reward_ledger_service, sequences) -> TestClient:
+def client(auth_service, rbac_service, invoice_service, bill_service, payment_service, expense_service, credit_note_service, bank_account_service, reconciliation_service, reward_ledger_service, sequences, finance_analytics_service) -> TestClient:
     app.dependency_overrides[get_auth_service] = lambda: auth_service
     app.dependency_overrides[get_rbac_service] = lambda: rbac_service
     app.dependency_overrides[get_invoice_service] = lambda: invoice_service
@@ -113,6 +120,7 @@ def client(auth_service, rbac_service, invoice_service, bill_service, payment_se
     app.dependency_overrides[get_expense_service] = lambda: expense_service
     app.dependency_overrides[get_credit_note_service] = lambda: credit_note_service
     app.dependency_overrides[get_bank_account_service] = lambda: bank_account_service
+    app.dependency_overrides[get_finance_analytics_service] = lambda: finance_analytics_service
     app.dependency_overrides[get_reconciliation_service] = lambda: reconciliation_service
     app.dependency_overrides[get_reward_ledger_service] = lambda: reward_ledger_service
     app.dependency_overrides[get_sequence_service] = lambda: sequences
@@ -222,3 +230,25 @@ async def test_cross_org_invoice_read_is_404_not_403(client: TestClient, auth_se
 
     bob_resp = client.get(f"/api/v1/finance/invoices/{invoice_id}", headers={"Authorization": f"Bearer {bob_token}"})
     assert bob_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ar_ageing_without_permission_is_403(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
+    resp = client.get("/api/v1/finance/analytics/ar-ageing", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_ar_ageing_with_permission_returns_the_real_report(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[FINANCE_ANALYTICS_READ])
+    resp = client.get("/api/v1/finance/analytics/ar-ageing", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json() == {}  # no invoices seeded — a real empty report, not a fabricated one
+
+
+@pytest.mark.asyncio
+async def test_ap_ageing_without_permission_is_403(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
+    resp = client.get("/api/v1/finance/analytics/ap-ageing", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403

@@ -122,6 +122,9 @@ FINANCE_AI_AR = "finance.ai.ar_followup"  # system — the (future) scheduled ca
 FINANCE_AI_AP = "finance.ai.ap_followup"
 FINANCE_AI_MATCH = "finance.ai.match_payment"
 
+# Finance analytics (AR/AP ageing) — Phase 9 of the master completion program.
+FINANCE_ANALYTICS_READ = "finance.analytics.read"
+
 # Survey billing/margin — Slice 18.
 SURVEY_BILLING_MANAGE = "survey.billing.manage"
 SURVEY_MARGIN_READ = "survey.margin.read"
