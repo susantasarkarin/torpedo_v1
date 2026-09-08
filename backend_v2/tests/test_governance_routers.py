@@ -181,3 +181,56 @@ async def test_reviewing_another_orgs_proposal_is_400_not_a_cross_tenant_write(c
 
     untouched = await CanonicalRepository(db["ai_proposals"], AiProposal).get(org_b_proposal.id)
     assert untouched.reviewed_by is None
+
+
+@pytest.mark.asyncio
+async def test_report_without_permission_is_403(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
+    resp = client.get("/api/v1/governance/proposals/report?since=2026-01-01T00:00:00%2B00:00", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_report_includes_reviewed_and_unreviewed_proposals_in_the_window(client: TestClient, auth_service, rbac_service, db):
+    now = datetime.now(timezone.utc)
+    reviewed = await _proposal(db, created_at=now)
+    unreviewed = await _proposal(db, created_at=now)
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[GOVERNANCE_READ, GOVERNANCE_REVIEW])
+    client.post(f"/api/v1/governance/proposals/{reviewed.id}/review", json={"action": "APPROVE"}, headers={"Authorization": f"Bearer {token}"})
+
+    since = (now - timedelta(minutes=1)).isoformat()
+    resp = client.get("/api/v1/governance/proposals/report", params={"since": since}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    ids = {p["_id"] for p in resp.json()}
+    assert ids == {reviewed.id, unreviewed.id}
+
+
+@pytest.mark.asyncio
+async def test_report_rejects_a_naive_since_datetime(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[GOVERNANCE_READ])
+    resp = client.get("/api/v1/governance/proposals/report?since=2026-01-01T00:00:00", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_report_rejects_until_before_since(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[GOVERNANCE_READ])
+    resp = client.get(
+        "/api/v1/governance/proposals/report?since=2026-01-02T00:00:00%2B00:00&until=2026-01-01T00:00:00%2B00:00",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_report_never_crosses_orgs(client: TestClient, auth_service, rbac_service, db):
+    now = datetime.now(timezone.utc)
+    await _proposal(db, created_at=now)
+    await CanonicalRepository(db["ai_proposals"], AiProposal).insert(
+        AiProposal(org_id="org-B", created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-2", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved", created_at=now)
+    )
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[GOVERNANCE_READ])
+
+    since = (now - timedelta(minutes=1)).isoformat()
+    resp = client.get("/api/v1/governance/proposals/report", params={"since": since}, headers={"Authorization": f"Bearer {token}"})
+    assert len(resp.json()) == 1

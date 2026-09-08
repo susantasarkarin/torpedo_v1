@@ -166,3 +166,53 @@ async def test_review_cannot_cross_org_boundaries(db, proposals, svc):
     # Never actually reviewed — the rejected call must not have side effects.
     untouched = await proposals.get(other_orgs_proposal.id)
     assert untouched.reviewed_by is None
+
+
+# --------------------------------------------------------------------------- shadow-mode validation report (GPU_ACTIVATION_RUNBOOK.md Phase D)
+
+
+@pytest.mark.asyncio
+async def test_list_in_window_includes_both_reviewed_and_unreviewed_proposals(db, proposals, svc):
+    """Distinct from list_pending(): a shadow-mode validation window must be
+    reviewed in full, not just the leftover unreviewed backlog."""
+    now = datetime.now(timezone.utc)
+    reviewed = await _proposal(proposals, created_at=now)
+    await svc.review(org_id=ORG, proposal_id=reviewed.id, actor="alice", action="APPROVE")
+    unreviewed = await _proposal(proposals, created_at=now)
+
+    window = await svc.list_in_window(org_id=ORG, since=now - timedelta(minutes=1))
+    ids = {p.id for p in window}
+    assert ids == {reviewed.id, unreviewed.id}
+
+
+@pytest.mark.asyncio
+async def test_list_in_window_excludes_proposals_outside_the_range(db, proposals, svc):
+    now = datetime.now(timezone.utc)
+    before_window = await _proposal(proposals, created_at=now - timedelta(days=2))
+    in_window = await _proposal(proposals, created_at=now)
+    after_window = await _proposal(proposals, created_at=now + timedelta(days=2))
+
+    window = await svc.list_in_window(org_id=ORG, since=now - timedelta(hours=1), until=now + timedelta(hours=1))
+    assert [p.id for p in window] == [in_window.id]
+    assert before_window.id not in {p.id for p in window}
+    assert after_window.id not in {p.id for p in window}
+
+
+@pytest.mark.asyncio
+async def test_list_in_window_can_be_narrowed_to_one_task(db, proposals, svc):
+    now = datetime.now(timezone.utc)
+    await _proposal(proposals, task="evaluate_panel_allocation", created_at=now)
+    match = await _proposal(proposals, task="match_payment_to_invoice", created_at=now)
+
+    window = await svc.list_in_window(org_id=ORG, since=now - timedelta(minutes=1), task="match_payment_to_invoice")
+    assert [p.id for p in window] == [match.id]
+
+
+@pytest.mark.asyncio
+async def test_list_in_window_never_crosses_orgs(db, proposals, svc):
+    now = datetime.now(timezone.utc)
+    await _proposal(proposals, org_id=ORG, created_at=now)
+    await _proposal(proposals, org_id="org-B", created_at=now)
+
+    window = await svc.list_in_window(org_id=ORG, since=now - timedelta(minutes=1))
+    assert len(window) == 1

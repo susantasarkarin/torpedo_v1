@@ -52,6 +52,21 @@ class ApprovalService:
     def __init__(self, proposals: CanonicalRepository[AiProposal]):
         self._proposals = proposals
 
+    async def list_in_window(self, *, org_id: str, since: datetime, until: datetime | None = None, task: str | None = None) -> list[AiProposal]:
+        """The GPU_ACTIVATION_RUNBOOK.md Phase D report: every `AiProposal`
+        created in `[since, until)`, reviewed or not — unlike `list_pending()`,
+        which is the live unreviewed-queue view, this is the shadow-mode
+        validation report ("pull AiProposal records for the window... a human
+        reviews them against what a human operator would have decided").
+        Never filters on `reviewed_by`; a shadow-mode window is compared in
+        full, not just the leftover backlog."""
+        query: dict = {"org_id": org_id, "created_at": {"$gte": since}}
+        if until is not None:
+            query["created_at"]["$lt"] = until
+        if task:
+            query["task"] = task
+        return await self._proposals.find_all(query)
+
     async def list_pending(self, *, org_id: str, task: str | None = None, older_than: timedelta | None = None) -> list[AiProposal]:
         """The deterministic candidate set a human review UI would page
         through — proposals nobody has recorded a verdict on yet, in this

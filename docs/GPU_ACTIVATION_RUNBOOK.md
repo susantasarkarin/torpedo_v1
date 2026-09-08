@@ -103,7 +103,13 @@ VM, read once by `app.config.Settings` at process start.
     `AiProposal` records for the window (`org_id`, `task`, `confidence`,
     `proposed_fields`) and a human reviews them against what a human operator
     would have decided. This is the actual validation the entire rebuild has
-    been building toward — no test suite substitutes for it.
+    been building toward — no test suite substitutes for it. Built and tested
+    ahead of this step (2026-09-08, before `RUNPOD_API_KEY` existed, so this
+    tooling itself only runs against real shadow-mode data once GPU
+    activation reaches this point): `GET /api/v1/governance/proposals/report?since=...&until=...&task=...`
+    (`GOVERNANCE_READ`) — every `AiProposal` in the window, reviewed or not,
+    unlike `GET /governance/proposals`'s live unreviewed-queue view. `since`/`until`
+    are timezone-aware ISO-8601 datetimes; `task` narrows to one AI task.
 
 ## Phase E — Progressive autonomy (only after Phase D is reviewed and approved)
 
