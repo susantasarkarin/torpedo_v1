@@ -63,6 +63,7 @@ EVENT_TYPES = frozenset({
     "email_classification_due",
     "outreach_followup_due",
     "lead_conversion_due",
+    "email_ingestion_due",
 })
 
 # A FAILED event stays retryable up to this many attempts, then stops being

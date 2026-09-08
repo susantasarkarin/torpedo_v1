@@ -600,3 +600,33 @@ fact that someone replied.
   decoration, not a feature.
 
 Test count: 440 → 445.
+
+**2026-09-08, continued — Phase 5 (email intelligence): the inbox-polling
+trigger, wired before the credential exists.** Audited `app.emailai.providers.EmailIngestionProvider`
+and found `fetch_new()` was defined but never called anywhere in the
+codebase — no DI provider, no scheduler trigger, unlike GSC/SMTP/Cint, which
+all got this exact treatment already. Per the master program's own
+"implement everything possible, mark the credential-gated piece as blocked"
+instruction, built the real plumbing now rather than waiting for the
+credential to exist first:
+
+- **`NullEmailIngestionProvider`** — the production default via
+  `get_email_ingestion_provider()`, same pattern as `NullGSCProvider`: fails
+  loud (`EmailProviderUnavailable`) rather than returning a fabricated empty
+  inbox.
+- **`email_ingestion_due`, the ninth Phase 14 scheduler trigger** — one event
+  per active `Mailbox` per day. Its handler is deliberately the first
+  scheduler event type with **no AI decision in it at all** — ingestion is
+  deterministic infrastructure (fetch + insert), not a judgment call; each
+  newly-ingested `InboundEmail` becomes its own real
+  `email_classification_due` event on the *next* detection cycle, keeping
+  ingestion and classification (the actual AI step) as separate as
+  `EmailAIService.ingest_email()`/`.analyze_and_route()` already are.
+  Currently always fails (zero real credentials exist), which is the
+  correct, honest outcome, not a reason to leave the trigger unbuilt — and
+  currently creates zero events regardless, since zero `Mailbox` rows exist
+  in production yet.
+
+`app.emailai.providers.EmailIngestionProvider`: `IMPLEMENTED — LIVE
+CREDENTIAL REQUIRED` (real IMAP/Gmail OAuth credentials, confirmed absent).
+Test count: 445 → 447.

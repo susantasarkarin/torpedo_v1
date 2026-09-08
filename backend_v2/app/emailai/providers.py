@@ -31,3 +31,17 @@ class EmailIngestionProvider(Protocol):
     async def fetch_new(self, *, mailbox_id: str, since_provider_message_id: str | None = None) -> list[RawInboundEmail]:
         """May raise EmailProviderUnavailable."""
         ...
+
+
+class NullEmailIngestionProvider:
+    """The production default until real IMAP/Gmail credentials exist — same
+    pattern as `app.leadgen.routers.NullGSCProvider`. Raises rather than
+    returning an empty inbox, so a caller can't mistake "not configured" for
+    "no new mail today". This is what makes `email_ingestion_due` (Phase 14
+    scheduler) safe to wire up *before* the credential exists: the trigger
+    and its plumbing are real and tested now; swapping this for a real
+    adapter later is a one-line change to `get_email_ingestion_provider()`,
+    not a redesign."""
+
+    async def fetch_new(self, *, mailbox_id: str, since_provider_message_id: str | None = None) -> list[RawInboundEmail]:
+        raise EmailProviderUnavailable("no real email ingestion provider is configured — no IMAP/Gmail credentials exist in this environment")

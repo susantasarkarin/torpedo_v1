@@ -18,6 +18,7 @@ from app.auth.dependencies import require_permission
 from app.db import get_database
 from app.emailai.drafting import EmailMessageDrafter
 from app.emailai.models import InboundEmail
+from app.emailai.providers import EmailIngestionProvider, NullEmailIngestionProvider
 from app.emailai.service import EmailAIError, EmailAIService
 from app.finance.routers import get_reconciliation_service
 from app.leadgen.routers import get_leadgen_service
@@ -50,6 +51,10 @@ def get_email_ai_service() -> EmailAIService:
         drafter=EmailMessageDrafter(llm),
         shadow_mode=get_settings().ai_shadow_mode,
     )
+
+
+def get_email_ingestion_provider() -> EmailIngestionProvider:
+    return NullEmailIngestionProvider()
 
 
 class IngestEmailRequest(BaseModel):

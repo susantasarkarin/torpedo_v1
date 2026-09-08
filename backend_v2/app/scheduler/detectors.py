@@ -6,7 +6,7 @@ condition (reusing an existing detector/query, never reimplementing one) and
 creates an idempotent `Event` for it, skipping if one already exists per
 `Event`'s own dedupe-key rules (see models.py).
 
-**Eight real, computable triggers — not the fuller wishlist, and that's
+**Nine real, computable triggers — not the fuller wishlist, and that's
 deliberate**:
 
 - `survey_operations_trigger` — reuses `OperationsAIService.detect_triggers()`
@@ -31,6 +31,13 @@ deliberate**:
   state, stale for longer than `OUTREACH_STALENESS_WINDOW`. Needs a real,
   active `Mailbox` to send through; an org with none configured yet simply
   produces no events for this trigger — never a fabricated mailbox_id.
+- `email_ingestion_due` (Phase 5) — one per active `Mailbox` per day. Real
+  plumbing wired up *before* the credential exists, per the master program's
+  own "implement everything possible, mark the credential-gated piece as
+  blocked" instruction — currently always fails
+  (`EmailProviderUnavailable`, via `NullEmailIngestionProvider`), which is
+  the correct, honest outcome given no real IMAP/Gmail credentials exist,
+  not a reason to leave the trigger unbuilt.
 
 **Deliberately NOT built, honestly, same discipline as every prior slice's
 gaps**: a "new GSC opportunity" trigger (no site-registry entity exists in the
@@ -108,6 +115,7 @@ class EventDetectionService:
             "lead_conversion_due": len(await self.detect_lead_conversion(org_id=org_id)),
             "email_classification_due": len(await self.detect_email_classification(org_id=org_id)),
             "outreach_followup_due": len(await self.detect_outreach_followup(org_id=org_id, as_of=as_of)),
+            "email_ingestion_due": len(await self.detect_email_ingestion(org_id=org_id)),
         }
 
     async def _create_if_new(self, *, org_id: str, event_type: str, entity_type: str, entity_id: str, occurred_at: datetime, dedupe_key: str, payload: dict) -> Event | None:
@@ -215,6 +223,24 @@ class EventDetectionService:
                 continue  # already re-evaluated (or created) recently enough
             dedupe_key = f"outreach_followup_due:{enrollment.id}:{date.today().isoformat()}"
             event = await self._create_if_new(org_id=org_id, event_type="outreach_followup_due", entity_type="lead_enrollment", entity_id=enrollment.id, occurred_at=as_of, dedupe_key=dedupe_key, payload={"mailbox_id": mailbox.id})
+            if event:
+                created.append(event)
+        return created
+
+    async def detect_email_ingestion(self, *, org_id: str) -> list[Event]:
+        """One event per active `Mailbox` per day — recurring, like AR/AP
+        followup: polling for new mail is a legitimate every-cycle action,
+        not a one-shot condition. Currently always fails
+        (`EmailProviderUnavailable`, via `NullEmailIngestionProvider`) since
+        no real IMAP/Gmail credentials exist in this environment — that's
+        the correct, honest failure mode, not a reason to skip building the
+        trigger. Zero `Mailbox` rows currently exist in production, so this
+        produces zero events until one is actually configured."""
+        mailboxes = await self._mailboxes.find_all({"org_id": org_id, "is_active": True})
+        created = []
+        for mailbox in mailboxes:
+            dedupe_key = f"email_ingestion_due:{mailbox.id}:{date.today().isoformat()}"
+            event = await self._create_if_new(org_id=org_id, event_type="email_ingestion_due", entity_type="mailbox", entity_id=mailbox.id, occurred_at=datetime.now(timezone.utc), dedupe_key=dedupe_key, payload={"provider": mailbox.provider})
             if event:
                 created.append(event)
         return created

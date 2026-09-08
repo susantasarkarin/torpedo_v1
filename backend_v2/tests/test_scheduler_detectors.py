@@ -320,4 +320,5 @@ async def test_run_all_aggregates_counts_across_every_detector(db, detection, in
     assert set(counts.keys()) == {
         "survey_operations_trigger", "ar_followup_due", "ap_followup_due", "reconciliation_unmatched",
         "lead_icp_evaluation_due", "lead_conversion_due", "email_classification_due", "outreach_followup_due",
+        "email_ingestion_due",
     }

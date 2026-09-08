@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from app.ai.decision_engine import DecisionEngineError
 from app.ai.llm import LLMUnavailable
+from app.emailai.providers import EmailIngestionProvider, EmailProviderUnavailable
 from app.emailai.service import EmailAIError, EmailAIService
 from app.finance.ai_finance import AIFinanceError, AIFinanceService
 from app.leadgen.ai_conversion import LeadConversionAIError, LeadConversionAIService
@@ -44,6 +45,7 @@ from app.scheduler.models import FAILED, MAX_ATTEMPTS, PENDING, PROCESSED, PROCE
 _RECOVERABLE_ERRORS = (
     LLMUnavailable, DecisionEngineError, SurveyProviderUnavailable,
     OperationsAIError, AIFinanceError, LeadGenAIError, EmailAIError, OutreachAIError, LeadConversionAIError,
+    EmailProviderUnavailable,
 )
 
 ACTOR = "system"
@@ -54,7 +56,7 @@ class EventOrchestrator:
         self, *, events: CanonicalRepository[Event], detection: EventDetectionService,
         operations_ai: OperationsAIService, finance_ai: AIFinanceService, leadgen_ai: LeadGenAIService,
         email_ai: EmailAIService, outreach_ai: OutreachAIService, survey_provider: SurveyProvider,
-        conversion_ai: LeadConversionAIService,
+        conversion_ai: LeadConversionAIService, email_ingestion_provider: EmailIngestionProvider,
     ):
         self._events = events
         self._detection = detection
@@ -65,6 +67,7 @@ class EventOrchestrator:
         self._outreach_ai = outreach_ai
         self._survey_provider = survey_provider
         self._conversion_ai = conversion_ai
+        self._email_ingestion_provider = email_ingestion_provider
 
     async def run_detection_cycle(self, *, org_id: str) -> dict[str, int]:
         return await self._detection.run_all(org_id=org_id)
@@ -128,3 +131,20 @@ class EventOrchestrator:
     async def _handle_lead_conversion_due(self, event: Event) -> dict:
         decision, opportunity = await self._conversion_ai.evaluate_and_convert(org_id=event.org_id, actor=ACTOR, lead_state_id=event.entity_id)
         return {"decision": decision.decision, "confidence": decision.confidence, "opportunity_id": opportunity.id if opportunity else None}
+
+    async def _handle_email_ingestion_due(self, event: Event) -> dict:
+        """No AI decision here — ingestion is deterministic infrastructure,
+        not a decision. Each newly-ingested InboundEmail becomes its own
+        real email_classification_due event on the next detection cycle,
+        keeping ingestion (fetch) and classification (the actual AI step)
+        properly separate, the same way EmailAIService.ingest_email() and
+        .analyze_and_route() already are."""
+        raw_emails = await self._email_ingestion_provider.fetch_new(mailbox_id=event.entity_id)
+        ingested_ids = []
+        for raw in raw_emails:
+            email = await self._email_ai.ingest_email(
+                org_id=event.org_id, actor=ACTOR, provider=event.payload.get("provider", "unknown"), provider_message_id=raw.provider_message_id,
+                from_address=raw.from_address, to_address=raw.to_address, subject=raw.subject, body=raw.body, thread_id=raw.thread_id,
+            )
+            ingested_ids.append(email.id)
+        return {"ingested_count": len(ingested_ids), "ingested_ids": ingested_ids}

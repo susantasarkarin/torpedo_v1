@@ -26,7 +26,7 @@ from app.auth.dependencies import require_permission
 from app.config import get_settings
 from app.db import get_database
 from app.emailai.models import InboundEmail
-from app.emailai.routers import get_email_ai_service
+from app.emailai.routers import get_email_ai_service, get_email_ingestion_provider
 from app.finance.routers import get_ai_finance_service, get_bill_service, get_invoice_service
 from app.finance.routers import get_reconciliation_service as get_finance_reconciliation_service
 from app.identity.models import Account, Person
@@ -70,6 +70,7 @@ def get_event_orchestrator() -> EventOrchestrator:
         finance_ai=get_ai_finance_service(),
         leadgen_ai=get_leadgen_ai_service(),
         email_ai=get_email_ai_service(),
+        email_ingestion_provider=get_email_ingestion_provider(),
         outreach_ai=get_outreach_ai_service(),
         survey_provider=get_survey_provider(),
         conversion_ai=get_lead_conversion_ai_service(),

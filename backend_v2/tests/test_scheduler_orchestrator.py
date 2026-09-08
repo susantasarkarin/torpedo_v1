@@ -86,12 +86,21 @@ class FakeEmailAI:
     def __init__(self, *, raises=None):
         self._raises = raises
         self.calls: list[dict] = []
+        self.ingested: list[dict] = []
 
     async def analyze_and_route(self, *, org_id, actor, email_id):
         self.calls.append({"email_id": email_id})
         if self._raises:
             raise self._raises
         return _Decision("SPAM")
+
+    async def ingest_email(self, *, org_id, actor, provider, provider_message_id, from_address, to_address, subject, body, thread_id=None):
+        self.ingested.append({"provider": provider, "provider_message_id": provider_message_id, "from_address": from_address})
+
+        class _Email:
+            id = f"email-{len(self.ingested)}"
+
+        return _Email()
 
 
 class FakeOutreachAI:
@@ -119,6 +128,19 @@ class FakeConversionAI:
         return _Decision("HOLD"), self._opportunity
 
 
+class FakeEmailIngestionProvider:
+    def __init__(self, *, raises=None, raw_emails=None):
+        self._raises = raises
+        self._raw_emails = raw_emails or []
+        self.calls: list[dict] = []
+
+    async def fetch_new(self, *, mailbox_id, since_provider_message_id=None):
+        self.calls.append({"mailbox_id": mailbox_id})
+        if self._raises:
+            raise self._raises
+        return self._raw_emails
+
+
 class _NoOpDetection:
     async def run_all(self, *, org_id, as_of=None):
         return {}
@@ -134,12 +156,13 @@ def events(db) -> CanonicalRepository[Event]:
     return CanonicalRepository(db["events"], Event)
 
 
-def _orchestrator(events, *, operations_ai=None, finance_ai=None, leadgen_ai=None, email_ai=None, outreach_ai=None, conversion_ai=None) -> EventOrchestrator:
+def _orchestrator(events, *, operations_ai=None, finance_ai=None, leadgen_ai=None, email_ai=None, outreach_ai=None, conversion_ai=None, email_ingestion_provider=None) -> EventOrchestrator:
     return EventOrchestrator(
         events=events, detection=_NoOpDetection(),
         operations_ai=operations_ai or FakeOperationsAI(), finance_ai=finance_ai or FakeFinanceAI(),
         leadgen_ai=leadgen_ai or FakeLeadGenAI(), email_ai=email_ai or FakeEmailAI(), outreach_ai=outreach_ai or FakeOutreachAI(),
         conversion_ai=conversion_ai or FakeConversionAI(),
+        email_ingestion_provider=email_ingestion_provider or FakeEmailIngestionProvider(),
         survey_provider=None,
     )
 
@@ -278,6 +301,45 @@ async def test_lead_conversion_event_result_includes_opportunity_id_when_convert
     await orchestrator.process_pending(org_id=ORG)
     stored = (await events.find_all({}))[0]
     assert stored.result["opportunity_id"] == "opp-1"
+
+
+@pytest.mark.asyncio
+async def test_email_ingestion_event_dispatches_to_the_provider_and_ingests_each_raw_email(db, events):
+    class _RawEmail:
+        provider_message_id = "msg-1"
+        from_address = "lead@example.com"
+        to_address = "sales@torpedo.example"
+        subject = "Hi"
+        body = "Interested"
+        thread_id = None
+
+    provider = FakeEmailIngestionProvider(raw_emails=[_RawEmail()])
+    email_ai = FakeEmailAI()
+    await _pending_event(events, event_type="email_ingestion_due", entity_type="mailbox", entity_id="mailbox-1", payload={"provider": "gmail"})
+    orchestrator = _orchestrator(events, email_ai=email_ai, email_ingestion_provider=provider)
+
+    await orchestrator.process_pending(org_id=ORG)
+    assert provider.calls == [{"mailbox_id": "mailbox-1"}]
+    assert email_ai.ingested == [{"provider": "gmail", "provider_message_id": "msg-1", "from_address": "lead@example.com"}]
+
+    stored = (await events.find_all({}))[0]
+    assert stored.result["ingested_count"] == 1
+    assert stored.processing_status == PROCESSED
+
+
+@pytest.mark.asyncio
+async def test_email_provider_unavailable_is_recoverable_not_a_crash(db, events):
+    from app.emailai.providers import EmailProviderUnavailable
+
+    provider = FakeEmailIngestionProvider(raises=EmailProviderUnavailable("no credentials"))
+    await _pending_event(events, event_type="email_ingestion_due", entity_type="mailbox", entity_id="mailbox-1", payload={"provider": "gmail"})
+    orchestrator = _orchestrator(events, email_ingestion_provider=provider)
+
+    outcome = await orchestrator.process_pending(org_id=ORG)
+    assert outcome == {"processed": 0, "failed": 1, "skipped": 0}
+    stored = (await events.find_all({}))[0]
+    assert stored.processing_status == FAILED
+    assert "no credentials" in stored.last_error
 
 
 # --------------------------------------------------------------------------- failure/retry mechanics
