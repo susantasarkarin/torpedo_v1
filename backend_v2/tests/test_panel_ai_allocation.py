@@ -234,6 +234,32 @@ async def test_previous_exposure_to_the_same_survey_is_detected(db, survey_servi
 
 
 @pytest.mark.asyncio
+async def test_another_orgs_panelist_history_never_leaks_into_this_orgs_allocation_context(db, survey_service, allocation_service):
+    """Phase 15 follow-up: person_id here is a caller-supplied respondent
+    reference, not necessarily resolved through IdentityService. A
+    coincidental person_id collision between two unrelated orgs' panel
+    programs must never blend one org's real panelist's response/allocation
+    history into another org's AI allocation context — that would leak
+    another org's panelist behavioral data into this org's AiProposal."""
+    survey = await _eligible_survey(survey_service, external_id="s1")
+    responses = CanonicalRepository(db["survey_responses"], SurveyResponse)
+    allocations = CanonicalRepository(db["allocations"], Allocation)
+    # Same person_id ("p1"), but every one of these belongs to a different org.
+    await responses.insert(SurveyResponse(org_id="org-B", created_by="mallory", updated_by="mallory", allocation_id="a1", survey_id="other-survey", person_id="p1", respondent_ref="rr1", provider="cint", external_event_id="e1", final_status="complete"))
+    await allocations.insert(Allocation(org_id="org-B", created_by="mallory", updated_by="mallory", survey_id=survey.id, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="org-b-ref", redirect_url="https://x"))
+
+    llm = FakeLLM(_decision(decision=survey.id))
+    svc = _service(db, llm, survey_service, allocation_service)
+    await svc.evaluate_and_allocate(org_id=ORG, actor=ACTOR, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=StubProvider())
+
+    history = llm.calls[0]["context"]["panelist_history_by_survey"][survey.id]
+    assert history["total_prior_responses"] == 0
+    assert history["historical_completion_rate"] is None
+    assert history["previously_exposed_to_this_survey"] is False
+    assert history["days_since_last_allocation"] is None
+
+
+@pytest.mark.asyncio
 async def test_allocation_is_traceable_to_the_ai_decision_that_made_it(db, survey_service, allocation_service):
     survey = await _eligible_survey(survey_service, external_id="s1")
     llm = FakeLLM(_decision(decision=survey.id))

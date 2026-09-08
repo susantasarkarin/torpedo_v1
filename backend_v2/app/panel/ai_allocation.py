@@ -104,7 +104,7 @@ class PanelAllocationAIService:
             raise PanelAllocationAIError("no surveys pass the deterministic eligibility gate — nothing to offer the model")
 
         eligible_ids = {s.id for s in eligible}
-        history_by_survey = {s.id: await self._panelist_history(person_id=person_id, survey_id=s.id) for s in eligible}
+        history_by_survey = {s.id: await self._panelist_history(org_id=org_id, person_id=person_id, survey_id=s.id) for s in eligible}
         context = {
             "task_instructions": _TASK_INSTRUCTIONS,
             "eligible_surveys": [self._survey_context(s) for s in eligible],
@@ -132,20 +132,27 @@ class PanelAllocationAIService:
         )
         return decision, allocation
 
-    async def _panelist_history(self, *, person_id: str, survey_id: str) -> dict:
+    async def _panelist_history(self, *, org_id: str, person_id: str, survey_id: str) -> dict:
         """Counted/existence-checked at the query level, not pulled into
         Python (Phase 18 performance audit): this runs on every single
         allocation decision — the platform's highest-frequency AI call — and
         a panelist with a real, long tenure can accumulate thousands of
         `SurveyResponse`/`Allocation` records. Pulling and deserializing all
         of them on every decision was a real, growing cost on the hot path;
-        none of the five values below actually need the full documents."""
-        response_filter = {"person_id": person_id, "deleted_at": None}
+        none of the five values below actually need the full documents.
+
+        Scoped by org_id (Phase 15 follow-up): person_id here is a caller-
+        supplied respondent reference, not necessarily resolved through
+        IdentityService — a coincidental person_id collision between two
+        unrelated orgs' panel programs must never blend one org's real
+        panelist's response/allocation history into another org's AI
+        allocation context."""
+        response_filter = {"org_id": org_id, "person_id": person_id, "deleted_at": None}
         total = await self._survey_responses._collection.count_documents(response_filter)
         completes = await self._survey_responses._collection.count_documents({**response_filter, "final_status": "complete"})
         dropouts = await self._survey_responses._collection.count_documents({**response_filter, "final_status": {"$in": ["terminated", "quality_term"]}})
 
-        allocation_filter = {"person_id": person_id, "deleted_at": None}
+        allocation_filter = {"org_id": org_id, "person_id": person_id, "deleted_at": None}
         previously_exposed = await self._allocation_repo._collection.find_one({**allocation_filter, "survey_id": survey_id}) is not None
         latest = await self._allocation_repo._collection.find(allocation_filter).sort("created_at", -1).limit(1).to_list(length=1)
         last_allocation_at = latest[0]["created_at"] if latest else None
