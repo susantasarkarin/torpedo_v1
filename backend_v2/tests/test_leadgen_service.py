@@ -387,3 +387,55 @@ async def test_assign_cannot_cross_org_boundaries(leadgen: LeadGenService):
     untouched = await leadgen._facets.get_lead_state(result.lead_state_id)
     assert untouched.state == "QUALIFIED"
     assert untouched.owner is None
+
+
+# --------------------------------------------------------------------------- account contacts
+# The "contact selection among multiple contacts at one account" schema decision,
+# closed 2026-09-09: LeadState.person_id is singular by design, so "multiple contacts"
+# only becomes real once every LeadState.account_id for the same account is
+# aggregated back to distinct Person records — this is that aggregation.
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_returns_every_distinct_person_at_that_account(leadgen: LeadGenService):
+    first = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-1", payload={"email": "alice@acme.com", "name": "Alice Adams", "company_domain": "acme.com", "company_name": "Acme"})
+    second = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-2", payload={"email": "bob@acme.com", "name": "Bob Brown", "company_domain": "acme.com", "company_name": "Acme"})
+
+    lead = await leadgen._facets.get_lead_state(first.lead_state_id)
+    contacts = await leadgen.list_account_contacts(org_id=ORG, account_id=lead.account_id)
+
+    assert {c.id for c in contacts} == {first.person_id, second.person_id}
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_never_double_counts_one_person_with_two_leads(leadgen: LeadGenService):
+    """Same person, two source events -> one Person, one LeadState (per the
+    dedup already proven above) -> must appear exactly once in the contact list,
+    not once per source event."""
+    first = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-1", payload={"email": "alice@acme.com", "name": "Alice Adams", "company_domain": "acme.com", "company_name": "Acme"})
+    await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="external_research", source_record_id="evt-2", payload={"email": "alice@acme.com", "company_domain": "acme.com", "company_name": "Acme"})
+
+    lead = await leadgen._facets.get_lead_state(first.lead_state_id)
+    contacts = await leadgen.list_account_contacts(org_id=ORG, account_id=lead.account_id)
+
+    assert [c.id for c in contacts] == [first.person_id]
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_is_empty_for_an_account_with_no_leads(leadgen: LeadGenService):
+    account = await leadgen._identity.create_account(org_id=ORG, actor=ACTOR, name="Nobody Yet Inc")
+    contacts = await leadgen.list_account_contacts(org_id=ORG, account_id=account.id)
+    assert contacts == []
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_for_a_missing_account_raises(leadgen: LeadGenService):
+    with pytest.raises(LeadGenError):
+        await leadgen.list_account_contacts(org_id=ORG, account_id="does-not-exist")
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_cannot_cross_org_boundaries(leadgen: LeadGenService):
+    other_orgs_account = await leadgen._identity.create_account(org_id="org-B", actor="mallory", name="Victim Co")
+    with pytest.raises(LeadGenError):
+        await leadgen.list_account_contacts(org_id=ORG, account_id=other_orgs_account.id)

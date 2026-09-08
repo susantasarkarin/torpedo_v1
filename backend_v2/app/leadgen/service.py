@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from app.identity.facet_service import FacetService
 from app.identity.facets import LeadState
+from app.identity.models import Person
 from app.identity.service import IdentityService
 from app.leadgen.ai import AI_CONFIDENCE_THRESHOLD, AIClassifier, AIUnavailable
 from app.leadgen.models import (
@@ -309,6 +310,37 @@ class LeadGenService:
             payload={"brand_id": brand_id, "enrollment_id": saved.id},
         )
         return saved
+
+    # ------------------------------------------------------- account contacts
+
+    async def list_account_contacts(self, *, org_id: str, account_id: str) -> list[Person]:
+        """The real "list every contact at this account" query — the piece the
+        checklist named as the actual gap, not a selection algorithm (there was
+        nothing to rank over a query that didn't exist yet). `LeadState.person_id`
+        is singular by design (one lead = one person); "multiple contacts at one
+        account" only becomes real data once every `LeadState.account_id`
+        pointing at the same account is aggregated back to distinct `Person`
+        records, which is exactly what this does.
+
+        Deliberately scoped to `LeadState` — the one Person<->Account link this
+        layer (identity + its facets) owns. `Opportunity.account_id`/`person_id`
+        is CRM's own data, a layer downstream of identity; reaching into it here
+        would invert the module dependency direction this codebase has kept
+        consistent since Slice 4. If CRM ever needs a combined view, that
+        composition belongs in the CRM module, calling this one — not the
+        reverse.
+        """
+        account = await self._identity.get_account(account_id)
+        if account is None or account.org_id != org_id:
+            raise LeadGenError(f"account {account_id} does not exist")
+
+        leads = await self._facets.list_lead_states({"org_id": org_id, "account_id": account_id})
+        contacts: list[Person] = []
+        for person_id in {lead.person_id for lead in leads}:
+            person = await self._identity.get_person(person_id)
+            if person is not None:
+                contacts.append(person)
+        return contacts
 
     # ----------------------------------------------------------------- helpers
 

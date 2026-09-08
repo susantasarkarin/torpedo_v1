@@ -201,6 +201,18 @@ async def get_lead(
     return lead
 
 
+@router.get("/accounts/{account_id}/contacts", response_model=list[Person])
+async def list_account_contacts(
+    account_id: str,
+    identity: ResolvedIdentity = Depends(require_permission(LEAD_READ)),
+    svc: LeadGenService = Depends(get_leadgen_service),
+) -> list[Person]:
+    try:
+        return await svc.list_account_contacts(org_id=identity.org_id, account_id=account_id)
+    except LeadGenError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
 @router.post("/leads/{lead_state_id}/qualify", response_model=QualificationResult)
 async def qualify_lead(
     lead_state_id: str,

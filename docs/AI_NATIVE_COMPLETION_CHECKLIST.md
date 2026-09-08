@@ -76,7 +76,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Real mailbox polling (`EmailIngestionProvider`) | NOT_STARTED — blocked on email provider credentials, confirmed absent |
 | ICP→outreach decision (`OutreachAIService.decide_and_act()`, Slice 14) | **TESTED** — 6 tests. Reuses Slice 6's `check_contactability()` and Slice 7's `MessagingFacade` wholesale; `LeadEnrollment.sequence_state` (one new field) is the persisted outreach-sequence state (`OUTREACH_READY→CONTACTED→...→STOPPED`), the AI decides transitions, this service only validates the closed set |
 | Contactability as a hard boundary the AI cannot override | **TESTED** — a suppressed contact is never sent to even when the AI decision says `CONTACTED` + `send_message` |
-| Contact selection among multiple contacts at one account | **NOT_STARTED, honestly** — `LeadState.person_id` is singular in this data model; there is no "list every contact at this account" query built yet. Faking a selection algorithm over a single-item list was rejected as decoration, not built as a stand-in |
+| Contact selection among multiple contacts at one account | **TESTED** (2026-09-09, EF-12) — `LeadGenService.list_account_contacts()` aggregates every `LeadState.account_id` for an account back to distinct `Person` records; `GET /accounts/{account_id}/contacts`. Scoped to `LeadState` only, deliberately not `Opportunity` (wrong module dependency direction). Still no selection *algorithm* — the gap was the listing, which now exists |
 
 ## Phase 8-9 — Survey Pool AI + panelist allocation AI
 

@@ -202,3 +202,43 @@ async def test_assigning_another_orgs_lead_through_http_is_400_not_a_cross_tenan
 
     untouched = await leadgen_service.get_lead(org_b_lead_id)
     assert untouched.owner is None
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_through_http(client: TestClient, auth_service, rbac_service, leadgen_service: LeadGenService):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[LEAD_INGEST, LEAD_READ])
+    client.post(
+        "/api/v1/leads/ingest",
+        json={"source_type": "web_form", "source_record_id": "evt-1", "payload": {"email": "alice@acme.com", "company_domain": "acme.com", "company_name": "Acme"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    ingest_resp = client.post(
+        "/api/v1/leads/ingest",
+        json={"source_type": "web_form", "source_record_id": "evt-2", "payload": {"email": "bob@acme.com", "company_domain": "acme.com", "company_name": "Acme"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    lead_state_id = ingest_resp.json()["lead_state_id"]
+    lead = await leadgen_service.get_lead(lead_state_id)
+
+    resp = client.get(f"/api/v1/accounts/{lead.account_id}/contacts", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 200
+    emails = {p["primary_email"] for p in resp.json()}
+    assert emails == {"alice@acme.com", "bob@acme.com"}
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_without_permission_is_403(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
+    resp = client.get("/api/v1/accounts/does-not-exist/contacts", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_account_contacts_for_another_orgs_account_is_404_not_403(client: TestClient, auth_service, rbac_service, leadgen_service: LeadGenService):
+    other_orgs_account = await leadgen_service._identity.create_account(org_id=ORG_B, actor="mallory", name="Victim Co")
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[LEAD_READ])
+
+    resp = client.get(f"/api/v1/accounts/{other_orgs_account.id}/contacts", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 404
