@@ -252,3 +252,26 @@ async def test_ap_ageing_without_permission_is_403(client: TestClient, auth_serv
     token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
     resp = client.get("/api/v1/finance/analytics/ap-ageing", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_submitting_another_orgs_invoice_through_http_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service):
+    """Phase 15 security audit finding, proven at the HTTP layer (not just the
+    service layer test_finance_service.py already covers): a user in ORG_A
+    with INVOICE_SUBMIT must not be able to submit an invoice belonging to
+    ORG_B just by knowing or guessing its id."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory-setup", org_id=ORG_B, permissions=[INVOICE_CREATE])
+    create_resp = client.post(
+        "/api/v1/finance/invoices",
+        json={"customer_account_id": "cust-1", "line_items": [_line_item()], "gst_details": _gst(), "currency": "INR"},
+        headers={"Authorization": f"Bearer {org_b_token}"},
+    )
+    org_b_invoice_id = create_resp.json().get("_id") or create_resp.json().get("id")
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[INVOICE_SUBMIT])
+    resp = client.post(f"/api/v1/finance/invoices/{org_b_invoice_id}/submit", headers={"Authorization": f"Bearer {attacker_token}"})
+    assert resp.status_code == 400
+
+    org_b_read_token = await _make_authenticated_user(auth_service, rbac_service, user_id="org-b-reader", org_id=ORG_B, permissions=["finance.read"])
+    untouched = client.get(f"/api/v1/finance/invoices/{org_b_invoice_id}", headers={"Authorization": f"Bearer {org_b_read_token}"})
+    assert untouched.json()["status"] == "draft"

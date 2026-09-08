@@ -175,3 +175,30 @@ async def test_cross_org_lead_access_fails(client: TestClient, auth_service, rba
     bob_resp = client.get(f"/api/v1/leads/{lead_state_id}", headers={"Authorization": f"Bearer {bob_token}"})
 
     assert bob_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_assigning_another_orgs_lead_through_http_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service, leadgen_service: LeadGenService):
+    """Phase 15 security audit finding, proven at the HTTP layer (not just
+    the service layer test_leadgen_service.py already covers): a user in
+    ORG_A with LEAD_ASSIGN must not be able to assign a lead belonging to
+    ORG_B just by knowing or guessing its id."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[LEAD_INGEST, LEAD_READ])
+    ingest_resp = client.post(
+        "/api/v1/leads/ingest",
+        json={"source_type": "web_form", "source_record_id": "evt-org-b", "payload": {"email": "org-b-lead@acme.com"}},
+        headers={"Authorization": f"Bearer {org_b_token}"},
+    )
+    org_b_lead_id = ingest_resp.json()["lead_state_id"]
+    org_b_lead = await leadgen_service.get_lead(org_b_lead_id)
+    await leadgen_service._facets.update_lead_state(org_b_lead.id, org_b_lead.version, {"state": "QUALIFIED"}, updated_by="test")
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[LEAD_ASSIGN])
+    resp = client.post(
+        f"/api/v1/leads/{org_b_lead_id}/assign", json={"owner": "rep-1"},
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp.status_code == 400
+
+    untouched = await leadgen_service.get_lead(org_b_lead_id)
+    assert untouched.owner is None

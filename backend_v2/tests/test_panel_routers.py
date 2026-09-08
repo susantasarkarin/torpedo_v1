@@ -25,7 +25,7 @@ from app.panel.models import Allocation, Survey, SurveyResponse
 from app.panel.routers import get_allocation_service, get_callback_service, get_survey_provider, get_survey_service
 from app.panel.service import AllocationService, CallbackService, SurveyService
 from app.rbac.models import ApprovalAuthority, Role, UserRole
-from app.rbac.permissions import SURVEY_ALLOCATE, SURVEY_MANAGE
+from app.rbac.permissions import SURVEY_ALLOCATE, SURVEY_MANAGE, SURVEY_READ
 from app.rbac.service import RBACService
 
 ORG_A = "org-A"
@@ -159,3 +159,53 @@ async def test_callback_endpoint_requires_no_torpedo_session_but_does_require_a_
 
     right_sig_resp = client.post("/api/v1/surveys/s1/callback", content=body, headers={"X-Signature": _sign(body), "Content-Type": "application/json"})
     assert right_sig_resp.status_code == 400  # signature passed; fails later because allocation "does-not-exist" is a real 400, proving the signature check ran first and is the actual gate
+
+
+ORG_B = "org-B"
+
+
+@pytest.mark.asyncio
+async def test_setting_another_orgs_survey_eligibility_through_http_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service):
+    """Phase 15 security audit finding, proven at the HTTP layer (not just
+    the service layer test_panel_service.py already covers): a user in
+    ORG_A with SURVEY_MANAGE must not be able to change the eligibility of
+    a survey belonging to ORG_B just by knowing or guessing its id."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[SURVEY_MANAGE])
+    create_resp = client.post(
+        "/api/v1/surveys",
+        json={"provider": "cint", "external_id": "ext-org-b", "quota_remaining": 5, "cpi": {"amount_minor": 500, "currency": "INR"}, "conversion_rate": 0.3},
+        headers={"Authorization": f"Bearer {org_b_token}"},
+    )
+    org_b_survey_id = create_resp.json().get("id") or create_resp.json().get("_id")
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[SURVEY_MANAGE])
+    resp = client.post(f"/api/v1/surveys/{org_b_survey_id}/eligibility", json={"is_active_in_pool": True}, headers={"Authorization": f"Bearer {attacker_token}"})
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_allocate_cannot_reserve_another_orgs_survey_quota_through_http(client: TestClient, auth_service, rbac_service):
+    """The client-supplied candidate_survey_ids on POST /traffic/{id}/allocate
+    must never let a caller reserve or drain another org's survey quota by
+    guessing its id — proven at the HTTP layer, same fix as above."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[SURVEY_MANAGE])
+    create_resp = client.post(
+        "/api/v1/surveys",
+        json={"provider": "cint", "external_id": "ext-org-b-2", "quota_remaining": 5, "cpi": {"amount_minor": 500, "currency": "INR"}, "conversion_rate": 0.3},
+        headers={"Authorization": f"Bearer {org_b_token}"},
+    )
+    org_b_survey_id = create_resp.json().get("id") or create_resp.json().get("_id")
+    elig_resp = client.post(f"/api/v1/surveys/{org_b_survey_id}/eligibility", json={"is_active_in_pool": True}, headers={"Authorization": f"Bearer {org_b_token}"})
+    assert elig_resp.status_code == 200
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[SURVEY_ALLOCATE])
+    resp = client.post(
+        "/api/v1/traffic/ts-1/allocate",
+        json={"candidate_survey_ids": [org_b_survey_id], "person_id": "p1", "vendor_id": "v1", "country_code": "IN", "respondent_ref": "r1"},
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp.status_code == 422  # no eligible survey among candidates — the cross-org one is invisible, not reservable
+
+    reader_token = await _make_authenticated_user(auth_service, rbac_service, user_id="org-b-reader", org_id=ORG_B, permissions=[SURVEY_READ])
+    survey_after = client.get(f"/api/v1/surveys/{org_b_survey_id}/metrics", headers={"Authorization": f"Bearer {reader_token}"})
+    assert survey_after.json()["quota_remaining"] == 5  # untouched — never reserved by the cross-org attacker

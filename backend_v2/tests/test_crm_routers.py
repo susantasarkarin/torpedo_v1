@@ -129,3 +129,21 @@ async def test_cross_org_opportunity_read_is_404_not_403(client: TestClient, aut
 
     bob_resp = client.get(f"/api/v1/opportunities/{opp_id}", headers={"Authorization": f"Bearer {bob_token}"})
     assert bob_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_updating_another_orgs_opportunity_stage_through_http_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service):
+    """Phase 15 security audit finding, proven at the HTTP layer (not just
+    the service layer test_crm_service.py already covers): a user in ORG_A
+    with OPPORTUNITY_UPDATE must not be able to change the stage of an
+    opportunity belonging to ORG_B just by knowing or guessing its id."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[OPPORTUNITY_CREATE, OPPORTUNITY_READ])
+    create_resp = client.post("/api/v1/opportunities", json={"account_id": "acct-1"}, headers={"Authorization": f"Bearer {org_b_token}"})
+    org_b_opp_id = create_resp.json().get("id") or create_resp.json().get("_id")
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[OPPORTUNITY_UPDATE])
+    resp = client.post(f"/api/v1/opportunities/{org_b_opp_id}/stage", json={"stage": "won"}, headers={"Authorization": f"Bearer {attacker_token}"})
+    assert resp.status_code == 400
+
+    untouched = client.get(f"/api/v1/opportunities/{org_b_opp_id}", headers={"Authorization": f"Bearer {org_b_token}"})
+    assert untouched.json()["stage"] == "new"
