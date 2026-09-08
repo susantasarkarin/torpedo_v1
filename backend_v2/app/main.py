@@ -17,6 +17,7 @@ from app.leadgen.routers import router as leadgen_router
 from app.outreach.routers import router as outreach_router
 from app.panel.routers import router as panel_router
 from app.scheduler.routers import router as scheduler_router
+from app.tasks.routers import router as tasks_router
 
 
 @asynccontextmanager
@@ -41,6 +42,7 @@ app.include_router(ai_router, prefix="/api/v1", tags=["ai"])
 app.include_router(emailai_router, prefix="/api/v1", tags=["emailai"])
 app.include_router(scheduler_router, prefix="/api/v1", tags=["scheduler"])
 app.include_router(governance_router, prefix="/api/v1", tags=["governance"])
+app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 
 
 @app.get("/health")

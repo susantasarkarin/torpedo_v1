@@ -597,10 +597,24 @@ At the user's explicit direction ("get all these informations from the env file 
 
 Test count: 507 → 515.
 
+### EF-11 — Generic Task/reminder entity built, closing one of the two user-authorized schema decisions (2026-09-08)
+
+The checklist named "Task/reminder entity" as blocked on a product/schema decision, not on missing credentials. Per the user's explicit direction ("Blocked on a product/schema decision only you can make — you take decision and close it"), the decision was made and closed with real code rather than left deferred:
+
+- **Generic, not per-domain**: one `Task` entity (`app.tasks`) usable from any subject, not a bespoke reminder table per module. Follow-up link uses the exact same polymorphic `subject_type`/`subject_id` shape already established by `Activity`, rather than inventing a second linking convention.
+- **Assignee is opaque, not FK-validated**: `assignee: str | None` is an unvalidated user_id, matching the existing precedent in `Allocation.person_id` — the identity layer is not queried to validate it exists, consistent with how the rest of the codebase treats cross-entity references it doesn't need to enforce.
+- **Priority reuses `Decision.priority`'s exact closed set** (`LOW`/`MEDIUM`/`HIGH`) rather than inventing a new one — one fewer enum for the platform to keep in sync.
+- **Three-status lifecycle** (`OPEN`/`DONE`/`CANCELLED`), each a one-way transition off `OPEN` — no reopening, matching the audit-trail discipline used elsewhere (a cancelled/completed task is a permanent record, not a mutable checkbox).
+- Full tenant-isolation discipline applied from creation, not bolted on after: cross-org reads are 404-not-403, cross-org completes/cancels are rejected without mutating the victim record, `list_open_tasks` never crosses `org_id`.
+- Every create/complete/cancel writes an `Activity` — the platform's one audit stream, not a separate task-history log.
+
+New: `app/tasks/models.py`, `app/tasks/service.py`, `app/tasks/routers.py`, `TASK_CREATE`/`TASK_READ`/`TASK_MANAGE` permissions, mounted in `main.py`. Test count: 515 → 540.
+
 ---
 
 ## Changelog
 
+- **2026-09-08 Rev 53** — See EF-11 above: built the generic Task/reminder entity, closing one of the two schema decisions the user authorized Claude to make directly rather than defer. Reuses `Activity`'s polymorphic subject link, `Decision.priority`'s closed set, and `Allocation.person_id`'s opaque-reference precedent — no new conventions invented. Full tenant isolation from day one. Test count: 515 → 540.
 - **2026-09-08 Rev 52** — See EF-10 above: at the user's direction, audited every credential v1's real `.env` and live APIs actually have (not assumed from a key's presence). Real, working: Cint (activated in v2), AWS SES (a new `SesSendProvider` built and preferred over SMTP — sandbox-limited, an AWS console action, not a code gap). Confirmed genuinely unavailable, checked live rather than assumed: GPU/Bedrock (v1's own Bedrock access returns `AccessDeniedException`; v1's AI pipeline is currently non-functional), GSC (v1 never implemented it either), direct-from-VM SMTP (port 25 confirmed blocked at the network level). `boto3==1.43.89` added as a new dependency. Test count: 507 → 515.
 - **2026-09-08 Rev 51** — See EF-09 above: grepped module docstrings themselves (not just the checklist doc) for "not yet built"/"deferred" phrasing and found three more stale claims — `app.ai.decision_engine` still described the human review queue as deferred (built Slice 22/Phase 11); `app.ai.gpu_broker` had two references to "Phase 14's scheduler, not yet built" (built this session, and one of them — `sweep()`'s own docstring — was literally contradicted by EF-07's fix earlier this same day); `app.panel.inactivity` had the same stale phrasing. All corrected to name the real mechanism. Documentation-only; test count unchanged at 507.
 - **2026-09-08 Rev 50** — See EF-08 above: built the supplier/provider-failure-rate operational trigger, another checklist item correctly marked `NOT_STARTED, honestly`. `AllocationService.allocate()` records a real `provider_timeout` Activity on every `SurveyProviderUnavailable`; `OperationsAIService.detect_triggers()` raises a real trigger once `PROVIDER_FAILURE_THRESHOLD` (3, adjustable) failures land within `PROVIDER_FAILURE_WINDOW` (24h, adjustable) — flows through the existing AI/scheduler pathway unmodified. Test count: 504 → 507.

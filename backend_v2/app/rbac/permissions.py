@@ -141,3 +141,10 @@ SCHEDULER_READ = "scheduler.read"
 # Human approval / review queue — Slice 22.
 GOVERNANCE_READ = "governance.read"
 GOVERNANCE_REVIEW = "governance.review"
+
+# Task/reminder entity — the checklist's own generic follow-up, built 2026-09-08.
+TASK_CREATE = "task.create"
+TASK_READ = "task.read"
+TASK_MANAGE = "task.manage"  # complete/cancel — deliberately separate from
+# TASK_CREATE, same "who can create is not automatically who can close"
+# reasoning as OUTREACH_ADMIN/OUTREACH_SEND above.

@@ -28,7 +28,7 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | `Opportunity` entity (stage pipeline, closed-enum transitions) | **TESTED** (Slice 10, 2026-09-06) — 17 tests, schema_catalogue.md §2.2 |
 | `POST /opportunities`, stage transition, close-lost | **TESTED** (Slice 10) |
 | `POST /opportunities/{id}/convert` → draft Invoice | **TESTED** (Slice 10) — real cross-domain call into `InvoiceService`, not restated logic |
-| Task/reminder entity | NOT_STARTED — no locked schema found in schema_catalogue.md for this; deferred rather than invented ungrounded, per the no-fake-completion rule |
+| Task/reminder entity | **TESTED** (2026-09-08, EF-11) — generic `app.tasks`, not per-domain; polymorphic `subject_type`/`subject_id` link (same shape as `Activity`), opaque non-FK-validated `assignee` (same precedent as `Allocation.person_id`), `Decision.priority`'s closed set reused, three-status one-way lifecycle (`OPEN`→`DONE`/`CANCELLED`), full tenant isolation from creation — 25 tests |
 
 ## Phase 2-3 — AI Gateway + Decision Engine
 
