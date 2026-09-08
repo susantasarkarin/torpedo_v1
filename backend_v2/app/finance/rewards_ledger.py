@@ -55,15 +55,26 @@ class RewardLedgerService:
         self._entries = entries
 
     async def get_balance(self, panelist_person_id: str, *, currency: str) -> Money:
-        entries = await self._entries.find_all({"panelist_person_id": panelist_person_id})
-        balance_minor = 0
-        for entry in entries:
-            if entry.amount.currency != currency:
-                continue
-            if entry.entry_type == "credit":
-                balance_minor += entry.amount.amount_minor
-            else:  # debit | clawback
-                balance_minor -= entry.amount.amount_minor
+        """Summed via MongoDB's own aggregation pipeline, not pulled into
+        Python entry-by-entry (Phase 18 performance audit): this is called on
+        every debit() as well as every balance read, and a long-lived
+        panelist can accumulate thousands of ledger entries over a real
+        tenure — re-deserializing and summing all of them on every single
+        call is a real, growing cost this fixes without changing the
+        contract (still returns the same derived-never-stored Money)."""
+        pipeline = [
+            {"$match": {"panelist_person_id": panelist_person_id, "deleted_at": None, "amount.currency": currency}},
+            {"$group": {
+                "_id": None,
+                "balance_minor": {
+                    "$sum": {
+                        "$cond": [{"$eq": ["$entry_type", "credit"]}, "$amount.amount_minor", {"$multiply": ["$amount.amount_minor", -1]}]
+                    }
+                },
+            }},
+        ]
+        result = await self._entries._collection.aggregate(pipeline).to_list(length=1)
+        balance_minor = result[0]["balance_minor"] if result else 0
         return Money(amount_minor=balance_minor, currency=currency)
 
     async def credit(

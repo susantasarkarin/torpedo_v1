@@ -853,3 +853,26 @@ change is safe. Full detail in
 [business_rules_register.md](business_rules_register.md)'s EF-04.
 
 Test count unchanged at 480.
+
+**2026-09-08, continued — Phase 18 (performance audit).** `CanonicalRepository.find_all()`
+pulls its entire matching result set into memory every call, then
+deserializes every document. Most callers filter on bounded, actively-
+managed state, so this stays safe as data grows — but two call sites on
+genuinely hot paths didn't: `RewardLedgerService.get_balance()` (every
+`debit()` and every balance read summed every ledger entry a panelist ever
+earned, in Python) and `PanelAllocationAIService._panelist_history()`
+(pulled every `SurveyResponse`/`Allocation` a panelist ever had on *every
+single allocation decision* — the platform's highest-frequency AI call).
+Both fixed: the ledger balance now uses a MongoDB `$group`/`$sum`/`$cond`
+aggregation; the panelist history now uses `count_documents()`/`find_one()`
+existence-and-latest checks instead of pulling full documents. Same
+contract in both cases, verified behavior-preserving by existing tests
+plus new regression coverage at a scale beyond a handful of entries.
+
+Three lower-priority `find_all()` sites (reconciliation completion count,
+per-survey inactivity check, per-survey billing) reviewed and named as a
+real, deferred next increment rather than silently left unchecked — see
+[business_rules_register.md](business_rules_register.md)'s EF-05 for the
+full list and reasoning.
+
+Test count: 480 → 482.

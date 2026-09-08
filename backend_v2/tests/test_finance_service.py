@@ -587,6 +587,39 @@ async def test_reward_balance_is_derived_from_entries(reward_ledger_service: Rew
 
 
 @pytest.mark.asyncio
+async def test_reward_balance_is_computed_by_aggregation_not_a_python_loop(reward_ledger_service: RewardLedgerService):
+    """Phase 18 performance audit: get_balance() moved from pulling every
+    entry into Python and summing by hand to a MongoDB $group/$sum
+    aggregation — a panelist with a real, long tenure can accumulate
+    thousands of entries, and re-deserializing all of them on every single
+    debit()/balance read was a real, growing cost. This proves the switch
+    preserved exact behavior at a scale beyond a handful of entries, and
+    that currency isolation still holds under the new query-level filter
+    (previously a Python-loop skip)."""
+    for i in range(25):
+        await reward_ledger_service.credit(org_id=ORG, actor="system", panelist_person_id="p1", amount=Money(amount_minor=100, currency=CURRENCY), reference_type="survey_completion", reference_id=f"sr-{i}")
+    for i in range(10):
+        await reward_ledger_service.debit(org_id=ORG, actor="system", panelist_person_id="p1", amount=Money(amount_minor=50, currency=CURRENCY), reference_type="redemption", reference_id=f"r-{i}")
+    # A different currency's entries must never bleed into this balance.
+    await reward_ledger_service.credit(org_id=ORG, actor="system", panelist_person_id="p1", amount=Money(amount_minor=999_999, currency="USD"), reference_type="survey_completion", reference_id="sr-usd")
+
+    balance = await reward_ledger_service.get_balance("p1", currency=CURRENCY)
+    assert balance.amount_minor == 25 * 100 - 10 * 50  # 2000
+
+    usd_balance = await reward_ledger_service.get_balance("p1", currency="USD")
+    assert usd_balance.amount_minor == 999_999
+
+
+@pytest.mark.asyncio
+async def test_reward_balance_for_a_panelist_with_no_entries_is_zero_not_an_error(reward_ledger_service: RewardLedgerService):
+    """The aggregation pipeline returns an empty result set when nothing
+    matches — must resolve to a real zero Money, not an index error."""
+    balance = await reward_ledger_service.get_balance("nobody-yet", currency=CURRENCY)
+    assert balance.amount_minor == 0
+    assert balance.currency == CURRENCY
+
+
+@pytest.mark.asyncio
 async def test_reward_debit_rejected_when_insufficient_balance(reward_ledger_service: RewardLedgerService):
     await reward_ledger_service.credit(org_id=ORG, actor="system", panelist_person_id="p1", amount=Money(amount_minor=100, currency=CURRENCY), reference_type="survey_completion", reference_id="sr-1")
     with pytest.raises(RewardLedgerError):

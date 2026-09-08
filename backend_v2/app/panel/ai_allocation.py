@@ -133,14 +133,22 @@ class PanelAllocationAIService:
         return decision, allocation
 
     async def _panelist_history(self, *, person_id: str, survey_id: str) -> dict:
-        responses = await self._survey_responses.find_all({"person_id": person_id})
-        total = len(responses)
-        completes = sum(1 for r in responses if r.final_status == "complete")
-        dropouts = sum(1 for r in responses if r.final_status in ("terminated", "quality_term"))
+        """Counted/existence-checked at the query level, not pulled into
+        Python (Phase 18 performance audit): this runs on every single
+        allocation decision — the platform's highest-frequency AI call — and
+        a panelist with a real, long tenure can accumulate thousands of
+        `SurveyResponse`/`Allocation` records. Pulling and deserializing all
+        of them on every decision was a real, growing cost on the hot path;
+        none of the five values below actually need the full documents."""
+        response_filter = {"person_id": person_id, "deleted_at": None}
+        total = await self._survey_responses._collection.count_documents(response_filter)
+        completes = await self._survey_responses._collection.count_documents({**response_filter, "final_status": "complete"})
+        dropouts = await self._survey_responses._collection.count_documents({**response_filter, "final_status": {"$in": ["terminated", "quality_term"]}})
 
-        prior_allocations = await self._allocation_repo.find_all({"person_id": person_id})
-        previously_exposed = any(a.survey_id == survey_id for a in prior_allocations)
-        last_allocation_at = max((a.created_at for a in prior_allocations), default=None)
+        allocation_filter = {"person_id": person_id, "deleted_at": None}
+        previously_exposed = await self._allocation_repo._collection.find_one({**allocation_filter, "survey_id": survey_id}) is not None
+        latest = await self._allocation_repo._collection.find(allocation_filter).sort("created_at", -1).limit(1).to_list(length=1)
+        last_allocation_at = latest[0]["created_at"] if latest else None
         days_since_last_allocation = (datetime.now(timezone.utc) - last_allocation_at).days if last_allocation_at else None
 
         return {
