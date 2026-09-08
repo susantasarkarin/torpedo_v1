@@ -184,6 +184,23 @@ async def test_integrations_status_distinguishes_exhausted_failed_events_from_re
 
 
 @pytest.mark.asyncio
+async def test_integrations_status_distinguishes_stale_pending_review_from_recent(client: TestClient, auth_service, rbac_service, db):
+    from datetime import timedelta
+
+    from app.governance.approvals import STALE_REVIEW_THRESHOLD
+
+    proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
+    await proposals.insert(AiProposal(org_id=ORG_A, created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved"))
+    await proposals.insert(AiProposal(org_id=ORG_A, created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-2", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved", created_at=datetime.now(timezone.utc) - STALE_REVIEW_THRESHOLD - timedelta(hours=1)))
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
+
+    resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["governance_pending_review"] == 2
+    assert body["governance_stale_review_count"] == 1  # only the older one
+
+
+@pytest.mark.asyncio
 async def test_integrations_status_reports_email_send_provider_configured_once_smtp_credentials_exist(client: TestClient, auth_service, rbac_service, monkeypatch):
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_USERNAME", "sender@example.com")

@@ -676,3 +676,28 @@ retrying on, made queryable instead of only inferable from logs).
 `GET /integrations/status` gained `scheduler_events_exhausted`.
 
 Test count: 459 → 460.
+
+**2026-09-08, continued — Phase 11 (human governance), extending Slice 22's
+review queue.** Audited against Phase 11's explicit list: proposal queue/
+approve/reject/defer/escalate/permissions/audit trail were all already real
+(Slice 22); execution linkage remains deliberately not built (documented
+reasoning unchanged). Two real gaps found and fixed:
+
+- **Modification now records the structured "what", not just free-text
+  "why".** `AiProposal.modified_fields: dict | None` — `review_notes` stays
+  the human's rationale; `modified_fields` is what they actually changed
+  (e.g. `{"decision": "survey-2"}`), so a later system (the Phase 12
+  feedback loop) can read "the AI said X, the human corrected it to Y"
+  without parsing prose. `ApprovalService.review()` rejects
+  `modified_fields` on any action other than `MODIFY` — a real correctness
+  guard, not just a schema nicety.
+- **Stale-approval protection.** `STALE_REVIEW_THRESHOLD` (24h, an
+  operational cadence choice, not a locked business rule) plus
+  `ApprovalService.list_pending(older_than=...)`, using the `AiProposal`'s
+  own `created_at` — no new field needed. `GET /governance/proposals?stale_only=true`
+  and a new `/integrations/status` field, `governance_stale_review_count`
+  (of the pending backlog, how many have been waiting longer than the
+  threshold) — real dead-letter-style visibility for the human review
+  queue, the same pattern Phase 10 just built for the scheduler.
+
+Test count: 460 → 469.

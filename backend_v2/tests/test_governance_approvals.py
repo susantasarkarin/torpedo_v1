@@ -4,12 +4,12 @@ auto-apply verdict, set once at decision time (Slice 11) — these tests prove
 `review()` is a completely separate, additive concept that never touches it.
 """
 
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
-from app.governance.approvals import ApprovalError, ApprovalService
+from app.governance.approvals import STALE_REVIEW_THRESHOLD, ApprovalError, ApprovalService
 from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 
@@ -31,8 +31,9 @@ def svc(proposals) -> ApprovalService:
     return ApprovalService(proposals)
 
 
-async def _proposal(proposals, *, task="evaluate_panel_allocation", org_id=ORG, status="approved") -> AiProposal:
-    return await proposals.insert(AiProposal(org_id=org_id, created_by="system", updated_by="system", task=task, subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status=status))
+async def _proposal(proposals, *, task="evaluate_panel_allocation", org_id=ORG, status="approved", created_at=None) -> AiProposal:
+    kwargs = {"created_at": created_at} if created_at is not None else {}
+    return await proposals.insert(AiProposal(org_id=org_id, created_by="system", updated_by="system", task=task, subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status=status, **kwargs))
 
 
 @pytest.mark.asyncio
@@ -108,3 +109,42 @@ async def test_a_proposal_cannot_be_reviewed_twice(db, proposals, svc):
 
     with pytest.raises(ApprovalError):
         await svc.review(proposal_id=proposal.id, actor="bob", action="REJECT")
+
+
+# --------------------------------------------------------------------------- modified_fields (Phase 11)
+
+
+@pytest.mark.asyncio
+async def test_modify_action_records_the_structured_change(db, proposals, svc):
+    proposal = await _proposal(proposals)
+    reviewed = await svc.review(proposal_id=proposal.id, actor="alice", action="MODIFY", notes="wrong survey chosen", modified_fields={"decision": "survey-2"})
+
+    assert reviewed.review_action == "MODIFY"
+    assert reviewed.modified_fields == {"decision": "survey-2"}
+    assert reviewed.review_notes == "wrong survey chosen"
+
+
+@pytest.mark.asyncio
+async def test_modified_fields_is_rejected_for_a_non_modify_action(db, proposals, svc):
+    proposal = await _proposal(proposals)
+    with pytest.raises(ApprovalError):
+        await svc.review(proposal_id=proposal.id, actor="alice", action="APPROVE", modified_fields={"decision": "survey-2"})
+
+
+# --------------------------------------------------------------------------- staleness (Phase 11)
+
+
+@pytest.mark.asyncio
+async def test_list_pending_with_older_than_excludes_recent_proposals(db, proposals, svc):
+    await _proposal(proposals)  # created just now
+    pending = await svc.list_pending(org_id=ORG, older_than=STALE_REVIEW_THRESHOLD)
+    assert pending == []
+
+
+@pytest.mark.asyncio
+async def test_list_pending_with_older_than_includes_genuinely_stale_proposals(db, proposals, svc):
+    stale = await _proposal(proposals, created_at=datetime.now(timezone.utc) - STALE_REVIEW_THRESHOLD - timedelta(hours=1))
+    await _proposal(proposals)  # recent — not stale
+
+    pending = await svc.list_pending(org_id=ORG, older_than=STALE_REVIEW_THRESHOLD)
+    assert [p.id for p in pending] == [stale.id]

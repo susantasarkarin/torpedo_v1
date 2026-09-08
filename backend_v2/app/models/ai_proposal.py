@@ -64,3 +64,9 @@ class AiProposal(CanonicalDocument):
     reviewed_at: datetime | None = None
     review_action: str | None = None  # one of REVIEW_ACTIONS, once reviewed
     review_notes: str | None = None
+    # Phase 11 (human governance) — structured, queryable record of *what* a
+    # human changed, for review_action="MODIFY" only. review_notes stays the
+    # free-text "why"; this is the "what", so a later system (or the Phase 12
+    # feedback loop) can tell "the AI said X, the human corrected it to Y"
+    # without parsing prose.
+    modified_fields: dict | None = None

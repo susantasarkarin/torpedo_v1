@@ -28,33 +28,46 @@ manual Mongo query.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models.ai_proposal import REVIEW_ACTIONS, AiProposal
 from app.models.base import CanonicalRepository
 
+# Phase 11 (human governance) — an operational cadence choice (like Slice 10's
+# 7-day inactivity window), not a locked business rule: a proposal still
+# unreviewed after this long is "stale" for observability purposes.
+STALE_REVIEW_THRESHOLD = timedelta(hours=24)
+
 
 class ApprovalError(Exception):
-    """Proposal missing, review action outside the closed set, or a proposal
-    reviewed twice. Same discipline as every other domain's single error type."""
+    """Proposal missing, review action outside the closed set, a proposal
+    reviewed twice, or `modified_fields` supplied for a non-MODIFY action.
+    Same discipline as every other domain's single error type."""
 
 
 class ApprovalService:
     def __init__(self, proposals: CanonicalRepository[AiProposal]):
         self._proposals = proposals
 
-    async def list_pending(self, *, org_id: str, task: str | None = None) -> list[AiProposal]:
+    async def list_pending(self, *, org_id: str, task: str | None = None, older_than: timedelta | None = None) -> list[AiProposal]:
         """The deterministic candidate set a human review UI would page
         through — proposals nobody has recorded a verdict on yet, in this
-        org, optionally narrowed to one task."""
+        org, optionally narrowed to one task and/or to only the stale ones
+        (created more than `older_than` ago) — real staleness protection
+        using `AiProposal.created_at`, which every proposal already carries,
+        rather than a new field invented for this purpose."""
         query: dict = {"org_id": org_id, "reviewed_by": None}
         if task:
             query["task"] = task
+        if older_than is not None:
+            query["created_at"] = {"$lt": datetime.now(timezone.utc) - older_than}
         return await self._proposals.find_all(query)
 
-    async def review(self, *, proposal_id: str, actor: str, action: str, notes: str | None = None) -> AiProposal:
+    async def review(self, *, proposal_id: str, actor: str, action: str, notes: str | None = None, modified_fields: dict | None = None) -> AiProposal:
         if action not in REVIEW_ACTIONS:
             raise ApprovalError(f"unrecognized review action {action!r} — must be one of {sorted(REVIEW_ACTIONS)}")
+        if modified_fields is not None and action != "MODIFY":
+            raise ApprovalError(f"modified_fields was supplied for action {action!r} — only MODIFY carries a structured change")
         proposal = await self._proposals.get(proposal_id)
         if proposal is None:
             raise ApprovalError(f"proposal {proposal_id} does not exist")
@@ -63,6 +76,6 @@ class ApprovalService:
 
         return await self._proposals.update(
             proposal.id, proposal.version,
-            {"reviewed_by": actor, "reviewed_at": datetime.now(timezone.utc), "review_action": action, "review_notes": notes},
+            {"reviewed_by": actor, "reviewed_at": datetime.now(timezone.utc), "review_action": action, "review_notes": notes, "modified_fields": modified_fields},
             updated_by=actor,
         )

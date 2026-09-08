@@ -1,6 +1,8 @@
-"""HTTP surface for the human approval/review queue (Slice 22)."""
+"""HTTP surface for the human approval/review queue (Slice 22, extended Phase 11)."""
 
 from __future__ import annotations
+
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -23,15 +25,19 @@ def get_approval_service() -> ApprovalService:
 class ReviewRequest(BaseModel):
     action: str
     notes: str | None = None
+    modified_fields: dict | None = None
 
 
 @router.get("/governance/proposals", response_model=list[AiProposal])
 async def list_pending_proposals(
     task: str | None = None,
+    stale_only: bool = False,
     identity: ResolvedIdentity = Depends(require_permission(GOVERNANCE_READ)),
     svc: ApprovalService = Depends(get_approval_service),
 ) -> list[AiProposal]:
-    return await svc.list_pending(org_id=identity.org_id, task=task)
+    from app.governance.approvals import STALE_REVIEW_THRESHOLD
+
+    return await svc.list_pending(org_id=identity.org_id, task=task, older_than=STALE_REVIEW_THRESHOLD if stale_only else None)
 
 
 @router.post("/governance/proposals/{proposal_id}/review", response_model=AiProposal)
@@ -41,6 +47,6 @@ async def review_proposal(
     svc: ApprovalService = Depends(get_approval_service),
 ) -> AiProposal:
     try:
-        return await svc.review(proposal_id=proposal_id, actor=identity.user_id, action=body.action, notes=body.notes)
+        return await svc.review(proposal_id=proposal_id, actor=identity.user_id, action=body.action, notes=body.notes, modified_fields=body.modified_fields)
     except ApprovalError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

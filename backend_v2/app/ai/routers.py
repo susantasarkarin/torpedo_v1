@@ -12,6 +12,7 @@ is non-empty," nothing more.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
@@ -19,6 +20,7 @@ from app.ai.gpu_broker import GpuBroker
 from app.auth.dependencies import require_permission
 from app.config import get_settings
 from app.db import get_database
+from app.governance.approvals import STALE_REVIEW_THRESHOLD
 from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
@@ -73,6 +75,10 @@ async def integrations_status(
     failed_events = await events.find_all({"org_id": identity.org_id, "processing_status": FAILED})
     exhausted_count = sum(1 for e in failed_events if e.attempts >= MAX_ATTEMPTS)
     pending_review = len(await proposals.find_all({"org_id": identity.org_id, "reviewed_by": None}))
+    # Phase 11 (human governance) — a pending review isn't itself a problem;
+    # one that's been pending longer than STALE_REVIEW_THRESHOLD is real
+    # staleness, using AiProposal.created_at, no new field.
+    stale_review_count = len(await proposals.find_all({"org_id": identity.org_id, "reviewed_by": None, "created_at": {"$lt": datetime.now(timezone.utc) - STALE_REVIEW_THRESHOLD}}))
 
     return {
         "ai_gateway": "READY",  # the gateway code path itself always exists; whether a model answers depends on the GPU broker below
@@ -93,4 +99,7 @@ async def integrations_status(
         # backlog size — a real signal for "is anyone keeping up with shadow-mode
         # review," not a fabricated dashboard number.
         "governance_pending_review": pending_review,
+        # Of the pending count above, how many have been waiting longer than
+        # STALE_REVIEW_THRESHOLD — real stale-approval visibility (Phase 11).
+        "governance_stale_review_count": stale_review_count,
     }
