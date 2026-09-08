@@ -41,13 +41,18 @@ class StudyInactivityService:
         flagged: list[Survey] = []
 
         for survey in eligible_surveys:
-            allocations = await self._allocations.find_all({"survey_id": survey.id})
-            last_allocation_at = max((a.created_at for a in allocations), default=None)
+            # Phase 18 performance follow-up: only the most recent timestamp
+            # is needed — pulling every Allocation/Activity a survey has ever
+            # had (a number that grows with a study's real traffic volume)
+            # just to call max() on their created_at was wasted work on a
+            # detector meant to run on every scheduler tick.
+            latest_allocation = await self._allocations._collection.find({"survey_id": survey.id, "deleted_at": None}).sort("created_at", -1).limit(1).to_list(length=1)
+            last_allocation_at = latest_allocation[0]["created_at"] if latest_allocation else None
             if last_allocation_at is not None and last_allocation_at >= cutoff:
                 continue  # had traffic within the window — not inactive
 
-            existing_flags = await self._activities.find_all({"subject_type": "survey", "subject_id": survey.id, "type": "study_inactive_detected"})
-            latest_flag_at = max((f.created_at for f in existing_flags), default=None)
+            latest_flag = await self._activities._collection.find({"subject_type": "survey", "subject_id": survey.id, "type": "study_inactive_detected", "deleted_at": None}).sort("created_at", -1).limit(1).to_list(length=1)
+            latest_flag_at = latest_flag[0]["created_at"] if latest_flag else None
             if latest_flag_at is not None and latest_flag_at >= cutoff:
                 flagged.append(survey)  # already flagged for this same episode — don't spam a second Activity
                 continue

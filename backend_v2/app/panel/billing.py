@@ -124,12 +124,23 @@ class SurveyBillingService:
 
     async def compute_margin(self, *, org_id: str, survey_id: str) -> dict:
         """Read-only. `margin_pct` is `None` when revenue is zero (division is
-        undefined, not silently reported as 0% or 100%)."""
-        survey = await self._get_survey(survey_id, org_id=org_id)
-        billable = await self._responses.find_all({"survey_id": survey_id, "billable": True})
+        undefined, not silently reported as 0% or 100%).
 
-        completions = len(billable)
-        cost_minor = sum((r.supplier_cost.amount_minor if r.supplier_cost else 0) for r in billable)
+        Aggregated via MongoDB, not pulled into Python (Phase 18 performance
+        follow-up): only the count and the summed supplier_cost are needed —
+        unlike generate_client_invoice()/generate_supplier_bill(), nothing
+        here updates the individual SurveyResponse documents, so pulling all
+        of them (a number that grows with a study's real completion volume,
+        and this margin figure gets checked repeatedly, not once) was
+        entirely wasted work."""
+        survey = await self._get_survey(survey_id, org_id=org_id)
+        pipeline = [
+            {"$match": {"survey_id": survey_id, "billable": True, "deleted_at": None}},
+            {"$group": {"_id": None, "completions": {"$sum": 1}, "cost_minor": {"$sum": "$supplier_cost.amount_minor"}}},
+        ]
+        result = await self._responses._collection.aggregate(pipeline).to_list(length=1)
+        completions = result[0]["completions"] if result else 0
+        cost_minor = (result[0].get("cost_minor") or 0) if result else 0
         revenue_minor = completions * survey.client_rate.amount_minor if survey.client_rate else 0
         margin_minor = revenue_minor - cost_minor
         currency = survey.cpi.currency

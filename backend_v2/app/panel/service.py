@@ -332,11 +332,15 @@ class SupplierReconciliationService:
         """Surfaces disagreement — never silently corrects Torpedo's own count or
         the supplier's. I-5: 'explicit discrepancy policy, surfacing disagreement,
         never silently correcting it.'"""
-        query: dict = {"org_id": org_id, "final_status": "complete"}
+        # Phase 18 performance follow-up: only the count is needed — pulling
+        # and deserializing every complete SurveyResponse into Python (a
+        # number that grows with a study's real completion volume) to then
+        # just call len() on it was wasted work every time an operator
+        # reconciles against a supplier's report.
+        query: dict = {"org_id": org_id, "deleted_at": None, "final_status": "complete"}
         if survey_id:
             query["survey_id"] = survey_id
-        torpedo_responses = await self._responses.find_all(query)
-        torpedo_count = len(torpedo_responses)
+        torpedo_count = await self._responses._collection.count_documents(query)
         discrepancy = torpedo_count - supplier_reported_count
 
         return await self._records.insert(
