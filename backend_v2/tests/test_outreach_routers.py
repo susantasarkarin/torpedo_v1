@@ -208,7 +208,16 @@ def test_get_send_provider_falls_back_to_smtp_when_ses_is_not_configured(monkeyp
     from app.outreach.routers import get_send_provider
     from app.outreach.smtp_provider import SmtpSendProvider
 
-    fake_settings = Settings(smtp_host="smtp.example.com", smtp_username="u", smtp_password="p")
+    # Explicitly None, not just omitted: Settings() still reads unset fields
+    # from the real process environment (pydantic-settings' env_file), so on a
+    # host that actually has AWS_ACCESS_KEY_ID etc. set (this app's own
+    # deployed VM, once real SES credentials were activated), omitting them
+    # here would silently pick them up from the environment instead of
+    # exercising the "SES not configured" branch this test claims to cover.
+    fake_settings = Settings(
+        smtp_host="smtp.example.com", smtp_username="u", smtp_password="p",
+        aws_ses_region=None, ses_from_email=None, aws_access_key_id=None, aws_secret_access_key=None,
+    )
     monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
 
     provider = get_send_provider()
