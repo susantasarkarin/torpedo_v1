@@ -171,6 +171,19 @@ class AllocationService:
                 # to the next-best eligible survey, never a hardcoded default. Give
                 # back the slot we just reserved before trying the next candidate.
                 await self._release_quota(survey_id=survey.id, actor=actor)
+                # Checklist follow-up: "no persisted per-provider failure counter
+                # exists" — this is that counter, reusing the existing Activity
+                # log rather than a new entity (I-1). OperationsAIService's
+                # detect_triggers() reads these back to raise a real
+                # provider_failure_rate operational trigger; a human/AI decides
+                # what to do about it, this method just records the fact.
+                await self._activities.insert(
+                    Activity(
+                        org_id=org_id, created_by=actor, updated_by=actor, type="provider_timeout",
+                        subject_type="survey", subject_id=survey.id, actor_type="system", actor_id=actor,
+                        payload={"provider": provider.__class__.__name__, "respondent_ref": respondent_ref},
+                    )
+                )
                 last_error = exc
                 continue
 

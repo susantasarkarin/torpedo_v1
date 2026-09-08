@@ -205,7 +205,7 @@ async def test_the_same_respondent_ref_string_in_a_different_org_is_not_a_collis
 
 
 @pytest.mark.asyncio
-async def test_provider_failure_falls_back_to_next_candidate_and_releases_the_reserved_slot(survey_service: SurveyService, allocation_service: AllocationService):
+async def test_provider_failure_falls_back_to_next_candidate_and_releases_the_reserved_slot(survey_service: SurveyService, allocation_service: AllocationService, activities: CanonicalRepository[Activity]):
     """endpoint_catalogue.md: 'a provider timeout falls back to the next-best
     eligible survey, never a hardcoded default survey.'"""
     failing_survey = await _eligible_survey(survey_service, quota=3, external_id="failing")
@@ -224,6 +224,12 @@ async def test_provider_failure_falls_back_to_next_candidate_and_releases_the_re
     updated_good = await survey_service._surveys.get(good_survey.id)
     assert updated_failing.quota_remaining == 3  # released back — never a hardcoded default, never a lost slot
     assert updated_good.quota_remaining == 2
+
+    # The checklist's "no persisted per-provider failure counter exists" gap —
+    # every timeout now leaves a real, queryable record behind.
+    failures = await activities.find_all({"type": "provider_timeout", "subject_id": failing_survey.id})
+    assert len(failures) == 1
+    assert failures[0].payload["respondent_ref"] == "r1"
 
 
 @pytest.mark.asyncio

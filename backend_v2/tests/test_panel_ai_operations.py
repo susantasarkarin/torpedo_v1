@@ -125,6 +125,64 @@ async def test_detect_finds_high_dropout_survey(db, survey_service, inactivity):
     assert (survey.id, "high_dropout") in [(s.id, t) for s, t in triggered]
 
 
+async def _provider_timeout(activities, *, survey_id: str, created_at=None) -> None:
+    kwargs = {"created_at": created_at} if created_at is not None else {}
+    await activities.insert(Activity(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, type="provider_timeout", subject_type="survey", subject_id=survey_id, actor_type="system", actor_id=ACTOR, payload={"provider": "RecordingProvider"}, **kwargs))
+
+
+@pytest.mark.asyncio
+async def test_detect_finds_a_survey_with_a_recent_provider_failure_rate(db, survey_service, inactivity):
+    """Checklist follow-up: AllocationService now records a real
+    provider_timeout Activity on every SurveyProviderUnavailable — this
+    proves detect_triggers() turns a run of them into a real operational
+    trigger, from PROVIDER_FAILURE_THRESHOLD onward."""
+    from app.panel.ai_operations import PROVIDER_FAILURE_THRESHOLD
+
+    survey = await _live_survey(survey_service, conversion_rate=0.5)
+    await CanonicalRepository(db["allocations"], Allocation).insert(Allocation(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, survey_id=survey.id, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="recent", redirect_url="https://x"))
+    activities = CanonicalRepository(db["activities"], Activity)
+    for _ in range(PROVIDER_FAILURE_THRESHOLD):
+        await _provider_timeout(activities, survey_id=survey.id)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert (survey.id, "provider_failure_rate") in [(s.id, t) for s, t in triggered]
+
+    evidence = await svc._evidence(survey, "provider_failure_rate")
+    assert evidence["failure_count"] == PROVIDER_FAILURE_THRESHOLD
+
+
+@pytest.mark.asyncio
+async def test_provider_failures_below_threshold_never_trigger(db, survey_service, inactivity):
+    from app.panel.ai_operations import PROVIDER_FAILURE_THRESHOLD
+
+    survey = await _live_survey(survey_service, conversion_rate=0.5)
+    await CanonicalRepository(db["allocations"], Allocation).insert(Allocation(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, survey_id=survey.id, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="recent", redirect_url="https://x"))
+    activities = CanonicalRepository(db["activities"], Activity)
+    for _ in range(PROVIDER_FAILURE_THRESHOLD - 1):
+        await _provider_timeout(activities, survey_id=survey.id)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert survey.id not in {s.id for s, _ in triggered}
+
+
+@pytest.mark.asyncio
+async def test_provider_failures_outside_the_window_never_trigger(db, survey_service, inactivity):
+    from app.panel.ai_operations import PROVIDER_FAILURE_THRESHOLD, PROVIDER_FAILURE_WINDOW
+
+    survey = await _live_survey(survey_service, conversion_rate=0.5)
+    await CanonicalRepository(db["allocations"], Allocation).insert(Allocation(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, survey_id=survey.id, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="recent", redirect_url="https://x"))
+    activities = CanonicalRepository(db["activities"], Activity)
+    stale_at = datetime.now(timezone.utc) - PROVIDER_FAILURE_WINDOW - timedelta(hours=1)
+    for _ in range(PROVIDER_FAILURE_THRESHOLD):
+        await _provider_timeout(activities, survey_id=survey.id, created_at=stale_at)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert survey.id not in {s.id for s, _ in triggered}
+
+
 @pytest.mark.asyncio
 async def test_dropout_below_minimum_sample_size_never_triggers(db, survey_service, inactivity):
     survey = await _live_survey(survey_service, conversion_rate=0.5)

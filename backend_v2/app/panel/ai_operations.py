@@ -49,7 +49,7 @@ while still allowing a genuinely new day's conditions to be re-evaluated.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app.ai.decision_engine import Decision, DecisionEngine
 from app.models.activity import Activity
@@ -71,6 +71,17 @@ OPERATIONS_ACTIONS = frozenset({"INVESTIGATE", "REQUEST_CLIENT_STATUS", "PAUSE",
 
 MIN_DROPOUT_SAMPLE_SIZE = 5
 HIGH_DROPOUT_THRESHOLD = 0.5
+
+# Checklist follow-up: "no persisted per-provider failure counter exists" —
+# AllocationService now records a real Activity (type="provider_timeout") on
+# every SurveyProviderUnavailable it hits, and this is the threshold that
+# turns a run of them into a real operational trigger. Same discipline as
+# HIGH_DROPOUT_THRESHOLD/MIN_DROPOUT_SAMPLE_SIZE above: an operational
+# cadence choice, not a locked business rule — how many failures in how long
+# genuinely warrants a human looking at a supplier integration is a real
+# judgment call, adjustable here without touching the detection mechanism.
+PROVIDER_FAILURE_THRESHOLD = 3
+PROVIDER_FAILURE_WINDOW = timedelta(hours=24)
 
 _TASK_INSTRUCTIONS = (
     "A survey has hit an operational trigger (given as 'trigger_type' with "
@@ -151,6 +162,11 @@ class OperationsAIService:
             if dropout is not None and dropout > HIGH_DROPOUT_THRESHOLD:
                 triggered.append((survey, "high_dropout"))
                 already_triggered_ids.add(survey.id)
+                continue
+            failures = await self._recent_provider_failure_count(survey.id, as_of=as_of)
+            if failures >= PROVIDER_FAILURE_THRESHOLD:
+                triggered.append((survey, "provider_failure_rate"))
+                already_triggered_ids.add(survey.id)
 
         return triggered
 
@@ -219,9 +235,18 @@ class OperationsAIService:
         dropouts = sum(1 for r in responses if r.final_status in ("terminated", "quality_term"))
         return dropouts / len(responses)
 
+    async def _recent_provider_failure_count(self, survey_id: str, *, as_of: datetime) -> int:
+        return await self._activities._collection.count_documents({
+            "type": "provider_timeout", "subject_id": survey_id, "deleted_at": None,
+            "created_at": {"$gte": as_of - PROVIDER_FAILURE_WINDOW},
+        })
+
     async def _evidence(self, survey: Survey, trigger_type: str) -> dict:
         if trigger_type == "low_conversion":
             return {"conversion_rate": survey.conversion_rate, "threshold": CONVERSION_ELIGIBILITY_THRESHOLD}
         if trigger_type == "high_dropout":
             return {"dropout_rate": await self._dropout_rate(survey.id)}
+        if trigger_type == "provider_failure_rate":
+            count = await self._recent_provider_failure_count(survey.id, as_of=datetime.now(timezone.utc))
+            return {"failure_count": count, "window_hours": PROVIDER_FAILURE_WINDOW.total_seconds() / 3600, "threshold": PROVIDER_FAILURE_THRESHOLD}
         return {"trigger": trigger_type}
