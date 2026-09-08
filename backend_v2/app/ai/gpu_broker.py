@@ -41,8 +41,13 @@ correctness:
 
 `acquire(wait=False)` is the form request handlers should use: it raises
 `GpuNotReady` rather than blocking on a cold start. The caller should queue the
-work and answer the caller — Phase 14's scheduler, not yet built, is what would
-drain that queue once the node is up.
+work and answer the caller — Phase 14's scheduler (built 2026-09-06,
+`app.scheduler.orchestrator.EventOrchestrator`) is that drain, one level up:
+`app.ai.llm.GpuBrokerLLMProvider.chat()` already catches `GpuLeaseError`
+(`GpuNotReady`'s parent) and re-raises as `LLMUnavailable`, which the
+orchestrator's recoverable-error set does retry — records it on the `Event`,
+picks it back up next tick once the node is ready. No separate queue built;
+`GpuNotReady` itself never has to reach the orchestrator directly.
 """
 
 from __future__ import annotations
@@ -295,8 +300,9 @@ class GpuBroker:
 
     async def sweep(self, *, dry_run: bool = False) -> dict[str, Any]:
         """Shut the node down when it is idle, over its ceiling, or already dead.
-        Must run on a schedule (Phase 14, not yet built) for this to be
-        pay-per-use rather than a GPU that quietly runs all month."""
+        Runs on a schedule (`POST /internal/gpu/sweep`, `torpedo-v2-gpu-sweep.timer`,
+        every 5 minutes, built 2026-09-08) for this to be pay-per-use rather
+        than a GPU that quietly runs — and bills — all month."""
         outcome: dict[str, Any] = {"action": "none", "pod_id": "", "reaped": []}
         doc = await self.current()
 

@@ -11,9 +11,10 @@ the >20% conversion gate in `service.py` holds the line between "deterministic
 eligibility" and "AI ranking."
 
 **Detection is idempotent within one inactivity episode**: a survey already flagged
-inside the current window isn't re-flagged on every scan — otherwise a scheduler
-running this every few minutes (Phase 14, not yet built) would produce one Activity
-per run for the same still-unresolved gap, drowning the real signal.
+inside the current window isn't re-flagged on every scan — otherwise the Phase 14
+scheduler (built 2026-09-06), which does call this every 5 minutes via
+`EventDetectionService`/`OperationsAIService.detect_triggers()`, would produce one
+Activity per run for the same still-unresolved gap, drowning the real signal.
 """
 
 from __future__ import annotations

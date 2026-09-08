@@ -26,8 +26,13 @@ references (unchanged, already tested); `extracted_entities` is for the values.
 scope — a decision needing human approval is `status="rejected"` here too (not
 auto-applied), with `requires_human_approval` preserved inside `proposed_fields` so
 a reviewer can tell "the model was confident but this needs a human" apart from
-"the model wasn't confident." A real pending-review queue (a third status, a review
-UI) is deferred, not silently collapsed into "rejected" without a trace.
+"the model wasn't confident." A real pending-review queue, with its own review
+actions and a real API (`app.governance.approvals.ApprovalService`,
+`GET/POST /governance/proposals`), was the deferred piece this paragraph once
+described — built in Slice 22 and extended in Phase 11, additive to `status`,
+never rewriting it: `reviewed_by`/`review_action`/`review_notes`/`modified_fields`
+record a human's separate, independent verdict, so a reviewer can always tell
+what the system decided apart from what a human later decided about it.
 """
 
 from __future__ import annotations
