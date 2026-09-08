@@ -766,4 +766,46 @@ bypass, suppression bypass, webhook abuse, replay, duplicate execution,
 stale decisions) continues from here — this entry covers the tenant-
 isolation finding specifically, not the full phase.
 
+**2026-09-08, continued — Phase 15, remaining checklist items reviewed.**
+No further code defects found; each item checked against the real
+implementation, not assumed sound from prior slices' docstrings:
+
+- **AI tool abuse / arbitrary DB-filesystem-HTTP-shell access**:
+  `app.ai.tools.ToolRegistry` has zero tools registered anywhere in the
+  codebase (`grep` for `ToolSpec(` / `.register(` returns nothing) — it is
+  read-only by contract and never wired to live model-invoked tool-calling
+  (deferred, per its own docstring, until `RUNPOD_API_KEY` exists and a
+  real model can be validated against). Genuinely moot by construction,
+  not just documented as such.
+- **Suppression bypass**: `app.outreach.service`'s `send()` is the single
+  send path (idempotency → mailbox → kill switch → suppression → content
+  → footer → budget → provider → log), with no caller-supplied flag or
+  second lighter-weight path that skips any gate — re-verified against the
+  real code, not just its docstring's claim. `SuppressionService.is_suppressed()`
+  is deliberately global (keyed on email only, no `org_id` filter) — a
+  real, pre-existing design choice (an opt-out should be honored
+  regardless of which org's system sends to that address), not a Phase 15
+  finding: it makes suppression *more* restrictive across orgs, never
+  less, so it's the safe direction and out of scope for a tenant-isolation
+  fix pass.
+- **Kill switch bypass**: `KillSwitchService.is_paused()` fails safe to
+  `paused=True` when no document exists for the org; `pause()`/`resume()`
+  always resolve `org_id` from the caller's own identity (never a path
+  parameter), so the Phase 15 id-resolution bug class doesn't apply here.
+- **Webhook replay**: `app.panel.routers.survey_callback` already checks
+  `(provider, external_event_id)` before doing anything else and returns
+  the existing `SurveyResponse` unchanged on redelivery — genuine
+  idempotent replay, not just an assumption.
+- **Stale decisions / duplicate execution**: `CanonicalRepository.update()`'s
+  version-guard (I-3) is the systemic protection against writing based on
+  a stale read across every domain in this codebase, not something built
+  fresh per-slice; `AiProposal` dedup by `(task, subject_id)` (date-scoped
+  for AR/AP followup, single-shot for lead conversion/ICP) prevents a
+  second scheduler tick from re-deciding the same subject before a human
+  or the executor has acted on the first proposal.
+
+No PII-in-logs issue found in this pass, but this was a targeted review,
+not an exhaustive grep of every log/error-message call site — a genuine
+gap in coverage, named rather than silently left unchecked.
+
 Test count: 460 → 469.
