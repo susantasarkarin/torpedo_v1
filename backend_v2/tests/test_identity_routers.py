@@ -198,3 +198,27 @@ async def test_merge_endpoint_end_to_end_succeeds(client: TestClient, auth_servi
     loser_resp = client.get(f"/api/v1/accounts/{b['_id']}", headers={"Authorization": f"Bearer {token}"})
     assert loser_resp.json()["status"] == "merged"
     assert loser_resp.json()["merged_into"] == a["_id"]
+
+
+@pytest.mark.asyncio
+async def test_merging_another_orgs_account_through_http_is_400_not_a_cross_tenant_merge(client: TestClient, auth_service, rbac_service):
+    """Phase 15 security audit finding (found in a later pass than the rest
+    of that sweep): merge_accounts() had no org_id parameter at all — a
+    caller in ORG_A with ACCOUNT_MERGE could name a duplicate_id belonging
+    to ORG_B, repointing that org's data onto the attacker's own account
+    and marking the victim's real Account merged out from under it."""
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[ACCOUNT_CREATE, ACCOUNT_READ])
+    victim = client.post("/api/v1/accounts", json={"name": "Victim Co"}, headers={"Authorization": f"Bearer {org_b_token}"}).json()
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[ACCOUNT_CREATE, ACCOUNT_MERGE])
+    primary = client.post("/api/v1/accounts", json={"name": "Attacker Co"}, headers={"Authorization": f"Bearer {attacker_token}"}).json()
+
+    resp = client.post(
+        "/api/v1/accounts/merge", json={"primary_id": primary["_id"], "duplicate_id": victim["_id"]},
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp.status_code == 400
+
+    untouched = client.get(f"/api/v1/accounts/{victim['_id']}", headers={"Authorization": f"Bearer {org_b_token}"})
+    assert untouched.json()["status"] == "active"
+    assert untouched.json()["merged_into"] is None

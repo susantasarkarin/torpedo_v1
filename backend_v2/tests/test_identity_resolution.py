@@ -13,7 +13,7 @@ from datetime import timezone
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
-from app.identity.models import Account, AccountBrandRelationship, Person
+from app.identity.models import ACTIVE, Account, AccountBrandRelationship, Person
 from app.identity.service import IdentityService
 from app.models.activity import Activity
 from app.models.base import CanonicalRepository
@@ -221,7 +221,7 @@ async def test_merge_repoints_brand_relationships_to_primary(svc: IdentityServic
         org_id=ORG, actor=ACTOR, account_id=duplicate.id, brand_id="sfw", relationship_type="client"
     )
 
-    await svc.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
+    await svc.merge_accounts(org_id=ORG, primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
 
     refetched_rel = await svc._brand_relationships.get(rel.id)
     assert refetched_rel.account_id == primary.id
@@ -235,7 +235,7 @@ async def test_post_merge_loser_cannot_be_resurrected_by_resolution(svc: Identit
     return the loser as a live match."""
     primary = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Inc", domain="acme.com")
     duplicate = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Duplicate", domain="acme-dup.example")
-    await svc.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
+    await svc.merge_accounts(org_id=ORG, primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
 
     resolution = await svc.resolve_account(org_id=ORG, actor=ACTOR, domain="acme-dup.example")
 
@@ -248,7 +248,7 @@ async def test_cannot_merge_an_account_into_itself(svc: IdentityService):
     account = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Inc")
 
     with pytest.raises(ValueError):
-        await svc.merge_accounts(primary_id=account.id, duplicate_id=account.id, actor=ACTOR)
+        await svc.merge_accounts(org_id=ORG, primary_id=account.id, duplicate_id=account.id, actor=ACTOR)
 
 
 @pytest.mark.asyncio
@@ -256,10 +256,10 @@ async def test_cannot_merge_an_already_merged_account(svc: IdentityService):
     a = await svc.create_account(org_id=ORG, actor=ACTOR, name="A")
     b = await svc.create_account(org_id=ORG, actor=ACTOR, name="B")
     c = await svc.create_account(org_id=ORG, actor=ACTOR, name="C")
-    await svc.merge_accounts(primary_id=a.id, duplicate_id=b.id, actor=ACTOR)
+    await svc.merge_accounts(org_id=ORG, primary_id=a.id, duplicate_id=b.id, actor=ACTOR)
 
     with pytest.raises(ValueError):
-        await svc.merge_accounts(primary_id=c.id, duplicate_id=b.id, actor=ACTOR)
+        await svc.merge_accounts(org_id=ORG, primary_id=c.id, duplicate_id=b.id, actor=ACTOR)
 
 
 @pytest.mark.asyncio
@@ -267,9 +267,44 @@ async def test_merge_records_an_activity(svc: IdentityService):
     primary = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Inc")
     duplicate = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Duplicate")
 
-    await svc.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor="admin-bob")
+    await svc.merge_accounts(org_id=ORG, primary_id=primary.id, duplicate_id=duplicate.id, actor="admin-bob")
 
     activities = await svc._activities.find_all({"type": "account_merged", "subject_id": primary.id})
     assert len(activities) == 1
     assert activities[0].actor_id == "admin-bob"
     assert activities[0].payload["merged_from"] == duplicate.id
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit, later pass)
+
+
+@pytest.mark.asyncio
+async def test_cannot_merge_another_orgs_account_as_the_duplicate(svc: IdentityService):
+    """merge_accounts() had no org_id parameter at all before this fix —
+    a caller in ORG with ACCOUNT_MERGE could name a primary_id in their own
+    org and a duplicate_id belonging to any other org, repointing that
+    other org's brand relationships onto the attacker's account and
+    marking the victim org's real Account MERGED out from under it."""
+    primary = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Inc")
+    other_orgs_account = await svc.create_account(org_id="org-B", actor="mallory", name="Victim Co")
+
+    with pytest.raises(ValueError):
+        await svc.merge_accounts(org_id=ORG, primary_id=primary.id, duplicate_id=other_orgs_account.id, actor=ACTOR)
+
+    untouched = await svc._accounts.get(other_orgs_account.id)
+    assert untouched.status == ACTIVE
+    assert untouched.merged_into is None
+
+
+@pytest.mark.asyncio
+async def test_cannot_merge_another_orgs_account_as_the_primary(svc: IdentityService):
+    """The reverse direction: primary_id from another org must be rejected
+    too, not just duplicate_id — merging is symmetric in the check."""
+    other_orgs_account = await svc.create_account(org_id="org-B", actor="mallory", name="Attacker Target")
+    duplicate = await svc.create_account(org_id=ORG, actor=ACTOR, name="Acme Duplicate")
+
+    with pytest.raises(ValueError):
+        await svc.merge_accounts(org_id=ORG, primary_id=other_orgs_account.id, duplicate_id=duplicate.id, actor=ACTOR)
+
+    untouched = await svc._accounts.get(duplicate.id)
+    assert untouched.status == ACTIVE

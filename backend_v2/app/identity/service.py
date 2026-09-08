@@ -280,13 +280,23 @@ class IdentityService:
 
     # -------------------------------------------------------------------- merge
 
-    async def merge_accounts(self, *, primary_id: str, duplicate_id: str, actor: str) -> Account:
+    async def merge_accounts(self, *, org_id: str, primary_id: str, duplicate_id: str, actor: str) -> Account:
         if primary_id == duplicate_id:
             raise ValueError("cannot merge an account into itself")
 
         primary = await self._accounts.get(primary_id)
         duplicate = await self._accounts.get(duplicate_id)
-        if primary is None or duplicate is None:
+        # Phase 15 security audit (found in a later pass than the rest of that
+        # sweep): merging is inherently a same-org operation, and neither
+        # account was ever checked against the caller's org before this fix —
+        # a caller in any org holding ACCOUNT_MERGE could name a primary_id in
+        # their own org and a duplicate_id belonging to *any other org*,
+        # repointing that other org's AccountBrandRelationship (and every
+        # other repointed reference) onto the attacker's own account and
+        # marking the victim org's real Account MERGED out from under it. A
+        # cross-org id is treated identically to a missing one, same
+        # discipline as every other fix this pass.
+        if primary is None or duplicate is None or primary.org_id != org_id or duplicate.org_id != org_id:
             raise ValueError("both accounts must exist")
         if primary.status == MERGED or duplicate.status == MERGED:
             raise ValueError("cannot merge an already-merged account")

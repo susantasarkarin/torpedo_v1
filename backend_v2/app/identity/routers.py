@@ -156,7 +156,7 @@ async def merge_accounts(
     # only for this slice; approval-gating is tracked as follow-up, not silently dropped.
     try:
         return await svc.merge_accounts(
-            primary_id=body.primary_id, duplicate_id=body.duplicate_id, actor=identity.user_id
+            org_id=identity.org_id, primary_id=body.primary_id, duplicate_id=body.duplicate_id, actor=identity.user_id
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

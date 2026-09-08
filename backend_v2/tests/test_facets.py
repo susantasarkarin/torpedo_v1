@@ -235,7 +235,7 @@ async def test_account_merge_repoints_facet_references_too(identity: IdentitySer
     billing = await facets.attach_customer_billing(actor=ACTOR, account_id=duplicate.id)
     vendor = await facets.attach_vendor_profile(actor=ACTOR, account_id=duplicate.id)
 
-    await identity.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
+    await identity.merge_accounts(org_id=ORG_A, primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
 
     refetched_billing = await facets._customer_billing.get(billing.id)
     refetched_vendor = await facets._vendor_profiles.get(vendor.id)
@@ -249,7 +249,7 @@ async def test_merged_account_cannot_be_resurrected_through_facet_creation(ident
     reject a NEW facet attachment too, not just resolution."""
     primary = await identity.create_account(org_id=ORG_A, actor=ACTOR, name="Acme Inc")
     duplicate = await identity.create_account(org_id=ORG_A, actor=ACTOR, name="Acme Duplicate")
-    await identity.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
+    await identity.merge_accounts(org_id=ORG_A, primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
 
     with pytest.raises(FacetAttachmentError):
         await facets.attach_customer_billing(actor=ACTOR, account_id=duplicate.id)
@@ -262,7 +262,7 @@ async def test_merge_activity_records_repointed_facet_count(identity: IdentitySe
     await facets.attach_customer_billing(actor=ACTOR, account_id=duplicate.id)
     await facets.attach_vendor_profile(actor=ACTOR, account_id=duplicate.id)
 
-    await identity.merge_accounts(primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
+    await identity.merge_accounts(org_id=ORG_A, primary_id=primary.id, duplicate_id=duplicate.id, actor=ACTOR)
 
     activities = await identity._activities.find_all({"type": "account_merged", "subject_id": primary.id})
     assert activities[0].payload["other_references_repointed"] == 2

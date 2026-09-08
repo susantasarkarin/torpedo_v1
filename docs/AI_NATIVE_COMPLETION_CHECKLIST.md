@@ -910,3 +910,21 @@ Phase 15-19's changes touched org-scoping and query efficiency inside
 these services, never their shadow-mode gating logic.
 
 Test count unchanged at 482 (documentation-only).
+
+**2026-09-08, continued — Phase 15 follow-up (later the same day).**
+Two further passes after the phase itself was marked complete:
+
+1. Added HTTP-level (not just service-level) cross-org regression tests
+   for finance/CRM/panel/leadgen — the original pass only proved
+   governance through the real request path. Test count: 482 → 487.
+2. Found a more severe instance of the same bug class in a module the
+   original sweep never reached: `IdentityService.merge_accounts()`
+   (`POST /accounts/merge`) had no `org_id` parameter at all — and unlike
+   every other finding this session, merging doesn't just allow
+   unauthorized access within a boundary, it actively **corrupts another
+   org's data**: a caller could repoint a victim org's brand relationships
+   and facet references onto their own account and mark the victim's real
+   `Account` merged out from under it. Fixed the same way as every other
+   finding — both accounts must now belong to the caller's org. Full
+   detail in [business_rules_register.md](business_rules_register.md)'s
+   EF-02 second follow-up. Test count: 487 → 490.
