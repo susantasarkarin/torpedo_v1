@@ -891,3 +891,22 @@ a real backup-then-restore round-trip into a disposable scratch database
 v1's database and cron jobs untouched throughout.
 
 Test count unchanged at 482 (infrastructure, not application code).
+
+**2026-09-08, continued — Phase 20 (final production readiness audit).**
+Re-checked this file's own "Hard blockers" table against the live VM
+rather than trusting the 2026-09-06 measurement — `free -h` on the VM
+today still shows swap at 2.0Gi/2.0Gi, essentially fully saturated, so
+that blocker's stated rationale is genuinely still current, not stale.
+Found one real staleness issue while re-reading `docs/GPU_ACTIVATION_RUNBOOK.md`
+end to end: step 13 still said "the existing 385 tests" — the real count
+has grown to 482 across this session's Phase 15-19 work. Fixed, and
+rephrased to point at `business_rules_register.md`'s own changelog for
+the current count rather than embedding a number that will drift again
+the next time a phase adds tests. Everything else in the runbook (the
+five shadow-mode-gated execution points, the six-AI-decision E2E
+comparison in step 14, the `/integrations/status` fields referenced in
+the preconditions) checked out accurate against the current code —
+Phase 15-19's changes touched org-scoping and query efficiency inside
+these services, never their shadow-mode gating logic.
+
+Test count unchanged at 482 (documentation-only).

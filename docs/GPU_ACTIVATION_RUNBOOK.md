@@ -77,8 +77,11 @@ VM, read once by `app.config.Settings` at process start.
 
 ## Phase C — Regression, against the real backend
 
-13. **Run the existing 385 tests** — unchanged, still against `FakeLLM`/test
-    doubles (they test the *code*, not the live model; that's Phase A/B's job).
+13. **Run the full test suite** (482 as of Rev 41, 2026-09-08 — check
+    `docs/business_rules_register.md`'s latest changelog entry for the
+    current count rather than trusting this number, which will drift) —
+    unchanged, still against `FakeLLM`/test doubles (they test the *code*,
+    not the live model; that's Phase A/B's job).
 14. **Run `tests/test_end_to_end_business_loop.py`'s scenario manually against
     the real model** — same business loop, real GPU — comparing the real
     model's decisions at each of the six AI-decision hops against the fake
