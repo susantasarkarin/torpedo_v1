@@ -3,14 +3,17 @@ HTTP-level AI Gateway tests. Permission enforcement is what's new at this layer;
 broker behavior is exhaustively covered in test_ai_gpu_broker.py.
 """
 
+import hashlib
+import hmac as hmac_module
 from datetime import timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
+from app.ai import gpu_broker as gb
 from app.ai.gpu_broker import GpuBroker
-from app.ai.routers import get_gpu_broker
+from app.ai.routers import get_gpu_broker, get_scheduler_signing_secret_for_sweep
 from app.auth.dependencies import get_auth_service, get_rbac_service
 from app.auth.models import Credential, Session
 from app.auth.service import AuthService
@@ -111,3 +114,49 @@ async def test_admin_can_shutdown(client: TestClient, auth_service, rbac_service
     resp = client.post("/api/v1/ai/gpu/shutdown", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["action"] == "nothing-running"
+
+
+# --------------------------------------------------------------------------- /internal/gpu/sweep
+
+
+SWEEP_SECRET = "gpu-sweep-http-test-secret"
+
+
+def _sign_sweep(payload: bytes) -> str:
+    return hmac_module.new(SWEEP_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def _stub_reap_orphans(monkeypatch):
+    """Every sweep test needs this — GpuBroker.sweep() calls reap_orphans()
+    unconditionally (even with nothing registered), and the real
+    implementation makes a live network call to the RunPod API."""
+    async def fake_reap(**kwargs):
+        return []
+
+    monkeypatch.setattr(gb, "reap_orphans", fake_reap)
+
+
+@pytest.mark.asyncio
+async def test_sweep_with_no_signing_secret_configured_fails_closed(client: TestClient):
+    app.dependency_overrides[get_scheduler_signing_secret_for_sweep] = lambda: None
+    resp = client.post("/api/v1/internal/gpu/sweep", content=b"{}", headers={"X-Signature": "irrelevant"})
+    assert resp.status_code == 500  # SignatureConfigError — never a silent skip
+
+
+@pytest.mark.asyncio
+async def test_sweep_with_a_bad_signature_is_rejected(client: TestClient):
+    app.dependency_overrides[get_scheduler_signing_secret_for_sweep] = lambda: SWEEP_SECRET
+    resp = client.post("/api/v1/internal/gpu/sweep", content=b"{}", headers={"X-Signature": "0" * 64})
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_sweep_with_a_valid_signature_runs_and_needs_no_torpedo_session(client: TestClient):
+    """No Authorization header — a systemd timer has no Torpedo session, by
+    design, same as /internal/scheduler/tick and the survey callback."""
+    app.dependency_overrides[get_scheduler_signing_secret_for_sweep] = lambda: SWEEP_SECRET
+    body = b"{}"
+    resp = client.post("/api/v1/internal/gpu/sweep", content=body, headers={"X-Signature": _sign_sweep(body)})
+    assert resp.status_code == 200
+    assert resp.json()["action"] == "none"  # nothing registered, nothing orphaned

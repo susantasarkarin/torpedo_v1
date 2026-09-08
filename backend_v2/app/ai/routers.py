@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from app.ai.gpu_broker import GpuBroker
 from app.auth.dependencies import require_permission
@@ -23,6 +23,7 @@ from app.db import get_database
 from app.governance.approvals import STALE_REVIEW_THRESHOLD
 from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
+from app.panel.callback_security import SignatureConfigError, SignatureInvalid, verify_hmac_signature
 from app.rbac.identity import ResolvedIdentity
 from app.rbac.permissions import AI_ADMIN, AI_READ, INTEGRATIONS_STATUS_READ
 from app.scheduler.models import EVENT_STATUSES, FAILED, MAX_ATTEMPTS, PROCESSING, STUCK_PROCESSING_THRESHOLD, Event
@@ -50,6 +51,35 @@ async def gpu_status(identity: ResolvedIdentity = Depends(require_permission(AI_
 @router.post("/ai/gpu/shutdown")
 async def gpu_shutdown_now(identity: ResolvedIdentity = Depends(require_permission(AI_ADMIN)), broker: GpuBroker = Depends(get_gpu_broker)) -> dict:
     return await broker.shutdown_now()
+
+
+def get_scheduler_signing_secret_for_sweep() -> str | None:
+    # Reuses app.scheduler.routers' own signing secret rather than
+    # provisioning a second one — both are internal, systemd-timer-invoked
+    # endpoints on the same deployment, and GpuBroker.sweep() (checklist:
+    # "a real, small follow-up, not fabricated here") is a global,
+    # deployment-wide operation, not tied to any one org, so it deliberately
+    # does not go through the per-org Event/EventOrchestrator pattern the
+    # rest of Phase 14 uses — it gets its own tiny endpoint + timer instead,
+    # same shape as backup_mongo.sh's timer.
+    return get_settings().scheduler_signing_secret
+
+
+@router.post("/internal/gpu/sweep")
+async def gpu_sweep(
+    request: Request, x_signature: str = Header(alias="X-Signature"),
+    broker: GpuBroker = Depends(get_gpu_broker),
+    signing_secret: str | None = Depends(get_scheduler_signing_secret_for_sweep),
+) -> dict:
+    raw_body = await request.body()
+    try:
+        verify_hmac_signature(payload=raw_body, secret=signing_secret, signature_hex=x_signature)
+    except SignatureConfigError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+    except SignatureInvalid as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+
+    return await broker.sweep()
 
 
 def _configured(*env_vars: str) -> str:
