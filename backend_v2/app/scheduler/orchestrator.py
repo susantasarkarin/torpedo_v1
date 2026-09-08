@@ -12,6 +12,17 @@ PROCESSING` transition. A `VersionConflict` means someone else claimed it
 first; this orchestrator just moves to the next event rather than treating
 that as an error.
 
+**A PROCESSING event older than `STUCK_PROCESSING_THRESHOLD` is also a valid
+claim candidate** (Phase 16 failure/recovery audit) — the orchestrator is one
+FastAPI process on a resource-constrained VM, invoked synchronously per
+systemd-timer tick; a crash between the claim and the terminal write (OOM
+kill, an unexpected non-recoverable exception, a VM restart) would otherwise
+orphan that event in PROCESSING forever, since only PENDING/FAILED were ever
+reclaimed. Reclaiming it goes through the exact same version-guarded update
+as a fresh claim, so a genuinely in-flight event (a second concurrent worker,
+if this ever runs as more than one process) is still protected by the same
+`VersionConflict` — this only widens who's eligible to attempt the claim.
+
 **A recoverable failure is recorded on the `Event`, never swallowed and never
 crashes the whole cycle.** Every exception type each AI service's own module
 already documents raising (`LLMUnavailable`, `DecisionEngineError`,
@@ -28,6 +39,8 @@ retry.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.ai.decision_engine import DecisionEngineError
 from app.ai.llm import LLMUnavailable
 from app.emailai.providers import EmailIngestionProvider, EmailProviderUnavailable
@@ -40,7 +53,7 @@ from app.models.base import CanonicalRepository, VersionConflict
 from app.panel.ai_operations import OperationsAIError, OperationsAIService
 from app.panel.providers import SurveyProvider, SurveyProviderUnavailable
 from app.scheduler.detectors import EventDetectionService
-from app.scheduler.models import FAILED, MAX_ATTEMPTS, PENDING, PROCESSED, PROCESSING, Event
+from app.scheduler.models import FAILED, MAX_ATTEMPTS, PENDING, PROCESSED, PROCESSING, STUCK_PROCESSING_THRESHOLD, Event
 
 _RECOVERABLE_ERRORS = (
     LLMUnavailable, DecisionEngineError, SurveyProviderUnavailable,
@@ -73,8 +86,20 @@ class EventOrchestrator:
         return await self._detection.run_all(org_id=org_id)
 
     async def process_pending(self, *, org_id: str, limit: int = 50) -> dict[str, int]:
-        candidates = await self._events.find_all({"org_id": org_id, "processing_status": {"$in": [PENDING, FAILED]}})
-        candidates = [e for e in candidates if e.processing_status == PENDING or e.attempts < MAX_ATTEMPTS][:limit]
+        # PROCESSING is included here, not just PENDING/FAILED — see
+        # STUCK_PROCESSING_THRESHOLD's docstring. A genuinely in-flight event
+        # (another concurrent tick, if this ever runs as more than one
+        # process) is protected from double-claiming by the same
+        # VersionConflict guard below, exactly as it always was; this only
+        # widens the candidate set to include events orphaned by a crash.
+        candidates = await self._events.find_all({"org_id": org_id, "processing_status": {"$in": [PENDING, FAILED, PROCESSING]}})
+        now = datetime.now(timezone.utc)
+        candidates = [
+            e for e in candidates
+            if e.processing_status == PENDING
+            or (e.processing_status == FAILED and e.attempts < MAX_ATTEMPTS)
+            or (e.processing_status == PROCESSING and now - e.updated_at >= STUCK_PROCESSING_THRESHOLD)
+        ][:limit]
 
         processed = failed = skipped = 0
         for event in candidates:

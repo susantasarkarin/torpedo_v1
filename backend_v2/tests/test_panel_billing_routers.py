@@ -4,7 +4,7 @@ diagnostic. Permission enforcement is what's new at this layer; billing/margin
 mechanics are exhaustively covered in test_panel_billing.py.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -181,6 +181,26 @@ async def test_integrations_status_distinguishes_exhausted_failed_events_from_re
     body = resp.json()
     assert body["scheduler_events"]["FAILED"] == 2
     assert body["scheduler_events_exhausted"] == 1  # only the attempts=5 one has hit MAX_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_integrations_status_distinguishes_stuck_processing_events_from_in_flight_ones(client: TestClient, auth_service, rbac_service, db):
+    """Phase 16 (failure/recovery audit): a PROCESSING event orphaned by a
+    crash is self-healed by the orchestrator's next tick, but a persistent
+    nonzero count is a real operational signal — must not be indistinguishable
+    from a genuinely in-flight event from moments ago."""
+    from app.scheduler.models import STUCK_PROCESSING_THRESHOLD
+
+    events = CanonicalRepository(db["events"], Event)
+    stale_at = datetime.now(timezone.utc) - STUCK_PROCESSING_THRESHOLD - timedelta(minutes=1)
+    await events.insert(Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-1", occurred_at=datetime.now(timezone.utc), dedupe_key="k1", processing_status="PROCESSING", updated_at=stale_at))
+    await events.insert(Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-2", occurred_at=datetime.now(timezone.utc), dedupe_key="k2", processing_status="PROCESSING"))
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
+
+    resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["scheduler_events"]["PROCESSING"] == 2
+    assert body["scheduler_events_stuck"] == 1  # only the backdated one is old enough to be orphaned
 
 
 @pytest.mark.asyncio

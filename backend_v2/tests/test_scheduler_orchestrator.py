@@ -10,7 +10,7 @@ version conflict or a retry can be provoked directly, deterministically,
 without needing a real DecisionEngine/LLM at all.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mongomock_motor import AsyncMongoMockClient
@@ -442,3 +442,50 @@ async def test_process_pending_only_considers_pending_and_failed_events(db, even
     outcome = await orchestrator.process_pending(org_id=ORG)
     assert outcome["processed"] == 1
     assert operations_ai.calls == [{"survey_id": "s1", "trigger_type": "low_conversion"}]
+
+
+# --------------------------------------------------------------------------- stuck-PROCESSING recovery (Phase 16 failure/recovery audit)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_processing_event_is_reclaimed_and_processed(db, events):
+    """An event orphaned in PROCESSING by a crash (OOM kill, an unexpected
+    non-recoverable exception, a VM restart between claim and terminal
+    write) must not stay stuck forever — it was never PENDING/FAILED again,
+    so nothing else would ever pick it up. Backdating updated_at simulates
+    the crash having happened STUCK_PROCESSING_THRESHOLD ago."""
+    from app.scheduler.models import STUCK_PROCESSING_THRESHOLD
+
+    operations_ai = FakeOperationsAI()
+    event = await _pending_event(events, event_type="survey_operations_trigger", entity_type="survey", entity_id="survey-1", payload={"trigger_type": "low_conversion"})
+    stale_at = datetime.now(timezone.utc) - STUCK_PROCESSING_THRESHOLD - timedelta(minutes=1)
+    await events._collection.update_one({"_id": event.id}, {"$set": {"processing_status": PROCESSING, "updated_at": stale_at}})
+    orchestrator = _orchestrator(events, operations_ai=operations_ai)
+
+    outcome = await orchestrator.process_pending(org_id=ORG)
+    assert outcome == {"processed": 1, "failed": 0, "skipped": 0}
+    assert operations_ai.calls == [{"survey_id": "survey-1", "trigger_type": "low_conversion"}]
+
+    reclaimed = await events.get(event.id)
+    assert reclaimed.processing_status == PROCESSED
+
+
+@pytest.mark.asyncio
+async def test_a_recently_processing_event_is_not_reclaimed(db, events):
+    """The reclaim window only widens the candidate set for events old enough
+    to be genuinely orphaned — a PROCESSING event from moments ago (this
+    same tick, or a real concurrent worker) must stay untouched, exactly as
+    test_an_event_already_processing_is_invisible_to_the_next_ticks_candidate_query
+    already proves for the zero-age case; this proves it holds just under
+    the threshold too, not only at age zero."""
+    from app.scheduler.models import STUCK_PROCESSING_THRESHOLD
+
+    operations_ai = FakeOperationsAI()
+    event = await _pending_event(events, event_type="survey_operations_trigger", entity_type="survey", entity_id="survey-1", payload={"trigger_type": "low_conversion"})
+    almost_stale_at = datetime.now(timezone.utc) - STUCK_PROCESSING_THRESHOLD + timedelta(minutes=1)
+    await events._collection.update_one({"_id": event.id}, {"$set": {"processing_status": PROCESSING, "updated_at": almost_stale_at}})
+    orchestrator = _orchestrator(events, operations_ai=operations_ai)
+
+    outcome = await orchestrator.process_pending(org_id=ORG)
+    assert outcome == {"processed": 0, "failed": 0, "skipped": 0}
+    assert operations_ai.calls == []

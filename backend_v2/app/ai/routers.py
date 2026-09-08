@@ -25,7 +25,7 @@ from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
 from app.rbac.permissions import AI_ADMIN, AI_READ, INTEGRATIONS_STATUS_READ
-from app.scheduler.models import EVENT_STATUSES, FAILED, MAX_ATTEMPTS, Event
+from app.scheduler.models import EVENT_STATUSES, FAILED, MAX_ATTEMPTS, PROCESSING, STUCK_PROCESSING_THRESHOLD, Event
 
 router = APIRouter()
 
@@ -74,6 +74,14 @@ async def integrations_status(
     # retrying on, made queryable here instead of only inferable from logs.
     failed_events = await events.find_all({"org_id": identity.org_id, "processing_status": FAILED})
     exhausted_count = sum(1 for e in failed_events if e.attempts >= MAX_ATTEMPTS)
+    # Phase 16 (failure/recovery audit) — a PROCESSING event this old wasn't
+    # claimed by this tick; it was orphaned by a crash between claim and
+    # terminal write (see app.scheduler.models.STUCK_PROCESSING_THRESHOLD).
+    # The orchestrator already self-heals this on the next tick — this count
+    # exists so a *persistent* stuck count (one that never drops) is visible
+    # as a real signal, not only inferable from logs.
+    processing_events = await events.find_all({"org_id": identity.org_id, "processing_status": PROCESSING})
+    stuck_count = sum(1 for e in processing_events if datetime.now(timezone.utc) - e.updated_at >= STUCK_PROCESSING_THRESHOLD)
     pending_review = len(await proposals.find_all({"org_id": identity.org_id, "reviewed_by": None}))
     # Phase 11 (human governance) — a pending review isn't itself a problem;
     # one that's been pending longer than STALE_REVIEW_THRESHOLD is real
@@ -95,6 +103,10 @@ async def integrations_status(
         # Of the FAILED count above, how many have exhausted MAX_ATTEMPTS and
         # will never be retried automatically — real dead-letter visibility.
         "scheduler_events_exhausted": exhausted_count,
+        # Of the PROCESSING count above, how many are orphaned (older than
+        # STUCK_PROCESSING_THRESHOLD) — self-healed on the next tick, but a
+        # persistently nonzero count is a real signal something keeps crashing.
+        "scheduler_events_stuck": stuck_count,
         # Phase 1 production-foundations audit: the human review queue's own
         # backlog size — a real signal for "is anyone keeping up with shadow-mode
         # review," not a fabricated dashboard number.

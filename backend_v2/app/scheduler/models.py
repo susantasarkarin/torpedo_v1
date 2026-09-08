@@ -41,7 +41,7 @@ one instead of double-processing.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models.base import CanonicalDocument
 
@@ -71,6 +71,19 @@ EVENT_TYPES = frozenset({
 # raises LLMUnavailable because no GPU credential exists yet) needs a human to
 # notice and unblock the credential, not an infinite silent retry loop.
 MAX_ATTEMPTS = 5
+
+# Phase 16 (failure/recovery audit): single-flight claiming assumes the
+# orchestrator process never dies mid-handler. On this platform it can — this
+# is one FastAPI process on a 2 vCPU/3.8GB VM already running with swap
+# saturated (see this module's own docstring), invoked synchronously by a
+# systemd timer tick; an OOM kill, an unhandled non-recoverable exception, or
+# a VM restart between the PENDING->PROCESSING claim and the terminal
+# PROCESSED/FAILED write leaves an Event orphaned in PROCESSING forever —
+# never PENDING/FAILED again, so never reclaimed by `process_pending()`'s own
+# candidate query. Three tick-intervals (the scheduler runs every 5 minutes)
+# is long enough that a PROCESSING event this old is not "still being worked
+# on by this tick" — it is orphaned, and safe to reclaim.
+STUCK_PROCESSING_THRESHOLD = timedelta(minutes=15)
 
 
 class Event(CanonicalDocument):

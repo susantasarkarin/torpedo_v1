@@ -700,6 +700,8 @@ reasoning unchanged). Two real gaps found and fixed:
   threshold) — real dead-letter-style visibility for the human review
   queue, the same pattern Phase 10 just built for the scheduler.
 
+Test count: 460 → 469.
+
 **2026-09-08, continued — Phase 15 (security/adversarial audit).** Started by
 re-checking `ApprovalService.review()` for org-ownership validation on
 writes (not just `list_pending()`'s reads) and found it had **no `org_id`
@@ -808,4 +810,27 @@ No PII-in-logs issue found in this pass, but this was a targeted review,
 not an exhaustive grep of every log/error-message call site — a genuine
 gap in coverage, named rather than silently left unchecked.
 
-Test count: 460 → 469.
+**2026-09-08, continued — Phase 16 (failure/recovery testing).** Found and
+fixed a real gap: `EventOrchestrator.process_pending()`'s single-flight
+claim assumed the orchestrator process never dies between claiming an
+`Event` (`PENDING/FAILED -> PROCESSING`) and writing its terminal outcome.
+On this platform it can — one FastAPI process on a resource-constrained
+VM (swap already saturated, per `app.scheduler.models`'s own docstring),
+invoked synchronously per systemd-timer tick. An OOM kill, an unexpected
+non-recoverable exception (deliberately left to propagate, not swallowed,
+per this module's own design), or a VM restart mid-handler orphaned that
+event in `PROCESSING` forever — never reclaimed, since the candidate query
+only ever looked at `PENDING`/`FAILED`.
+
+Fixed with `app.scheduler.models.STUCK_PROCESSING_THRESHOLD` (15 minutes —
+three tick intervals): `process_pending()`'s candidate query now also
+includes `PROCESSING` events older than the threshold (by `updated_at`, no
+new field), reclaimed through the same version-guarded `update()` as a
+fresh claim, so a genuinely in-flight event stays protected by the same
+`VersionConflict` guard that always existed. `GET /integrations/status`
+gained `scheduler_events_stuck` — real visibility, same dead-letter
+pattern as `scheduler_events_exhausted`/`governance_stale_review_count`.
+Full detail in [business_rules_register.md](business_rules_register.md)'s
+EF-03.
+
+Test count: 477 → 480.
