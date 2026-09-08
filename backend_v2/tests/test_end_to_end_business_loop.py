@@ -15,15 +15,25 @@ files). All six AI decisions in this test are made by exactly ONE shared
 `AiProposal` repository — the direct, literal proof of the master prompt's
 core mandate: "do not build isolated per-domain decision engines."
 
-**Two hops are deliberately manual in this test, and documented as real,
-honest gaps, not oversights**:
-- Lead -> Opportunity: there is no automatic conversion anywhere in the
-  codebase. A qualified lead's Account is real (resolved by
-  `LeadGenService.ingest()` from a real `company_domain`), but creating the
-  `Opportunity` from it is a human/ops decision this test makes explicitly,
-  exactly as a real user would via the CRM UI.
-- Lead -> Outreach enrollment: same story — `LeadEnrollment` has no
-  automatic creation path from a qualified `LeadState` either.
+**This test deliberately keeps two hops manual, simulating the human/ops
+path rather than an AI one — a real, supported alternative flow, not a
+gap in coverage**:
+- Lead -> Opportunity: `app.leadgen.ai_conversion.LeadConversionAIService`
+  (Phase 3, 2026-09-06) is a real, separate AI-driven conversion path with
+  its own eligibility gate and its own dedicated unit-test coverage
+  (`tests/test_leadgen_ai_conversion.py`) — this hop is *not* a codebase
+  gap any more. This test still creates the `Opportunity` directly through
+  `OpportunityService.create_opportunity()` on purpose: that RBAC-gated
+  human path (`POST /opportunities`) is equally real and equally
+  supported, and this file's job is proving *composition* of the loop
+  this test already covers, not re-proving a seventh AI decision that
+  already has its own dedicated test file. Folding it in here would also
+  mean growing this test's closed 6-decision/7-proposal assertion (step
+  16) every time a new AI capability ships elsewhere — the wrong test to
+  carry that maintenance cost.
+- Lead -> Outreach enrollment: still genuinely manual — `LeadEnrollment`
+  has no automatic creation path from a qualified `LeadState` anywhere in
+  the codebase, unlike the Opportunity hop above.
 """
 
 import json
@@ -288,9 +298,11 @@ async def test_full_business_loop_from_gsc_signal_to_margin_and_ai_followup(
     assert lead_after_icp.ai_decision_subject_id == lead_state_id  # traced, without touching icp_score
     assert lead_after_icp.icp_score is None  # untouched — only app.leadgen.scoring's canonical scorer may ever set this
 
-    # ---------------------------------------------------------------- 3. Honest manual gap: Lead -> Opportunity
-    # No automatic conversion exists anywhere in the codebase — an ops/sales
-    # decision creates the Opportunity from the qualified lead's real Account.
+    # ---------------------------------------------------------------- 3. Lead -> Opportunity via the human/ops path
+    # An AI-driven conversion path also exists (LeadConversionAIService,
+    # Phase 3) with its own dedicated test coverage — this test deliberately
+    # uses the equally-real, equally-supported human path instead, see the
+    # module docstring above.
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor=ACTOR, account_id=account.id)
 
     # ---------------------------------------------------------------- 4. Survey created, commercially linked, made eligible

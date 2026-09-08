@@ -834,3 +834,22 @@ Full detail in [business_rules_register.md](business_rules_register.md)'s
 EF-03.
 
 Test count: 477 → 480.
+
+**2026-09-08, continued — Phase 17 (complete end-to-end audit).**
+`tests/test_end_to_end_business_loop.py`'s own docstring and
+`backend_v2/README.md` both still claimed, unconditionally, "no automatic
+Lead→Opportunity conversion anywhere in the codebase" — accurate when
+written (Slice 18), stale since Rev 32/Phase 3 shipped
+`LeadConversionAIService`, a real AI-driven conversion path with its own
+dedicated test file. Left standing, this denies a real capability exists
+— the opposite direction from the more usual "claims a fake capability
+exists," but the same documentation-accuracy defect. Fixed both docs to
+state the AI path exists and explain why this specific E2E test still
+exercises the human/ops `POST /opportunities` path deliberately (proving
+that composition, not re-proving a seventh AI decision this test's closed
+6-decision/7-proposal assertion isn't scoped to carry). Documentation-only
+— re-ran the affected test to confirm rather than assuming a comment
+change is safe. Full detail in
+[business_rules_register.md](business_rules_register.md)'s EF-04.
+
+Test count unchanged at 480.

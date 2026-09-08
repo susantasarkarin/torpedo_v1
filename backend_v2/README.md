@@ -777,10 +777,13 @@ supplier bill → margin, the chain Slice 17 explicitly deferred.
   approval/send → client payment → AI-matched reconciliation → paid invoice →
   margin → AI operational evaluation → AI outreach follow-up → final audit
   trail — proving, executably, that all six AI decisions in the loop share
-  exactly *one* `DecisionEngine` instance. Two hops are deliberately manual in
-  the test and documented as real, honest gaps rather than oversights:
-  Lead→Opportunity and Lead→Outreach-enrollment have no automatic conversion
-  path anywhere in the codebase.
+  exactly *one* `DecisionEngine` instance. Two hops stay manual in the test
+  deliberately, simulating the human/ops path rather than an AI one — see the
+  test's own module docstring for why. Lead→Outreach-enrollment genuinely has
+  no automatic path anywhere in the codebase; Lead→Opportunity does now
+  (`LeadConversionAIService`, Phase 3), with its own dedicated test coverage
+  — the E2E test keeps the human path here on purpose rather than re-proving
+  a seventh AI decision this file isn't scoped to carry.
 
 Not yet built: migrations from v1; actually renting a GPU node (blocked on
 `RUNPOD_API_KEY`, confirmed absent — see `docs/AI_NATIVE_COMPLETION_CHECKLIST.md`);
