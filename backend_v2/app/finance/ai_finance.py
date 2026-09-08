@@ -125,7 +125,7 @@ class AIFinanceService:
 
     async def decide_ar_followup(self, *, org_id: str, actor: str, invoice_id: str) -> Decision:
         invoice = await self._invoice_service._invoices.get(invoice_id)
-        if invoice is None:
+        if invoice is None or invoice.org_id != org_id:
             raise AIFinanceError(f"invoice {invoice_id} does not exist")
         if invoice.status not in ("sent", "partially_paid"):
             raise AIFinanceError(f"invoice {invoice_id} is not in a followup-eligible status (status={invoice.status})")
@@ -158,7 +158,7 @@ class AIFinanceService:
 
     async def decide_ap_followup(self, *, org_id: str, actor: str, bill_id: str) -> Decision:
         bill = await self._bill_service._bills.get(bill_id)
-        if bill is None:
+        if bill is None or bill.org_id != org_id:
             raise AIFinanceError(f"bill {bill_id} does not exist")
         if bill.status not in ("approved", "partially_paid"):
             raise AIFinanceError(f"bill {bill_id} is not in a followup-eligible status (status={bill.status})")
@@ -191,7 +191,7 @@ class AIFinanceService:
 
     async def match_payment_to_invoice(self, *, org_id: str, actor: str, reconciliation_record_id: str, allow_overpayment: bool = False) -> tuple[Decision, Payment | None]:
         record = await self._reconciliation_repo.get(reconciliation_record_id)
-        if record is None:
+        if record is None or record.org_id != org_id:
             raise AIFinanceError(f"reconciliation record {reconciliation_record_id} does not exist")
         if record.status == "matched":
             raise AIFinanceError(f"reconciliation record {reconciliation_record_id} is already matched")
@@ -217,5 +217,5 @@ class AIFinanceService:
             org_id=org_id, actor=actor, direction="received", amount=record.amount, method=record.source,
             idempotency_key=f"ai-reconciliation:{record.id}", invoice_id=decision.decision, allow_overpayment=allow_overpayment,
         )
-        await self._reconciliation_service.match(actor=actor, record_id=record.id, payment_id=payment.id)
+        await self._reconciliation_service.match(org_id=org_id, actor=actor, record_id=record.id, payment_id=payment.id)
         return decision, payment

@@ -700,4 +700,70 @@ reasoning unchanged). Two real gaps found and fixed:
   threshold) — real dead-letter-style visibility for the human review
   queue, the same pattern Phase 10 just built for the scheduler.
 
+**2026-09-08, continued — Phase 15 (security/adversarial audit).** Started by
+re-checking `ApprovalService.review()` for org-ownership validation on
+writes (not just `list_pending()`'s reads) and found it had **no `org_id`
+parameter at all** — any caller holding `GOVERNANCE_REVIEW` in any org could
+approve/reject/modify any other org's `AiProposal` by id. Fixing that one
+case and then deliberately generalizing the check (`CanonicalRepository.get(doc_id)`
+never filters by `org_id` — every id-scoped write across the codebase that
+resolves an entity this way and doesn't separately check `entity.org_id`
+inherits the same hole) surfaced the same gap in every other domain's
+id-scoped write path. Full detail in
+[business_rules_register.md](business_rules_register.md)'s EF-02. Fixed with
+the same `404-not-403` discipline everywhere (a cross-org id is
+indistinguishable from a missing one, so it can never be used to enumerate
+another org's ids):
+
+- **Governance**: `ApprovalService.review()`.
+- **Finance**: `InvoiceService` (submit/approve/send/void),
+  `BillService` (submit/approve), `PaymentService.record_payment()`'s
+  invoice/bill target lookup and `reverse_payment()`, `ExpenseService`
+  (approve/reject), `CreditNoteService` (issue/apply),
+  `ReconciliationService.match()`, and `AIFinanceService`'s AR/AP-followup
+  and payment-matching lookups (all of which resolve entities independently
+  of the service layer's own `_get_or_raise` helpers).
+- **CRM**: `OpportunityService` (stage update/close-lost/convert-to-invoice).
+- **Panel**: `SurveyService` (eligibility/commercial-linkage/projection
+  refresh), `AllocationService._reserve_quota()` (the client-supplied
+  `candidate_survey_ids` on `POST /traffic/{id}/allocate` could otherwise
+  reserve or drain another org's survey quota by id — the AI-driven
+  `POST /traffic/{id}/allocate/ai` path was already safe, since its
+  candidates are always server-derived from `list_eligible(org_id=...)`),
+  `SurveyBillingService` (billable-completion/invoice-generation/
+  bill-generation/margin). Separately, `SupplierReconciliationService.reconcile()`'s
+  completion-count query had no `org_id` filter at all — a data leak
+  (cross-org counts blended into one org's reconciliation report), not an
+  authorization bypass, fixed the same way.
+- **Leadgen**: `LeadGenService._get_lead_or_raise()` (enrich-and-qualify/
+  assign/enroll), `LeadGenAIService.evaluate_icp()`'s traceability stamp,
+  `LeadConversionAIService.evaluate_and_convert()`,
+  `OutreachAIService.decide_and_act()`'s enrollment/lead lookup.
+- **Email AI**: `EmailAIService._get_or_raise()` (classify/followup).
+
+Reviewed and deliberately left alone: `app.panel.routers.survey_callback`
+authenticates via one deployment-wide HMAC secret rather than a per-org
+credential, so `org_id` there comes from the signed payload, not from a
+per-org authorization boundary — a real, separate architectural gap
+(webhook secrets should be per-supplier/per-org), flagged here rather than
+folded into this fix or silently ignored.
+
+Regression tests added per domain, each proving a cross-org id is rejected
+*and* that the rejected call has no side effect on the other org's entity —
+`test_review_cannot_cross_org_boundaries` +
+`test_reviewing_another_orgs_proposal_is_400_not_a_cross_tenant_write`
+(governance, service + HTTP level), `test_submit_invoice_cannot_cross_org_boundaries`
++ `test_reverse_payment_cannot_cross_org_boundaries` (finance),
+`test_update_stage_cannot_cross_org_boundaries` (CRM),
+`test_set_eligibility_cannot_cross_org_boundaries` +
+`test_allocate_cannot_reserve_quota_from_another_orgs_survey` (panel),
+`test_assign_cannot_cross_org_boundaries` (leadgen).
+
+Test count: 469 → 477. Phase 15's broader checklist (authentication, RBAC
+completeness, PII, arbitrary DB/filesystem/HTTP/shell access, prompt
+injection [already covered by Rev 31's adversarial suite], financial
+bypass, suppression bypass, webhook abuse, replay, duplicate execution,
+stale decisions) continues from here — this entry covers the tenant-
+isolation finding specifically, not the full phase.
+
 Test count: 460 → 469.

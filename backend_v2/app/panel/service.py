@@ -85,12 +85,12 @@ class SurveyService:
             )
         )
 
-    async def set_commercial_linkage(self, *, actor: str, survey_id: str, opportunity_id: str | None = None, client_rate: Money | None = None) -> Survey:
+    async def set_commercial_linkage(self, *, org_id: str, actor: str, survey_id: str, opportunity_id: str | None = None, client_rate: Money | None = None) -> Survey:
         """A survey's commercial linkage can be configured after creation too —
         e.g. an existing study getting its client/rate assigned once the
         opportunity closes. Only touches these two fields, same "one writer per
         concern" discipline as `set_eligibility()`/`refresh_projection()`."""
-        survey = await self._get_or_raise(survey_id)
+        survey = await self._get_or_raise(survey_id, org_id=org_id)
         changes: dict = {}
         if opportunity_id is not None:
             changes["opportunity_id"] = opportunity_id
@@ -100,16 +100,16 @@ class SurveyService:
             return survey
         return await self._surveys.update(survey.id, survey.version, changes, updated_by=actor)
 
-    async def set_eligibility(self, *, actor: str, survey_id: str, is_active_in_pool: bool, activated_at) -> Survey:
+    async def set_eligibility(self, *, org_id: str, actor: str, survey_id: str, is_active_in_pool: bool, activated_at) -> Survey:
         """The one writer for the AUTHORITATIVE eligibility fields — Torpedo's own
         decision, never re-fetched from the provider (data_lineage_map.md §4.2)."""
-        survey = await self._get_or_raise(survey_id)
+        survey = await self._get_or_raise(survey_id, org_id=org_id)
         return await self._surveys.update(survey.id, survey.version, {"eligibility_is_active_in_pool": is_active_in_pool, "eligibility_activated_at": activated_at}, updated_by=actor)
 
-    async def refresh_projection(self, *, actor: str, survey_id: str, provider: SurveyProvider) -> Survey:
+    async def refresh_projection(self, *, org_id: str, actor: str, survey_id: str, provider: SurveyProvider) -> Survey:
         """The one writer for the PROJECTION fields — re-fetched from the provider,
         never computed locally. May raise SurveyProviderUnavailable."""
-        survey = await self._get_or_raise(survey_id)
+        survey = await self._get_or_raise(survey_id, org_id=org_id)
         snapshot = await provider.refresh(survey=survey)
         return await self._surveys.update(
             survey.id, survey.version,
@@ -127,9 +127,9 @@ class SurveyService:
         surveys = await self._surveys.find_all({"org_id": org_id, "eligibility_is_active_in_pool": True})
         return [s for s in surveys if s.quota_remaining > 0 and s.conversion_rate > CONVERSION_ELIGIBILITY_THRESHOLD]
 
-    async def _get_or_raise(self, survey_id: str) -> Survey:
+    async def _get_or_raise(self, survey_id: str, *, org_id: str) -> Survey:
         survey = await self._surveys.get(survey_id)
-        if survey is None:
+        if survey is None or survey.org_id != org_id:
             raise SurveyError(f"survey {survey_id} does not exist")
         return survey
 
@@ -151,7 +151,7 @@ class AllocationService:
         last_error: Exception | None = None
         for survey_id in candidate_survey_ids:
             try:
-                survey = await self._reserve_quota(survey_id=survey_id, actor=actor)
+                survey = await self._reserve_quota(org_id=org_id, survey_id=survey_id, actor=actor)
             except SurveyError as exc:
                 last_error = exc
                 continue  # this candidate had no room or wasn't eligible — try the next
@@ -180,10 +180,14 @@ class AllocationService:
 
         raise SurveyError(f"no eligible survey among candidates (last error: {last_error})")
 
-    async def _reserve_quota(self, *, survey_id: str, actor: str) -> Survey:
+    async def _reserve_quota(self, *, org_id: str, survey_id: str, actor: str) -> Survey:
         for _ in range(MAX_ALLOCATION_RETRIES):
             survey = await self._surveys.get(survey_id)
-            if survey is None:
+            # candidate_survey_ids is client-supplied (POST /traffic/{id}/allocate) —
+            # a cross-org id must be indistinguishable from a missing one, same
+            # discipline as every other domain's Phase 15 fix, so a caller can never
+            # reserve or drain another org's survey quota by guessing its id.
+            if survey is None or survey.org_id != org_id:
                 raise SurveyError(f"survey {survey_id} does not exist")
             if not survey.eligibility_is_active_in_pool or survey.quota_remaining <= 0:
                 raise SurveyError(f"survey {survey_id} has no eligible quota")
@@ -320,7 +324,7 @@ class SupplierReconciliationService:
         """Surfaces disagreement — never silently corrects Torpedo's own count or
         the supplier's. I-5: 'explicit discrepancy policy, surfacing disagreement,
         never silently correcting it.'"""
-        query: dict = {"final_status": "complete"}
+        query: dict = {"org_id": org_id, "final_status": "complete"}
         if survey_id:
             query["survey_id"] = survey_id
         torpedo_responses = await self._responses.find_all(query)

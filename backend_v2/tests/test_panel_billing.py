@@ -78,7 +78,7 @@ async def test_record_billable_completion_snapshots_the_supplier_cost(db, billin
     survey = await _survey(db, cpi_minor=20_000)
     response = await _completion(db, survey.id)
 
-    updated = await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    updated = await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
     assert updated.billable is True
     assert updated.supplier_cost.amount_minor == 20_000
 
@@ -87,14 +87,14 @@ async def test_record_billable_completion_snapshots_the_supplier_cost(db, billin
 async def test_record_billable_completion_is_idempotent_against_a_later_cpi_change(db, billing_service):
     survey = await _survey(db, cpi_minor=20_000)
     response = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
 
     # Survey.cpi changes later (a real refresh_projection would do this) — the
     # already-billable response must NOT be re-costed.
     fresh_survey = await CanonicalRepository(db["surveys"], Survey).get(survey.id)
     await CanonicalRepository(db["surveys"], Survey).update(fresh_survey.id, fresh_survey.version, {"cpi": Money(amount_minor=99_999, currency=CURRENCY)}, updated_by=ACTOR)
 
-    replay = await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    replay = await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
     assert replay.supplier_cost.amount_minor == 20_000  # unchanged
 
 
@@ -105,7 +105,7 @@ async def test_record_billable_completion_rejects_a_non_complete_response(db, bi
         SurveyResponse(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, allocation_id="a1", survey_id=survey.id, person_id="p1", respondent_ref="r1", provider="cint", external_event_id="e1", final_status="terminated")
     )
     with pytest.raises(SurveyBillingError):
-        await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+        await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
 
 
 # --------------------------------------------------------------------------- generate_client_invoice
@@ -115,7 +115,7 @@ async def test_record_billable_completion_rejects_a_non_complete_response(db, bi
 async def test_generate_client_invoice_requires_client_rate(db, billing_service):
     survey = await _survey(db, client_rate_minor=None, opportunity_id="opp-1")
     response = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
 
     with pytest.raises(SurveyBillingError):
         await billing_service.generate_client_invoice(org_id=ORG, actor=ACTOR, survey_id=survey.id, gst_details=GST, currency=CURRENCY)
@@ -125,7 +125,7 @@ async def test_generate_client_invoice_requires_client_rate(db, billing_service)
 async def test_generate_client_invoice_requires_opportunity_id(db, billing_service):
     survey = await _survey(db, opportunity_id=None)
     response = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
 
     with pytest.raises(SurveyBillingError):
         await billing_service.generate_client_invoice(org_id=ORG, actor=ACTOR, survey_id=survey.id, gst_details=GST, currency=CURRENCY)
@@ -137,8 +137,8 @@ async def test_generate_client_invoice_creates_a_real_invoice_and_marks_completi
     survey = await _survey(db, client_rate_minor=50_000, opportunity_id=opportunity.id)
     r1 = await _completion(db, survey.id, ref="r1", event="e1")
     r2 = await _completion(db, survey.id, ref="r2", event="e2")
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r1.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r2.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r1.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r2.id)
 
     invoice = await billing_service.generate_client_invoice(org_id=ORG, actor=ACTOR, survey_id=survey.id, gst_details=GST, currency=CURRENCY)
 
@@ -156,7 +156,7 @@ async def test_generate_client_invoice_never_double_bills_the_same_completion(db
     opportunity = await _opportunity(db)
     survey = await _survey(db, opportunity_id=opportunity.id)
     r1 = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r1.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r1.id)
     await billing_service.generate_client_invoice(org_id=ORG, actor=ACTOR, survey_id=survey.id, gst_details=GST, currency=CURRENCY)
 
     with pytest.raises(SurveyBillingError):  # no NEW unbilled completions
@@ -170,7 +170,7 @@ async def test_generate_client_invoice_never_double_bills_the_same_completion(db
 async def test_generate_supplier_bill_creates_a_real_bill_and_marks_completions_costed(db, billing_service):
     survey = await _survey(db, cpi_minor=20_000)
     r1 = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r1.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r1.id)
 
     bill = await billing_service.generate_supplier_bill(org_id=ORG, actor=ACTOR, survey_id=survey.id, vendor_account_id="vendor-1", gst_details=GST, currency=CURRENCY)
 
@@ -188,9 +188,9 @@ async def test_compute_margin_is_revenue_minus_cost(db, billing_service):
     survey = await _survey(db, client_rate_minor=50_000, cpi_minor=20_000)
     for i in range(3):
         r = await _completion(db, survey.id, ref=f"r{i}", event=f"e{i}")
-        await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r.id)
+        await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r.id)
 
-    margin = await billing_service.compute_margin(survey_id=survey.id)
+    margin = await billing_service.compute_margin(org_id=ORG, survey_id=survey.id)
     assert margin["completions"] == 3
     assert margin["revenue"].amount_minor == 150_000
     assert margin["supplier_cost"].amount_minor == 60_000
@@ -202,8 +202,8 @@ async def test_compute_margin_is_revenue_minus_cost(db, billing_service):
 async def test_compute_margin_with_no_client_rate_reports_zero_revenue_and_no_percentage(db, billing_service):
     survey = await _survey(db, client_rate_minor=None, cpi_minor=20_000)
     r = await _completion(db, survey.id)
-    await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=r.id)
+    await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=r.id)
 
-    margin = await billing_service.compute_margin(survey_id=survey.id)
+    margin = await billing_service.compute_margin(org_id=ORG, survey_id=survey.id)
     assert margin["revenue"].amount_minor == 0
     assert margin["margin_pct"] is None  # never a fabricated 0% or 100%

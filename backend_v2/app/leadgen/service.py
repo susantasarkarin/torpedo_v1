@@ -167,9 +167,9 @@ class LeadGenService:
     # -------------------------------------------------------- enrich & qualify
 
     async def enrich_and_qualify(
-        self, *, actor: str, lead_state_id: str, ai_classifier: AIClassifier, profile: ICPProfile
+        self, *, org_id: str, actor: str, lead_state_id: str, ai_classifier: AIClassifier, profile: ICPProfile
     ) -> QualificationResult:
-        lead = await self._get_lead_or_raise(lead_state_id)
+        lead = await self._get_lead_or_raise(lead_state_id, org_id=org_id)
         if lead.state not in (DISCOVERED, ENRICHING):
             raise LeadGenError(f"lead {lead_state_id} is not eligible for enrichment (state={lead.state})")
 
@@ -243,8 +243,8 @@ class LeadGenService:
 
     # ------------------------------------------------------------- assignment
 
-    async def assign(self, *, actor: str, lead_state_id: str, owner: str, team: str | None = None) -> LeadState:
-        lead = await self._get_lead_or_raise(lead_state_id)
+    async def assign(self, *, org_id: str, actor: str, lead_state_id: str, owner: str, team: str | None = None) -> LeadState:
+        lead = await self._get_lead_or_raise(lead_state_id, org_id=org_id)
         if lead.state != QUALIFIED:
             raise LeadGenError(f"lead {lead_state_id} must be qualified before assignment (state={lead.state})")
 
@@ -270,8 +270,8 @@ class LeadGenService:
 
     # ------------------------------------------------------------- enrollment
 
-    async def enroll(self, *, actor: str, lead_state_id: str, brand_id: str) -> LeadEnrollment:
-        lead = await self._get_lead_or_raise(lead_state_id)
+    async def enroll(self, *, org_id: str, actor: str, lead_state_id: str, brand_id: str) -> LeadEnrollment:
+        lead = await self._get_lead_or_raise(lead_state_id, org_id=org_id)
         if lead.state not in (ASSIGNED, ENROLLED):
             raise LeadGenError(f"lead {lead_state_id} must be assigned before enrollment (state={lead.state})")
 
@@ -312,9 +312,9 @@ class LeadGenService:
 
     # ----------------------------------------------------------------- helpers
 
-    async def _get_lead_or_raise(self, lead_state_id: str) -> LeadState:
+    async def _get_lead_or_raise(self, lead_state_id: str, *, org_id: str) -> LeadState:
         lead = await self._facets.get_lead_state(lead_state_id)
-        if lead is None:
+        if lead is None or lead.org_id != org_id:
             raise LeadGenError(f"lead state {lead_state_id} does not exist")
         return lead
 

@@ -247,7 +247,7 @@ async def _approve_and_send_invoice(invoice_service, rbac, invoice: Invoice, app
     await rbac._approval_authorities.insert(ApprovalAuthority(org_id=ORG, created_by="seed", updated_by="seed", user_id=approver, entity_type="finance.invoice", max_amount=Money(amount_minor=100_000_000, currency=CURRENCY)))
     approver_identity = ResolvedIdentity(user_id=approver, org_id=ORG, principal_type="user", roles=frozenset(), permissions=frozenset({"finance.invoice.approve"}), real_actor_id=approver)
     await invoice_service.approve_invoice(identity=approver_identity, rbac=rbac, invoice_id=invoice.id)
-    return await invoice_service.send_invoice(actor=ACTOR, invoice_id=invoice.id)
+    return await invoice_service.send_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
 
 
 @pytest.mark.asyncio
@@ -300,7 +300,7 @@ async def test_full_business_loop_from_gsc_signal_to_margin_and_ai_followup(
         category="consumer_goods", length_minutes=12, incentive=Money(amount_minor=15_000, currency=CURRENCY),
         opportunity_id=opportunity.id, client_rate=Money(amount_minor=50_000, currency=CURRENCY),
     )
-    survey = await survey_service.set_eligibility(actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    survey = await survey_service.set_eligibility(org_id=ORG, actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
     # ---------------------------------------------------------------- 5. AI panel allocation
     allocation_ai = PanelAllocationAIService(engine, survey_service, allocation_service, CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["allocations"], Allocation))
@@ -318,7 +318,7 @@ async def test_full_business_loop_from_gsc_signal_to_margin_and_ai_followup(
     )
 
     # ---------------------------------------------------------------- 7. Billable completion (deterministic, no AI)
-    response = await billing_service.record_billable_completion(actor=ACTOR, survey_response_id=response.id)
+    response = await billing_service.record_billable_completion(org_id=ORG, actor=ACTOR, survey_response_id=response.id)
     assert response.billable is True
     assert response.supplier_cost.amount_minor == 20_000
 
@@ -332,7 +332,7 @@ async def test_full_business_loop_from_gsc_signal_to_margin_and_ai_followup(
     assert bill.total.amount_minor == 20_000
 
     # ---------------------------------------------------------------- 10. Invoice approved & sent (unchanged Slice 8 governance)
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
     invoice = await _approve_and_send_invoice(invoice_service, rbac, invoice)
     assert invoice.status == "sent"
 
@@ -351,7 +351,7 @@ async def test_full_business_loop_from_gsc_signal_to_margin_and_ai_followup(
     assert invoice_after_payment.amount_paid.amount_minor == 50_000
 
     # ---------------------------------------------------------------- 13. Margin
-    margin = await billing_service.compute_margin(survey_id=survey.id)
+    margin = await billing_service.compute_margin(org_id=ORG, survey_id=survey.id)
     assert margin["revenue"].amount_minor == 50_000
     assert margin["supplier_cost"].amount_minor == 20_000
     assert margin["contribution_margin"].amount_minor == 30_000

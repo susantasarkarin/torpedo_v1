@@ -84,7 +84,7 @@ def _service(db, llm, survey_service, inactivity, shadow_mode=False) -> Operatio
 
 async def _live_survey(svc: SurveyService, *, external_id="s1", conversion_rate=0.3, quota=5) -> Survey:
     survey = await svc.create_survey(org_id=ORG, actor=ACTOR, provider="cint", external_id=external_id, quota_remaining=quota, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=conversion_rate)
-    return await svc.set_eligibility(actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    return await svc.set_eligibility(org_id=ORG, actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
 
 # --------------------------------------------------------------------------- detect_triggers (hard, deterministic)

@@ -70,9 +70,9 @@ class SurveyBillingService:
         self._invoice_service = invoice_service
         self._bill_service = bill_service
 
-    async def record_billable_completion(self, *, actor: str, survey_response_id: str) -> SurveyResponse:
+    async def record_billable_completion(self, *, org_id: str, actor: str, survey_response_id: str) -> SurveyResponse:
         response = await self._responses.get(survey_response_id)
-        if response is None:
+        if response is None or response.org_id != org_id:
             raise SurveyBillingError(f"survey response {survey_response_id} does not exist")
         if response.billable:
             return response  # idempotent — never re-costed against a possibly-changed rate
@@ -86,7 +86,7 @@ class SurveyBillingService:
         return await self._responses.update(response.id, response.version, {"billable": True, "supplier_cost": survey.cpi}, updated_by=actor)
 
     async def generate_client_invoice(self, *, org_id: str, actor: str, survey_id: str, gst_details: GstDetails, currency: str) -> Invoice:
-        survey = await self._get_survey(survey_id)
+        survey = await self._get_survey(survey_id, org_id=org_id)
         if survey.client_rate is None:
             raise SurveyBillingError(f"survey {survey_id} has no client_rate configured — cannot bill a client for it")
         if survey.opportunity_id is None:
@@ -110,7 +110,7 @@ class SurveyBillingService:
         return invoice
 
     async def generate_supplier_bill(self, *, org_id: str, actor: str, survey_id: str, vendor_account_id: str, gst_details: GstDetails, currency: str) -> Bill:
-        survey = await self._get_survey(survey_id)
+        survey = await self._get_survey(survey_id, org_id=org_id)
         unbilled = await self._responses.find_all({"survey_id": survey_id, "billable": True, "supplier_bill_id": None})
         if not unbilled:
             raise SurveyBillingError(f"survey {survey_id} has no uncosted completions")
@@ -122,10 +122,10 @@ class SurveyBillingService:
             await self._responses.update(response.id, response.version, {"supplier_bill_id": bill.id}, updated_by=actor)
         return bill
 
-    async def compute_margin(self, *, survey_id: str) -> dict:
+    async def compute_margin(self, *, org_id: str, survey_id: str) -> dict:
         """Read-only. `margin_pct` is `None` when revenue is zero (division is
         undefined, not silently reported as 0% or 100%)."""
-        survey = await self._get_survey(survey_id)
+        survey = await self._get_survey(survey_id, org_id=org_id)
         billable = await self._responses.find_all({"survey_id": survey_id, "billable": True})
 
         completions = len(billable)
@@ -142,8 +142,8 @@ class SurveyBillingService:
             "margin_pct": round(margin_minor / revenue_minor * 100, 2) if revenue_minor > 0 else None,
         }
 
-    async def _get_survey(self, survey_id: str) -> Survey:
+    async def _get_survey(self, survey_id: str, *, org_id: str) -> Survey:
         survey = await self._surveys.get(survey_id)
-        if survey is None:
+        if survey is None or survey.org_id != org_id:
             raise SurveyBillingError(f"survey {survey_id} does not exist")
         return survey

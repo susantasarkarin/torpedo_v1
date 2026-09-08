@@ -217,7 +217,7 @@ async def create_invoice(body: CreateInvoiceRequest, identity: ResolvedIdentity 
 @router.post("/finance/invoices/{invoice_id}/submit", response_model=Invoice)
 async def submit_invoice(invoice_id: str, identity: ResolvedIdentity = Depends(require_permission(INVOICE_SUBMIT)), svc: InvoiceService = Depends(get_invoice_service)) -> Invoice:
     try:
-        return await svc.submit_invoice(actor=identity.user_id, invoice_id=invoice_id)
+        return await svc.submit_invoice(org_id=identity.org_id, actor=identity.user_id, invoice_id=invoice_id)
     except FinanceError as exc:
         raise _finance_error_to_http(exc) from exc
 
@@ -240,7 +240,7 @@ async def approve_invoice(
 @router.post("/finance/invoices/{invoice_id}/send", response_model=Invoice)
 async def send_invoice(invoice_id: str, identity: ResolvedIdentity = Depends(require_permission(INVOICE_SEND)), svc: InvoiceService = Depends(get_invoice_service)) -> Invoice:
     try:
-        return await svc.send_invoice(actor=identity.user_id, invoice_id=invoice_id)
+        return await svc.send_invoice(org_id=identity.org_id, actor=identity.user_id, invoice_id=invoice_id)
     except FinanceError as exc:
         raise _finance_error_to_http(exc) from exc
 
@@ -256,7 +256,7 @@ async def create_bill(body: CreateBillRequest, identity: ResolvedIdentity = Depe
 @router.post("/finance/bills/{bill_id}/submit", response_model=Bill)
 async def submit_bill(bill_id: str, identity: ResolvedIdentity = Depends(require_permission(BILL_SUBMIT)), svc: BillService = Depends(get_bill_service)) -> Bill:
     try:
-        return await svc.submit_bill(actor=identity.user_id, bill_id=bill_id)
+        return await svc.submit_bill(org_id=identity.org_id, actor=identity.user_id, bill_id=bill_id)
     except FinanceError as exc:
         raise _finance_error_to_http(exc) from exc
 
@@ -350,7 +350,7 @@ async def issue_credit_note(
 @router.post("/finance/credit-notes/{credit_note_id}/apply", response_model=CreditNote)
 async def apply_credit_note(credit_note_id: str, identity: ResolvedIdentity = Depends(require_permission(CREDITNOTE_APPLY)), svc: CreditNoteService = Depends(get_credit_note_service)) -> CreditNote:
     try:
-        return await svc.apply_credit_note(actor=identity.user_id, credit_note_id=credit_note_id)
+        return await svc.apply_credit_note(org_id=identity.org_id, actor=identity.user_id, credit_note_id=credit_note_id)
     except FinanceError as exc:
         raise _finance_error_to_http(exc) from exc
 
@@ -377,7 +377,7 @@ async def record_external_entry(body: RecordExternalEntryRequest, identity: Reso
 @router.post("/finance/reconciliation/entries/{record_id}/match", response_model=ReconciliationRecord)
 async def match_reconciliation_entry(record_id: str, body: MatchRequest, identity: ResolvedIdentity = Depends(require_permission(RECONCILIATION_MANAGE)), svc: ReconciliationService = Depends(get_reconciliation_service)) -> ReconciliationRecord:
     try:
-        return await svc.match(actor=identity.user_id, record_id=record_id, payment_id=body.payment_id)
+        return await svc.match(org_id=identity.org_id, actor=identity.user_id, record_id=record_id, payment_id=body.payment_id)
     except FinanceError as exc:
         raise _finance_error_to_http(exc) from exc
 

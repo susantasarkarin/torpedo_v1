@@ -113,7 +113,7 @@ def _line_items(unit_price_minor=50_000):
 @pytest.mark.asyncio
 async def test_survey_operations_detector_creates_one_event_per_trigger(db, detection, survey_service):
     survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id="s1", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.1)
-    await survey_service.set_eligibility(actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    await survey_service.set_eligibility(org_id=ORG, actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
     created = await detection.detect_survey_operations(org_id=ORG)
     assert len(created) == 1
@@ -130,7 +130,7 @@ async def test_survey_operations_detector_creates_one_event_per_trigger(db, dete
 @pytest.mark.asyncio
 async def test_survey_operations_detector_is_idempotent_same_day(db, detection, survey_service):
     survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id="s1", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.1)
-    await survey_service.set_eligibility(actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    await survey_service.set_eligibility(org_id=ORG, actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
     first = await detection.detect_survey_operations(org_id=ORG)
     second = await detection.detect_survey_operations(org_id=ORG)

@@ -226,7 +226,7 @@ async def get_survey_metrics(survey_id: str, identity: ResolvedIdentity = Depend
 @router.post("/surveys/{survey_id}/eligibility", response_model=Survey)
 async def set_survey_eligibility(survey_id: str, body: SetEligibilityRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_MANAGE)), svc: SurveyService = Depends(get_survey_service)) -> Survey:
     try:
-        return await svc.set_eligibility(actor=identity.user_id, survey_id=survey_id, is_active_in_pool=body.is_active_in_pool, activated_at=body.activated_at)
+        return await svc.set_eligibility(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, is_active_in_pool=body.is_active_in_pool, activated_at=body.activated_at)
     except SurveyError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -342,7 +342,7 @@ async def decide_operations_response(
 @router.post("/survey-responses/{survey_response_id}/billing/mark-billable", response_model=SurveyResponse)
 async def mark_completion_billable(survey_response_id: str, identity: ResolvedIdentity = Depends(require_permission(SURVEY_BILLING_MANAGE)), svc: SurveyBillingService = Depends(get_billing_service)) -> SurveyResponse:
     try:
-        return await svc.record_billable_completion(actor=identity.user_id, survey_response_id=survey_response_id)
+        return await svc.record_billable_completion(org_id=identity.org_id, actor=identity.user_id, survey_response_id=survey_response_id)
     except SurveyBillingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -366,6 +366,6 @@ async def generate_supplier_bill(survey_id: str, body: GenerateBillRequest, iden
 @router.get("/surveys/{survey_id}/margin")
 async def get_survey_margin(survey_id: str, identity: ResolvedIdentity = Depends(require_permission(SURVEY_MARGIN_READ)), svc: SurveyBillingService = Depends(get_billing_service)) -> dict:
     try:
-        return await svc.compute_margin(survey_id=survey_id)
+        return await svc.compute_margin(org_id=identity.org_id, survey_id=survey_id)
     except SurveyBillingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

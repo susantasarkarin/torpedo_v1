@@ -64,10 +64,10 @@ class OutreachAIService:
 
     async def decide_and_act(self, *, org_id: str, actor: str, enrollment_id: str, mailbox_id: str) -> Decision:
         enrollment = await self._enrollments.get(enrollment_id)
-        if enrollment is None:
+        if enrollment is None or enrollment.org_id != org_id:
             raise OutreachAIError(f"enrollment {enrollment_id} does not exist")
         lead = await self._leadgen.get_lead(enrollment.lead_state_id)
-        if lead is None:
+        if lead is None or lead.org_id != org_id:
             raise OutreachAIError(f"lead {enrollment.lead_state_id} does not exist")
 
         person = await self._leadgen._identity.get_person(lead.person_id)

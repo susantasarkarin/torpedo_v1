@@ -47,6 +47,6 @@ async def review_proposal(
     svc: ApprovalService = Depends(get_approval_service),
 ) -> AiProposal:
     try:
-        return await svc.review(proposal_id=proposal_id, actor=identity.user_id, action=body.action, notes=body.notes, modified_fields=body.modified_fields)
+        return await svc.review(org_id=identity.org_id, proposal_id=proposal_id, actor=identity.user_id, action=body.action, notes=body.notes, modified_fields=body.modified_fields)
     except ApprovalError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

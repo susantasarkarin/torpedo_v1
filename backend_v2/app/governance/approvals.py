@@ -40,9 +40,12 @@ STALE_REVIEW_THRESHOLD = timedelta(hours=24)
 
 
 class ApprovalError(Exception):
-    """Proposal missing, review action outside the closed set, a proposal
-    reviewed twice, or `modified_fields` supplied for a non-MODIFY action.
-    Same discipline as every other domain's single error type."""
+    """Proposal missing (or belongs to a different org — treated identically,
+    never distinguished, so a caller can never use this to probe which
+    proposal_ids exist in orgs they don't belong to), review action outside
+    the closed set, a proposal reviewed twice, or `modified_fields` supplied
+    for a non-MODIFY action. Same discipline as every other domain's single
+    error type."""
 
 
 class ApprovalService:
@@ -63,13 +66,20 @@ class ApprovalService:
             query["created_at"] = {"$lt": datetime.now(timezone.utc) - older_than}
         return await self._proposals.find_all(query)
 
-    async def review(self, *, proposal_id: str, actor: str, action: str, notes: str | None = None, modified_fields: dict | None = None) -> AiProposal:
+    async def review(self, *, org_id: str, proposal_id: str, actor: str, action: str, notes: str | None = None, modified_fields: dict | None = None) -> AiProposal:
         if action not in REVIEW_ACTIONS:
             raise ApprovalError(f"unrecognized review action {action!r} — must be one of {sorted(REVIEW_ACTIONS)}")
         if modified_fields is not None and action != "MODIFY":
             raise ApprovalError(f"modified_fields was supplied for action {action!r} — only MODIFY carries a structured change")
         proposal = await self._proposals.get(proposal_id)
-        if proposal is None:
+        # A cross-org proposal_id is treated identically to a missing one —
+        # never distinguished, so this can never be used to probe which
+        # proposal_ids exist in an org the caller doesn't belong to. Found
+        # during the Phase 15 security audit: this check was entirely absent
+        # before this fix — org_id wasn't even a parameter — meaning any
+        # authenticated user with GOVERNANCE_REVIEW in *any* org could
+        # approve/reject/modify *any other org's* AiProposal by id.
+        if proposal is None or proposal.org_id != org_id:
             raise ApprovalError(f"proposal {proposal_id} does not exist")
         if proposal.reviewed_by is not None:
             raise ApprovalError(f"proposal {proposal_id} was already reviewed by {proposal.reviewed_by} — review is one-time, not a running commentary")

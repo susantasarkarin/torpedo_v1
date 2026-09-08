@@ -82,7 +82,7 @@ async def _eligible_survey(svc: SurveyService, *, external_id: str, conversion_r
         cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=conversion_rate,
         category="consumer_goods", length_minutes=12, incentive=Money(amount_minor=150, currency=CURRENCY),
     )
-    return await svc.set_eligibility(actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    return await svc.set_eligibility(org_id=ORG, actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_context_carries_real_client_rate_alongside_cpi_for_margin_reasoni
         org_id=ORG, actor=ACTOR, provider="cint", external_id="s1", quota_remaining=5,
         cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3, client_rate=Money(amount_minor=1200, currency=CURRENCY),
     )
-    survey = await survey_service.set_eligibility(actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    survey = await survey_service.set_eligibility(org_id=ORG, actor=ACTOR, survey_id=survey.id, is_active_in_pool=True, activated_at=None)
     llm = FakeLLM(_decision(decision="NONE"))
     svc = _service(db, llm, survey_service, allocation_service)
 

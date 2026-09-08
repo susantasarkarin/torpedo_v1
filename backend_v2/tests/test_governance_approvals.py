@@ -40,7 +40,7 @@ async def _proposal(proposals, *, task="evaluate_panel_allocation", org_id=ORG, 
 async def test_list_pending_returns_unreviewed_proposals_only(db, proposals, svc):
     unreviewed = await _proposal(proposals)
     reviewed = await _proposal(proposals)
-    await svc.review(proposal_id=reviewed.id, actor="alice", action="APPROVE")
+    await svc.review(org_id=ORG, proposal_id=reviewed.id, actor="alice", action="APPROVE")
 
     pending = await svc.list_pending(org_id=ORG)
     ids = {p.id for p in pending}
@@ -69,7 +69,7 @@ async def test_list_pending_never_crosses_orgs(db, proposals, svc):
 @pytest.mark.asyncio
 async def test_review_records_reviewer_timestamp_action_and_notes(db, proposals, svc):
     proposal = await _proposal(proposals)
-    reviewed = await svc.review(proposal_id=proposal.id, actor="alice", action="APPROVE", notes="looks right, matches expected candidate")
+    reviewed = await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="APPROVE", notes="looks right, matches expected candidate")
 
     assert reviewed.reviewed_by == "alice"
     assert reviewed.reviewed_at is not None
@@ -83,7 +83,7 @@ async def test_review_never_touches_the_systems_own_status_verdict(db, proposals
     at decision time — a human REJECTing a proposal after the fact must not
     silently rewrite history by flipping it."""
     proposal = await _proposal(proposals, status="approved")
-    reviewed = await svc.review(proposal_id=proposal.id, actor="alice", action="REJECT", notes="disagree with this allocation")
+    reviewed = await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="REJECT", notes="disagree with this allocation")
 
     assert reviewed.status == "approved"  # unchanged — the system's own verdict, not overwritten
     assert reviewed.review_action == "REJECT"  # the human's separate, independent verdict
@@ -93,22 +93,22 @@ async def test_review_never_touches_the_systems_own_status_verdict(db, proposals
 async def test_unrecognized_review_action_is_rejected(db, proposals, svc):
     proposal = await _proposal(proposals)
     with pytest.raises(ApprovalError):
-        await svc.review(proposal_id=proposal.id, actor="alice", action="MAYBE_LATER")
+        await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="MAYBE_LATER")
 
 
 @pytest.mark.asyncio
 async def test_reviewing_a_missing_proposal_raises(db, proposals, svc):
     with pytest.raises(ApprovalError):
-        await svc.review(proposal_id="does-not-exist", actor="alice", action="APPROVE")
+        await svc.review(org_id=ORG, proposal_id="does-not-exist", actor="alice", action="APPROVE")
 
 
 @pytest.mark.asyncio
 async def test_a_proposal_cannot_be_reviewed_twice(db, proposals, svc):
     proposal = await _proposal(proposals)
-    await svc.review(proposal_id=proposal.id, actor="alice", action="APPROVE")
+    await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="APPROVE")
 
     with pytest.raises(ApprovalError):
-        await svc.review(proposal_id=proposal.id, actor="bob", action="REJECT")
+        await svc.review(org_id=ORG, proposal_id=proposal.id, actor="bob", action="REJECT")
 
 
 # --------------------------------------------------------------------------- modified_fields (Phase 11)
@@ -117,7 +117,7 @@ async def test_a_proposal_cannot_be_reviewed_twice(db, proposals, svc):
 @pytest.mark.asyncio
 async def test_modify_action_records_the_structured_change(db, proposals, svc):
     proposal = await _proposal(proposals)
-    reviewed = await svc.review(proposal_id=proposal.id, actor="alice", action="MODIFY", notes="wrong survey chosen", modified_fields={"decision": "survey-2"})
+    reviewed = await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="MODIFY", notes="wrong survey chosen", modified_fields={"decision": "survey-2"})
 
     assert reviewed.review_action == "MODIFY"
     assert reviewed.modified_fields == {"decision": "survey-2"}
@@ -128,7 +128,7 @@ async def test_modify_action_records_the_structured_change(db, proposals, svc):
 async def test_modified_fields_is_rejected_for_a_non_modify_action(db, proposals, svc):
     proposal = await _proposal(proposals)
     with pytest.raises(ApprovalError):
-        await svc.review(proposal_id=proposal.id, actor="alice", action="APPROVE", modified_fields={"decision": "survey-2"})
+        await svc.review(org_id=ORG, proposal_id=proposal.id, actor="alice", action="APPROVE", modified_fields={"decision": "survey-2"})
 
 
 # --------------------------------------------------------------------------- staleness (Phase 11)
@@ -148,3 +148,21 @@ async def test_list_pending_with_older_than_includes_genuinely_stale_proposals(d
 
     pending = await svc.list_pending(org_id=ORG, older_than=STALE_REVIEW_THRESHOLD)
     assert [p.id for p in pending] == [stale.id]
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit)
+
+
+@pytest.mark.asyncio
+async def test_review_cannot_cross_org_boundaries(db, proposals, svc):
+    """Found during the Phase 15 security audit: org_id wasn't even a
+    parameter of review() before this fix — any caller who knew (or guessed)
+    a proposal_id from a different org could approve/reject/modify it. A
+    cross-org id must be indistinguishable from a missing one."""
+    other_orgs_proposal = await _proposal(proposals, org_id="org-B")
+    with pytest.raises(ApprovalError):
+        await svc.review(org_id=ORG, proposal_id=other_orgs_proposal.id, actor="alice", action="APPROVE")
+
+    # Never actually reviewed — the rejected call must not have side effects.
+    untouched = await proposals.get(other_orgs_proposal.id)
+    assert untouched.reviewed_by is None

@@ -99,7 +99,7 @@ def inactivity_service(db, activities) -> StudyInactivityService:
 
 async def _eligible_survey(survey_service: SurveyService, *, quota=1, external_id="s1", conversion_rate=0.3) -> Survey:
     survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id=external_id, quota_remaining=quota, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=conversion_rate)
-    return await survey_service.set_eligibility(actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    return await survey_service.set_eligibility(org_id=ORG, actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
 
 
 # --------------------------------------------------------------------------- CPX removal (v2_locked_principles.md §1.10)
@@ -211,14 +211,14 @@ async def test_provider_failure_falls_back_to_next_candidate_and_releases_the_re
 async def test_refresh_projection_never_touches_eligibility_fields(survey_service: SurveyService):
     survey = await _eligible_survey(survey_service, quota=5)
     provider = RecordingProvider()
-    updated = await survey_service.refresh_projection(actor="system", survey_id=survey.id, provider=provider)
+    updated = await survey_service.refresh_projection(org_id=ORG, actor="system", survey_id=survey.id, provider=provider)
     assert updated.eligibility_is_active_in_pool is True  # untouched by the projection writer
 
 
 @pytest.mark.asyncio
 async def test_set_eligibility_never_touches_projection_fields(survey_service: SurveyService):
     survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id="s1", quota_remaining=7, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
-    updated = await survey_service.set_eligibility(actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
+    updated = await survey_service.set_eligibility(org_id=ORG, actor="system", survey_id=survey.id, is_active_in_pool=True, activated_at=None)
     assert updated.quota_remaining == 7  # untouched by the eligibility writer
 
 
@@ -411,3 +411,40 @@ async def test_ineligible_survey_is_never_flagged(survey_service, inactivity_ser
 
     flagged = await inactivity_service.detect_and_flag(org_id=ORG, as_of=datetime.now(timezone.utc))
     assert flagged == []
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit)
+
+
+@pytest.mark.asyncio
+async def test_set_eligibility_cannot_cross_org_boundaries(survey_service: SurveyService):
+    """Phase 15 audit finding: SurveyService resolved every id-scoped write via
+    CanonicalRepository.get(id) alone, with no org check — same class of bug
+    fixed across finance/crm/leadgen/governance this pass."""
+    other_orgs_survey = await survey_service.create_survey(org_id="org-B", actor="mallory", provider="cint", external_id="s1", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+
+    with pytest.raises(SurveyError):
+        await survey_service.set_eligibility(org_id=ORG, actor="mallory", survey_id=other_orgs_survey.id, is_active_in_pool=True, activated_at=None)
+
+    untouched = await survey_service._surveys.get(other_orgs_survey.id)
+    assert untouched.eligibility_is_active_in_pool is False
+
+
+@pytest.mark.asyncio
+async def test_allocate_cannot_reserve_quota_from_another_orgs_survey(survey_service: SurveyService, allocation_service: AllocationService):
+    """A client-supplied candidate_survey_ids list (POST /traffic/{id}/allocate)
+    must never let a caller reserve or drain another org's survey quota by
+    guessing its id — the same 404-not-403 discipline as every other id-scoped
+    write, applied to the one write path here where the id list is client-
+    supplied rather than server-derived from list_eligible(org_id=...)."""
+    other_orgs_survey = await _eligible_survey(survey_service, quota=5, external_id="other-org-survey")
+    # Re-home it to org-B directly (the fixture always creates in ORG).
+    raw = await survey_service._surveys.get(other_orgs_survey.id)
+    await survey_service._surveys.update(raw.id, raw.version, {"org_id": "org-B"}, updated_by="system")
+
+    provider = RecordingProvider()
+    with pytest.raises(SurveyError):
+        await allocation_service.allocate(org_id=ORG, actor="mallory", candidate_survey_ids=[other_orgs_survey.id], person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="r1", provider=provider)
+
+    untouched = await survey_service._surveys.get(other_orgs_survey.id)
+    assert untouched.quota_remaining == 5

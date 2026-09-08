@@ -113,7 +113,7 @@ async def _qualifying_lead(leadgen: LeadGenService, *, email="dana@acme.com", na
     account = await leadgen._identity.resolve_account(org_id=ORG, actor=ACTOR, domain="acme.com")
     await leadgen._identity._accounts.update(account.account_id, 1, {"industry": "software"}, updated_by=ACTOR)
     qualification = await leadgen.enrich_and_qualify(
-        actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeHighConfidenceClassifier({"country": "us"}), profile=PROFILE
+        org_id=ORG, actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeHighConfidenceClassifier({"country": "us"}), profile=PROFILE
     )
     assert qualification.status == QUALIFIED, f"test helper setup failed: {qualification}"
     return result.lead_state_id
@@ -164,7 +164,7 @@ async def test_enrichment_ai_outage_never_becomes_qualified_or_disqualified(lead
     result = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-1", payload={"email": "a@b.com"})
 
     qualification = await leadgen.enrich_and_qualify(
-        actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeUnavailableClassifier(), profile=PROFILE
+        org_id=ORG, actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeUnavailableClassifier(), profile=PROFILE
     )
 
     assert qualification.status == "AI_UNAVAILABLE"
@@ -181,7 +181,7 @@ async def test_ai_proposal_without_sufficient_confidence_is_rejected_and_not_app
     result = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-1", payload={"email": "a@b.com"})
 
     qualification = await leadgen.enrich_and_qualify(
-        actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeLowConfidenceClassifier(), profile=PROFILE
+        org_id=ORG, actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeLowConfidenceClassifier(), profile=PROFILE
     )
 
     assert qualification.status == DISQUALIFIED
@@ -206,7 +206,7 @@ async def test_ai_confidence_alone_cannot_qualify_a_lead(leadgen: LeadGenService
     result = await leadgen.ingest(org_id=ORG, actor=ACTOR, source_type="web_form", source_record_id="evt-1", payload={"email": "a@b.com"})
 
     qualification = await leadgen.enrich_and_qualify(
-        actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeHighConfidenceClassifier({}), profile=PROFILE
+        org_id=ORG, actor=ACTOR, lead_state_id=result.lead_state_id, ai_classifier=FakeHighConfidenceClassifier({}), profile=PROFILE
     )
 
     proposals = await leadgen._ai_proposals.find_all({"subject_id": result.lead_state_id})
@@ -225,17 +225,17 @@ async def test_unassigned_lead_cannot_enroll(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen)
 
     with pytest.raises(LeadGenError):
-        await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+        await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
 
 @pytest.mark.asyncio
 async def test_uncontactable_lead_cannot_enroll(leadgen: LeadGenService, suppression: SuppressionService):
     lead_state_id = await _qualifying_lead(leadgen, email="carol@example.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
     await suppression.suppress(org_id=ORG, actor=ACTOR, email="carol@example.com", reason="unsubscribed", source="test")
 
     with pytest.raises(LeadGenError):
-        await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+        await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
 
 @pytest.mark.asyncio
@@ -246,22 +246,22 @@ async def test_contactability_change_after_qualification_is_reflected_at_enrollm
     qualify/assign time, suppressed afterward, must still block enrollment — proving
     the check is live, not inherited from an earlier read."""
     lead_state_id = await _qualifying_lead(leadgen, email="erin@example.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
     assert await leadgen.check_contactability((await leadgen.get_lead(lead_state_id)).person_id) is True
 
     await suppression.suppress(org_id=ORG, actor=ACTOR, email="erin@example.com", reason="bounced", source="test")
 
     with pytest.raises(LeadGenError):
-        await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+        await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
 
 @pytest.mark.asyncio
 async def test_multi_brand_enrollment_works(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen, email="frank@example.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
 
-    first = await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
-    second = await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="cogentix")
+    first = await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    second = await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="cogentix")
 
     assert first.id != second.id
     lead = await leadgen.get_lead(lead_state_id)
@@ -271,10 +271,10 @@ async def test_multi_brand_enrollment_works(leadgen: LeadGenService):
 @pytest.mark.asyncio
 async def test_enroll_creates_appropriate_account_brand_relationship(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen, email="gina@acme.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
     lead = await leadgen.get_lead(lead_state_id)
 
-    await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
     rels = await leadgen._identity._brand_relationships.find_all({"account_id": lead.account_id, "brand_id": "sfw"})
     assert len(rels) == 1
@@ -283,10 +283,10 @@ async def test_enroll_creates_appropriate_account_brand_relationship(leadgen: Le
 @pytest.mark.asyncio
 async def test_retrying_enrollment_is_idempotent(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen, email="hank@example.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
 
-    first = await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
-    second = await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    first = await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    second = await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
     assert first.id == second.id
     all_enrollments = await leadgen._enrollments.find_all({"lead_state_id": lead_state_id, "brand_id": "sfw"})
@@ -301,8 +301,8 @@ async def test_retrying_enrollment_is_idempotent(leadgen: LeadGenService):
 @pytest.mark.asyncio
 async def test_every_meaningful_transition_creates_activity(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen, email="ivan@example.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
-    await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
     activities = await leadgen._activities.find_all({"subject_id": lead_state_id})
     activity_types = {a.type for a in activities}
@@ -323,7 +323,7 @@ async def test_concurrent_transitions_do_not_double_apply(leadgen: LeadGenServic
     lead_state_id = await _qualifying_lead(leadgen, email="judy@example.com")
     lead = await leadgen.get_lead(lead_state_id)
 
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
 
     with pytest.raises(VersionConflict):
         # second caller still holds the pre-assignment version
@@ -358,10 +358,32 @@ async def test_ingestion_failure_is_dead_lettered_not_silently_dropped(leadgen: 
 @pytest.mark.asyncio
 async def test_full_pipeline_creates_exactly_one_person_and_one_account(leadgen: LeadGenService):
     lead_state_id = await _qualifying_lead(leadgen, email="karen@acme.com")
-    await leadgen.assign(actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
-    await leadgen.enroll(actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
+    await leadgen.assign(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, owner="rep-1")
+    await leadgen.enroll(org_id=ORG, actor=ACTOR, lead_state_id=lead_state_id, brand_id="sfw")
 
     people = await leadgen._identity._people.find_all({"org_id": ORG})
     accounts = await leadgen._identity._accounts.find_all({"org_id": ORG})
     assert len(people) == 1
     assert len(accounts) == 1
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit)
+
+
+@pytest.mark.asyncio
+async def test_assign_cannot_cross_org_boundaries(leadgen: LeadGenService):
+    """Phase 15 audit finding: LeadGenService._get_lead_or_raise() resolved
+    every id-scoped write via CanonicalRepository.get(id) alone, with no org
+    check — same class of bug fixed across finance/crm/panel/governance this
+    pass. A cross-org lead_state_id must be indistinguishable from a missing
+    one, and must never be mutated."""
+    result = await leadgen.ingest(org_id="org-B", actor="mallory", source_type="web_form", source_record_id="evt-x", payload={"email": "x@other-org.com"})
+    lead = await leadgen._facets.get_lead_state(result.lead_state_id)
+    await leadgen._facets.update_lead_state(lead.id, lead.version, {"state": "QUALIFIED"}, updated_by="mallory")
+
+    with pytest.raises(LeadGenError):
+        await leadgen.assign(org_id=ORG, actor="mallory", lead_state_id=result.lead_state_id, owner="rep-1")
+
+    untouched = await leadgen._facets.get_lead_state(result.lead_state_id)
+    assert untouched.state == "QUALIFIED"
+    assert untouched.owner is None

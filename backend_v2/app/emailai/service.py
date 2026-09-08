@@ -122,7 +122,7 @@ class EmailAIService:
         )
 
     async def analyze_and_route(self, *, org_id: str, actor: str, email_id: str) -> Decision:
-        email = await self._get_or_raise(email_id)
+        email = await self._get_or_raise(email_id, org_id=org_id)
 
         if email.classification is not None:
             existing_proposal = await self._ai_proposals.find_one({"task": "classify_email", "subject_id": email.id})
@@ -195,7 +195,7 @@ class EmailAIService:
         what actually enforces suppression/kill-switch/budget/footer — this method
         never bypasses it, and never sends when the decision isn't auto-appliable
         (low confidence or `requires_human_approval`)."""
-        email = await self._get_or_raise(email_id)
+        email = await self._get_or_raise(email_id, org_id=org_id)
         context = {
             "original_subject": email.subject, "original_body": email.body,
             "from_address": email.from_address, "classification": email.classification,
@@ -211,8 +211,8 @@ class EmailAIService:
             )
         return decision
 
-    async def _get_or_raise(self, email_id: str) -> InboundEmail:
+    async def _get_or_raise(self, email_id: str, *, org_id: str) -> InboundEmail:
         email = await self._emails.get(email_id)
-        if email is None:
+        if email is None or email.org_id != org_id:
             raise EmailAIError(f"email {email_id} does not exist")
         return email

@@ -45,13 +45,13 @@ class OpportunityService:
         await self._activity(org_id=org_id, actor=actor, type="opportunity_created", subject_id=opportunity.id, payload={"stage": opportunity.stage})
         return opportunity
 
-    async def update_stage(self, *, actor: str, opportunity_id: str, new_stage: str) -> Opportunity:
+    async def update_stage(self, *, org_id: str, actor: str, opportunity_id: str, new_stage: str) -> Opportunity:
         """For any transition except `lost` — `close_lost()` is the only way to
         reach `lost`, because that transition requires a reason and this one
         doesn't accept one."""
         if new_stage == LOST:
             raise CRMError("closing an opportunity as lost requires a reason — call close_lost() instead")
-        opportunity = await self._get_or_raise(opportunity_id)
+        opportunity = await self._get_or_raise(opportunity_id, org_id=org_id)
         if not is_valid_transition(opportunity.stage, new_stage):
             raise CRMError(f"opportunity {opportunity_id} cannot move from {opportunity.stage!r} to {new_stage!r}")
 
@@ -59,8 +59,8 @@ class OpportunityService:
         await self._activity(org_id=opportunity.org_id, actor=actor, type="opportunity_stage_changed", subject_id=opportunity.id, payload={"from": opportunity.stage, "to": new_stage})
         return updated
 
-    async def close_lost(self, *, actor: str, opportunity_id: str, reason: str) -> Opportunity:
-        opportunity = await self._get_or_raise(opportunity_id)
+    async def close_lost(self, *, org_id: str, actor: str, opportunity_id: str, reason: str) -> Opportunity:
+        opportunity = await self._get_or_raise(opportunity_id, org_id=org_id)
         if not is_valid_transition(opportunity.stage, LOST):
             raise CRMError(f"opportunity {opportunity_id} cannot be closed lost from stage {opportunity.stage!r}")
 
@@ -69,9 +69,9 @@ class OpportunityService:
         return updated
 
     async def convert_to_invoice(
-        self, *, actor: str, opportunity_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str
+        self, *, org_id: str, actor: str, opportunity_id: str, line_items: list[LineItem], gst_details: GstDetails, currency: str
     ) -> Invoice:
-        opportunity = await self._get_or_raise(opportunity_id)
+        opportunity = await self._get_or_raise(opportunity_id, org_id=org_id)
         if opportunity.stage != WON:
             raise CRMError(f"opportunity {opportunity_id} must be won to convert to an invoice (stage={opportunity.stage})")
         if opportunity.converted_invoice_id is not None:
@@ -90,9 +90,9 @@ class OpportunityService:
     async def get_opportunity(self, opportunity_id: str) -> Opportunity | None:
         return await self._opportunities.get(opportunity_id)
 
-    async def _get_or_raise(self, opportunity_id: str) -> Opportunity:
+    async def _get_or_raise(self, opportunity_id: str, *, org_id: str) -> Opportunity:
         opportunity = await self._opportunities.get(opportunity_id)
-        if opportunity is None:
+        if opportunity is None or opportunity.org_id != org_id:
             raise CRMError(f"opportunity {opportunity_id} does not exist")
         return opportunity
 

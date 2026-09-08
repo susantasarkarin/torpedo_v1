@@ -88,8 +88,8 @@ class InvoiceService:
         AI-driven decision could meaningfully act on."""
         return await self._invoices.find_all({"org_id": org_id, "status": {"$in": ["sent", "partially_paid"]}})
 
-    async def submit_invoice(self, *, actor: str, invoice_id: str) -> Invoice:
-        invoice = await self._get_or_raise(invoice_id)
+    async def submit_invoice(self, *, org_id: str, actor: str, invoice_id: str) -> Invoice:
+        invoice = await self._get_or_raise(invoice_id, org_id=org_id)
         if invoice.status != "draft":
             raise FinanceError(f"invoice {invoice_id} must be draft to submit (status={invoice.status})")
         updated = await self._invoices.update(invoice.id, invoice.version, {"status": "pending_approval"}, updated_by=actor)
@@ -97,7 +97,7 @@ class InvoiceService:
         return updated
 
     async def approve_invoice(self, *, identity: ResolvedIdentity, rbac: RBACService, invoice_id: str) -> Invoice:
-        invoice = await self._get_or_raise(invoice_id)
+        invoice = await self._get_or_raise(invoice_id, org_id=identity.org_id)
         if invoice.status == "approved":
             if invoice.approved_by != identity.user_id:
                 raise FinanceError("already approved by a different approver")
@@ -117,25 +117,29 @@ class InvoiceService:
         await self._activity(org_id=invoice.org_id, actor=identity.user_id, type="invoice_approved", subject_id=invoice.id, payload={"total_minor": invoice.total.amount_minor})
         return updated
 
-    async def send_invoice(self, *, actor: str, invoice_id: str) -> Invoice:
-        invoice = await self._get_or_raise(invoice_id)
+    async def send_invoice(self, *, org_id: str, actor: str, invoice_id: str) -> Invoice:
+        invoice = await self._get_or_raise(invoice_id, org_id=org_id)
         if invoice.status != "approved":
             raise FinanceError(f"invoice {invoice_id} must be approved to send (status={invoice.status})")
         updated = await self._invoices.update(invoice.id, invoice.version, {"status": "sent"}, updated_by=actor)
         await self._activity(org_id=invoice.org_id, actor=actor, type="invoice_sent", subject_id=invoice.id, payload={})
         return updated
 
-    async def void_invoice(self, *, actor: str, invoice_id: str) -> Invoice:
-        invoice = await self._get_or_raise(invoice_id)
+    async def void_invoice(self, *, org_id: str, actor: str, invoice_id: str) -> Invoice:
+        invoice = await self._get_or_raise(invoice_id, org_id=org_id)
         if invoice.status not in ("draft", "pending_approval"):
             raise FinanceError(f"invoice {invoice_id} can only be voided before it is approved (status={invoice.status})")
         updated = await self._invoices.update(invoice.id, invoice.version, {"status": "void"}, updated_by=actor)
         await self._activity(org_id=invoice.org_id, actor=actor, type="invoice_voided", subject_id=invoice.id, payload={})
         return updated
 
-    async def _get_or_raise(self, invoice_id: str) -> Invoice:
+    async def _get_or_raise(self, invoice_id: str, *, org_id: str) -> Invoice:
+        # A cross-org invoice_id is treated identically to a missing one — same
+        # discipline as app.governance.approvals.ApprovalService.review() (Phase
+        # 15 security audit) — so this can never be used to probe which invoice
+        # ids exist in an org the caller doesn't belong to.
         invoice = await self._invoices.get(invoice_id)
-        if invoice is None:
+        if invoice is None or invoice.org_id != org_id:
             raise FinanceError(f"invoice {invoice_id} does not exist")
         return invoice
 
@@ -173,8 +177,8 @@ class BillService:
         """The deterministic candidate set for AP follow-up (Slice 17)."""
         return await self._bills.find_all({"org_id": org_id, "status": {"$in": ["approved", "partially_paid"]}})
 
-    async def submit_bill(self, *, actor: str, bill_id: str) -> Bill:
-        bill = await self._get_or_raise(bill_id)
+    async def submit_bill(self, *, org_id: str, actor: str, bill_id: str) -> Bill:
+        bill = await self._get_or_raise(bill_id, org_id=org_id)
         if bill.status != "draft":
             raise FinanceError(f"bill {bill_id} must be draft to submit (status={bill.status})")
         updated = await self._bills.update(bill.id, bill.version, {"status": "pending_approval"}, updated_by=actor)
@@ -182,7 +186,7 @@ class BillService:
         return updated
 
     async def approve_bill(self, *, identity: ResolvedIdentity, rbac: RBACService, bill_id: str) -> Bill:
-        bill = await self._get_or_raise(bill_id)
+        bill = await self._get_or_raise(bill_id, org_id=identity.org_id)
         if bill.status == "approved":
             if bill.approved_by != identity.user_id:
                 raise FinanceError("already approved by a different approver")
@@ -202,9 +206,9 @@ class BillService:
         await self._activity(org_id=bill.org_id, actor=identity.user_id, type="bill_approved", subject_id=bill.id, payload={"total_minor": bill.total.amount_minor})
         return updated
 
-    async def _get_or_raise(self, bill_id: str) -> Bill:
+    async def _get_or_raise(self, bill_id: str, *, org_id: str) -> Bill:
         bill = await self._bills.get(bill_id)
-        if bill is None:
+        if bill is None or bill.org_id != org_id:
             raise FinanceError(f"bill {bill_id} does not exist")
         return bill
 
@@ -258,7 +262,7 @@ class PaymentService:
 
         if invoice_id:
             target_repo, target = self._invoices, await self._invoices.get(invoice_id)
-            if target is None:
+            if target is None or target.org_id != org_id:
                 raise FinanceError(f"invoice {invoice_id} does not exist")
             if target.status not in ("sent", "partially_paid"):
                 raise FinanceError(f"invoice {invoice_id} must be sent before payments can be recorded (status={target.status})")
@@ -266,7 +270,7 @@ class PaymentService:
                 raise FinanceError("payer_account_id does not match the invoice's customer_account_id")
         else:
             target_repo, target = self._bills, await self._bills.get(bill_id)
-            if target is None:
+            if target is None or target.org_id != org_id:
                 raise FinanceError(f"bill {bill_id} does not exist")
             if target.status not in ("approved", "partially_paid"):
                 raise FinanceError(f"bill {bill_id} must be approved before payments can be recorded (status={target.status})")
@@ -302,7 +306,7 @@ class PaymentService:
 
     async def reverse_payment(self, *, identity: ResolvedIdentity, rbac: RBACService, payment_id: str) -> Payment:
         payment = await self._payments.get(payment_id)
-        if payment is None:
+        if payment is None or payment.org_id != identity.org_id:
             raise FinanceError(f"payment {payment_id} does not exist")
         if payment.status == "reversed":
             raise FinanceError(f"payment {payment_id} is already reversed")
@@ -365,7 +369,7 @@ class ExpenseService:
         return expense
 
     async def approve_expense(self, *, identity: ResolvedIdentity, rbac: RBACService, expense_id: str) -> Expense:
-        expense = await self._get_or_raise(expense_id)
+        expense = await self._get_or_raise(expense_id, org_id=identity.org_id)
         if expense.approval_status != "pending":
             raise FinanceError(f"expense {expense_id} is not pending approval (status={expense.approval_status})")
 
@@ -378,7 +382,7 @@ class ExpenseService:
         return updated
 
     async def reject_expense(self, *, identity: ResolvedIdentity, rbac: RBACService, expense_id: str) -> Expense:
-        expense = await self._get_or_raise(expense_id)
+        expense = await self._get_or_raise(expense_id, org_id=identity.org_id)
         if expense.approval_status != "pending":
             raise FinanceError(f"expense {expense_id} is not pending approval (status={expense.approval_status})")
 
@@ -390,9 +394,9 @@ class ExpenseService:
         await self._activity(org_id=expense.org_id, actor=identity.user_id, type="expense_rejected", subject_id=expense.id, payload={})
         return updated
 
-    async def _get_or_raise(self, expense_id: str) -> Expense:
+    async def _get_or_raise(self, expense_id: str, *, org_id: str) -> Expense:
         expense = await self._expenses.get(expense_id)
-        if expense is None:
+        if expense is None or expense.org_id != org_id:
             raise FinanceError(f"expense {expense_id} does not exist")
         return expense
 
@@ -417,7 +421,7 @@ class CreditNoteService:
 
     async def issue_credit_note(self, *, org_id: str, identity: ResolvedIdentity, rbac: RBACService, invoice_id: str, amount: Money, reason: str) -> CreditNote:
         invoice = await self._invoices.get(invoice_id)
-        if invoice is None:
+        if invoice is None or invoice.org_id != org_id:
             raise FinanceError(f"invoice {invoice_id} does not exist")
         if amount.currency != invoice.total.currency:
             raise FinanceError("credit note currency does not match the invoice's currency")
@@ -438,13 +442,13 @@ class CreditNoteService:
         await self._activity(org_id=org_id, actor=identity.user_id, type="credit_note_issued", subject_id=note.id, payload={"amount_minor": amount.amount_minor})
         return note
 
-    async def apply_credit_note(self, *, actor: str, credit_note_id: str) -> CreditNote:
-        note = await self._get_or_raise(credit_note_id)
+    async def apply_credit_note(self, *, org_id: str, actor: str, credit_note_id: str) -> CreditNote:
+        note = await self._get_or_raise(credit_note_id, org_id=org_id)
         if note.status == "applied":
             raise FinanceError(f"credit note {credit_note_id} is already applied")
 
         invoice = await self._invoices.get(note.invoice_id)
-        if invoice is None:
+        if invoice is None or invoice.org_id != org_id:
             raise FinanceError(f"invoice {note.invoice_id} no longer exists")
 
         new_balance_minor = invoice.balance_due.amount_minor - note.amount.amount_minor
@@ -459,9 +463,9 @@ class CreditNoteService:
         await self._activity(org_id=note.org_id, actor=actor, type="credit_note_applied", subject_id=note.id, payload={})
         return applied
 
-    async def _get_or_raise(self, credit_note_id: str) -> CreditNote:
+    async def _get_or_raise(self, credit_note_id: str, *, org_id: str) -> CreditNote:
         note = await self._credit_notes.get(credit_note_id)
-        if note is None:
+        if note is None or note.org_id != org_id:
             raise FinanceError(f"credit note {credit_note_id} does not exist")
         return note
 
@@ -504,15 +508,15 @@ class ReconciliationService:
         InvoiceService/BillService above."""
         return await self._records.find_all({"org_id": org_id, "status": "unmatched"})
 
-    async def match(self, *, actor: str, record_id: str, payment_id: str) -> ReconciliationRecord:
+    async def match(self, *, org_id: str, actor: str, record_id: str, payment_id: str) -> ReconciliationRecord:
         record = await self._records.get(record_id)
-        if record is None:
+        if record is None or record.org_id != org_id:
             raise FinanceError(f"reconciliation record {record_id} does not exist")
         if record.status == "matched":
             raise FinanceError(f"reconciliation record {record_id} is already matched")
 
         payment = await self._payments.get(payment_id)
-        if payment is None:
+        if payment is None or payment.org_id != org_id:
             raise FinanceError(f"payment {payment_id} does not exist")
         if payment.amount.amount_minor != record.amount.amount_minor or payment.amount.currency != record.amount.currency:
             raise FinanceError("reconciliation amount does not match the payment amount")

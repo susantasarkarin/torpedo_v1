@@ -113,18 +113,18 @@ async def _approve_and_send(invoice_service, rbac, invoice: Invoice, approver="b
     await rbac._approval_authorities.insert(ApprovalAuthority(org_id=ORG, created_by="seed", updated_by="seed", user_id=approver, entity_type="finance.invoice", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY)))
     approver_identity = ResolvedIdentity(user_id=approver, org_id=ORG, principal_type="user", roles=frozenset(), permissions=frozenset({"finance.invoice.approve"}), real_actor_id=approver)
     await invoice_service.approve_invoice(identity=approver_identity, rbac=rbac, invoice_id=invoice.id)
-    return await invoice_service.send_invoice(actor=ACTOR, invoice_id=invoice.id)
+    return await invoice_service.send_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
 
 
 async def _full_invoice(invoice_service, rbac, *, due_days_ago=10) -> Invoice:
     invoice = await invoice_service.create_invoice(org_id=ORG, actor=ACTOR, customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY, due_at=datetime.now(timezone.utc) - timedelta(days=due_days_ago))
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
     return await _approve_and_send(invoice_service, rbac, invoice)
 
 
 async def _approved_bill(bill_service, rbac) -> Bill:
     bill = await bill_service.create_bill(org_id=ORG, actor=ACTOR, vendor_account_id="vendor-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY, due_at=datetime.now(timezone.utc) + timedelta(days=5))
-    await bill_service.submit_bill(actor=ACTOR, bill_id=bill.id)
+    await bill_service.submit_bill(org_id=ORG, actor=ACTOR, bill_id=bill.id)
     await rbac._approval_authorities.insert(ApprovalAuthority(org_id=ORG, created_by="seed", updated_by="seed", user_id="carol", entity_type="finance.bill", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY)))
     approver = ResolvedIdentity(user_id="carol", org_id=ORG, principal_type="user", roles=frozenset(), permissions=frozenset({"finance.bill.approve"}), real_actor_id="carol")
     return await bill_service.approve_bill(identity=approver, rbac=rbac, bill_id=bill.id)
@@ -162,7 +162,7 @@ async def test_ar_followup_never_alters_the_invoice_balance(db, invoice_service,
 @pytest.mark.asyncio
 async def test_ar_followup_traces_to_its_ai_proposal(db, invoice_service, bill_service, payment_service, reconciliation_service):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor=ACTOR, customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
     # force to "sent" for this test without full approval ceremony via direct repo write
     inv = await invoice_service._invoices.get(invoice.id)
     await invoice_service._invoices.update(inv.id, inv.version, {"status": "sent"}, updated_by=ACTOR)
@@ -180,7 +180,7 @@ async def test_ar_followup_traces_to_its_ai_proposal(db, invoice_service, bill_s
 @pytest.mark.asyncio
 async def test_ar_followup_is_idempotent_within_the_same_day(db, invoice_service, bill_service, payment_service, reconciliation_service):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor=ACTOR, customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
     inv = await invoice_service._invoices.get(invoice.id)
     await invoice_service._invoices.update(inv.id, inv.version, {"status": "sent"}, updated_by=ACTOR)
 
@@ -196,7 +196,7 @@ async def test_ar_followup_is_idempotent_within_the_same_day(db, invoice_service
 @pytest.mark.asyncio
 async def test_ar_followup_rejects_unrecognized_action(db, invoice_service, bill_service, payment_service, reconciliation_service):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor=ACTOR, customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=invoice.id)
     inv = await invoice_service._invoices.get(invoice.id)
     await invoice_service._invoices.update(inv.id, inv.version, {"status": "sent"}, updated_by=ACTOR)
 
@@ -238,7 +238,7 @@ async def test_ap_followup_requires_an_open_bill(db, invoice_service, bill_servi
 async def test_match_offers_only_exact_amount_candidates(db, invoice_service, bill_service, payment_service, reconciliation_service, rbac):
     matching_invoice = await _full_invoice(invoice_service, rbac)
     other_invoice = await invoice_service.create_invoice(org_id=ORG, actor=ACTOR, customer_account_id="cust-2", line_items=_line_items(200_000), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor=ACTOR, invoice_id=other_invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=ACTOR, invoice_id=other_invoice.id)
     inv2 = await invoice_service._invoices.get(other_invoice.id)
     await invoice_service._invoices.update(inv2.id, inv2.version, {"status": "sent"}, updated_by=ACTOR)
 

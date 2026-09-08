@@ -82,7 +82,7 @@ class LeadConversionAIService:
 
     async def evaluate_and_convert(self, *, org_id: str, actor: str, lead_state_id: str) -> tuple[Decision, Opportunity | None]:
         lead = await self._facets.get_lead_state(lead_state_id)
-        if lead is None:
+        if lead is None or lead.org_id != org_id:
             raise LeadConversionAIError(f"lead {lead_state_id} does not exist")
         if lead.state not in CONVERSION_ELIGIBLE_STATES:
             raise LeadConversionAIError(f"lead {lead_state_id} is not eligible for conversion (state={lead.state!r})")

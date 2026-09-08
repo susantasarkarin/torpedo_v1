@@ -189,15 +189,15 @@ class OperationsAIService:
             if action == "REACTIVATE" and survey.operational_status not in (PAUSED, PENDING_CLIENT_RESPONSE):
                 raise OperationsAIError(f"survey {survey.id} cannot be reactivated from status {survey.operational_status!r} — it was never paused or awaiting a client response")
             if action in ("PAUSE", "CLOSE"):
-                await self._surveys.set_eligibility(actor=actor, survey_id=survey.id, is_active_in_pool=False, activated_at=None)
+                await self._surveys.set_eligibility(org_id=org_id, actor=actor, survey_id=survey.id, is_active_in_pool=False, activated_at=None)
             elif action == "REACTIVATE":
-                await self._surveys.set_eligibility(actor=actor, survey_id=survey.id, is_active_in_pool=True, activated_at=datetime.now(timezone.utc))
+                await self._surveys.set_eligibility(org_id=org_id, actor=actor, survey_id=survey.id, is_active_in_pool=True, activated_at=datetime.now(timezone.utc))
             await self._survey_repo.update(survey.id, (await self._survey_repo.get(survey.id)).version, {"operational_status": target_status, "ai_decision_subject_id": subject_id}, updated_by=actor)
         elif action == "INVESTIGATE":
             if provider is None:
                 raise OperationsAIError("INVESTIGATE requires a SurveyProvider to refresh live data")
             try:
-                await self._surveys.refresh_projection(actor=actor, survey_id=survey.id, provider=provider)
+                await self._surveys.refresh_projection(org_id=org_id, actor=actor, survey_id=survey.id, provider=provider)
             except SurveyProviderUnavailable as exc:
                 raise OperationsAIError(f"investigation failed: provider unavailable ({exc})") from exc
             await self._survey_repo.update(survey.id, (await self._survey_repo.get(survey.id)).version, {"ai_decision_subject_id": subject_id}, updated_by=actor)

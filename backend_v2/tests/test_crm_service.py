@@ -89,7 +89,7 @@ async def test_create_opportunity_defaults_to_new_stage(opportunity_service: Opp
 async def test_valid_stage_progression_through_the_pipeline(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
     for target in (RFQ, QUALIFIED, PROPOSAL, NEGOTIATION):
-        opportunity = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=target)
+        opportunity = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=target)
         assert opportunity.stage == target
 
 
@@ -99,28 +99,28 @@ async def test_direct_update_stage_to_lost_is_rejected(opportunity_service: Oppo
     doesn't accept."""
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
     with pytest.raises(CRMError):
-        await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=LOST)
+        await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=LOST)
 
 
 @pytest.mark.asyncio
 async def test_close_lost_sets_reason_and_is_terminal(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
-    closed = await opportunity_service.close_lost(actor="alice", opportunity_id=opportunity.id, reason="budget cut")
+    closed = await opportunity_service.close_lost(org_id=ORG, actor="alice", opportunity_id=opportunity.id, reason="budget cut")
     assert closed.stage == LOST
     assert closed.loss_reason == "budget cut"
 
     with pytest.raises(CRMError):
-        await opportunity_service.update_stage(actor="alice", opportunity_id=closed.id, new_stage=NEW)
+        await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=closed.id, new_stage=NEW)
     with pytest.raises(CRMError):
-        await opportunity_service.close_lost(actor="alice", opportunity_id=closed.id, reason="again")
+        await opportunity_service.close_lost(org_id=ORG, actor="alice", opportunity_id=closed.id, reason="again")
 
 
 @pytest.mark.asyncio
 async def test_won_opportunity_accepts_no_further_stage_changes(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
-    won = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=WON)
+    won = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=WON)
     with pytest.raises(CRMError):
-        await opportunity_service.update_stage(actor="alice", opportunity_id=won.id, new_stage=NEGOTIATION)
+        await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=won.id, new_stage=NEGOTIATION)
 
 
 # --------------------------------------------------------------------------- convert_to_invoice (the real cross-domain integration)
@@ -130,15 +130,15 @@ async def test_won_opportunity_accepts_no_further_stage_changes(opportunity_serv
 async def test_convert_requires_won_stage(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
     with pytest.raises(CRMError):
-        await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=opportunity.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+        await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=opportunity.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
 
 @pytest.mark.asyncio
 async def test_convert_requires_an_account_to_bill(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id=None)
-    won = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=WON)
+    won = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=WON)
     with pytest.raises(CRMError):
-        await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+        await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
 
 @pytest.mark.asyncio
@@ -146,9 +146,9 @@ async def test_convert_creates_a_draft_invoice_referencing_the_opportunity(oppor
     """The direct endpoint_catalogue.md regression: 'Creates a draft Invoice
     referencing the opportunity — never an already-sent document.'"""
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
-    won = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=WON)
+    won = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=WON)
 
-    invoice = await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+    invoice = await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
     assert invoice.status == "draft"
     assert invoice.opportunity_id == won.id
@@ -161,19 +161,38 @@ async def test_convert_creates_a_draft_invoice_referencing_the_opportunity(oppor
 @pytest.mark.asyncio
 async def test_convert_is_not_repeatable(opportunity_service: OpportunityService):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
-    won = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=WON)
-    await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+    won = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=WON)
+    await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
     with pytest.raises(CRMError):
-        await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+        await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
 
 @pytest.mark.asyncio
 async def test_every_stage_transition_and_conversion_records_exactly_one_activity(opportunity_service: OpportunityService, db):
     opportunity = await opportunity_service.create_opportunity(org_id=ORG, actor="alice", account_id="acct-1")
-    won = await opportunity_service.update_stage(actor="alice", opportunity_id=opportunity.id, new_stage=WON)
-    await opportunity_service.convert_to_invoice(actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+    won = await opportunity_service.update_stage(org_id=ORG, actor="alice", opportunity_id=opportunity.id, new_stage=WON)
+    await opportunity_service.convert_to_invoice(org_id=ORG, actor="alice", opportunity_id=won.id, line_items=_line_items(), gst_details=GST, currency=CURRENCY)
 
     activities = await CanonicalRepository(db["activities"], Activity).find_all({"subject_id": opportunity.id})
     types = [a.type for a in activities]
     assert types == ["opportunity_created", "opportunity_stage_changed", "opportunity_converted"]
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit)
+
+
+@pytest.mark.asyncio
+async def test_update_stage_cannot_cross_org_boundaries(opportunity_service: OpportunityService):
+    """Phase 15 audit finding: OpportunityService resolved every id-scoped write
+    via CanonicalRepository.get(id) alone, with no check the entity belonged to
+    the caller's org — same class of bug fixed across finance/panel/leadgen/
+    governance this pass. A cross-org opportunity_id must be indistinguishable
+    from a missing one."""
+    other_orgs_opportunity = await opportunity_service.create_opportunity(org_id="org-B", actor="mallory", amount=Money(amount_minor=500_000, currency=CURRENCY))
+
+    with pytest.raises(CRMError):
+        await opportunity_service.update_stage(org_id=ORG, actor="mallory", opportunity_id=other_orgs_opportunity.id, new_stage=QUALIFIED)
+
+    untouched = await opportunity_service.get_opportunity(other_orgs_opportunity.id)
+    assert untouched.stage == NEW

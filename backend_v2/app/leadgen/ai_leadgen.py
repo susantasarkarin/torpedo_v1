@@ -99,6 +99,9 @@ class LeadGenAIService:
         # when there's no real lead to attach it to is not fabricating data, it's
         # just declining to write traceability metadata onto nothing.
         lead = await self._leadgen.get_lead(lead_state_id)
-        if lead is not None:
+        # A cross-org lead_state_id must never receive a traceability stamp
+        # derived from another org's decision (Phase 15 security audit) — same
+        # discipline as every other id-scoped write this pass.
+        if lead is not None and lead.org_id == org_id:
             await self._leadgen._facets.update_lead_state(lead.id, lead.version, {"ai_decision_subject_id": lead_state_id}, updated_by=actor)
         return decision

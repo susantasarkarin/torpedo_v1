@@ -164,3 +164,20 @@ async def test_stale_only_includes_genuinely_stale_proposals(client: TestClient,
     body = resp.json()
     assert len(body) == 1
     assert body[0]["_id"] == stale.id
+
+
+@pytest.mark.asyncio
+async def test_reviewing_another_orgs_proposal_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service, db):
+    """Phase 15 security audit finding: review() previously had no org check
+    at all. A user in ORG_A with GOVERNANCE_REVIEW must not be able to
+    approve/reject/modify a proposal that belongs to ORG_B."""
+    org_b_proposal = await CanonicalRepository(db["ai_proposals"], AiProposal).insert(
+        AiProposal(org_id="org-B", created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved")
+    )
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[GOVERNANCE_REVIEW])
+
+    resp = client.post(f"/api/v1/governance/proposals/{org_b_proposal.id}/review", json={"action": "APPROVE"}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 400
+
+    untouched = await CanonicalRepository(db["ai_proposals"], AiProposal).get(org_b_proposal.id)
+    assert untouched.reviewed_by is None

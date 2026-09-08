@@ -129,11 +129,11 @@ def reward_ledger_service(db) -> RewardLedgerService:
 
 async def _sent_invoice(invoice_service: InvoiceService, rbac: RBACService, *, creator="alice", approver="bob", total_minor=118_000) -> Invoice:
     invoice = await invoice_service.create_invoice(org_id=ORG, actor=creator, customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor=creator, invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor=creator, invoice_id=invoice.id)
     await _grant_ceiling(rbac, user_id=approver, entity_type="finance.invoice", max_amount=Money(amount_minor=total_minor, currency=CURRENCY))
     approver_identity = _identity(approver, permissions=frozenset({"finance.invoice.approve"}))
     await invoice_service.approve_invoice(identity=approver_identity, rbac=rbac, invoice_id=invoice.id)
-    return await invoice_service.send_invoice(actor=creator, invoice_id=invoice.id)
+    return await invoice_service.send_invoice(org_id=ORG, actor=creator, invoice_id=invoice.id)
 
 
 # --------------------------------------------------------------------------- totals (D-10, no rounding drift)
@@ -176,7 +176,7 @@ async def test_invoice_lifecycle_draft_to_sent(invoice_service: InvoiceService, 
 async def test_invoice_approval_blocks_self_approval(invoice_service: InvoiceService, rbac: RBACService):
     """register §5.7 acceptance test #1, applied to finance."""
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor="alice", invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
     await _grant_ceiling(rbac, user_id="alice", entity_type="finance.invoice", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY))
 
     with pytest.raises(FinanceError):
@@ -187,7 +187,7 @@ async def test_invoice_approval_blocks_self_approval(invoice_service: InvoiceSer
 async def test_invoice_approval_requires_ceiling_covering_the_amount(invoice_service: InvoiceService, rbac: RBACService):
     """register §5.7 acceptance test #2."""
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor="alice", invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
     await _grant_ceiling(rbac, user_id="bob", entity_type="finance.invoice", max_amount=Money(amount_minor=1, currency=CURRENCY))
 
     with pytest.raises(FinanceError):
@@ -202,7 +202,7 @@ async def test_admin_wildcard_does_not_bypass_invoice_approval(invoice_service: 
     from app.rbac.permissions import ADMIN_WILDCARD
 
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor="alice", invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
     await _grant_ceiling(rbac, user_id="bob", entity_type="finance.invoice", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY))
 
     with pytest.raises(FinanceError):
@@ -212,7 +212,7 @@ async def test_admin_wildcard_does_not_bypass_invoice_approval(invoice_service: 
 @pytest.mark.asyncio
 async def test_invoice_approval_is_idempotent_for_the_same_approver(invoice_service: InvoiceService, rbac: RBACService):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor="alice", invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
     await _grant_ceiling(rbac, user_id="bob", entity_type="finance.invoice", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY))
     bob = _identity("bob", permissions=frozenset({"finance.invoice.approve"}))
 
@@ -225,7 +225,7 @@ async def test_invoice_approval_is_idempotent_for_the_same_approver(invoice_serv
 @pytest.mark.asyncio
 async def test_invoice_approval_rejects_a_different_second_approver(invoice_service: InvoiceService, rbac: RBACService):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await invoice_service.submit_invoice(actor="alice", invoice_id=invoice.id)
+    await invoice_service.submit_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
     for approver in ("bob", "carol"):
         await _grant_ceiling(rbac, user_id=approver, entity_type="finance.invoice", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY))
 
@@ -238,7 +238,7 @@ async def test_invoice_approval_rejects_a_different_second_approver(invoice_serv
 async def test_send_invoice_requires_approved_status(invoice_service: InvoiceService):
     invoice = await invoice_service.create_invoice(org_id=ORG, actor="alice", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
     with pytest.raises(FinanceError):
-        await invoice_service.send_invoice(actor="alice", invoice_id=invoice.id)
+        await invoice_service.send_invoice(org_id=ORG, actor="alice", invoice_id=invoice.id)
 
 
 # --------------------------------------------------------------------------- payments (D-33)
@@ -353,7 +353,7 @@ async def test_payment_numbers_never_collide_across_directions(invoice_service: 
     Each direction must advance independently."""
     invoice = await _sent_invoice(invoice_service, rbac)
     bill = await bill_service.create_bill(org_id=ORG, actor="alice", vendor_account_id="vendor-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
-    await bill_service.submit_bill(actor="alice", bill_id=bill.id)
+    await bill_service.submit_bill(org_id=ORG, actor="alice", bill_id=bill.id)
     await _grant_ceiling(rbac, user_id="bob", entity_type="finance.bill", max_amount=Money(amount_minor=10_000_000, currency=CURRENCY))
     bill = await bill_service.approve_bill(identity=_identity("bob", permissions=frozenset({"finance.bill.approve"})), rbac=rbac, bill_id=bill.id)
 
@@ -498,7 +498,7 @@ async def test_apply_credit_note_reduces_balance_but_never_touches_totals(invoic
         invoice_id=invoice.id, amount=Money(amount_minor=10_000, currency=CURRENCY), reason="pricing error",
     )
 
-    applied = await credit_note_service.apply_credit_note(actor="dana", credit_note_id=note.id)
+    applied = await credit_note_service.apply_credit_note(org_id=ORG, actor="dana", credit_note_id=note.id)
     updated_invoice = await invoice_service._invoices.get(invoice.id)
 
     assert applied.status == "applied"
@@ -516,9 +516,9 @@ async def test_apply_credit_note_twice_rejected(invoice_service: InvoiceService,
         org_id=ORG, identity=_identity("dana", permissions=frozenset({"finance.creditnote.create"})), rbac=rbac,
         invoice_id=invoice.id, amount=Money(amount_minor=10_000, currency=CURRENCY), reason="pricing error",
     )
-    await credit_note_service.apply_credit_note(actor="dana", credit_note_id=note.id)
+    await credit_note_service.apply_credit_note(org_id=ORG, actor="dana", credit_note_id=note.id)
     with pytest.raises(FinanceError):
-        await credit_note_service.apply_credit_note(actor="dana", credit_note_id=note.id)
+        await credit_note_service.apply_credit_note(org_id=ORG, actor="dana", credit_note_id=note.id)
 
 
 # --------------------------------------------------------------------------- bank accounts (D-26)
@@ -551,7 +551,7 @@ async def test_reconciliation_match_requires_amount_equality(invoice_service: In
     record = await reconciliation_service.record_external_entry(org_id=ORG, actor="alice", source="bank_statement", external_reference="stmt-1", amount=Money(amount_minor=999, currency=CURRENCY))
 
     with pytest.raises(FinanceError):
-        await reconciliation_service.match(actor="alice", record_id=record.id, payment_id=payment.id)
+        await reconciliation_service.match(org_id=ORG, actor="alice", record_id=record.id, payment_id=payment.id)
 
 
 @pytest.mark.asyncio
@@ -560,10 +560,10 @@ async def test_reconciliation_match_succeeds_and_is_not_repeatable(invoice_servi
     payment = await payment_service.record_payment(org_id=ORG, actor="alice", direction="received", amount=Money(amount_minor=1000, currency=CURRENCY), method="cash", idempotency_key="k1", invoice_id=invoice.id)
     record = await reconciliation_service.record_external_entry(org_id=ORG, actor="alice", source="bank_statement", external_reference="stmt-1", amount=Money(amount_minor=1000, currency=CURRENCY))
 
-    matched = await reconciliation_service.match(actor="alice", record_id=record.id, payment_id=payment.id)
+    matched = await reconciliation_service.match(org_id=ORG, actor="alice", record_id=record.id, payment_id=payment.id)
     assert matched.status == "matched"
     with pytest.raises(FinanceError):
-        await reconciliation_service.match(actor="alice", record_id=record.id, payment_id=payment.id)
+        await reconciliation_service.match(org_id=ORG, actor="alice", record_id=record.id, payment_id=payment.id)
 
 
 # --------------------------------------------------------------------------- reward ledger boundary (D-12)
@@ -621,3 +621,41 @@ async def test_reward_clawback_blocks_self_approval_no_exception(reward_ledger_s
             panelist_person_id="p1", amount=Money(amount_minor=500, currency=CURRENCY),
             reference_type="payment_reversal", reference_id="pay-1", creator_id="ops-lead",
         )
+
+
+# --------------------------------------------------------------------------- tenant isolation (Phase 15 security audit)
+
+
+@pytest.mark.asyncio
+async def test_submit_invoice_cannot_cross_org_boundaries(invoice_service: InvoiceService):
+    """Phase 15 audit finding: every id-scoped write in this module resolved its
+    entity via CanonicalRepository.get(id) alone, with no check that it belonged
+    to the caller's org — the same class of bug fixed in
+    app.governance.approvals.ApprovalService.review(). A cross-org invoice_id
+    must be indistinguishable from a missing one, and must never be mutated."""
+    other_orgs_invoice = await invoice_service.create_invoice(org_id="org-B", actor="mallory", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+
+    with pytest.raises(FinanceError):
+        await invoice_service.submit_invoice(org_id=ORG, actor="mallory", invoice_id=other_orgs_invoice.id)
+
+    untouched = await invoice_service._invoices.get(other_orgs_invoice.id)
+    assert untouched.status == "draft"
+
+
+@pytest.mark.asyncio
+async def test_reverse_payment_cannot_cross_org_boundaries(payment_service: PaymentService, invoice_service: InvoiceService, rbac: RBACService):
+    other_orgs_invoice = await invoice_service.create_invoice(org_id="org-B", actor="system", customer_account_id="cust-1", line_items=_line_items(), gst_details=GST, currency=CURRENCY)
+    await invoice_service.submit_invoice(org_id="org-B", actor="system", invoice_id=other_orgs_invoice.id)
+    updated = await invoice_service._invoices.get(other_orgs_invoice.id)
+    await invoice_service._invoices.update(updated.id, updated.version, {"status": "sent"}, updated_by="system")
+
+    payment = await payment_service.record_payment(
+        org_id="org-B", actor="system", direction="received", amount=other_orgs_invoice.total, method="bank_transfer",
+        idempotency_key="k-other-org", invoice_id=other_orgs_invoice.id,
+    )
+
+    with pytest.raises(FinanceError):
+        await payment_service.reverse_payment(identity=_identity("mallory", permissions=frozenset({"finance.payment.reverse"}), real_actor_id="mallory"), rbac=rbac, payment_id=payment.id)
+
+    untouched = await payment_service._payments.get(payment.id)
+    assert untouched.status != "reversed"

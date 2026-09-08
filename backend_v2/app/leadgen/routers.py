@@ -210,7 +210,7 @@ async def qualify_lead(
 ) -> QualificationResult:
     try:
         return await svc.enrich_and_qualify(
-            actor=identity.user_id, lead_state_id=lead_state_id, ai_classifier=ai_classifier, profile=_DEFAULT_ICP_PROFILE
+            org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, ai_classifier=ai_classifier, profile=_DEFAULT_ICP_PROFILE
         )
     except LeadGenError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -224,7 +224,7 @@ async def assign_lead(
     svc: LeadGenService = Depends(get_leadgen_service),
 ) -> LeadState:
     try:
-        return await svc.assign(actor=identity.user_id, lead_state_id=lead_state_id, owner=body.owner, team=body.team)
+        return await svc.assign(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, owner=body.owner, team=body.team)
     except LeadGenError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -237,7 +237,7 @@ async def enroll_lead(
     svc: LeadGenService = Depends(get_leadgen_service),
 ) -> LeadEnrollment:
     try:
-        return await svc.enroll(actor=identity.user_id, lead_state_id=lead_state_id, brand_id=body.brand_id)
+        return await svc.enroll(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, brand_id=body.brand_id)
     except LeadGenError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

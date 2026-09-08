@@ -67,7 +67,7 @@ async def get_opportunity(opportunity_id: str, identity: ResolvedIdentity = Depe
 @router.post("/opportunities/{opportunity_id}/stage", response_model=Opportunity)
 async def update_opportunity_stage(opportunity_id: str, body: UpdateStageRequest, identity: ResolvedIdentity = Depends(require_permission(OPPORTUNITY_UPDATE)), svc: OpportunityService = Depends(get_opportunity_service)) -> Opportunity:
     try:
-        return await svc.update_stage(actor=identity.user_id, opportunity_id=opportunity_id, new_stage=body.stage)
+        return await svc.update_stage(org_id=identity.org_id, actor=identity.user_id, opportunity_id=opportunity_id, new_stage=body.stage)
     except CRMError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -75,7 +75,7 @@ async def update_opportunity_stage(opportunity_id: str, body: UpdateStageRequest
 @router.post("/opportunities/{opportunity_id}/close-lost", response_model=Opportunity)
 async def close_opportunity_lost(opportunity_id: str, body: CloseLostRequest, identity: ResolvedIdentity = Depends(require_permission(OPPORTUNITY_UPDATE)), svc: OpportunityService = Depends(get_opportunity_service)) -> Opportunity:
     try:
-        return await svc.close_lost(actor=identity.user_id, opportunity_id=opportunity_id, reason=body.reason)
+        return await svc.close_lost(org_id=identity.org_id, actor=identity.user_id, opportunity_id=opportunity_id, reason=body.reason)
     except CRMError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -83,6 +83,6 @@ async def close_opportunity_lost(opportunity_id: str, body: CloseLostRequest, id
 @router.post("/opportunities/{opportunity_id}/convert", response_model=Invoice)
 async def convert_opportunity(opportunity_id: str, body: ConvertRequest, identity: ResolvedIdentity = Depends(require_permission(OPPORTUNITY_CONVERT)), svc: OpportunityService = Depends(get_opportunity_service)) -> Invoice:
     try:
-        return await svc.convert_to_invoice(actor=identity.user_id, opportunity_id=opportunity_id, line_items=body.line_items, gst_details=body.gst_details, currency=body.currency)
+        return await svc.convert_to_invoice(org_id=identity.org_id, actor=identity.user_id, opportunity_id=opportunity_id, line_items=body.line_items, gst_details=body.gst_details, currency=body.currency)
     except CRMError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
