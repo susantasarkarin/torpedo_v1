@@ -68,6 +68,18 @@ class Settings(BaseSettings):
     smtp_username: str | None = None
     smtp_password: str | None = None
 
+    # Real AWS SES transport for app.outreach.ses_provider.SesSendProvider —
+    # a second real SendProvider, preferred over SMTP when both are
+    # configured (get_send_provider(), app.outreach.routers). Explicit
+    # config, not boto3's ambient credential chain, same discipline as every
+    # other credential above. An unset value means SesSendProvider fails
+    # loud on every send attempt (SendProviderUnavailable), never a silent
+    # stub success.
+    aws_ses_region: str | None = None
+    ses_from_email: str | None = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

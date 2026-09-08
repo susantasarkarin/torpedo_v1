@@ -8,3 +8,4 @@ pytest>=9.0,<10
 pytest-asyncio>=1.0,<2
 mongomock-motor==0.0.35
 httpx==0.28.1
+boto3==1.43.89

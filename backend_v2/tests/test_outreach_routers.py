@@ -180,3 +180,36 @@ async def test_cross_org_kill_switch_state_is_isolated(client: TestClient, auth_
     b_status = client.post("/api/v1/outreach/kill-switch/resume", headers={"Authorization": f"Bearer {token_b}"})
 
     assert b_status.json()["org_id"] == ORG_B
+
+
+# --------------------------------------------------------------------------- get_send_provider() selection
+
+
+def test_get_send_provider_prefers_ses_when_both_ses_and_smtp_are_configured(monkeypatch):
+    """SES is the real, verified-working credential this environment
+    actually has; SMTP stays a real, independent fallback, not deleted."""
+    from app.config import Settings
+    from app.outreach.routers import get_send_provider
+    from app.outreach.ses_provider import SesSendProvider
+
+    fake_settings = Settings(
+        smtp_host="smtp.example.com", smtp_username="u", smtp_password="p",
+        aws_ses_region="us-east-1", ses_from_email="sender@example.com",
+        aws_access_key_id="AKIAFAKE", aws_secret_access_key="fake-secret",
+    )
+    monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
+
+    provider = get_send_provider()
+    assert isinstance(provider, SesSendProvider)
+
+
+def test_get_send_provider_falls_back_to_smtp_when_ses_is_not_configured(monkeypatch):
+    from app.config import Settings
+    from app.outreach.routers import get_send_provider
+    from app.outreach.smtp_provider import SmtpSendProvider
+
+    fake_settings = Settings(smtp_host="smtp.example.com", smtp_username="u", smtp_password="p")
+    monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
+
+    provider = get_send_provider()
+    assert isinstance(provider, SmtpSendProvider)

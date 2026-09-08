@@ -43,9 +43,19 @@ class StubSendProvider:
 
 def get_send_provider() -> SendProvider:
     from app.config import get_settings
+    from app.outreach.ses_provider import SesSendProvider
     from app.outreach.smtp_provider import SmtpSendProvider
 
     settings = get_settings()
+    # SES preferred over SMTP when both are configured — it's the real,
+    # verified-working credential this environment actually has (see
+    # ses_provider.py's module docstring); SMTP stays a real, independent
+    # fallback, not deleted.
+    if settings.aws_ses_region and settings.ses_from_email and settings.aws_access_key_id and settings.aws_secret_access_key:
+        return SesSendProvider(
+            region=settings.aws_ses_region, from_email=settings.ses_from_email,
+            aws_access_key_id=settings.aws_access_key_id, aws_secret_access_key=settings.aws_secret_access_key,
+        )
     return SmtpSendProvider(host=settings.smtp_host, port=settings.smtp_port, username=settings.smtp_username, password=settings.smtp_password)
 
 
