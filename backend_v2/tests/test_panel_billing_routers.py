@@ -156,7 +156,7 @@ async def test_integrations_status_reports_credential_blocked_boundaries_not_sec
 @pytest.mark.asyncio
 async def test_integrations_status_reports_real_scheduler_and_governance_activity(client: TestClient, auth_service, rbac_service, db):
     await CanonicalRepository(db["events"], Event).insert(
-        Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-1", occurred_at=datetime.now(timezone.utc), dedupe_key="k1", processing_status="FAILED")
+        Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-1", occurred_at=datetime.now(timezone.utc), dedupe_key="k1", processing_status="FAILED", attempts=1)
     )
     await CanonicalRepository(db["ai_proposals"], AiProposal).insert(
         AiProposal(org_id=ORG_A, created_by="system", updated_by="system", task="evaluate_panel_allocation", subject_id="subj-1", model="m", model_version="v1", confidence=0.9, proposed_fields={}, status="approved")
@@ -166,7 +166,21 @@ async def test_integrations_status_reports_real_scheduler_and_governance_activit
     resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
     body = resp.json()
     assert body["scheduler_events"]["FAILED"] == 1
+    assert body["scheduler_events_exhausted"] == 0  # still retryable — attempts (1) hasn't reached MAX_ATTEMPTS
     assert body["governance_pending_review"] == 1
+
+
+@pytest.mark.asyncio
+async def test_integrations_status_distinguishes_exhausted_failed_events_from_retryable_ones(client: TestClient, auth_service, rbac_service, db):
+    events = CanonicalRepository(db["events"], Event)
+    await events.insert(Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-1", occurred_at=datetime.now(timezone.utc), dedupe_key="k1", processing_status="FAILED", attempts=1))
+    await events.insert(Event(org_id=ORG_A, created_by="system", updated_by="system", event_type="ar_followup_due", entity_type="invoice", entity_id="inv-2", occurred_at=datetime.now(timezone.utc), dedupe_key="k2", processing_status="FAILED", attempts=5))
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[INTEGRATIONS_STATUS_READ])
+
+    resp = client.get("/api/v1/integrations/status", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["scheduler_events"]["FAILED"] == 2
+    assert body["scheduler_events_exhausted"] == 1  # only the attempts=5 one has hit MAX_ATTEMPTS
 
 
 @pytest.mark.asyncio

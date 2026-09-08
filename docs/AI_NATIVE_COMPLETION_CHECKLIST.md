@@ -663,3 +663,16 @@ real, valuable, unbuilt next increments — not attempted this pass, to keep
 this one coherent rather than half-finishing several at once.
 
 Test count: 447 → 459.
+
+**2026-09-08, continued — Phase 10 (operations/event engine) audited and
+found substantially real already** (Slice 16's operational triggers/actions,
+Slice 19's scheduler idempotency/single-flight/retry, Phase 1's
+`scheduler_events` observability). The one real, small gap: `FAILED` alone
+didn't distinguish an event still being retried from one that has exhausted
+`MAX_ATTEMPTS` and will never be retried automatically — real dead-letter
+visibility, using the existing `Event.attempts` field rather than a second
+dead-letter table (the same signal `EventOrchestrator` already stops
+retrying on, made queryable instead of only inferable from logs).
+`GET /integrations/status` gained `scheduler_events_exhausted`.
+
+Test count: 459 → 460.

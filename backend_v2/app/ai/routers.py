@@ -23,7 +23,7 @@ from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.rbac.identity import ResolvedIdentity
 from app.rbac.permissions import AI_ADMIN, AI_READ, INTEGRATIONS_STATUS_READ
-from app.scheduler.models import EVENT_STATUSES, Event
+from app.scheduler.models import EVENT_STATUSES, FAILED, MAX_ATTEMPTS, Event
 
 router = APIRouter()
 
@@ -64,6 +64,14 @@ async def integrations_status(
     gpu_broker_status = await broker.status()
 
     scheduler_counts = {status: len(await events.find_all({"org_id": identity.org_id, "processing_status": status})) for status in sorted(EVENT_STATUSES)}
+    # Phase 10 (operations/event engine) — "FAILED" alone doesn't distinguish
+    # an event still being retried from one that has exhausted MAX_ATTEMPTS
+    # and needs a human. Real dead-letter visibility, using the existing
+    # Event.attempts field rather than a second dead-letter table — the same
+    # signal app.scheduler.orchestrator.EventOrchestrator already stops
+    # retrying on, made queryable here instead of only inferable from logs.
+    failed_events = await events.find_all({"org_id": identity.org_id, "processing_status": FAILED})
+    exhausted_count = sum(1 for e in failed_events if e.attempts >= MAX_ATTEMPTS)
     pending_review = len(await proposals.find_all({"org_id": identity.org_id, "reviewed_by": None}))
 
     return {
@@ -78,6 +86,9 @@ async def integrations_status(
         # Phase 14 scheduler activity, by processing_status, for this org — real
         # counts from app.scheduler.models.Event, not a separate mocked metric.
         "scheduler_events": scheduler_counts,
+        # Of the FAILED count above, how many have exhausted MAX_ATTEMPTS and
+        # will never be retried automatically — real dead-letter visibility.
+        "scheduler_events_exhausted": exhausted_count,
         # Phase 1 production-foundations audit: the human review queue's own
         # backlog size — a real signal for "is anyone keeping up with shadow-mode
         # review," not a fabricated dashboard number.
