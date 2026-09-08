@@ -89,7 +89,6 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | Model choosing outside the eligible set | **TESTED** — rejected outright, not silently dropped |
 | Decision→allocation traceability | **TESTED** — `Allocation.ai_decision_subject_id` links back to the `AiProposal` that chose it |
 | Demographic profile-fit / fraud-risk signals in allocation context | **NOT_STARTED, honestly** — no consent-gated profile system or fraud-detection pipeline exists yet; not fabricated as context |
-| Panelist→survey suitability ranking | NOT_STARTED |
 | Atomic allocation mechanics | **DONE (Slice 9)** — `AllocationService`, tested |
 
 ## Phase 10 — Cint adapter
