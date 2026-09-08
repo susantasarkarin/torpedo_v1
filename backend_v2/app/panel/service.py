@@ -144,7 +144,15 @@ class AllocationService:
         self, *, org_id: str, actor: str, candidate_survey_ids: list[str], person_id: str, vendor_id: str, country_code: str,
         respondent_ref: str, provider: SurveyProvider, ai_decision_subject_id: str | None = None,
     ) -> Allocation:
-        existing = await self._allocations.find_one({"respondent_ref": respondent_ref})
+        # Phase 15 follow-up: scoped to org_id, not global. This is a fraud
+        # guard against one respondent double-dipping within one org's
+        # traffic, not a claim that respondent_ref is a platform-wide unique
+        # token — a real vendor-supplied ref is usually unique in practice,
+        # but nothing guarantees that across two unrelated orgs' separate
+        # panel programs, and an unscoped check would let a coincidental
+        # string collision from an unrelated org wrongly reject a real,
+        # unrelated respondent's legitimate allocation.
+        existing = await self._allocations.find_one({"org_id": org_id, "respondent_ref": respondent_ref})
         if existing:
             raise SurveyError(f"respondent_ref {respondent_ref!r} was already allocated — duplicate allocations are rejected, not replayed")
 

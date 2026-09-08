@@ -186,6 +186,25 @@ async def test_duplicate_respondent_ref_is_rejected_not_replayed(survey_service:
 
 
 @pytest.mark.asyncio
+async def test_the_same_respondent_ref_string_in_a_different_org_is_not_a_collision(survey_service: SurveyService, allocation_service: AllocationService):
+    """Phase 15 follow-up: the duplicate-respondent_ref fraud guard is about
+    one respondent double-dipping within one org's own traffic, not a claim
+    that respondent_ref is a platform-wide unique token. A coincidental
+    string match from an unrelated org's separate panel program must never
+    reject a real, legitimate allocation."""
+    survey_a = await _eligible_survey(survey_service, quota=5, external_id="s-org-a")
+    survey_b = await survey_service.create_survey(org_id="org-B", actor="system", provider="cint", external_id="s-org-b", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+    survey_b = await survey_service.set_eligibility(org_id="org-B", actor="system", survey_id=survey_b.id, is_active_in_pool=True, activated_at=None)
+    provider = RecordingProvider()
+
+    first = await allocation_service.allocate(org_id=ORG, actor="system", candidate_survey_ids=[survey_a.id], person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="shared-ref", provider=provider)
+    second = await allocation_service.allocate(org_id="org-B", actor="system", candidate_survey_ids=[survey_b.id], person_id="p2", vendor_id="v1", country_code="IN", respondent_ref="shared-ref", provider=provider)
+
+    assert first.org_id == ORG
+    assert second.org_id == "org-B"
+
+
+@pytest.mark.asyncio
 async def test_provider_failure_falls_back_to_next_candidate_and_releases_the_reserved_slot(survey_service: SurveyService, allocation_service: AllocationService):
     """endpoint_catalogue.md: 'a provider timeout falls back to the next-best
     eligible survey, never a hardcoded default survey.'"""
