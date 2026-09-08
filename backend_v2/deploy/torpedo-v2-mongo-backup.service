@@ -1,0 +1,7 @@
+[Unit]
+Description=Torpedo v2 MongoDB backup (Phase 19), invoked by torpedo-v2-mongo-backup.timer
+
+[Service]
+Type=oneshot
+EnvironmentFile=/var/www/torpedo-v2/backend_v2/.env
+ExecStart=/var/www/torpedo-v2/backend_v2/deploy/backup_mongo.sh

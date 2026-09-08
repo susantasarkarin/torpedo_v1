@@ -526,6 +526,14 @@ Fixed with `app.scheduler.models.STUCK_PROCESSING_THRESHOLD` (15 minutes — thr
 
 **Deliberately left unfixed, named rather than silently left unchecked**: `SupplierReconciliationService.reconcile()`'s completion-count query, `StudyInactivityService`'s per-survey allocation pull, and `SurveyBillingService`'s per-survey response pulls (`billing.py`) all still use `find_all()` without a size-limiting query filter, scaling with a *survey's* completion volume rather than a panelist's tenure. Lower priority than the two fixed above (these run per-survey-operations-cycle or per-billing-action, not per-respondent), but a real, same-shaped risk once a study's completion count grows large — a genuine next increment, not assumed fine by omission.
 
+### EF-06 — Zero backup coverage for `torpedo_v2`'s MongoDB database (Phase 19 backup/recovery audit, 2026-09-08)
+
+The VM has `mongodump` installed and a real pattern for scheduled operational scripts (v1's own cron jobs: `cleanup_logs.sh`, `outreach_daily_report`), but no automated backup of any kind existed for `torpedo_v2`'s database — confirmed by inspecting cron, systemd timers, and every directory on the VM that looked like a backup location (`/var/backups` is OS package-manager backups only; `/root/backups` holds deploy/config artifacts, never a database dump). A crash, a bad migration, or an operator error would have had no recovery path at all.
+
+Fixed with the same "systemd timer + one small script" pattern Phase 14's scheduler already established (`backend_v2/deploy/scheduler_tick.sh` is the direct precedent): `backend_v2/deploy/backup_mongo.sh` runs `mongodump --archive --gzip` to a location **outside** the git-tracked tree (`/var/backups/torpedo-v2-mongo/`, so a dump can never be swept into a git operation), reading `MONGO_URI`/`MONGO_DB_NAME` from the app's own `.env` via `EnvironmentFile=` — never hardcoded, never on a command line. Fails loud (`exit 1`) if the archive comes out missing or empty, rather than reporting success on a silent no-op. 7-day retention via `find -mtime +N -delete`. `torpedo-v2-mongo-backup.timer` runs it daily at 02:30 UTC — deliberately clear of v1's own 00:05/03:00 cron jobs, a different database on the same resource-constrained VM.
+
+**Live-validated, not just deployed**: ran the backup manually against the real `torpedo_v2` database, confirmed a non-empty archive was written, then ran `mongorestore` from that exact archive into a disposable scratch database and confirmed the restored collection counts matched the source — genuine round-trip proof, not just "the script executed with no error." v1's database and cron jobs were never touched.
+
 ---
 
 ## Changelog

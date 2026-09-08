@@ -1,0 +1,12 @@
+[Unit]
+Description=Run torpedo-v2-mongo-backup.service once daily
+
+[Timer]
+# 02:30 UTC — clear of v1's own 00:05/03:00 cron jobs (a different service,
+# a different database, but no reason to compete for disk/CPU on the same
+# resource-constrained VM at the same minute.
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -876,3 +876,18 @@ real, deferred next increment rather than silently left unchecked — see
 full list and reasoning.
 
 Test count: 480 → 482.
+
+**2026-09-08, continued — Phase 19 (backup/recovery).** `torpedo_v2`'s
+MongoDB database had zero backup coverage — confirmed by checking every
+cron job, systemd timer, and backup-looking directory on the VM; nothing
+touched the v2 database. Fixed with the same "systemd timer + one small
+script" pattern Phase 14's scheduler already established:
+`backend_v2/deploy/backup_mongo.sh` (`mongodump --archive --gzip` to
+`/var/backups/torpedo-v2-mongo/`, outside the git tree, 7-day retention,
+fails loud on an empty archive) plus `torpedo-v2-mongo-backup.timer`
+(daily, 02:30 UTC, clear of v1's own cron schedule). Live-validated with
+a real backup-then-restore round-trip into a disposable scratch database
+— collection counts matched — not just "the script ran with no error."
+v1's database and cron jobs untouched throughout.
+
+Test count unchanged at 482 (infrastructure, not application code).
