@@ -10,8 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.gpu_broker import GpuBroker
-from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.llm import get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, get_rbac_service, require_permission
 from app.db import get_database
@@ -104,7 +103,7 @@ def get_ai_finance_service() -> AIFinanceService:
     from app.config import get_settings
 
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return AIFinanceService(

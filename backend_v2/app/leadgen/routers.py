@@ -17,8 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.gpu_broker import GpuBroker
-from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.llm import get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, require_permission
 from app.crm.models import Opportunity
@@ -107,7 +106,7 @@ def get_gsc_provider() -> GSCProvider:
 
 def get_leadgen_ai_service() -> LeadGenAIService:
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return LeadGenAIService(engine, get_leadgen_service())
 
@@ -117,7 +116,7 @@ def get_lead_conversion_ai_service() -> LeadConversionAIService:
     from app.finance.routers import get_invoice_service
 
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     facets = FacetService(
         people=CanonicalRepository(db["people"], Person), accounts=CanonicalRepository(db["accounts"], Account),
@@ -136,7 +135,7 @@ def get_outreach_ai_service() -> OutreachAIService:
     from app.config import get_settings
 
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return OutreachAIService(
         engine, get_leadgen_service(), get_outreach_service(get_send_provider()),

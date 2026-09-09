@@ -11,8 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.gpu_broker import GpuBroker
-from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.llm import get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import require_permission
 from app.db import get_database
@@ -37,7 +36,7 @@ def get_email_ai_service() -> EmailAIService:
 
     db = get_database()
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     decision_engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     return EmailAIService(
         emails=CanonicalRepository(db["inbound_emails"], InboundEmail),

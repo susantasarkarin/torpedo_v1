@@ -2,9 +2,13 @@
 LLMProvider — the fifth instance of this codebase's external-boundary `Protocol`
 pattern (`app.leadgen.ai.AIClassifier`, `app.outreach.providers.SendProvider`,
 `app.outreach.drafting.MessageDrafter`, `app.panel.providers.SurveyProvider`, now
-this). Tested against fakes throughout; `GpuBrokerLLMProvider` is the real
-implementation, calling the shared node's OpenAI-compatible endpoint through
-`GpuBroker.acquire()`.
+this). Tested against fakes throughout. Two real implementations exist:
+`GpuBrokerLLMProvider` (a rented, on-demand RunPod pod, acquired/leased through
+`GpuBroker`) and `LocalLlamaCppProvider` (an always-on llama.cpp process this
+deployment's own VM runs and owns outright — no lease, no idle-sweep, no external
+account). `get_llm_provider()` prefers the local provider when configured, same
+"prefer the real thing that's actually configured" discipline as
+`app.outreach.routers.get_send_provider()` preferring SES over SMTP.
 
 `LLMUnavailable` mirrors `AIUnavailable` exactly: raised, never returned as an empty
 response — the same I-4 shape ("AI failure is never a business verdict") applied to
@@ -92,3 +96,65 @@ class GpuBrokerLLMProvider:
             content=content, model=endpoint.model,
             prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"),
         )
+
+
+class LocalLlamaCppProvider:
+    """The real local-inference provider: calls an always-on llama.cpp
+    `llama-server` process (OpenAI-compatible `/chat/completions`) that this
+    deployment starts, owns, and restarts itself via systemd — see
+    docs/LOCAL_LLM_RUNBOOK.md for exactly which model, how it's started, and
+    how the endpoint/API key are configured. Deliberately does not go through
+    `GpuBroker`: there is no lease to acquire and no idle timer to touch —
+    the process is either up (this call succeeds or the server itself
+    returns an error) or down (this call raises `LLMUnavailable`), the same
+    two-state shape `verify_token()` uses for a session rather than
+    inventing a third "maybe" state."""
+
+    def __init__(self, *, base_url: str, model: str, api_key: str | None = None, transport: httpx.BaseTransport | None = None):
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self._api_key = api_key
+        self._transport = transport  # test-only injection point, same as GpuBrokerLLMProvider
+
+    async def chat(self, *, messages: list[dict], response_format: dict | None = None) -> LLMResponse:
+        payload: dict = {"model": self._model, "messages": messages}
+        if response_format:
+            payload["response_format"] = response_format
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0, transport=self._transport) as client:
+                response = await client.post(f"{self._base_url}/chat/completions", json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise LLMUnavailable(f"local model call failed: {exc}") from exc
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMUnavailable(f"local model response did not match the expected shape: {exc}") from exc
+
+        usage = data.get("usage") or {}
+        return LLMResponse(
+            content=content, model=data.get("model") or self._model,
+            prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"), total_tokens=usage.get("total_tokens"),
+        )
+
+
+def get_llm_provider(db) -> LLMProvider:
+    """The one place every router constructs its LLMProvider — was 7 separate
+    `GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))` call sites across
+    4 files before this, each of which would have needed editing (and could
+    have been missed) to pick up the local provider. Prefers
+    `LocalLlamaCppProvider` when `local_llm_base_url` is configured; falls
+    back to the unchanged RunPod broker path otherwise — this never deletes
+    or replaces that path, only takes priority over it."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    if settings.local_llm_base_url:
+        return LocalLlamaCppProvider(
+            base_url=settings.local_llm_base_url, model=settings.local_llm_model_name, api_key=settings.local_llm_api_key,
+        )
+    return GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))

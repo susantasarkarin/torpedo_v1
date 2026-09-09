@@ -13,7 +13,8 @@ from mongomock_motor import AsyncMongoMockClient
 
 from app.ai import gpu_broker as gb
 from app.ai.gpu_broker import GpuBroker
-from app.ai.routers import get_gpu_broker, get_scheduler_signing_secret_for_sweep
+from app.ai.llm import LLMResponse, LLMUnavailable
+from app.ai.routers import get_ai_health_llm_provider, get_gpu_broker, get_scheduler_signing_secret_for_sweep
 from app.auth.dependencies import get_auth_service, get_rbac_service
 from app.auth.models import Credential, Session
 from app.auth.service import AuthService
@@ -99,6 +100,63 @@ async def test_gpu_status_reports_off_when_nothing_registered(client: TestClient
     resp = client.get("/api/v1/ai/gpu/status", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["state"] == "off"
+
+
+# --------------------------------------------------------------------------- /ai/health
+# A real, live inference check — distinct from /integrations/status's
+# config-presence-only reporting. FakeHealthyProvider/FakeDownProvider stand in
+# for a real LLMProvider the same way every other Protocol boundary in this
+# codebase is tested (fake transport/fake implementation, no network call);
+# the genuine non-mocked local model is exercised separately (see
+# docs/LOCAL_LLM_RUNBOOK.md's live-verification test).
+
+
+class FakeHealthyProvider:
+    async def chat(self, *, messages, response_format=None):
+        return LLMResponse(content="OK", model="qwen2.5-0.5b-instruct")
+
+
+class FakeDownProvider:
+    async def chat(self, *, messages, response_format=None):
+        raise LLMUnavailable("local model call failed: connection refused")
+
+
+@pytest.mark.asyncio
+async def test_ai_health_without_permission_is_403(client: TestClient, auth_service, rbac_service):
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[])
+    resp = client.get("/api/v1/ai/health", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_ai_health_reports_healthy_on_a_real_answer(client: TestClient, auth_service, rbac_service):
+    app.dependency_overrides[get_ai_health_llm_provider] = lambda: FakeHealthyProvider()
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[AI_READ])
+
+    resp = client.get("/api/v1/ai/health", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "healthy"
+    assert body["model"] == "qwen2.5-0.5b-instruct"
+    assert body["sample_response"] == "OK"
+    assert isinstance(body["latency_ms"], (int, float))
+
+
+@pytest.mark.asyncio
+async def test_ai_health_reports_unavailable_without_crashing_when_the_model_is_down(client: TestClient, auth_service, rbac_service):
+    app.dependency_overrides[get_ai_health_llm_provider] = lambda: FakeDownProvider()
+    token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[AI_READ])
+
+    resp = client.get("/api/v1/ai/health", headers={"Authorization": f"Bearer {token}"})
+
+    # Still 200 — the health-check endpoint itself worked; "unavailable" is
+    # reported in the body, the same "did the checker run" vs "is the
+    # checked thing healthy" split the route's own docstring describes.
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "unavailable"
+    assert "connection refused" in body["error"]
 
 
 @pytest.mark.asyncio

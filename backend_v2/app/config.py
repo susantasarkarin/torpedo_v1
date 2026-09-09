@@ -80,6 +80,18 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
 
+    # Real local LLM inference (app.ai.llm.LocalLlamaCppProvider) — an
+    # always-on, systemd-managed llama.cpp process on this deployment's own
+    # VM, not a rented/on-demand pod. Preferred over GpuBrokerLLMProvider's
+    # RunPod path when configured (app.ai.llm.get_llm_provider()), same
+    # "prefer the real thing that's actually configured" discipline as
+    # get_send_provider() preferring SES over SMTP. An unset base_url means
+    # get_llm_provider() falls back to the RunPod broker path unchanged —
+    # this never replaces that code, only takes priority over it.
+    local_llm_base_url: str | None = None
+    local_llm_api_key: str | None = None
+    local_llm_model_name: str = "local-model"
+
 
 @lru_cache
 def get_settings() -> Settings:

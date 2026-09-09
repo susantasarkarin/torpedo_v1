@@ -12,11 +12,13 @@ is non-empty," nothing more.
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from app.ai.gpu_broker import GpuBroker
+from app.ai.llm import LLMUnavailable, get_llm_provider
 from app.auth.dependencies import require_permission
 from app.config import get_settings
 from app.db import get_database
@@ -51,6 +53,57 @@ async def gpu_status(identity: ResolvedIdentity = Depends(require_permission(AI_
 @router.post("/ai/gpu/shutdown")
 async def gpu_shutdown_now(identity: ResolvedIdentity = Depends(require_permission(AI_ADMIN)), broker: GpuBroker = Depends(get_gpu_broker)) -> dict:
     return await broker.shutdown_now()
+
+
+def get_ai_health_llm_provider():
+    return get_llm_provider(get_database())
+
+
+@router.get("/ai/health")
+async def ai_health(
+    identity: ResolvedIdentity = Depends(require_permission(AI_READ)),
+    provider=Depends(get_ai_health_llm_provider),
+) -> dict:
+    """A real, live inference check — deliberately distinct from
+    `/integrations/status`'s config-presence reporting (`_configured()`
+    there only checks whether an env var is non-empty, never whether
+    anything actually answers). This endpoint performs one genuine,
+    minimal-token chat call against whichever `LLMProvider`
+    `get_llm_provider()` currently selects (local llama.cpp or the RunPod
+    broker) and reports whether it actually answered.
+
+    Permission-gated like every other route (not a public unauthenticated
+    endpoint like the bare `/health`) — a real inference call has a real
+    cost, and an unauthenticated health check would be a free way to spam
+    the model's single inference slot (see docs/LOCAL_LLM_RUNBOOK.md's
+    security-audit notes on this exact tradeoff).
+
+    Always returns HTTP 200 — the endpoint itself succeeded at checking;
+    the AI backend's own health is the `status` field in the body
+    ("healthy" or "unavailable"), the same "did the checker run" vs "is the
+    checked thing healthy" split any monitoring endpoint needs.
+    """
+    settings = get_settings()
+    provider_name = "local_llama_cpp" if settings.local_llm_base_url else "runpod_gpu_broker"
+
+    started_at = time.perf_counter()
+    try:
+        response = await provider.chat(messages=[{"role": "user", "content": "Reply with exactly one word: OK"}])
+        return {
+            "status": "healthy",
+            "provider": provider_name,
+            "model": response.model,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000, 1),
+            "sample_response": response.content[:200],
+        }
+    except LLMUnavailable as exc:
+        return {
+            "status": "unavailable",
+            "provider": provider_name,
+            "model": settings.local_llm_model_name if settings.local_llm_base_url else None,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000, 1),
+            "error": str(exc),
+        }
 
 
 def get_scheduler_signing_secret_for_sweep() -> str | None:

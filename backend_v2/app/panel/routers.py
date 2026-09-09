@@ -21,8 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.gpu_broker import GpuBroker
-from app.ai.llm import GpuBrokerLLMProvider
+from app.ai.llm import get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import require_permission
 from app.db import get_database
@@ -83,7 +82,7 @@ def get_panel_allocation_ai_service() -> PanelAllocationAIService:
     from app.config import get_settings
 
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
     return PanelAllocationAIService(
         engine, get_survey_service(), get_allocation_service(),
@@ -96,7 +95,7 @@ def get_operations_ai_service() -> OperationsAIService:
     from app.config import get_settings
 
     db = get_database()
-    llm = GpuBrokerLLMProvider(GpuBroker(db["ai_gpu_leases"]))
+    llm = get_llm_provider(db)
     ai_proposals = CanonicalRepository(db["ai_proposals"], AiProposal)
     engine = DecisionEngine(llm, ToolRegistry(), ai_proposals)
     inactivity = StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
