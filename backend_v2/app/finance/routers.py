@@ -9,8 +9,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.llm import get_llm_provider
+from app.ai.decision_engine import Decision, DecisionEngine, DecisionEngineError
+from app.ai.llm import LLMUnavailable, get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, get_rbac_service, require_permission
 from app.db import get_database
@@ -442,6 +442,10 @@ async def decide_ar_followup(invoice_id: str, identity: ResolvedIdentity = Depen
         return await svc.decide_ar_followup(org_id=identity.org_id, actor=identity.user_id, invoice_id=invoice_id)
     except AIFinanceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
 
 
 @router.post("/finance/bills/{bill_id}/ai/ap-followup", response_model=Decision)
@@ -450,6 +454,10 @@ async def decide_ap_followup(bill_id: str, identity: ResolvedIdentity = Depends(
         return await svc.decide_ap_followup(org_id=identity.org_id, actor=identity.user_id, bill_id=bill_id)
     except AIFinanceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
 
 
 @router.post("/finance/reconciliation/entries/{record_id}/ai-match", response_model=MatchPaymentResponse)
@@ -462,6 +470,10 @@ async def ai_match_payment(
         decision, payment = await svc.match_payment_to_invoice(org_id=identity.org_id, actor=identity.user_id, reconciliation_record_id=record_id, allow_overpayment=body.allow_overpayment)
     except AIFinanceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
     return MatchPaymentResponse(decision=decision, payment=payment)
 
 

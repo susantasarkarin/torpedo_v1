@@ -20,8 +20,8 @@ import json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
-from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.llm import get_llm_provider
+from app.ai.decision_engine import Decision, DecisionEngine, DecisionEngineError
+from app.ai.llm import LLMUnavailable, get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import require_permission
 from app.db import get_database
@@ -264,6 +264,10 @@ async def ai_allocate(
         )
     except PanelAllocationAIError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
     return AiAllocateResponse(decision=decision, allocation=allocation)
 
 
@@ -347,6 +351,10 @@ async def decide_operations_response(
         return await svc.evaluate_and_act(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, trigger_type=body.trigger_type, provider=provider)
     except OperationsAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
 
 
 # --------------------------------------------------------------------------- billing / margin (Slice 18)

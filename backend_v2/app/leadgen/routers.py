@@ -16,8 +16,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.ai.decision_engine import Decision, DecisionEngine
-from app.ai.llm import get_llm_provider
+from app.ai.decision_engine import Decision, DecisionEngine, DecisionEngineError
+from app.ai.llm import LLMUnavailable, get_llm_provider
 from app.ai.tools import ToolRegistry
 from app.auth.dependencies import get_current_identity, require_permission
 from app.crm.models import Opportunity
@@ -277,6 +277,10 @@ async def evaluate_icp(
         return await svc.evaluate_icp(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id, prospect_context=body.prospect_context)
     except LeadGenAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
 
 
 class AiConvertResponse(BaseModel):
@@ -294,6 +298,10 @@ async def ai_convert_lead(
         decision, opportunity = await svc.evaluate_and_convert(org_id=identity.org_id, actor=identity.user_id, lead_state_id=lead_state_id)
     except LeadConversionAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc
     return AiConvertResponse(decision=decision, opportunity=opportunity)
 
 
@@ -308,3 +316,7 @@ async def decide_outreach(
         return await svc.decide_and_act(org_id=identity.org_id, actor=identity.user_id, enrollment_id=enrollment_id, mailbox_id=body.mailbox_id)
     except OutreachAIError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DecisionEngineError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"the model answered but not with a valid decision: {exc}") from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"AI backend unavailable: {exc}") from exc

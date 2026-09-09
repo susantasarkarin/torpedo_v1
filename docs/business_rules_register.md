@@ -656,8 +656,28 @@ New: `app/ai/llm.py` (`LocalLlamaCppProvider`, `get_llm_provider()`), `Settings.
 
 ---
 
+### EF-15 — Real bug found by live-testing the local model: unhandled 500 on AI-decision endpoints (2026-09-09)
+
+Found by actually exercising the new local model through the real HTTP API (not by inspection or unit tests, which all used a well-formed `FakeLLM` and so never exercised this path): `POST /surveys/{id}/operations/decide` returned a raw, unhandled `500 Internal Server Error` when the real Qwen2.5-0.5B model's JSON response omitted the required `confidence` field — a genuine, live occurrence of the reliability limitation `docs/LOCAL_LLM_RUNBOOK.md` already documents, not a hypothetical.
+
+Root cause: `decide_operations_response()` caught only `OperationsAIError`. `DecisionEngineError` (model answered, but the JSON didn't validate as a `Decision` — raised deep inside `DecisionEngine.decide()`) and `LLMUnavailable` (the model/broker couldn't be reached at all) both propagated unhandled into FastAPI's default 500 handler.
+
+**The same exact gap existed identically across all ten AI-decision HTTP endpoints**, not just this one — every one of them caught only its own domain-specific error type:
+
+- `app.leadgen.routers`: `evaluate_icp`, `ai_convert_lead`, `decide_outreach`
+- `app.emailai.routers`: `analyze_email`, `decide_email_followup`
+- `app.panel.routers`: `ai_allocate`, `decide_operations_response`
+- `app.finance.routers`: `decide_ar_followup`, `decide_ap_followup`, `ai_match_payment`
+
+This was always a latent defect (it would have manifested identically the moment `RUNPOD_API_KEY` was ever configured) — it only became reachable, and thus visible, once a real model that can genuinely answer imperfectly existed to call. Fixed identically in all ten: an added `except DecisionEngineError` → `502 Bad Gateway` ("the model answered but not with a valid decision") and `except LLMUnavailable` → `503 Service Unavailable` ("AI backend unavailable"), on top of each endpoint's existing domain-error handling, never replacing it.
+
+Two new regression tests reproduce the exact live failure (a `FakeLLM` returning JSON missing `confidence`, and one raising `LLMUnavailable`) against `POST /surveys/{id}/operations/decide` — the one endpoint proven live — with a shared helper other endpoints' test files can reuse for the same pattern. Test count: 572 → 574.
+
+---
+
 ## Changelog
 
+- **2026-09-09 Rev 58** — See EF-15 above: a real 500 found by live-testing the new local model against a genuine business AI decision (not a health check) — `DecisionEngineError`/`LLMUnavailable` weren't caught by any of the ten AI-decision HTTP endpoints, only each one's own domain error type. Fixed identically everywhere: 502 for a malformed model response, 503 for an unreachable AI backend. Test count: 572 → 574.
 - **2026-09-09 Rev 57** — See EF-14 above: a real open-weight model (Qwen2.5-0.5B-Instruct, GGUF Q4_K_M) downloaded and running locally on the deployment VM via llama.cpp, under a hard systemd memory ceiling given the VM's genuinely tight resources (122MB free RAM, swap exhausted, shared with v1 production, at inspection time). `get_llm_provider()` now the one factory every AI-calling router uses, preferring the local model over the never-configured RunPod path. New `GET /ai/health` performs real inference, not a config check. Full runbook at `docs/LOCAL_LLM_RUNBOOK.md`. Test count: 561 → 572.
 - **2026-09-09 Rev 56** — See EF-13 above: closed the third of the three schema decisions the user authorized Claude to make directly. Found the "no `Study` entity, no client-contact linkage" half of the checklist's stated blocker was already stale (Slice 18 settled both), built the one genuinely missing piece (`Survey.client_deadline`) plus two deadline triggers and a stale-pending-client-response trigger sourced from the real Activity trail rather than the misleading `Survey.updated_at`. `REQUEST_CLIENT_STATUS` now resolves and records the real client contact via `Opportunity.person_id`, still never auto-sends. Change-request trigger explicitly left not built — no data source exists for it. Test count: 548 → 561.
 - **2026-09-09 Rev 55** — See EF-12 above: built the real "list every contact at this account" query, closing the second of the two schema decisions the user authorized Claude to make directly. Scoped to `LeadState` only (the one Person<->Account link the identity/leadgen layer owns) — deliberately does not reach into CRM's `Opportunity.account_id`/`person_id`, keeping the existing identity-upstream-of-CRM dependency direction intact. No selection algorithm invented; the gap was the listing itself. Test count: 540 → 548.
