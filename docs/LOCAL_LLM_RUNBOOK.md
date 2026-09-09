@@ -190,6 +190,26 @@ unlike the bare `/health` liveness check. A real inference call costs real
 CPU time on a 2-vCPU box; an unauthenticated version would be a free way for
 anyone to tie up the model's one serialized inference slot.
 
+## Measured performance and resource usage (2026-09-09)
+
+Real measurements against the live deployed model, not estimates:
+
+| | |
+|---|---|
+| Idle RSS | ~110-270MB (mmap-based; grows as pages are touched) |
+| RSS after one inference call | ~480MB |
+| RSS after 3 concurrent requests | ~523MB (well under the 768MB `MemoryMax` cap) |
+| Single-request latency (short prompt, "reply OK") | ~1.9s round trip through the full HTTP → auth → AI gateway → local model chain |
+| Single-request latency (full `Decision` schema, ~130 prompt + ~135 completion tokens) | ~9.6-20.7s |
+| 3 concurrent requests | All succeeded (200); correctly serialized by `--parallel 1` (2.4s / 3.7s / 4.6s, increasing — confirmed *not* processed simultaneously), never overlapping in a way that could spike memory |
+| System-wide "available" memory before vs. after concurrent load | Unchanged (1.2GB both times) — the model's own memory growth came from reclaimable cache, not from taking headroom v1 needs |
+
+Generation speed is roughly 7-8 tokens/second on the 2 real vCPUs — slow by
+GPU standards, expected and acceptable for CPU-only inference at this
+model size on this hardware. If AI-decision latency ever needs to improve,
+the lever is more/faster CPU (or a real GPU) on dedicated infrastructure,
+not squeezing more out of this VM's current 2 vCPUs.
+
 ## Known limitation — structured-output reliability at this size
 
 Live-tested against the real model (not mocked): the model reliably produces
