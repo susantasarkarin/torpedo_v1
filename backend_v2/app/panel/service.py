@@ -72,7 +72,7 @@ class SurveyService:
     async def create_survey(
         self, *, org_id: str, actor: str, provider: str, external_id: str, quota_remaining: int, cpi: Money, conversion_rate: float,
         category: str | None = None, length_minutes: int | None = None, incentive: Money | None = None,
-        opportunity_id: str | None = None, client_rate: Money | None = None,
+        opportunity_id: str | None = None, client_rate: Money | None = None, client_deadline=None,
     ) -> Survey:
         if provider not in SURVEY_PROVIDERS:
             raise SurveyError(f"unsupported provider {provider!r} — only {SURVEY_PROVIDERS} exist in v2, CPX was removed entirely")
@@ -81,7 +81,7 @@ class SurveyService:
                 org_id=org_id, created_by=actor, updated_by=actor, provider=provider, external_id=external_id,
                 quota_remaining=quota_remaining, cpi=cpi, conversion_rate=conversion_rate,
                 category=category, length_minutes=length_minutes, incentive=incentive,
-                opportunity_id=opportunity_id, client_rate=client_rate,
+                opportunity_id=opportunity_id, client_rate=client_rate, client_deadline=client_deadline,
             )
         )
 
@@ -99,6 +99,15 @@ class SurveyService:
         if not changes:
             return survey
         return await self._surveys.update(survey.id, survey.version, changes, updated_by=actor)
+
+    async def set_client_deadline(self, *, org_id: str, actor: str, survey_id: str, client_deadline) -> Survey:
+        """A distinct writer from `set_commercial_linkage()` deliberately — the
+        deadline is a scheduling fact, not a money/opportunity-link fact, and this
+        module's "one writer per concern" discipline (see that method's docstring)
+        treats them separately rather than growing one method into a catch-all
+        Survey-field setter."""
+        survey = await self._get_or_raise(survey_id, org_id=org_id)
+        return await self._surveys.update(survey.id, survey.version, {"client_deadline": client_deadline}, updated_by=actor)
 
     async def set_eligibility(self, *, org_id: str, actor: str, survey_id: str, is_active_in_pool: bool, activated_at) -> Survey:
         """The one writer for the AUTHORITATIVE eligibility fields — Torpedo's own

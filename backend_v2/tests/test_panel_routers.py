@@ -184,6 +184,36 @@ async def test_setting_another_orgs_survey_eligibility_through_http_is_400_not_a
 
 
 @pytest.mark.asyncio
+async def test_set_client_deadline_through_http(client: TestClient, auth_service, rbac_service):
+    admin_token = await _make_authenticated_user(auth_service, rbac_service, user_id="alice", org_id=ORG_A, permissions=[SURVEY_MANAGE])
+    create_resp = client.post(
+        "/api/v1/surveys",
+        json={"provider": "cint", "external_id": "ext-deadline", "quota_remaining": 5, "cpi": {"amount_minor": 500, "currency": "INR"}, "conversion_rate": 0.3},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    survey_id = create_resp.json().get("id") or create_resp.json().get("_id")
+
+    resp = client.post(f"/api/v1/surveys/{survey_id}/client-deadline", json={"client_deadline": "2026-12-01T00:00:00Z"}, headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    assert resp.json()["client_deadline"].startswith("2026-12-01")
+
+
+@pytest.mark.asyncio
+async def test_setting_another_orgs_survey_client_deadline_through_http_is_400_not_a_cross_tenant_write(client: TestClient, auth_service, rbac_service):
+    org_b_token = await _make_authenticated_user(auth_service, rbac_service, user_id="bob", org_id=ORG_B, permissions=[SURVEY_MANAGE])
+    create_resp = client.post(
+        "/api/v1/surveys",
+        json={"provider": "cint", "external_id": "ext-org-b-deadline", "quota_remaining": 5, "cpi": {"amount_minor": 500, "currency": "INR"}, "conversion_rate": 0.3},
+        headers={"Authorization": f"Bearer {org_b_token}"},
+    )
+    org_b_survey_id = create_resp.json().get("id") or create_resp.json().get("_id")
+
+    attacker_token = await _make_authenticated_user(auth_service, rbac_service, user_id="mallory", org_id=ORG_A, permissions=[SURVEY_MANAGE])
+    resp = client.post(f"/api/v1/surveys/{org_b_survey_id}/client-deadline", json={"client_deadline": "2026-12-01T00:00:00Z"}, headers={"Authorization": f"Bearer {attacker_token}"})
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_allocate_cannot_reserve_another_orgs_survey_quota_through_http(client: TestClient, auth_service, rbac_service):
     """The client-supplied candidate_survey_ids on POST /traffic/{id}/allocate
     must never let a caller reserve or drain another org's survey quota by

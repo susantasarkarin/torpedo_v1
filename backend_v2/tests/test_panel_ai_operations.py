@@ -18,6 +18,8 @@ from app.models.activity import Activity
 from app.models.ai_proposal import AiProposal
 from app.models.base import CanonicalRepository
 from app.models.money import Money
+from app.crm.models import Opportunity
+from app.identity.models import Person
 from app.panel.ai_operations import ACTIVE, CLOSED, OperationsAIError, OperationsAIService, PAUSED, PENDING_CLIENT_RESPONSE
 from app.panel.inactivity import StudyInactivityService
 from app.panel.models import Allocation, Survey, SurveyResponse
@@ -77,9 +79,23 @@ def inactivity(db) -> StudyInactivityService:
     return StudyInactivityService(CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["allocations"], Allocation), CanonicalRepository(db["activities"], Activity))
 
 
-def _service(db, llm, survey_service, inactivity, shadow_mode=False) -> OperationsAIService:
+def _service(db, llm, survey_service, inactivity, shadow_mode=False, *, with_contact_resolution=False) -> OperationsAIService:
     engine = DecisionEngine(llm, ToolRegistry(), CanonicalRepository(db["ai_proposals"], AiProposal))
-    return OperationsAIService(engine, survey_service, inactivity, CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), CanonicalRepository(db["ai_proposals"], AiProposal), shadow_mode=shadow_mode)
+    kwargs = {}
+    if with_contact_resolution:
+        kwargs = {"opportunities": CanonicalRepository(db["opportunities"], Opportunity), "people": CanonicalRepository(db["people"], Person)}
+    return OperationsAIService(engine, survey_service, inactivity, CanonicalRepository(db["surveys"], Survey), CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), CanonicalRepository(db["ai_proposals"], AiProposal), shadow_mode=shadow_mode, **kwargs)
+
+
+async def _survey_with_recent_traffic(survey_service, db, **overrides) -> Survey:
+    """Same shape as `_live_survey()` but with a fresh Allocation attached, so
+    tests aimed at a different trigger don't also incidentally match
+    no_traffic_7_days (the highest-priority trigger)."""
+    survey = await _live_survey(survey_service, **overrides)
+    await CanonicalRepository(db["allocations"], Allocation).insert(
+        Allocation(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, survey_id=survey.id, person_id="p1", vendor_id="v1", country_code="IN", respondent_ref="recent", redirect_url="https://x")
+    )
+    return survey
 
 
 async def _live_survey(svc: SurveyService, *, external_id="s1", conversion_rate=0.3, quota=5) -> Survey:
@@ -206,6 +222,98 @@ async def test_closed_surveys_are_never_offered_to_detection(db, survey_service,
     assert triggered == []
 
 
+# --------------------------------------------------------------------------- deadline / stale-pending-response triggers
+# EF-13: the checklist's "client-response/deadline" schema decision, closed 2026-09-09.
+
+
+@pytest.mark.asyncio
+async def test_detect_finds_a_survey_with_a_passed_deadline(db, survey_service, inactivity):
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.5)
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    await surveys.update(survey.id, survey.version, {"client_deadline": past}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert (survey.id, "deadline_passed") in [(s.id, t) for s, t in triggered]
+
+    updated = await surveys.get(survey.id)
+    evidence = await svc._evidence(updated, "deadline_passed")
+    assert evidence["days_remaining"] < 0
+
+
+@pytest.mark.asyncio
+async def test_detect_finds_a_survey_with_an_approaching_deadline(db, survey_service, inactivity):
+    from app.panel.ai_operations import DEADLINE_WARNING_DAYS
+
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.5)
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    soon = datetime.now(timezone.utc) + timedelta(days=DEADLINE_WARNING_DAYS - 1)
+    await surveys.update(survey.id, survey.version, {"client_deadline": soon}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert (survey.id, "deadline_approaching") in [(s.id, t) for s, t in triggered]
+
+
+@pytest.mark.asyncio
+async def test_deadline_further_out_than_the_warning_window_never_triggers(db, survey_service, inactivity):
+    from app.panel.ai_operations import DEADLINE_WARNING_DAYS
+
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.5)
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    far = datetime.now(timezone.utc) + timedelta(days=DEADLINE_WARNING_DAYS + 10)
+    await surveys.update(survey.id, survey.version, {"client_deadline": far}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert survey.id not in {s.id for s, _ in triggered}
+
+
+@pytest.mark.asyncio
+async def test_detect_finds_a_stale_pending_client_response(db, survey_service, inactivity):
+    from app.panel.ai_operations import STALE_PENDING_RESPONSE_WINDOW
+
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.5)
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    await surveys.update(survey.id, survey.version, {"operational_status": PENDING_CLIENT_RESPONSE}, updated_by=ACTOR)
+    stale_at = datetime.now(timezone.utc) - STALE_PENDING_RESPONSE_WINDOW - timedelta(hours=1)
+    await CanonicalRepository(db["activities"], Activity).insert(
+        Activity(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, type="operations_request_client_status", subject_type="survey", subject_id=survey.id, actor_type="system", actor_id=ACTOR, payload={}, created_at=stale_at)
+    )
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert (survey.id, "pending_client_response_stale") in [(s.id, t) for s, t in triggered]
+
+
+@pytest.mark.asyncio
+async def test_pending_client_response_within_window_never_triggers(db, survey_service, inactivity):
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.5)
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    await surveys.update(survey.id, survey.version, {"operational_status": PENDING_CLIENT_RESPONSE}, updated_by=ACTOR)
+    await CanonicalRepository(db["activities"], Activity).insert(
+        Activity(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, type="operations_request_client_status", subject_type="survey", subject_id=survey.id, actor_type="system", actor_id=ACTOR, payload={})
+    )
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert survey.id not in {s.id for s, _ in triggered}
+
+
+@pytest.mark.asyncio
+async def test_pending_client_response_survey_never_also_matches_a_health_metric_trigger(db, survey_service, inactivity):
+    """A survey already parked awaiting client input skips the ordinary
+    health-metric checks entirely — see detect_triggers()'s own `continue`."""
+    survey = await _survey_with_recent_traffic(survey_service, db, conversion_rate=0.05)  # would otherwise be low_conversion
+    surveys = CanonicalRepository(db["surveys"], Survey)
+    await surveys.update(survey.id, survey.version, {"operational_status": PENDING_CLIENT_RESPONSE}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision()), survey_service, inactivity)
+    triggered = await svc.detect_triggers(org_id=ORG)
+    assert survey.id not in {s.id for s, _ in triggered}
+
+
 # --------------------------------------------------------------------------- evaluate_and_act (AI decides, code enforces)
 
 
@@ -282,6 +390,52 @@ async def test_request_client_status_records_state_without_any_email_side_effect
     await svc.evaluate_and_act(org_id=ORG, actor=ACTOR, survey_id=survey.id, trigger_type="no_traffic_7_days")
     updated = await survey_service._surveys.get(survey.id)
     assert updated.operational_status == PENDING_CLIENT_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_request_client_status_resolves_the_real_client_contact_when_the_linkage_exists(db, survey_service, inactivity):
+    """EF-13: the real close of "no verified path from a Survey to a client
+    contact address" — via Survey.opportunity_id -> Opportunity.person_id ->
+    Person, never a fabricated contact."""
+    opportunities = CanonicalRepository(db["opportunities"], Opportunity)
+    people = CanonicalRepository(db["people"], Person)
+    person = await people.insert(Person(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, given_name="Cara", family_name="Client", primary_email="cara@clientco.com"))
+    opportunity = await opportunities.insert(Opportunity(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, account_id="acc-1", person_id=person.id))
+
+    survey = await _live_survey(survey_service)
+    await CanonicalRepository(db["surveys"], Survey).update(survey.id, survey.version, {"opportunity_id": opportunity.id}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision(decision="REQUEST_CLIENT_STATUS")), survey_service, inactivity, with_contact_resolution=True)
+    await svc.evaluate_and_act(org_id=ORG, actor=ACTOR, survey_id=survey.id, trigger_type="no_traffic_7_days")
+
+    activity = await CanonicalRepository(db["activities"], Activity).find_one({"type": "operations_request_client_status", "subject_id": survey.id})
+    assert activity.payload["client_contact"] == {"person_id": person.id, "name": "Cara Client", "email": "cara@clientco.com"}
+
+
+@pytest.mark.asyncio
+async def test_request_client_status_records_none_contact_when_the_resolver_is_not_wired(db, survey_service, inactivity):
+    survey = await _live_survey(survey_service)
+    svc = _service(db, FakeLLM(_decision(decision="REQUEST_CLIENT_STATUS")), survey_service, inactivity)  # no opportunities/people injected
+
+    await svc.evaluate_and_act(org_id=ORG, actor=ACTOR, survey_id=survey.id, trigger_type="no_traffic_7_days")
+
+    activity = await CanonicalRepository(db["activities"], Activity).find_one({"type": "operations_request_client_status", "subject_id": survey.id})
+    assert activity.payload["client_contact"] is None
+
+
+@pytest.mark.asyncio
+async def test_request_client_status_records_none_contact_when_the_opportunity_has_no_contact(db, survey_service, inactivity):
+    opportunities = CanonicalRepository(db["opportunities"], Opportunity)
+    opportunity = await opportunities.insert(Opportunity(org_id=ORG, created_by=ACTOR, updated_by=ACTOR, account_id="acc-1"))  # no person_id
+
+    survey = await _live_survey(survey_service)
+    await CanonicalRepository(db["surveys"], Survey).update(survey.id, survey.version, {"opportunity_id": opportunity.id}, updated_by=ACTOR)
+
+    svc = _service(db, FakeLLM(_decision(decision="REQUEST_CLIENT_STATUS")), survey_service, inactivity, with_contact_resolution=True)
+    await svc.evaluate_and_act(org_id=ORG, actor=ACTOR, survey_id=survey.id, trigger_type="no_traffic_7_days")
+
+    activity = await CanonicalRepository(db["activities"], Activity).find_one({"type": "operations_request_client_status", "subject_id": survey.id})
+    assert activity.payload["client_contact"] is None
 
 
 @pytest.mark.asyncio

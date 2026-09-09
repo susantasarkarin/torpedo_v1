@@ -66,6 +66,14 @@ class Survey(CanonicalDocument):
     # two numbers are never the same field.
     opportunity_id: str | None = None
     client_rate: Money | None = None
+    # The one field the checklist named as genuinely missing once Slice 18's
+    # opportunity_id/client_rate closed the "no client-contact linkage" and "no
+    # separate Study entity" parts of that same gap (billing.py's own docstring
+    # already settled "there is no separate Study entity" — Survey carries the
+    # study concept directly). Caller-set, real, never derived — see
+    # app.panel.ai_operations for the deadline_approaching/deadline_passed
+    # triggers this makes possible.
+    client_deadline: datetime | None = None
 
 
 class Allocation(CanonicalDocument):

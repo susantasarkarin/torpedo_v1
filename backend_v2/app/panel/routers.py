@@ -41,6 +41,7 @@ from app.panel.models import Allocation, SURVEY_PROVIDERS, Supplier, Survey, Sur
 from app.panel.providers import SurveyProvider, SurveyProviderUnavailable, SurveyProjection
 from app.panel.service import AllocationService, CallbackService, SupplierReconciliationService, SupplierService, SurveyError, SurveyService, TrafficSourceService
 from app.crm.models import Opportunity
+from app.identity.models import Person
 from app.finance.models import Bill, GstDetails, Invoice
 from app.finance.routers import get_bill_service, get_invoice_service
 from app.rbac.identity import ResolvedIdentity
@@ -103,6 +104,7 @@ def get_operations_ai_service() -> OperationsAIService:
         engine, get_survey_service(), inactivity, CanonicalRepository(db["surveys"], Survey),
         CanonicalRepository(db["survey_responses"], SurveyResponse), CanonicalRepository(db["activities"], Activity), ai_proposals,
         shadow_mode=get_settings().ai_shadow_mode,
+        opportunities=CanonicalRepository(db["opportunities"], Opportunity), people=CanonicalRepository(db["people"], Person),
     )
 
 
@@ -150,6 +152,10 @@ class CreateSurveyRequest(BaseModel):
 class SetEligibilityRequest(BaseModel):
     is_active_in_pool: bool
     activated_at: str | None = None
+
+
+class SetClientDeadlineRequest(BaseModel):
+    client_deadline: str
 
 
 class AllocateRequest(BaseModel):
@@ -227,6 +233,14 @@ async def get_survey_metrics(survey_id: str, identity: ResolvedIdentity = Depend
 async def set_survey_eligibility(survey_id: str, body: SetEligibilityRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_MANAGE)), svc: SurveyService = Depends(get_survey_service)) -> Survey:
     try:
         return await svc.set_eligibility(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, is_active_in_pool=body.is_active_in_pool, activated_at=body.activated_at)
+    except SurveyError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/surveys/{survey_id}/client-deadline", response_model=Survey)
+async def set_survey_client_deadline(survey_id: str, body: SetClientDeadlineRequest, identity: ResolvedIdentity = Depends(require_permission(SURVEY_MANAGE)), svc: SurveyService = Depends(get_survey_service)) -> Survey:
+    try:
+        return await svc.set_client_deadline(org_id=identity.org_id, actor=identity.user_id, survey_id=survey_id, client_deadline=body.client_deadline)
     except SurveyError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

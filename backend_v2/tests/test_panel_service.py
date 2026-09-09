@@ -247,6 +247,19 @@ async def test_set_eligibility_never_touches_projection_fields(survey_service: S
     assert updated.quota_remaining == 7  # untouched by the eligibility writer
 
 
+@pytest.mark.asyncio
+async def test_set_client_deadline(survey_service: SurveyService):
+    from datetime import datetime, timezone
+
+    survey = await survey_service.create_survey(org_id=ORG, actor="system", provider="cint", external_id="s1", quota_remaining=7, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+    assert survey.client_deadline is None
+
+    deadline = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    updated = await survey_service.set_client_deadline(org_id=ORG, actor="system", survey_id=survey.id, client_deadline=deadline)
+    assert updated.client_deadline == deadline
+    assert updated.quota_remaining == 7  # untouched by the deadline writer — same "one writer per concern" discipline
+
+
 # --------------------------------------------------------------------------- callback signature (D-08/D-23)
 
 
@@ -452,7 +465,19 @@ async def test_set_eligibility_cannot_cross_org_boundaries(survey_service: Surve
         await survey_service.set_eligibility(org_id=ORG, actor="mallory", survey_id=other_orgs_survey.id, is_active_in_pool=True, activated_at=None)
 
     untouched = await survey_service._surveys.get(other_orgs_survey.id)
+
     assert untouched.eligibility_is_active_in_pool is False
+
+
+@pytest.mark.asyncio
+async def test_set_client_deadline_cannot_cross_org_boundaries(survey_service: SurveyService):
+    other_orgs_survey = await survey_service.create_survey(org_id="org-B", actor="mallory", provider="cint", external_id="s1", quota_remaining=5, cpi=Money(amount_minor=500, currency=CURRENCY), conversion_rate=0.3)
+
+    with pytest.raises(SurveyError):
+        await survey_service.set_client_deadline(org_id=ORG, actor="mallory", survey_id=other_orgs_survey.id, client_deadline=datetime.now(timezone.utc))
+
+    untouched = await survey_service._surveys.get(other_orgs_survey.id)
+    assert untouched.client_deadline is None
 
 
 @pytest.mark.asyncio
