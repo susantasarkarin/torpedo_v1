@@ -18,6 +18,16 @@ from app.models.base import CanonicalDocument
 class Credential(CanonicalDocument):
     user_id: str
     password_hash: str
+    # Brute-force lockout state (app.auth.service.AuthService.authenticate()) —
+    # per-account, not per-IP: this codebase has no distributed rate-limiting
+    # infrastructure (no Redis, no shared in-memory limiter across worker
+    # processes), and building a real one is a materially bigger undertaking
+    # than this field pair. A per-account lockout after repeated failures is
+    # real, testable protection against credential-stuffing on a known
+    # user_id; it is honestly not IP-based throttling, which stays unbuilt
+    # rather than faked.
+    failed_attempts: int = 0
+    locked_until: datetime | None = None
 
 
 class Session(CanonicalDocument):

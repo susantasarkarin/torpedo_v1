@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.ai.routers import router as ai_router
+from app.auth.routers import router as auth_router
 from app.crm.routers import router as crm_router
 from app.db import get_database
 from app.emailai.routers import router as emailai_router
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Torpedo v2", version="0.1.0", lifespan=lifespan)
 
+app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
 app.include_router(leadgen_router, prefix="/api/v1", tags=["leadgen"])
 app.include_router(outreach_router, prefix="/api/v1", tags=["outreach"])

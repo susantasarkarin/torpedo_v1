@@ -21,6 +21,13 @@ would violate the no-fake-completion rule this checklist itself exists to enforc
 | **GSC / Google Search Console** | Only a stub reference in `seo_agent.py`; no working lead-gen pipeline exists in v1 or v2. | Google service-account/OAuth credentials for Search Console API. |
 | **Real email sending (SMTP or SES)** | `app.outreach.smtp_provider.SmtpSendProvider` (Slice 21) and `app.outreach.ses_provider.SesSendProvider` (2026-09-08) are both real implementations — `get_send_provider()` prefers SES when both are configured, SMTP otherwise, `StubSendProvider` kept test-only. Both fail loud (`SendProviderUnavailable`) when unconfigured. **SES is now genuinely activated** — real, working `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SES_REGION`/`SES_FROM_EMAIL` copied from v1's real, verified-working credential (confirmed live: `sending_enabled=True`). | **One real, AWS-side limit remains, not a code gap**: this SES account is in sandbox mode (`ProductionAccessEnabled=False`) — deliverable only to pre-verified recipient addresses until AWS approves production access, a business/console action outside this codebase. Gmail-OAuth (v1's `gmail_service.py`/`gmail_workspace_service.py`) remains a separate, larger credential-management scope not built here. |
 
+## Phase 1 continued — HTTP authentication
+
+| Item | Status |
+|---|---|
+| `POST /auth/login` / `POST /auth/logout` | **TESTED** (2026-09-09, EF-16) — found missing during live HTTP user-journey testing: `AuthService.authenticate()`/`revoke_session()` were real and tested at the service layer, but nothing in `app.main` ever exposed either over HTTP, so no external caller could obtain a session token through this API at all. Closed with exactly these two routes — deliberately no self-service registration (a real product decision left to the user, not made unilaterally) |
+| Brute-force lockout | **TESTED** — per-account (`Credential.failed_attempts`/`locked_until`), 5 failed attempts locks for 15 minutes, uniform 401 for every failure mode (wrong password, unknown user, locked account — no distinguishable oracle for any of them). Honestly per-account, not per-IP: no distributed rate-limiting infrastructure exists in this codebase to build real IP-based throttling on top of |
+
 ## Phase 5 — CRM commercial spine (Opportunity, Task)
 
 | Item | Status |

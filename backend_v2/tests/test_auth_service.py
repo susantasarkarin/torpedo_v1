@@ -12,7 +12,7 @@ import pytest
 from mongomock_motor import AsyncMongoMockClient
 
 from app.auth.models import Credential, Session
-from app.auth.service import AuthenticationFailed, AuthService, _hash_token
+from app.auth.service import MAX_FAILED_ATTEMPTS, AuthenticationFailed, AuthService, _hash_token
 from app.models.base import CanonicalRepository
 
 ORG = "org-A"
@@ -147,3 +147,74 @@ def test_password_shorter_than_minimum_is_rejected():
 
     with pytest.raises(ValueError):
         hash_password("short")
+
+
+# --------------------------------------------------------------------------- brute-force lockout
+
+
+@pytest.mark.asyncio
+async def test_account_locks_after_max_failed_attempts(auth: AuthService):
+    await auth.set_password("alice", "correct-horse-battery")
+
+    for _ in range(MAX_FAILED_ATTEMPTS):
+        with pytest.raises(AuthenticationFailed):
+            await auth.authenticate("alice", "wrong-password")
+
+    # The (MAX_FAILED_ATTEMPTS + 1)th attempt fails even with the CORRECT
+    # password — the account is locked, not just still counting failures.
+    with pytest.raises(AuthenticationFailed):
+        await auth.authenticate("alice", "correct-horse-battery")
+
+
+@pytest.mark.asyncio
+async def test_locked_account_gives_the_same_error_as_a_wrong_password(auth: AuthService):
+    """No lockout-state oracle: a caller must not be able to tell 'this
+    account is locked' apart from 'wrong password' — that would itself leak
+    that 5 failed attempts have accumulated on a real account."""
+    await auth.set_password("alice", "correct-horse-battery")
+    for _ in range(MAX_FAILED_ATTEMPTS):
+        with pytest.raises(AuthenticationFailed):
+            await auth.authenticate("alice", "wrong-password")
+
+    with pytest.raises(AuthenticationFailed) as locked_exc:
+        await auth.authenticate("alice", "correct-horse-battery")
+    with pytest.raises(AuthenticationFailed) as wrong_password_exc:
+        await auth.authenticate("bob-never-existed", "anything")
+
+    assert str(locked_exc.value) == str(wrong_password_exc.value)
+
+
+@pytest.mark.asyncio
+async def test_a_successful_login_resets_the_failed_attempt_counter(auth: AuthService):
+    await auth.set_password("alice", "correct-horse-battery")
+    for _ in range(MAX_FAILED_ATTEMPTS - 1):  # one short of locking
+        with pytest.raises(AuthenticationFailed):
+            await auth.authenticate("alice", "wrong-password")
+
+    await auth.authenticate("alice", "correct-horse-battery")  # succeeds, resets the counter
+
+    cred = await auth._credentials.find_one({"user_id": "alice"})
+    assert cred.failed_attempts == 0
+
+    # Proves the reset actually took effect: MAX_FAILED_ATTEMPTS - 1 more
+    # wrong attempts still doesn't lock the account (the counter restarted).
+    for _ in range(MAX_FAILED_ATTEMPTS - 1):
+        with pytest.raises(AuthenticationFailed):
+            await auth.authenticate("alice", "wrong-password")
+    await auth.authenticate("alice", "correct-horse-battery")  # would raise if still locked
+
+
+@pytest.mark.asyncio
+async def test_lockout_expires_after_the_cooldown_window(auth: AuthService):
+    await auth.set_password("alice", "correct-horse-battery")
+    for _ in range(MAX_FAILED_ATTEMPTS):
+        with pytest.raises(AuthenticationFailed):
+            await auth.authenticate("alice", "wrong-password")
+
+    # Force the lockout to have already expired, the same direct-repository-write
+    # pattern test_verify_token_with_expired_session_fails already uses above.
+    cred = await auth._credentials.find_one({"user_id": "alice"})
+    await auth._credentials.update(cred.id, cred.version, {"locked_until": datetime.now(timezone.utc) - timedelta(seconds=1)}, updated_by="test")
+
+    session, _ = await auth.authenticate("alice", "correct-horse-battery")
+    assert session.user_id == "alice"

@@ -30,6 +30,13 @@ from app.models.base import CanonicalRepository
 
 DEFAULT_SESSION_TTL = timedelta(hours=12)
 
+# Brute-force lockout — see Credential.failed_attempts/locked_until's own
+# comment for why this is per-account, not per-IP. Both an operational-cadence
+# choice, not a locked business rule, same discipline as this codebase's other
+# threshold constants (HIGH_DROPOUT_THRESHOLD, PROVIDER_FAILURE_THRESHOLD).
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
+
 
 def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
@@ -73,12 +80,34 @@ class AuthService:
     ) -> tuple[Session, str]:
         """Returns (session_record, raw_token). The raw token exists only here, once
         — it is never retrievable again after this call, by design (only its hash is
-        persisted)."""
+        persisted).
+
+        Locked-out state raises the exact same `AuthenticationFailed("invalid
+        credentials")` as a wrong password or a missing user, deliberately — a
+        distinguishable "account locked" response would itself be a new oracle
+        (it would confirm the account exists AND that 5 failed attempts have
+        accumulated), which is exactly the class of leak the "same error for
+        every failure mode" rule already exists to prevent."""
         cred = await self._credentials.find_one({"user_id": user_id})
-        if cred is None or not verify_password(plaintext, cred.password_hash):
-            # Same error for "no such user" and "wrong password," deliberately — a
-            # distinguishable error here is a user-enumeration oracle.
+        if cred is None:
             raise AuthenticationFailed("invalid credentials")
+
+        now = datetime.now(timezone.utc)
+        if cred.locked_until is not None and cred.locked_until > now:
+            raise AuthenticationFailed("invalid credentials")
+
+        if not verify_password(plaintext, cred.password_hash):
+            new_failed = cred.failed_attempts + 1
+            changes: dict = {"failed_attempts": new_failed}
+            if new_failed >= MAX_FAILED_ATTEMPTS:
+                changes["locked_until"] = now + LOCKOUT_DURATION
+                changes["failed_attempts"] = 0  # a fresh window starts once the lockout itself expires
+            await self._credentials.update(cred.id, cred.version, changes, updated_by=user_id)
+            raise AuthenticationFailed("invalid credentials")
+
+        if cred.failed_attempts > 0 or cred.locked_until is not None:
+            await self._credentials.update(cred.id, cred.version, {"failed_attempts": 0, "locked_until": None}, updated_by=user_id)
+
         return await self._issue_session(user_id, principal_type=principal_type, impersonated_by=None)
 
     async def start_impersonation(self, actor_session: Session, target_user_id: str) -> tuple[Session, str]:
