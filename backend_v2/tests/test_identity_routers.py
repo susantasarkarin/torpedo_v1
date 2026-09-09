@@ -113,7 +113,7 @@ async def test_create_and_read_person_with_permission_succeeds(client: TestClien
         headers={"Authorization": f"Bearer {token}"},
     )
     assert create_resp.status_code == 200
-    person_id = create_resp.json()["_id"]
+    person_id = create_resp.json()["id"]
 
     read_resp = client.get(f"/api/v1/people/{person_id}", headers={"Authorization": f"Bearer {token}"})
     assert read_resp.status_code == 200
@@ -137,7 +137,7 @@ async def test_org_isolation_through_the_actual_http_security_chain(client: Test
         "/api/v1/people", json={"primary_email": "carol@example.com"},
         headers={"Authorization": f"Bearer {alice_token}"},
     )
-    person_id = create_resp.json()["_id"]
+    person_id = create_resp.json()["id"]
 
     bob_read_resp = client.get(f"/api/v1/people/{person_id}", headers={"Authorization": f"Bearer {bob_token}"})
 
@@ -173,7 +173,7 @@ async def test_merge_endpoint_requires_permission(client: TestClient, auth_servi
     b = client.post("/api/v1/accounts", json={"name": "Acme Dup"}, headers={"Authorization": f"Bearer {token}"}).json()
 
     resp = client.post(
-        "/api/v1/accounts/merge", json={"primary_id": a["_id"], "duplicate_id": b["_id"]},
+        "/api/v1/accounts/merge", json={"primary_id": a["id"], "duplicate_id": b["id"]},
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -190,14 +190,14 @@ async def test_merge_endpoint_end_to_end_succeeds(client: TestClient, auth_servi
     b = client.post("/api/v1/accounts", json={"name": "Acme Dup"}, headers={"Authorization": f"Bearer {token}"}).json()
 
     merge_resp = client.post(
-        "/api/v1/accounts/merge", json={"primary_id": a["_id"], "duplicate_id": b["_id"]},
+        "/api/v1/accounts/merge", json={"primary_id": a["id"], "duplicate_id": b["id"]},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert merge_resp.status_code == 200
 
-    loser_resp = client.get(f"/api/v1/accounts/{b['_id']}", headers={"Authorization": f"Bearer {token}"})
+    loser_resp = client.get(f"/api/v1/accounts/{b['id']}", headers={"Authorization": f"Bearer {token}"})
     assert loser_resp.json()["status"] == "merged"
-    assert loser_resp.json()["merged_into"] == a["_id"]
+    assert loser_resp.json()["merged_into"] == a["id"]
 
 
 @pytest.mark.asyncio
@@ -214,11 +214,11 @@ async def test_merging_another_orgs_account_through_http_is_400_not_a_cross_tena
     primary = client.post("/api/v1/accounts", json={"name": "Attacker Co"}, headers={"Authorization": f"Bearer {attacker_token}"}).json()
 
     resp = client.post(
-        "/api/v1/accounts/merge", json={"primary_id": primary["_id"], "duplicate_id": victim["_id"]},
+        "/api/v1/accounts/merge", json={"primary_id": primary["id"], "duplicate_id": victim["id"]},
         headers={"Authorization": f"Bearer {attacker_token}"},
     )
     assert resp.status_code == 400
 
-    untouched = client.get(f"/api/v1/accounts/{victim['_id']}", headers={"Authorization": f"Bearer {org_b_token}"})
+    untouched = client.get(f"/api/v1/accounts/{victim['id']}", headers={"Authorization": f"Bearer {org_b_token}"})
     assert untouched.json()["status"] == "active"
     assert untouched.json()["merged_into"] is None

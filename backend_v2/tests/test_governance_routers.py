@@ -86,7 +86,7 @@ async def test_list_proposals_returns_unreviewed_ones(client: TestClient, auth_s
     assert resp.status_code == 200
     body = resp.json()
     assert len(body) == 1
-    assert body[0]["_id"] == proposal.id
+    assert body[0]["id"] == proposal.id
 
 
 @pytest.mark.asyncio
@@ -163,7 +163,7 @@ async def test_stale_only_includes_genuinely_stale_proposals(client: TestClient,
     resp = client.get("/api/v1/governance/proposals?stale_only=true", headers={"Authorization": f"Bearer {token}"})
     body = resp.json()
     assert len(body) == 1
-    assert body[0]["_id"] == stale.id
+    assert body[0]["id"] == stale.id
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ async def test_report_includes_reviewed_and_unreviewed_proposals_in_the_window(c
     since = (now - timedelta(minutes=1)).isoformat()
     resp = client.get("/api/v1/governance/proposals/report", params={"since": since}, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    ids = {p["_id"] for p in resp.json()}
+    ids = {p["id"] for p in resp.json()}
     assert ids == {reviewed.id, unreviewed.id}
 
 

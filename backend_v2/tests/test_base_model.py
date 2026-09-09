@@ -13,7 +13,7 @@ real replica set once transactions matter (Phase 3, finance).
 """
 
 import pytest
-from datetime import timezone
+from datetime import datetime, timezone
 from mongomock_motor import AsyncMongoMockClient
 from pydantic import ValidationError
 
@@ -122,3 +122,46 @@ async def test_update_with_stale_version_raises_version_conflict(repo: Canonical
 
     with pytest.raises(VersionConflict):
         await repo.update(saved.id, expected_version=1, changes={"name": "second writer"}, updated_by="user3")
+
+
+# --------------------------------------------------------------------------- id / _id API contract (2026-09-09)
+# Mongo's own primary key is genuinely named `_id` on the wire; every HTTP response
+# was leaking that storage detail outward as `"_id"` in the JSON body too, because
+# FastAPI's response serialization defaults to using the same alias storage needs.
+# validation_alias="_id" / serialization_alias="id" splits the two directions —
+# these tests prove storage is unaffected while the public contract now says "id".
+
+
+def test_to_mongo_still_writes_the_real_id_field(repo: CanonicalRepository[_Widget]):
+    w = _Widget(id="widget-1", name="thing", price=Money(amount_minor=500, currency="INR"), org_id="org1", created_by="user1", updated_by="user1")
+    doc = w.to_mongo()
+    assert doc["_id"] == "widget-1"
+    assert "id" not in doc
+
+
+@pytest.mark.asyncio
+async def test_a_raw_mongo_document_with_underscore_id_still_reads_back_correctly(repo: CanonicalRepository[_Widget], collection):
+    """Storage compatibility: an existing document shaped exactly like every
+    document already in the real database (raw `_id`, no `id` key at all)
+    must still validate and round-trip correctly — the split alias must not
+    require a data migration."""
+    now = datetime.now(timezone.utc)
+    await collection.insert_one({
+        "_id": "widget-2", "org_id": "org1", "created_by": "user1", "updated_by": "user1",
+        "created_at": now, "updated_at": now, "version": 1, "schema_version": 1, "deleted_at": None,
+        "name": "existing thing", "price": {"amount_minor": 100, "currency": "INR"},
+    })
+
+    fetched = await repo.get("widget-2")
+    assert fetched is not None
+    assert fetched.id == "widget-2"
+
+
+def test_model_dump_for_http_responses_uses_id_not_underscore_id():
+    """The exact call shape FastAPI's response serialization uses
+    (by_alias=True) on a model returned from a route — proves the outward
+    contract is really "id", not just that to_mongo() was left alone."""
+    w = _Widget(id="widget-3", name="thing", price=Money(amount_minor=500, currency="INR"), org_id="org1", created_by="user1", updated_by="user1")
+    dumped = w.model_dump(by_alias=True)
+    assert dumped["id"] == "widget-3"
+    assert "_id" not in dumped

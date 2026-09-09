@@ -687,8 +687,22 @@ New: `app/auth/routers.py`, `Credential.failed_attempts`/`locked_until`, `AuthSe
 
 ---
 
+### EF-17 — API contract audit: every HTTP response was leaking Mongo's raw `_id` (2026-09-09)
+
+Found during the same live-testing pass: every entity's HTTP response returned Mongo's internal primary-key field name (`"_id"`) instead of a clean public `"id"` field — a database implementation detail leaking into the public API contract. Root cause: `CanonicalDocument.id` used one shared `alias="_id"` for both directions (Mongo storage AND FastAPI's response serialization, which defaults to using the same alias), so there was no way to give the two audiences different names without either a data migration or per-route overrides at all ~60 endpoints.
+
+- **Fixed once, at the base class**: `CanonicalDocument.id` now has separate `validation_alias="_id"` (unchanged — reading a raw Mongo document, which is genuinely keyed `_id` on the wire, still works exactly as before) and `serialization_alias="id"` (new — every HTTP response across the entire app now returns a clean `id` field). `to_mongo()` no longer relies on `by_alias=True` (which would now write `id` instead of `_id` into Mongo, corrupting every future insert's primary key) — it dumps by Python field name and explicitly renames `id` → `_id`, so storage is provably unchanged.
+- **Zero per-entity or per-route changes needed** — every one of the ~40 `CanonicalDocument` subclasses and every route returning one picks this up automatically, because they all go through this one base class and `CanonicalRepository`.
+- **Storage compatibility verified, not assumed**: a test inserts a raw document shaped exactly like every document already in the real database (bare `_id`, no `id` key) and confirms it still reads back correctly — the split alias needs no data migration.
+- **8 pre-existing tests fixed** — they hard-coded `resp.json()["_id"]` instead of the defensive `.get("id") or .get("_id")` pattern most of this codebase's test files already used (which kept working unchanged, since `.get("id")` now simply succeeds first).
+
+New: 3 tests in `test_base_model.py` proving storage-write shape, storage-read compatibility, and the HTTP-serialization shape independently. Test count: 587 → 590.
+
+---
+
 ## Changelog
 
+- **2026-09-09 Rev 60** — See EF-17 above: every HTTP response across the entire app was leaking Mongo's raw `_id` field instead of a clean public `id`. Fixed once at `CanonicalDocument` by splitting `validation_alias`/`serialization_alias` — no per-entity or per-route changes needed, storage format provably unchanged (a raw-Mongo-shaped document still round-trips correctly). Test count: 587 → 590.
 - **2026-09-09 Rev 59** — See EF-16 above: built the HTTP login/logout endpoints v2 never had — every prior live-verification this session had to seed sessions directly against the database because no real caller could otherwise authenticate at all. Added real per-account brute-force lockout (5 failed attempts → 15-minute lock), with the exact same "no distinguishable error for any failure mode" discipline `AuthenticationFailed` already used, extended to cover lockout state. No self-service registration — a real product decision left to the user. Test count: 574 → 587.
 - **2026-09-09 Rev 58** — See EF-15 above: a real 500 found by live-testing the new local model against a genuine business AI decision (not a health check) — `DecisionEngineError`/`LLMUnavailable` weren't caught by any of the ten AI-decision HTTP endpoints, only each one's own domain error type. Fixed identically everywhere: 502 for a malformed model response, 503 for an unreachable AI backend. Test count: 572 → 574.
 - **2026-09-09 Rev 57** — See EF-14 above: a real open-weight model (Qwen2.5-0.5B-Instruct, GGUF Q4_K_M) downloaded and running locally on the deployment VM via llama.cpp, under a hard systemd memory ceiling given the VM's genuinely tight resources (122MB free RAM, swap exhausted, shared with v1 production, at inspection time). `get_llm_provider()` now the one factory every AI-calling router uses, preferring the local model over the never-configured RunPod path. New `GET /ai/health` performs real inference, not a config check. Full runbook at `docs/LOCAL_LLM_RUNBOOK.md`. Test count: 561 → 572.

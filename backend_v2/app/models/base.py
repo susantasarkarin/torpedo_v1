@@ -60,7 +60,22 @@ class CanonicalDocument(BaseModel):
     # `default_factory=ObjectId`, and UUID4 strings in a fourth module), which meant
     # query code had to guess which convention a given collection used. One convention,
     # enforced by `CanonicalRepository.insert()` never delegating id assignment to Mongo.
-    id: str | None = Field(default=None, alias="_id")
+    #
+    # `validation_alias`/`serialization_alias` deliberately split, not one shared
+    # `alias` (API contract audit, 2026-09-09): Mongo's own primary-key field is
+    # genuinely named `_id` on the wire (`find_one({"_id": ...})`, `insert_one()`),
+    # so *reading a raw Mongo document* still needs `_id` on the input side — that's
+    # `validation_alias`. But every HTTP response was leaking that same storage
+    # implementation detail outward as `"_id"` in the JSON body, because FastAPI's
+    # response serialization defaults to using the model's alias too — a client had
+    # no way to know this was a database artifact, not a deliberate public field
+    # name. `serialization_alias="id"` fixes the *outward* contract without touching
+    # storage: `to_mongo()` below no longer uses `by_alias=True` (that would now
+    # write `id` instead of `_id` into Mongo, breaking every existing document's
+    # primary key) — it renames explicitly instead, so storage is provably unchanged
+    # while every HTTP response across the whole app now returns a clean `id` field,
+    # for free, from this one base-class change.
+    id: str | None = Field(default=None, validation_alias="_id", serialization_alias="id")
     org_id: str
     created_at: datetime = Field(default_factory=_utcnow)
     created_by: str
@@ -71,7 +86,14 @@ class CanonicalDocument(BaseModel):
     deleted_at: datetime | None = None
 
     def to_mongo(self) -> dict:
-        return self.model_dump(by_alias=True, exclude_none=True)
+        # No longer `by_alias=True` — since `id`'s serialization_alias is now the
+        # outward-facing "id" (not "_id"), by_alias would write the wrong key into
+        # Mongo. Dump by Python field name, then rename id -> _id explicitly, the
+        # one field where storage's real wire name and the public API's name differ.
+        data = self.model_dump(exclude_none=True)
+        if "id" in data:
+            data["_id"] = data.pop("id")
+        return data
 
 
 T = TypeVar("T", bound=CanonicalDocument)
