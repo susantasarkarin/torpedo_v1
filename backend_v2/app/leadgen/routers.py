@@ -13,8 +13,10 @@ one-line change to `get_ai_classifier()` below, not a redesign of this router.
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.ai.decision_engine import Decision, DecisionEngine, DecisionEngineError
 from app.ai.llm import LLMUnavailable, get_llm_provider
@@ -148,13 +150,35 @@ class DecideOutreachRequest(BaseModel):
     mailbox_id: str
 
 
+# Security-audit finding (2026-09-09): neither field below had any size limit,
+# despite both being serialized directly into a real LLM prompt
+# (DecisionEngine.decide()/AIClassifier.classify()) — a caller with the right
+# permission could send an arbitrarily large payload to tie up the one
+# inference slot this deployment's local model serves from (see
+# docs/LOCAL_LLM_RUNBOOK.md's DoS note; the systemd memory cap makes this
+# self-healing, not catastrophic, but a clean 422 here is a much better
+# failure than relying on that cap to be hit at all).
+MAX_AI_CONTEXT_BYTES = 20_000  # generous for real business context, not for abuse
+
+
+def _validate_ai_context_size(v: dict) -> dict:
+    size = len(json.dumps(v))
+    if size > MAX_AI_CONTEXT_BYTES:
+        raise ValueError(f"context payload too large ({size} bytes, max {MAX_AI_CONTEXT_BYTES})")
+    return v
+
+
 class GenerateLeadsRequest(BaseModel):
     site_url: str
     internal_context: dict = {}
 
+    _validate_internal_context_size = field_validator("internal_context")(_validate_ai_context_size)
+
 
 class EvaluateIcpRequest(BaseModel):
     prospect_context: dict
+
+    _validate_prospect_context_size = field_validator("prospect_context")(_validate_ai_context_size)
 
 
 class IngestRequest(BaseModel):

@@ -8,7 +8,7 @@ already use, called directly here rather than duplicated.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ai.decision_engine import Decision, DecisionEngine, DecisionEngineError
 from app.ai.llm import LLMUnavailable, get_llm_provider
@@ -62,7 +62,12 @@ class IngestEmailRequest(BaseModel):
     from_address: str
     to_address: str
     subject: str
-    body: str
+    # Security-audit finding (2026-09-09): unbounded before this — this field
+    # eventually reaches a real LLM prompt via /emails/{id}/analyze, and this
+    # deployment's local model serves from a single inference slot on a
+    # 2-vCPU box (see docs/LOCAL_LLM_RUNBOOK.md's DoS note). 100KB is
+    # generous for a real email body, not for abuse.
+    body: str = Field(max_length=100_000)
     thread_id: str | None = None
 
 

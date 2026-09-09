@@ -700,8 +700,17 @@ New: 3 tests in `test_base_model.py` proving storage-write shape, storage-read c
 
 ---
 
+### EF-18 — Security audit: unbounded request fields feeding directly into LLM prompts (2026-09-09)
+
+Found during a targeted security pass (`app.leadgen.routers.EvaluateIcpRequest.prospect_context`/`GenerateLeadsRequest.internal_context`, `app.emailai.routers.IngestEmailRequest.body`): three request fields that get serialized directly into a real LLM prompt had no size limit at all. On a shared, resource-constrained deployment where the local model serves from a single serialized inference slot on a 2-vCPU box (`docs/LOCAL_LLM_RUNBOOK.md`), this was a real, if narrow, denial-of-service surface — a caller holding the right permission could tie up that one slot with an arbitrarily large payload. The systemd memory cap (EF-14) makes an actual OOM self-healing rather than catastrophic, but relying on that cap being hit is a worse failure mode than a clean `422` at the request boundary.
+
+Fixed with `MAX_AI_CONTEXT_BYTES = 20_000` (a Pydantic `field_validator` on the two dict-shaped context fields) and `Field(max_length=100_000)` on the email body — generous for genuine business context/a real email, not for abuse. Pure Pydantic-validation tests, no HTTP/DB fixtures needed. Test count: 590 → 596.
+
+---
+
 ## Changelog
 
+- **2026-09-09 Rev 61** — See EF-18 above: closed a real DoS surface on the local model's single inference slot — three request fields serialized directly into an LLM prompt had no size limit. Added explicit caps (20KB for AI context dicts, 100KB for email bodies), tested at the Pydantic-validation layer. Test count: 590 → 596.
 - **2026-09-09 Rev 60** — See EF-17 above: every HTTP response across the entire app was leaking Mongo's raw `_id` field instead of a clean public `id`. Fixed once at `CanonicalDocument` by splitting `validation_alias`/`serialization_alias` — no per-entity or per-route changes needed, storage format provably unchanged (a raw-Mongo-shaped document still round-trips correctly). Test count: 587 → 590.
 - **2026-09-09 Rev 59** — See EF-16 above: built the HTTP login/logout endpoints v2 never had — every prior live-verification this session had to seed sessions directly against the database because no real caller could otherwise authenticate at all. Added real per-account brute-force lockout (5 failed attempts → 15-minute lock), with the exact same "no distinguishable error for any failure mode" discipline `AuthenticationFailed` already used, extended to cover lockout state. No self-service registration — a real product decision left to the user. Test count: 574 → 587.
 - **2026-09-09 Rev 58** — See EF-15 above: a real 500 found by live-testing the new local model against a genuine business AI decision (not a health check) — `DecisionEngineError`/`LLMUnavailable` weren't caught by any of the ten AI-decision HTTP endpoints, only each one's own domain error type. Fixed identically everywhere: 502 for a malformed model response, 503 for an unreachable AI backend. Test count: 572 → 574.
