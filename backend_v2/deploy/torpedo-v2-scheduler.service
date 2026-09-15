@@ -1,9 +1,0 @@
-[Unit]
-Description=Torpedo v2 Phase 14 scheduler tick (one-shot, invoked by torpedo-v2-scheduler.timer)
-After=torpedo-backend-v2.service
-Requires=torpedo-backend-v2.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=/etc/torpedo-v2-scheduler.env
-ExecStart=/var/www/torpedo-v2/backend_v2/deploy/scheduler_tick.sh

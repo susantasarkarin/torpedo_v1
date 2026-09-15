@@ -1,9 +1,0 @@
-[Unit]
-Description=Torpedo v2 GPU broker idle/orphan sweep, invoked by torpedo-v2-gpu-sweep.timer
-After=torpedo-backend-v2.service
-Requires=torpedo-backend-v2.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=/etc/torpedo-v2-scheduler.env
-ExecStart=/var/www/torpedo-v2/backend_v2/deploy/gpu_sweep_tick.sh
