@@ -369,15 +369,13 @@ No preamble. No markdown. Only JSON."""
 
     def generate_email_draft(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=600,
-                temperature=0.7,
-                messages=[{"role": "system", "content": system_prompt},
-                          {"role": "user", "content": user_prompt}],
-            )
-            raw = response.choices[0].message.content.strip()
+            # Routed through _call_llm (bedrock_client.converse), same as every
+            # other method below — this used to build its own openai.OpenAI
+            # client pointed straight at BEDROCK_BASE_URL, which bypassed the
+            # local:/self-hosted provider seam entirely. role="smart" since this
+            # is human/client-facing content, matching mail_pool_ai's writer role.
+            raw = self._call_llm(f"{system_prompt}\n\n{user_prompt}",
+                                  max_tokens=600, temperature=0.7, role="smart")
             clean = _strip_markdown_json(raw)
             result = json.loads(clean)
             if "subject" in result and "body" in result:
@@ -531,15 +529,11 @@ Return JSON only:
 
 No preamble. No markdown. Only JSON."""
         try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=600,
-                temperature=0.7,
-                messages=[{"role": "system", "content": system_prompt},
-                          {"role": "user", "content": user_prompt}],
-            )
-            raw = response.choices[0].message.content.strip()
+            # Same seam as generate_email_draft above — was a direct
+            # openai.OpenAI(base_url=BEDROCK_BASE_URL) client, now routed
+            # through _call_llm so it respects the local:/self-hosted chain.
+            raw = self._call_llm(f"{system_prompt}\n\n{user_prompt}",
+                                  max_tokens=600, temperature=0.7, role="smart")
             clean = _strip_markdown_json(raw)
             return json.loads(clean)
         except Exception as e:
