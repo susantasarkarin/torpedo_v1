@@ -1,5 +1,8 @@
 # Torpedo
 
+<!-- deploy-pipeline-test: torpedo_v1 auto-deploy verification, 2026-09-16 -->
+
+
 The in-house market-research business platform: lead generation, cold outreach,
 an AI mail desk over the company inbox, a canonical CRM, quoting and invoicing,
 project delivery, survey-panel routing, and a respondent panel.
