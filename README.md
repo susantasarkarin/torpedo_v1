@@ -1,6 +1,6 @@
 # Torpedo
 
-<!-- deploy-pipeline-test: torpedo_v1 auto-deploy verification, 2026-09-16-retry -->
+<!-- deploy-pipeline-test: torpedo_v1 auto-deploy verification, 2026-09-16-retry2 -->
 
 
 The in-house market-research business platform: lead generation, cold outreach,
