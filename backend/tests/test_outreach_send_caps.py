@@ -321,3 +321,74 @@ def test_ai_enabled_by_default(monkeypatch):
     monkeypatch.delenv("OUTREACH_AI_PERSONALISATION", raising=False)
     mod = _load(monkeypatch)
     assert mod._AI_PERSONALISATION_ENABLED is True
+
+
+# ============================================
+# GLOBAL KILL SWITCH (outreach_kill_switch doc)
+# ============================================
+#
+# This is the production kill switch born from the August incident -- a DB
+# flag (not an env var) so pausing takes effect on the next send attempt with
+# no deploy/restart, and it's checked independently of any campaign's own
+# is_active flag. Nothing exercised _process_one_outreach_lead or this check
+# directly before now; only the separate SENDING_ENABLED env-var kill switch
+# in messaging/facade.py had coverage.
+
+class _FakeCollection:
+    """Records every find_one/update_one call so tests can assert not just
+    the return value but whether a LATER check (campaign lookup) ever ran --
+    that's what actually proves the kill switch short-circuited, since both
+    the kill-switch branch and the campaign-inactive branch set the same
+    workflow_status="paused" and would otherwise be indistinguishable."""
+
+    def __init__(self, find_one_result=None):
+        self._find_one_result = find_one_result
+        self.find_one_calls = 0
+        self.update_one_calls = []
+
+    def find_one(self, query, *a, **kw):
+        self.find_one_calls += 1
+        return self._find_one_result
+
+    def update_one(self, query, update):
+        self.update_one_calls.append((query, update))
+
+
+class _FakeKillSwitchDB:
+    def __init__(self, kill_doc):
+        self.outreach_kill_switch = _FakeCollection(find_one_result=kill_doc)
+        # No campaign matches -> if the kill switch didn't block, the function
+        # returns False here instead, for a documented, different reason.
+        self.outreach_campaigns_v2 = _FakeCollection(find_one_result=None)
+        self.outreach_leads_v2 = _FakeCollection()
+
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+
+_LEAD_RECORD = {"_id": "lead-1", "campaign_id": "camp-1", "current_step": 0}
+
+
+@pytest.mark.parametrize("kill_doc", [
+    None,                                  # missing doc -- fail-safe paused
+    {"_id": "global", "paused": True},     # explicitly paused
+])
+def test_kill_switch_blocks_send_and_short_circuits(monkeypatch, kill_doc):
+    mod = _load(monkeypatch)
+    db = _FakeKillSwitchDB(kill_doc)
+    result = mod._process_one_outreach_lead(db, _LEAD_RECORD)
+    assert result is False
+    assert db.outreach_kill_switch.find_one_calls == 1
+    # The real proof: campaign lookup must never be reached.
+    assert db.outreach_campaigns_v2.find_one_calls == 0
+    assert db.outreach_leads_v2.update_one_calls[0][1]["$set"]["workflow_status"] == "paused"
+
+
+def test_kill_switch_resumed_allows_processing_to_continue(monkeypatch):
+    mod = _load(monkeypatch)
+    db = _FakeKillSwitchDB({"_id": "global", "paused": False})
+    result = mod._process_one_outreach_lead(db, _LEAD_RECORD)
+    # Still False overall (no matching campaign in this fake), but for a
+    # DIFFERENT reason -- proving the kill switch let execution continue.
+    assert result is False
+    assert db.outreach_campaigns_v2.find_one_calls == 1
