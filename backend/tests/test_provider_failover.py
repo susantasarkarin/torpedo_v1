@@ -253,19 +253,32 @@ def test_local_model_calls_the_configured_endpoint(monkeypatch):
     seen = {}
 
     def _fake_chat(model, system, user, max_tokens, temperature,
-                   base_url=None, api_key=None, extra_params=None):
+                   base_url=None, api_key=None, extra_params=None, timeout=None):
         seen.update(model=model, base_url=base_url, api_key=api_key,
-                    extra_params=extra_params)
+                    extra_params=extra_params, timeout=timeout)
         return "ok", {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}, 0.01
 
     from leads import do_inference_client as oai
     monkeypatch.setattr(oai, "chat", _fake_chat)
+    # The concurrency gate talks to real Redis (see local_llm_gate.py) -- not
+    # something a unit test should depend on having live. Stub it to a no-op,
+    # matching how the rest of this file mocks the transport, not the
+    # infrastructure underneath it. Coverage for the gate itself lives in
+    # test_local_llm_gate.py.
+    import contextlib
+    from leads import local_llm_gate
+    monkeypatch.setattr(local_llm_gate, "acquire_local_llm_slot",
+                        lambda timeout=None: contextlib.nullcontext())
+
     text, usage, _ = bc._call_converse("local:qwen3-32b", "s", "u", 10, 0.0)
 
     assert text == "ok"
     # The prefix is stripped before the model name reaches the server.
     assert seen["model"] == "qwen3-32b"
     assert seen["base_url"] == "http://10.0.0.5:8000/v1"
+    # The separate, shorter local-inference timeout reached the transport --
+    # not DO_INFERENCE_TIMEOUT's 60s default meant for a real remote provider.
+    assert seen["timeout"] == 12.0
 
 
 # ---------------------------------------------------------------

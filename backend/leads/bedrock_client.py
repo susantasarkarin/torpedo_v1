@@ -141,6 +141,11 @@ _FAILOVER_CODES = {
     # Nothing to gain from retrying any of these on the same model.
     "DOAuthError", "DOModelNotFound", "DOInferenceError",
     "DOFallbackNotConfigured",
+    # Local self-hosted model: queue timeout, inference timeout, or transport
+    # error all land here, deliberately never in _RETRYABLE_CODES -- see
+    # LocalLLMUnavailable's own docstring for why retrying the same
+    # single-concurrency instance is exactly the failure mode to avoid.
+    "LocalLLMUnavailable",
 }
 
 # How long to keep using a fallback after the primary fails, before probing the
@@ -263,6 +268,14 @@ class ModelAccessError(BedrockError):
 
 class DOFallbackNotConfigured(BedrockError):
     """The DigitalOcean fallback was reached but has no API key set."""
+
+
+class LocalLLMUnavailable(BedrockError):
+    """The self-hosted local model (torpedo-v2-llm.service) couldn't answer --
+    queue timeout, inference timeout, or a transport error. Always classified
+    in _FAILOVER_CODES, never _RETRYABLE_CODES: retrying the same
+    single-concurrency local instance is what caused the 2026-09-16 incident
+    (VM load ~107) -- move to the next chain entry immediately instead."""
 
 
 class JSONParseError(ValueError):
@@ -488,8 +501,19 @@ def _call_self_hosted(model_id: str, system: str, user: str,
     /chat/completions, which is what vLLM, Ollama, llama.cpp and LM Studio all
     speak — but with its own base URL and key so the two providers stay
     independently configurable.
+
+    Gated by local_llm_gate.acquire_local_llm_slot() -- see that module's
+    docstring. Nothing else stops multiple Celery worker PROCESSES from
+    hammering a `--parallel 1` server at once, which is what caused the
+    2026-09-16 incident (VM load average ~107 on a 2-vCPU box). Any failure
+    here -- queue timeout, inference timeout, transport error -- is wrapped as
+    LocalLLMUnavailable, deliberately distinct from DOThrottled/DOInferenceError
+    (which stay _RETRYABLE_CODES for *real* DigitalOcean calls) so this always
+    fails over to the next chain entry instead of retrying the same
+    already-overloaded local instance.
     """
     from leads import do_inference_client as _oai
+    from leads.local_llm_gate import acquire_local_llm_slot, LocalLLMQueueTimeout
 
     base = os.getenv(_oai.SELF_HOSTED_BASE_URL_ENV, "").strip()
     if not base:
@@ -497,12 +521,21 @@ def _call_self_hosted(model_id: str, system: str, user: str,
             f"{_oai.SELF_HOSTED_BASE_URL_ENV} not set — self-hosted model "
             f"{model_id!r} is in the chain but has nowhere to call")
 
-    return _oai.chat(
-        model_id[len(LOCAL_PREFIX):], system, user, max_tokens, temperature,
-        base_url=base,
-        api_key=os.getenv(_oai.SELF_HOSTED_KEY_ENV, "") or "not-required",
-        extra_params=_self_hosted_extra_params(),
-    )
+    inference_timeout = float(os.getenv("LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS", "12"))
+
+    try:
+        with acquire_local_llm_slot():
+            return _oai.chat(
+                model_id[len(LOCAL_PREFIX):], system, user, max_tokens, temperature,
+                base_url=base,
+                api_key=os.getenv(_oai.SELF_HOSTED_KEY_ENV, "") or "not-required",
+                extra_params=_self_hosted_extra_params(),
+                timeout=inference_timeout,
+            )
+    except LocalLLMQueueTimeout as e:
+        raise LocalLLMUnavailable(f"queue timeout waiting for a local inference slot: {e}") from e
+    except _oai.DOInferenceError as e:
+        raise LocalLLMUnavailable(f"local inference call failed: {e}") from e
 
 
 def _call_converse(model_id: str, system: str, user: str,

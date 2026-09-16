@@ -130,6 +130,7 @@ def chat(model: str, system: str, user: str,
          base_url: Optional[str] = None,
          api_key: Optional[str] = None,
          extra_params: Optional[Dict[str, Any]] = None,
+         timeout: Optional[float] = None,
          ) -> Tuple[str, Dict[str, int], float]:
     """One chat completion. Returns (text, usage, latency_seconds).
 
@@ -147,7 +148,16 @@ def chat(model: str, system: str, user: str,
     will spend the whole max_tokens budget on reasoning, returning empty
     content, unless sent {"thinking": {"type": "disabled"}}. Reserved keys
     (model/messages/max_tokens/temperature) cannot be overridden.
+
+    `timeout` overrides DO_INFERENCE_TIMEOUT for this call only. Real
+    DigitalOcean calls are unaffected by omitting it (falls back to
+    timeout_seconds() exactly as before) -- this exists so a `local:`-routed
+    call can use its own, shorter LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS instead
+    of the 60s default meant for a real remote provider, since that default let
+    a queued/overloaded local call block far longer than useful before the
+    2026-09-16 incident.
     """
+    effective_timeout = timeout if timeout is not None else timeout_seconds()
     messages: List[Dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -169,10 +179,10 @@ def chat(model: str, system: str, user: str,
             f"{(base_url or _default_base_url()).rstrip('/')}/chat/completions",
             headers=_headers(api_key),
             json=payload,
-            timeout=timeout_seconds(),
+            timeout=effective_timeout,
         )
     except requests.Timeout as e:
-        raise DOThrottled(f"DigitalOcean inference timed out after {timeout_seconds()}s") from e
+        raise DOThrottled(f"DigitalOcean inference timed out after {effective_timeout}s") from e
     except requests.RequestException as e:
         raise DOInferenceError(f"DigitalOcean inference transport error: {e}") from e
 
