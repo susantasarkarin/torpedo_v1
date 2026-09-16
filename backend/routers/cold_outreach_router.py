@@ -1852,6 +1852,41 @@ def _release_daily_send_slot(db, from_email: str) -> None:
 _AI_PERSONALISATION_ENABLED = (
     os.getenv("OUTREACH_AI_PERSONALISATION", "true").lower() != "false")
 
+# Bounded wait for a single AI generation call. Without this, a slow/hung model
+# (any provider, not just a local one) blocks the whole campaign loop lead by
+# lead. On timeout we treat it exactly like any other generation failure --
+# fall back to the template -- rather than inventing a separate retry path.
+_AI_GENERATION_TIMEOUT_SECONDS = float(os.getenv("OUTREACH_AI_TIMEOUT_SECONDS", "12"))
+
+
+def _identity_swap_detected(body: str, sender_name: str, lead: Dict[str, Any]) -> bool:
+    """
+    Catches the specific failure mode found 2026-09-16 testing a small local
+    model for this path: it wrote "I'm {sender}, the {lead's title} at
+    {lead's company}" -- attributing the RECIPIENT's own job title/company to
+    the SENDER. Guardrails at the time (name present, length, no placeholder
+    text) all passed; this content would have been sent as-is.
+
+    Deterministic, not another model call: any sentence naming the sender must
+    not also name the lead's own title or company -- that combination is what
+    an identity swap looks like, on any provider's output, not just a weak one.
+    """
+    if not sender_name:
+        return False
+    lead_title = (lead.get("title") or "").strip()
+    lead_company = (lead.get("company_name") or lead.get("company") or "").strip()
+    if not lead_title and not lead_company:
+        return False
+    for sentence in _re.split(r"(?<=[.!?])\s+", body):
+        low = sentence.lower()
+        if sender_name.lower() not in low:
+            continue
+        if lead_title and lead_title.lower() in low:
+            return True
+        if lead_company and lead_company.lower() in low:
+            return True
+    return False
+
 
 def _generate_personalised_email(
     lead: Dict[str, Any],
@@ -1914,25 +1949,40 @@ Sender: {sender_name} ({campaign_ctx.get("sender_title", "")})
   the line that must differ from every other email we send.
 - Do NOT claim knowledge of their projects, results, funding, headcount or
   announcements. You know only the fields listed above.
+- {sender_name} is the SENDER and works at {business_label}. {first_name} is
+  the RECIPIENT. Never attribute the recipient's own job title or company to
+  the sender, or write as if the sender works at the recipient's company.
 - No markdown, no bullet points, no HTML, no signature block.
 - Plain paragraphs separated by blank lines.
 
 Return JSON exactly: {{"subject": "...", "body": "..."}}"""
 
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
     from leads.bedrock_client import JSONParseError, converse_json_object
 
+    # Not a `with` block deliberately: ThreadPoolExecutor.__exit__ calls
+    # shutdown(wait=True), which would block until the slow call finishes
+    # anyway -- exactly what the timeout below is trying to avoid.
+    # shutdown(wait=False) lets the in-flight thread finish/error on its own
+    # in the background while we return immediately.
+    pool = ThreadPoolExecutor(max_workers=1)
     try:
-        data = converse_json_object(
-            role="smart",
-            system=system,
-            user=user,
-            max_tokens=700,
-            temperature=0.7,
+        future = pool.submit(
+            converse_json_object,
+            role="smart", system=system, user=user,
+            max_tokens=700, temperature=0.7,
         )
+        data = future.result(timeout=_AI_GENERATION_TIMEOUT_SECONDS)
+    except _FutureTimeout:
+        logger.warning("[Outreach] AI generation exceeded %ss, falling back to template",
+                       _AI_GENERATION_TIMEOUT_SECONDS)
+        return "", ""
     except JSONParseError as e:
         # converse_json already retried once with a JSON reminder.
         logger.warning("[Outreach] AI output was not parseable JSON: %s", e)
         return "", ""
+    finally:
+        pool.shutdown(wait=False)
 
     if not data:
         return "", ""
@@ -1950,6 +2000,9 @@ Return JSON exactly: {{"subject": "...", "body": "..."}}"""
         return "", ""
     if first_name.lower() not in body.lower() and first_name != "there":
         logger.warning("[Outreach] AI output rejected (recipient name missing)")
+        return "", ""
+    if _identity_swap_detected(body, sender_name, lead):
+        logger.warning("[Outreach] AI output rejected (sender/recipient identity swap)")
         return "", ""
     if len(body.split()) < 40:
         logger.warning("[Outreach] AI output rejected (too short)")

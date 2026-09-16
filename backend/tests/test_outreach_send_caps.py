@@ -266,6 +266,52 @@ def test_missing_fields_fall_back(monkeypatch):
     assert _gen(monkeypatch, '{"subject": "Only a subject"}') == ("", "")
 
 
+def test_identity_swap_rejected(monkeypatch):
+    # Reproduces the actual failure found 2026-09-16 testing a small local
+    # model on this path: sender described as holding the RECIPIENT's own
+    # title and company. Every other guardrail (name present, length,
+    # no placeholder text) passes on this payload -- only the identity-swap
+    # check should catch it.
+    import json
+    payload = json.dumps({
+        "subject": "Hi Asha",
+        "body": ("Hi Asha, I'm Susanta, the Head of BIM at Larsen & Toubro. "
+                  "I'm impressed by your expertise and your commitment to "
+                  "excellence in construction. We're always looking to expand "
+                  "our team and bring in like-minded individuals. Let's talk "
+                  "about how we can work together to achieve our goals soon."),
+    })
+    assert _gen(monkeypatch, payload) == ("", "")
+
+
+def test_identity_correctly_attributed_accepted(monkeypatch):
+    # Sanity check the swap detector isn't just rejecting any co-occurrence:
+    # the sender's own name and company appearing together is fine.
+    import json
+    payload = json.dumps({"subject": "BIM delivery load", "body": GOOD_BODY})
+    subject, body_html = _gen(monkeypatch, payload)
+    assert subject == "BIM delivery load"
+    assert "Asha" in body_html
+
+
+def test_ai_generation_timeout_falls_back(monkeypatch):
+    import time
+    from unittest.mock import patch
+
+    mod = _load(monkeypatch, OUTREACH_AI_TIMEOUT_SECONDS="0.2")
+    from leads import bedrock_client
+
+    def _slow_converse(*args, **kwargs):
+        time.sleep(2)
+        return '{"subject": "Hi Asha", "body": "' + GOOD_BODY + '"}'
+
+    with patch.object(bedrock_client, "converse", side_effect=_slow_converse):
+        result = mod._generate_personalised_email(
+            lead=LEAD, campaign_ctx={"value_proposition": "BIM outsourcing"},
+            business_label="BIMwave", sender_name="Susanta", step_number=1)
+    assert result == ("", "")
+
+
 def test_ai_can_be_disabled(monkeypatch):
     mod = _load(monkeypatch, OUTREACH_AI_PERSONALISATION="false")
     assert mod._AI_PERSONALISATION_ENABLED is False
