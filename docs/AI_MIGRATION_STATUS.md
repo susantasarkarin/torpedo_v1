@@ -88,6 +88,17 @@ it needs a fresh real-data validation pass, same as any new candidate.
 | **Tests** | 6 new tests, including one validated directly against the real observed pattern (45 sent / 0 confirmed → `fatigued`). |
 | **Explicitly not done yet** | Not wired into `run()` (no live aggregation query added), not scheduled, not connected to any suppression/frequency-reduction action. This is read-only analysis capability only, per the "read-only before write/action" ordering -- the next increment, if pursued, is the aggregation query plus a decision on what a `fatigued` tier should actually trigger (documented as a policy question, not decided here). |
 
+## Cint buyer performance scoring — new capability, IMPLEMENTED + TESTED, not yet wired into a live query
+
+| | |
+|---|---|
+| **Status** | IMPLEMENTED, unit-TESTED against real observed data. NOT wired into a live/scheduled query, NOT registered in `app/services/ai_engine.py`'s agent list, no action connected. |
+| **What it is** | `score_buyer_performance()` in new `agents/cint_intelligence_agent.py` — pure, zero-AI function classifying a Cint buyer (`account_name`) into `strong`/`underperforming`/`mixed`/`average`/`no_data` from real conversion and deactivation-rate fields. |
+| **Real evidence behind it** | Live aggregation against `cint_research.cint_surveys` (157,023 documents, 2026-09-17): `avg_conversion` genuinely varies by buyer from 0.0037 (OpinionSpark LLC) to 6.65 (Lucid Marketplace Services); deactivation rate varies from ~38% (Lucid) to 80% (SAGO, 13,577 of 16,925 surveys). `source_api` is 99%+ one value (not a useful segmentation axis today); `deactivation_reason` is populated for only 17% of inactive surveys with just one distinct value observed — noted as a real data gap, not built around. |
+| **Deliberately not done** | Does not combine conversion and deactivation rate into one weighted composite score — that would require choosing a relative weighting between them, which is a business-policy judgment, not something read from the data. Returns a tier plus both raw numbers instead. |
+| **Tests** | 10 new tests, 4 validated directly against real named buyers (Lucid → strong, SAGO → underperforming, Savanta → mixed, OpinionSpark → underperforming). |
+| **Not yet done** | No live per-buyer aggregation query wired into a `run()` path; not scheduled; not connected to any Cint API action, allocation change, or vendor decision. Read-only analysis capability only. |
+
 ## Other candidates evaluated
 
 | Candidate | Status | Note |
