@@ -152,6 +152,48 @@ often. Pure aggregation, no AI/model needed for a first version, following
 the same "deterministic first, safest possible starting point" pattern
 already used for panel.
 
+*(Done — see cycles 6/8: `score_buyer_performance()` built, wired into
+`cint_intelligence_agent.py`'s `run()`, validated against real live data.)*
+
+## Real-data audit, cycle 9 — RFQ and Finance surfaces
+
+Checked `email_automation.rfqs` (1,018 real documents) and two separate
+invoice stores:
+
+| Collection | DB | Real document count |
+|---|---|---|
+| `rfqs` | `email_automation` | 1,018 |
+| `projects` | `crm_db` | 12,639 |
+| `invoices` | `crm_db` | 2,500 |
+| `invoices` | `finance_db` | 265 |
+
+**RFQ pipeline is more mature than expected**: real records already carry
+`methodology`, `country`, `study_type`, `spine_opportunity_id` (CRM spine
+linkage), `ai_summary` — an AI extraction step has already run on these.
+But several fields commonly needed for feasibility (`loi`, `ir`,
+`sample_size`, `timeline`) are frequently `None` in the sample checked, and
+**`db.rfqs.distinct("status")` returns exactly one value: `"pending"`,
+across all 1,018 documents.** This is flagged, not acted on: it could mean
+a genuine 1,018-item operational backlog, or that the status field simply
+isn't updated as RFQs progress through the spine — those have very
+different implications and the data alone can't distinguish them. Handed to
+the user rather than guessed at.
+
+**Two invoice stores exist and appear to serve different purposes, not
+duplicates of one system**: `crm_db.invoices` (2,500 records) are mostly
+`amount: 0, status: "draft"` — placeholder-shaped, linked to `crm_db.projects`.
+`finance_db.invoices` (265 records) are real, Zoho-imported invoices with
+actual amounts, GST fields, and payment status. This looks like a CRM-native
+invoice scaffold that hasn't been populated alongside the actual finance
+system of record, rather than a data-quality duplicate — worth the user
+confirming which is authoritative before any reconciliation capability is
+built on either.
+
+No capability has been built on either dataset yet — both are flagged for a
+decision (what does "pending" actually mean operationally? which invoice
+store is authoritative?) before further engineering, consistent with
+"AI proposes, business policy isn't invented."
+
 **A real, concrete bug found and fixed as a result**:
 `agents/panel_intelligence_agent.py` (one of the 8 registered CRM agents,
 audited in cycle 2 as "correctly deterministic") defaulted to
