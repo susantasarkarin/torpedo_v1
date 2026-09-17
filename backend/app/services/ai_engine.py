@@ -91,6 +91,11 @@ DEFAULT_AGENTS: Dict[str, Dict[str, Any]] = {
         "default_mode": AutonomyMode.RECOMMEND.value,
         "low_risk_actions": ["create_task", "log_activity"],
     },
+    "cint_intelligence_agent": {
+        "description": "Scores real Cint buyer (account_name) performance from conversion/deactivation history and flags underperformers for review.",
+        "default_mode": AutonomyMode.RECOMMEND.value,
+        "low_risk_actions": ["create_task", "log_activity"],
+    },
     "seo_agent": {
         "description": "SEO intelligence from GA/Search Console/site signals (needs API keys).",
         "default_mode": AutonomyMode.OBSERVE.value,
