@@ -166,6 +166,30 @@ def _mirror_col():
     return crm_service._db()[MIRROR_COLLECTION]
 
 
+def _invitation_stats_for(
+    panelist_ids: List[str], log_db: str, log_collection: str
+) -> Dict[str, Dict[str, Any]]:
+    """
+    One aggregation query, scoped to exactly this batch of panelist_ids --
+    not a per-panelist query in a loop, and not an unbounded scan of the
+    3.46M-document panel_invitation_log. Returns
+    {panelist_id: {sent, confirmed, last_sent}}.
+    """
+    if not panelist_ids:
+        return {}
+    coll = get_database(log_db)[log_collection]
+    pipeline = [
+        {"$match": {"panelist_id": {"$in": panelist_ids}}},
+        {"$group": {
+            "_id": "$panelist_id",
+            "sent": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "confirmed": {"$sum": {"$cond": [{"$eq": ["$status", "confirmed"]}, 1, 0]}},
+            "last_sent": {"$max": "$sent_at"},
+        }},
+    ]
+    return {row["_id"]: row for row in coll.aggregate(pipeline)}
+
+
 def run(
     autonomy_mode: str = "recommend",
     # Corrected 2026-09-17: "panel" is empty in production -- the real
@@ -175,25 +199,44 @@ def run(
     # example shows, would scan zero panelists.
     source_db: str = "campaign_platform",
     source_collection: str = "panelists",
+    invitation_log_db: str = "campaign_platform",
+    invitation_log_collection: str = "panel_invitation_log",
     limit: Optional[int] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Mirror panel activity into the spine and flag anomalies. Returns stats."""
+    """Mirror panel activity into the spine and flag fraud/fatigue anomalies. Returns stats."""
     src = get_database(source_db)[source_collection]
     stats = {
         "agent": AGENT_NAME, "mode": autonomy_mode, "dry_run": dry_run,
-        "scanned": 0, "mirrored": 0, "flagged": 0, "errors": 0,
+        "scanned": 0, "mirrored": 0, "flagged": 0, "fatigued": 0, "errors": 0,
     }
 
     cursor = src.find({})
     if limit:
         cursor = cursor.limit(limit)
+    # Materialized (bounded by `limit` for any real-sized run) so the
+    # invitation-log lookup below can be one aggregation scoped to exactly
+    # this batch's panelist IDs, not a query per panelist.
+    panelists = list(cursor)
+    panelist_ids = [str(_first(p, _ID_KEYS, p.get("_id"))) for p in panelists]
+    invitation_stats = _invitation_stats_for(
+        panelist_ids, invitation_log_db, invitation_log_collection)
 
-    for p in cursor:
+    for p in panelists:
         stats["scanned"] += 1
         pid = str(_first(p, _ID_KEYS, p.get("_id")))
         try:
             assessment = assess_panelist(p)
+
+            inv = invitation_stats.get(pid, {})
+            last_sent = inv.get("last_sent")
+            days_since_last_invite = (datetime.utcnow() - last_sent).days if last_sent else None
+            engagement = compute_engagement(
+                invites_sent=inv.get("sent", 0),
+                invites_confirmed=inv.get("confirmed", 0),
+                days_since_last_invite=days_since_last_invite,
+            )
+
             if not dry_run:
                 _mirror_col().update_one(
                     {"panelist_id": pid},
@@ -205,6 +248,8 @@ def run(
                         "status": _first(p, _STATUS_KEYS),
                         "risk": assessment["risk"],
                         "risk_reasons": assessment["reasons"],
+                        "engagement_tier": engagement["tier"],
+                        "engagement_confirm_rate": engagement["confirm_rate"],
                         "source": f"{source_db}.{source_collection}",
                         "last_synced": datetime.utcnow(),
                     }},
@@ -226,6 +271,29 @@ def run(
                     input_summary={"panelist_id": pid, "reasons": assessment["reasons"]},
                 )
                 stats["flagged"] += 1
+
+            # Same recommend-mode pattern as the fraud flag above, at "low"
+            # risk since this is a benign frequency/suppression suggestion,
+            # not a fraud accusation -- mirrors follow_up_agent.py's
+            # risk="low" treatment of its own non-adversarial nudges.
+            if engagement["tier"] == "fatigued" and not dry_run:
+                ai_engine.submit_decision(
+                    AGENT_NAME,
+                    decision=f"Panelist {pid} appears fatigued: {', '.join(engagement['reasons'])}",
+                    recommended_action=f"Consider reduced invite frequency or suppression for panelist {pid}",
+                    confidence=0.6,
+                    reason="Sent invitations with zero confirmations over the observed history.",
+                    autonomy_mode=autonomy_mode,
+                    risk="low",
+                    linked_object_type="panelist",
+                    linked_object_id=pid,
+                    input_summary={
+                        "panelist_id": pid, "reasons": engagement["reasons"],
+                        "invites_sent": inv.get("sent", 0),
+                        "invites_confirmed": inv.get("confirmed", 0),
+                    },
+                )
+                stats["fatigued"] += 1
         except Exception as e:
             stats["errors"] += 1
             print(f"  ⚠️ error on panelist={pid}: {e}")

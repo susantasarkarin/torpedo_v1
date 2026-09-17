@@ -54,6 +54,11 @@ def test_normal_panelist_is_low():
 
 # ---- run ----
 
+INVITE_LOG_DB = "panel_test"  # deliberately isolated -- run() now also queries
+                              # an invitation log; without this override it
+                              # would hit real campaign_platform.panel_invitation_log
+
+
 @pytest.fixture()
 def env():
     crm_service.CRM_DB_NAME = "crm_db_test"
@@ -68,13 +73,23 @@ def env():
         {"panelist_id": "p2", "email": "b@x.com", "surveys_completed": 0, "rewards_total": 100},
         {"panelist_id": "p3", "surveys_completed": 2, "rewards_total": 600, "status": "active"},
     ])
+    invites = get_database(INVITE_LOG_DB)["panel_invitation_log"]
+    invites.delete_many({})
     yield
     crm_service._db().client.drop_database("crm_db_test")
     crm_service._db().client.drop_database(SRC_DB)
 
 
+def _run_kwargs(**overrides):
+    kwargs = dict(source_db=SRC_DB, source_collection="panelists",
+                  invitation_log_db=INVITE_LOG_DB,
+                  invitation_log_collection="panel_invitation_log")
+    kwargs.update(overrides)
+    return kwargs
+
+
 def test_run_mirrors_and_flags(env):
-    stats = agent.run(source_db=SRC_DB, source_collection="panelists")
+    stats = agent.run(**_run_kwargs())
     assert stats["scanned"] == 3
     assert stats["mirrored"] == 3
     assert stats["flagged"] == 2  # p2 + p3
@@ -89,6 +104,22 @@ def test_run_mirrors_and_flags(env):
 
 
 def test_dry_run_writes_nothing(env):
-    stats = agent.run(source_db=SRC_DB, source_collection="panelists", dry_run=True)
+    stats = agent.run(**_run_kwargs(dry_run=True))
     assert stats["scanned"] == 3
     assert crm_service._db()["panel_mirror"].count_documents({}) == 0
+
+
+def test_fatigued_panelist_gets_flagged_and_no_double_count(env):
+    """A panelist with real invitation-log history showing 15 sends and zero
+    confirmations should surface as fatigued, without disturbing the
+    existing fraud-flag count for the other panelists."""
+    invites = get_database(INVITE_LOG_DB)["panel_invitation_log"]
+    for i in range(15):
+        invites.insert_one({"panelist_id": "p1", "status": "sent"})
+
+    stats = agent.run(**_run_kwargs())
+    assert stats["fatigued"] == 1  # p1 only -- p2/p3 have no invitation-log rows
+    assert crm_service._col("ai_decisions").count_documents(
+        {"agent_name": "panel_intelligence_agent",
+         "decision": {"$regex": "^Panelist p1 appears fatigued"}}
+    ) == 1
