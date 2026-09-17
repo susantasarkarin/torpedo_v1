@@ -46,25 +46,60 @@ none are implemented.
 | BU routing | `ai_gateway.route_to_business_unit` (via `outreach_pipeline.py`) | #1 | Untested; unbounded prompt length | BEDROCK-class — worse than anything tested, not a candidate |
 | Cold email drafting (all paths) | `outreach_mailer.py`, `cold_outreach_router.py`, `outreach_pipeline.py`, second outreach pipeline | #1 / #2 | Out of scope | Explicitly excluded — `role="smart"`/drafting, per standing instruction regardless of local-model question |
 
-## Business-decision surfaces with NO current AI involvement (deterministic today)
+## CRM/Sales agent framework — a major finding (cycle 2)
 
-Per master-prompt section 4/34, these are real decision points, currently
-rule-based/manual, not yet audited for an SLM opportunity. Listed for the
-next loop iteration, not yet classified — classifying without reading the
-actual implementation would be exactly the "assume a function exists"
-mistake the master prompt warns against:
+`app/services/ai_engine.py` is **not an LLM client** — it's a governance/
+autonomy layer (observe/recommend/approve/autopilot modes, an approval-gated
+action queue, audit logging) that 8 registered agents in `agents/*.py` route
+their decisions through. This is real, already-built infrastructure much
+closer to master-prompt section 35's "closed-loop intelligence system" than
+anything needing to be built from scratch. All 8 were read this cycle:
 
-- Lead-to-account / lead-to-contact matching (dedup)
-- Opportunity stage progression, deal-risk flags
-- Vendor/RFQ matching, supplier performance scoring
-- Panel/panelist matching and allocation
-- Cint allocation and conversion analysis
-- Finance reconciliation (payment↔invoice candidate matching)
-- Meeting intelligence (no evidence a transcript/notes pipeline exists in v1 at all — needs verification before assuming there's anything to route)
+| Agent | What it actually does | AI/LLM involved? | Verdict |
+|---|---|---|---|
+| `follow_up_agent.py` | Pure date-math: flags opportunities with no activity past a threshold | None — exact date calculation | **Correctly deterministic already** — matches section 13's own guidance verbatim |
+| `opportunity_scoring_agent.py` | Pure point-based scoring (amount/stage/recency/linkage → 0–100 + next-best-action) | None | **Correctly deterministic already** |
+| `panel_intelligence_agent.py` | Pure numeric fraud heuristic (reward/completion ratio thresholds) | None | **Correctly deterministic already** |
+| `lead_research_agent.py` | Calls the Apollo REST API for factual enrichment (title/phone/company/LinkedIn) | None — factual lookup, not inference | Not an AI task; nothing to migrate |
+| `old_mail_classifier.py` | Bridges *already-classified* output (from `email_crm_pipeline/email_classifier.py`, transport #4) into CRM records | Consumes upstream AI, does none itself | Nothing to migrate — the AI already happened elsewhere |
+| `reply_monitor.py` | Drafts a suggested reply to inbound outreach replies — **explicitly templated with a documented "pluggable LLM hook... swap in an LLM draft later" comment in the code** | None yet — genuine, pre-built extension point | **Generation task, not classification** — same risk profile as cold-outreach drafting (identity/fact fabrication risk), explicitly out of local-SLM scope per this session's evidence and standing instruction. Human always reviews before send (approval-gated), so this is the *safest* place to eventually try a stronger model — but not the 0.5B local model. |
+| `survey_revenue_agent.py` | Numeric revenue-per-entrant ranking | None (deterministic, same shape as opportunity scoring) | **Correctly deterministic already** |
+| `seo_agent.py` | Stub — needs GA/Search Console API keys not yet configured | None | Not yet implemented, unrelated to AI routing |
 
-None of these have been read in the actual repository yet this loop
-iteration — they are not claimed to exist in any particular form, per
-section 4's explicit warning against inventing implementation paths.
+**Conclusion**: this framework was already built following the master
+prompt's own section 28 principle (deterministic where deterministic is
+correct) before this loop ever started. There is essentially **no
+unexploited local-SLM opportunity inside the CRM/sales agent layer** — the
+one real gap (`reply_monitor`'s draft quality) is a generation task requiring
+a stronger model, not a classification task suited to a 0.5B model.
+
+## Cint / Panel / Vendor / Finance — confirmed zero AI involvement today
+
+Checked directly (`app/services/cint_service.py`,
+`cint_allocation_extension.py`, `survey_allocation_service.py`,
+`traffic_service.py`, `activation_service.py`, `services/vendor_service.py`):
+**none import or call any AI transport.** This is pure deterministic
+API-integration and CRUD code today. Master-prompt sections 16/17/19's
+"opportunities" here (vendor/RFQ matching, panelist ranking, Cint allocation
+optimization) are **real gaps, but they are net-new feature work, not AI
+migrations** — there is no existing call to route anywhere, no prompt to
+test, no accuracy baseline to compare against.
+
+This matters for scope discipline: building revenue-affecting Cint
+allocation logic or panelist-ranking logic from scratch is a product-scoping
+decision (data pipeline design, what "improvement" is measured against,
+who approves a live allocation change) — not an "ordinary technical
+alternative" a routing audit should decide unilaterally per section 33's own
+risk/reversibility criteria. Recommending against speculatively building
+these without dedicated scoping is the conservative, correct engineering
+call here, not scope avoidance.
+
+No dedicated finance-reconciliation module (payment↔invoice candidate
+matching) exists in this repo at all — only a one-time migration
+(`migrations/004_link_finance_invoices.py`) and an unrelated CRM-identity
+`scripts/reconcile_account_links.py`. **No meeting-intelligence pipeline
+exists anywhere in v1** (no transcript/notes ingestion of any kind) —
+confirmed absent, not merely unaudited.
 
 ## Phase 1 status
 
