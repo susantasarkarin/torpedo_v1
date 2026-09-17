@@ -115,10 +115,42 @@ collection sizes rather than just code references:
 | `vendors` | `email_automation` | 3 |
 | `panel_vendors` | `email_automation` | 0 |
 
-**Panel has by far the most real, usable history.** Vendors has almost no
-real data yet (3 records) — not enough to build any meaningful matching/
-scoring on today; that capability would need real vendor data collected
-first, which is itself the actual blocker, not a missing AI feature.
+**Panel has by far the most real, usable history** among the collections
+checked in that first pass — but a second pass found a database not
+checked before (`cint_research`, missed because it doesn't contain the
+literal word "panel"/"vendor"/etc.) with **equally rich, live-updating real
+Cint data**:
+
+| Collection | DB | Real document count |
+|---|---|---|
+| `cint_surveys` | `cint_research` | 157,023 |
+| `cint_metrics` | `cint_research` | 7,625 |
+| `cint_entry_links` | `cint_research` | 50 |
+
+`cint_surveys` carries genuinely rich, directly-relevant real fields already:
+`conversion`, `overall_completes`, `bid_incidence`, `mobile_conversion`,
+`revenue_per_interview` (a real CPI-equivalent, with currency), `epc`
+(revenue per click), `quota_remaining`/`total_remaining`,
+`deactivation_reason`, `account_name` (the buyer/client), `source_api`
+(traffic source, e.g. `fulcrum_offerwall`), `is_active`/`is_live`. Data is
+live and current (`updated_at` timestamps within the hour at query time) —
+this is an actively-integrated, actively-updated system, not a stale or
+abandoned one. This maps closely onto the master prompt's own Cint section
+(conversion rate, CPI, source performance, deactivation/anomaly analysis)
+with real fields already in place for nearly all of it.
+
+Vendors, by contrast, has almost no real data yet (3 records) — not enough
+to build any meaningful matching/scoring on today; that capability would
+need real vendor data collected first, which is itself the actual blocker,
+not a missing AI feature.
+
+**Next evidence-backed candidate for cycle 6**: a read-only, deterministic
+aggregation over `cint_surveys` — e.g., conversion/deactivation-reason
+breakdown by `account_name` or `source_api`, surfacing which
+buyers/traffic-sources are underperforming or getting deactivated most
+often. Pure aggregation, no AI/model needed for a first version, following
+the same "deterministic first, safest possible starting point" pattern
+already used for panel.
 
 **A real, concrete bug found and fixed as a result**:
 `agents/panel_intelligence_agent.py` (one of the 8 registered CRM agents,
