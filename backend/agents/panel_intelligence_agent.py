@@ -12,7 +12,7 @@ Field mapping is tolerant of common panel field names; the source db/collection
 is configurable so it can point at the real panel store or a test fixture.
 
 Usage:
-    python -m backend.agents.panel_intelligence_agent --dry-run
+    python -m backend.agents.panel_intelligence_agent            # dry-run is the default (no --execute)
     python -m backend.agents.panel_intelligence_agent --execute --limit 500
 """
 

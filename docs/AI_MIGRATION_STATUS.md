@@ -65,6 +65,18 @@ it needs a fresh real-data validation pass, same as any new candidate.
    real-sample validation this incident just showed was missing, not a
    re-read of the old synthetic-lead numbers.
 
+## panel_intelligence_agent real-schema fix — VALIDATED against real production data
+
+| | |
+|---|---|
+| **Status** | IMPLEMENTED, TESTED, VALIDATED (dry-run against real data) |
+| **What was wrong** | Default `source_db="panel"` is empty in production; fraud heuristic checked for fields (`surveys_completed` and synonyms) that don't exist anywhere in the real `campaign_platform.panelists` schema, meaning it would have false-positived on every panelist with any reward balance |
+| **Fix** | Corrected default to `campaign_platform`; rewards-vs-completions check now requires completion data to actually be present; recognizes the real `rewards_balance` field; added one new evidence-backed signal (reward balance on a bounced/dnd account) |
+| **Unit tests** | 12 new, all passing; full suite 809 passed, no regressions |
+| **Real-data dry-run** (2026-09-17, read-only, no `--execute`) | `scanned: 5000, mirrored: 5000, flagged: 0, errors: 0` against the real 224,004-panelist collection — confirms the fix works (previously would have scanned 0); 0 flagged in this sample is plausible and not evidence of a problem, since nothing was written (dry-run) |
+| **Autonomy mode** | Unchanged (`recommend`) — zero AI/model involvement in this fix, pure deterministic logic, no risk of the kind that caused the bucket_classifier incident |
+| **Not yet done** | Not added to celery beat (still manual-CLI-only, same as all 8 agents per cycle 2's finding) — scheduling it is a separate decision from fixing its logic |
+
 ## Other candidates evaluated
 
 | Candidate | Status | Note |
