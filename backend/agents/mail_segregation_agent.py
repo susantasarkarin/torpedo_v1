@@ -515,25 +515,37 @@ class MailSegregationAgent:
     # classify step, which never throws a PyMongo error and would just
     # double-count stats on a retry) lets the job survive a transient blip
     # instead of losing all prior progress.
-    _MAX_DB_RETRIES = 3
-    _RETRY_BACKOFF_SECONDS = 5
+    # 2026-09-18: fixed backoff (3 attempts, 5s) survived a single blip but
+    # not the real production condition -- the VM (2 vCPU, 3.8GB) runs at
+    # load average ~3 with ~1.6/2GB swap in use from everything else this
+    # box hosts (API, celery workers, v2's LLM inference, mongod itself).
+    # A live run confirmed timeouts recurring every ~500-4000 docs under
+    # that load, well outside a 15s retry window. Widened to exponential
+    # backoff over more attempts so the job can ride out a stall lasting
+    # tens of seconds instead of just a few.
+    _MAX_DB_RETRIES = 6
+    _RETRY_BACKOFF_BASE_SECONDS = 5
     _TRANSIENT_DB_ERRORS = (AutoReconnect, NetworkTimeout, PyMongoError)
+    # Small pause between batches so this job doesn't itself become the
+    # thing that starves mongod/other services of CPU/IO on the shared box.
+    _INTER_BATCH_PAUSE_SECONDS = 0.5
 
     def _retry_db_op(self, op):
         """Run `op()` (a zero-arg callable doing one Mongo call), retrying a
-        transient error a bounded number of times with backoff. Re-raises
-        after the last attempt so a genuinely persistent failure still stops
-        the run rather than looping forever."""
+        transient error a bounded number of times with exponential backoff.
+        Re-raises after the last attempt so a genuinely persistent failure
+        still stops the run rather than looping forever."""
         for attempt in range(1, self._MAX_DB_RETRIES + 1):
             try:
                 return op()
             except self._TRANSIENT_DB_ERRORS as e:
                 if attempt == self._MAX_DB_RETRIES:
                     raise
+                delay = self._RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
                 logger.warning(
                     f"Transient DB error (attempt {attempt}/{self._MAX_DB_RETRIES}), "
-                    f"retrying in {self._RETRY_BACKOFF_SECONDS}s: {e}")
-                time.sleep(self._RETRY_BACKOFF_SECONDS)
+                    f"retrying in {delay}s: {e}")
+                time.sleep(delay)
 
     def segregate_all_emails(
         self,
@@ -645,6 +657,7 @@ class MailSegregationAgent:
                     self._retry_db_op(lambda: classified_emails.bulk_write(classified_ops, ordered=False))
 
                 logger.info(f"Processed {processed} emails, {failed} failed")
+                time.sleep(self._INTER_BATCH_PAUSE_SECONDS)
 
             summaries = self._generate_segment_summaries()
 
