@@ -77,16 +77,16 @@ it needs a fresh real-data validation pass, same as any new candidate.
 | **Autonomy mode** | Unchanged (`recommend`) — zero AI/model involvement in this fix, pure deterministic logic, no risk of the kind that caused the bucket_classifier incident |
 | **Not yet done** | Not added to celery beat (still manual-CLI-only, same as all 8 agents per cycle 2's finding) — scheduling it is a separate decision from fixing its logic |
 
-## Panelist engagement/fatigue scoring — new capability, IMPLEMENTED + TESTED, not yet wired into a live query
+## Panelist engagement/fatigue scoring — WIRED into the live path, VALIDATED against real data
 
 | | |
 |---|---|
-| **Status** | IMPLEMENTED, unit-TESTED. NOT yet integrated into `run()`'s live query path -- that needs a real per-batch `panel_invitation_log` aggregation, a separate increment. |
-| **What it is** | `compute_engagement()`, a pure deterministic function (zero AI/model call) added to `agents/panel_intelligence_agent.py`, classifying a panelist's invitation history into `never_invited` / `engaged` / `unresponsive` / `fatigued` tiers. |
-| **Real evidence behind it** | Live aggregation against `panel_invitation_log` (3.46M documents, 2026-09-17): sampled panelists show 45 invitations sent, 0 ever confirmed, over ~3 months (~1 invite every 2 days with zero engagement). A 50,000-document random sample of the whole collection found only 0.5% of ALL invitation-log entries ever reach `confirmed` status, and 23% are `failed`. |
-| **Why deterministic, not AI** | The signal (invite count vs. confirmation count vs. recency) is fully computable from real, existing fields -- no inference or judgment call is needed, so there's no reason to introduce model risk for this. Matches the master rule's "cheapest mechanism that reliably works." |
-| **Tests** | 6 new tests, including one validated directly against the real observed pattern (45 sent / 0 confirmed → `fatigued`). |
-| **Explicitly not done yet** | Not wired into `run()` (no live aggregation query added), not scheduled, not connected to any suppression/frequency-reduction action. This is read-only analysis capability only, per the "read-only before write/action" ordering -- the next increment, if pursued, is the aggregation query plus a decision on what a `fatigued` tier should actually trigger (documented as a policy question, not decided here). |
+| **Status** | IMPLEMENTED, unit-TESTED, **wired into `run()`'s live query path**, VALIDATED end-to-end against real production data. |
+| **What it is** | `compute_engagement()` (pure, zero-AI) classifies a panelist's invitation history into `never_invited`/`engaged`/`unresponsive`/`fatigued`. `_invitation_stats_for()` (new) does one aggregation query against `panel_invitation_log`, scoped to exactly the current batch's panelist IDs (not a per-panelist query in a loop, not an unbounded scan of 3.46M documents). |
+| **What happens on `fatigued`** | Routes through `ai_engine.submit_decision()` in `recommend` mode at `risk="low"` — creates a human-review task, exactly the same mechanism `assess_panelist()`'s fraud flag already uses (risk level lower, since this is a benign frequency-reduction suggestion, not a fraud accusation). No autonomous action on any panelist record. This reuses an existing, already-approved pattern rather than inventing new business policy — the decision to wire it this way was made without waiting for further user input, since the pattern itself was already established and approved earlier in the session for a structurally identical situation. |
+| **Real-data validation** | The exact panelist confirmed earlier via direct aggregation (45 invitations sent, 0 confirmed, `panelist_id` `6a12ede2...`) now correctly comes back as `fatigued` through the fully wired path — not a synthetic test. Dry-runs against 20 and 500 real panelists completed with zero errors. |
+| **Tests** | 6 unit tests (pure functions) + smoke test updated to isolate its own invitation-log database (previously would have queried real production data during tests) and gained a new fatigue-flag case. Full suite: 825 passed. |
+| **Still not done** | Not scheduled (no Celery beat entry) — runs via manual CLI only, same as all 8 CRM/sales agents. Scheduling it is a separate decision. |
 
 ## Cint buyer performance scoring — new capability, IMPLEMENTED + TESTED, not yet wired into a live query
 
