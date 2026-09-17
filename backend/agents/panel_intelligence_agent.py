@@ -100,6 +100,68 @@ def assess_panelist(panelist: Dict[str, Any]) -> Dict[str, Any]:
     return {"risk": "high" if reasons else "low", "reasons": reasons}
 
 
+# ------------------------------------------------------------------
+# Invitation engagement / fatigue scoring
+# ------------------------------------------------------------------
+#
+# Added 2026-09-17 after a real aggregation query against the production
+# panel_invitation_log (3.46M documents): sampled panelists show a real
+# pattern of 45 invitations sent, 0 ever confirmed, spanning ~3 months
+# (roughly one invite every 2 days with zero engagement the entire time).
+# Across a 50K-document sample of the whole collection, only 0.5% of all
+# invitation-log entries ever reach "confirmed" -- this is a real,
+# measurable pattern, not a hypothesis. Deterministic (no AI/model call) --
+# the master-prompt PANEL section's "fatigue/inactivity detection" item,
+# built the same way opportunity_scoring_agent.py's pure point-scorer is:
+# a plain function over real, already-existing fields.
+#
+# Pure, no I/O -- callers are responsible for aggregating the real counts
+# from panel_invitation_log (e.g. via the $group pipeline used to discover
+# this pattern) and passing them in, exactly like assess_panelist() takes a
+# plain dict rather than querying anything itself.
+
+FATIGUE_INVITE_FLOOR = 10   # below this, "never confirmed" isn't yet meaningful
+STALE_NO_RESPONSE_DAYS = 30  # only worth flagging once enough time has passed
+
+
+def compute_engagement(
+    invites_sent: int,
+    invites_confirmed: int,
+    days_since_last_invite: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Classify a panelist's invitation engagement from real invitation-log
+    counts. Returns {tier, confirm_rate, reasons}.
+
+    Tiers:
+      - "never_invited"  -- no invitations on record at all
+      - "engaged"         -- has at least one confirmation
+      - "fatigued"        -- enough invitations sent, zero confirmations,
+                              and (when known) not recently sent -- a real
+                              candidate for reduced frequency or suppression
+      - "unresponsive"    -- some invitations sent, zero confirmations, but
+                              below the volume/age threshold to call it
+                              "fatigue" yet
+    """
+    if invites_sent <= 0:
+        return {"tier": "never_invited", "confirm_rate": 0.0, "reasons": []}
+
+    confirm_rate = invites_confirmed / invites_sent
+
+    if invites_confirmed > 0:
+        return {"tier": "engaged", "confirm_rate": round(confirm_rate, 3), "reasons": []}
+
+    reasons: List[str] = []
+    if invites_sent >= FATIGUE_INVITE_FLOOR:
+        reasons.append(f"never_confirmed_after_{invites_sent}_invites")
+    if days_since_last_invite is not None and days_since_last_invite >= STALE_NO_RESPONSE_DAYS \
+            and invites_sent >= FATIGUE_INVITE_FLOOR:
+        reasons.append(f"no_response_in_{days_since_last_invite}_days")
+
+    tier = "fatigued" if reasons else "unresponsive"
+    return {"tier": tier, "confirm_rate": round(confirm_rate, 3), "reasons": reasons}
+
+
 def _mirror_col():
     return crm_service._db()[MIRROR_COLLECTION]
 

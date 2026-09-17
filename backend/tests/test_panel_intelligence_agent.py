@@ -22,7 +22,7 @@ campaign_platform.panelists collection (224K+ documents) found:
 No live Mongo needed -- assess_panelist() is a pure function, per its own
 docstring ("No I/O").
 """
-from agents.panel_intelligence_agent import assess_panelist
+from agents.panel_intelligence_agent import assess_panelist, compute_engagement
 
 
 # ============================================================
@@ -119,3 +119,47 @@ def test_legacy_status_flag_values_still_recognized():
 
 def test_empty_document_is_low_risk():
     assert assess_panelist({})["risk"] == "low"
+
+
+# ============================================================
+# compute_engagement() -- validated against the real observed pattern:
+# a live aggregation of panel_invitation_log (2026-09-17) found sampled
+# panelists with 45 invitations sent, 0 confirmed, over ~3 months.
+# ============================================================
+
+def test_real_observed_pattern_is_fatigued():
+    result = compute_engagement(
+        invites_sent=45, invites_confirmed=0, days_since_last_invite=30)
+    assert result["tier"] == "fatigued"
+    assert "never_confirmed_after_45_invites" in result["reasons"]
+    assert result["confirm_rate"] == 0.0
+
+
+def test_never_invited():
+    assert compute_engagement(0, 0)["tier"] == "never_invited"
+
+
+def test_any_confirmation_is_engaged_regardless_of_volume():
+    result = compute_engagement(invites_sent=45, invites_confirmed=1)
+    assert result["tier"] == "engaged"
+    assert result["confirm_rate"] > 0
+
+
+def test_low_volume_no_confirmation_is_unresponsive_not_fatigued():
+    """Below FATIGUE_INVITE_FLOOR, zero confirmations isn't yet a strong
+    enough signal to call it fatigue -- could just be a new panelist."""
+    result = compute_engagement(invites_sent=2, invites_confirmed=0)
+    assert result["tier"] == "unresponsive"
+    assert result["reasons"] == []
+
+
+def test_high_volume_no_confirmation_without_recency_data_is_still_fatigued():
+    """The invite-count threshold alone is enough to flag fatigue -- recency
+    only adds a second, optional reason when known."""
+    result = compute_engagement(invites_sent=20, invites_confirmed=0)
+    assert result["tier"] == "fatigued"
+
+
+def test_confirm_rate_is_computed_correctly():
+    result = compute_engagement(invites_sent=100, invites_confirmed=5)
+    assert result["confirm_rate"] == 0.05
