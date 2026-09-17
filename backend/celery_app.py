@@ -35,6 +35,7 @@ celery_app = Celery(
         'backend.tasks.yield_tasks',
         'backend.tasks.mail_pool_ai_tasks',
         'backend.tasks.lead_bucket_tasks',
+        'backend.tasks.intelligence_agent_tasks',
         'backend.app.tasks.outreach_tasks',
         'backend.campaigns.send_queue',
         'backend.sales.tasks',
@@ -238,6 +239,28 @@ celery_app.conf.update(
             # at most 2-3 reminders in total.
             'task': 'backend.tasks.panel_tasks.run_panel_reengagement_drips',
             'schedule': crontab(hour=6, minute=0),
+            'options': {'queue': 'default'},
+        },
+        'panel-intelligence-daily': {
+            # 12:30 PM IST = 07:00 UTC -- after the morning invite/reconcile
+            # crons (02:00-06:00 UTC block above), before the day's other
+            # activity. Recommend mode only (default): mirrors panel
+            # activity and creates human-review tasks via ai_engine for
+            # fraud/fatigue signals -- never autonomously changes a
+            # panelist record. Batch capped (intelligence_agent_tasks.
+            # PANEL_LIMIT) pending an index on panel_invitation_log.
+            # panelist_id -- see that module's docstring.
+            'task': 'backend.tasks.intelligence_agent_tasks.run_panel_intelligence',
+            'schedule': crontab(hour=7, minute=0),
+            'options': {'queue': 'default'},
+        },
+        'cint-intelligence-daily': {
+            # 12:45 PM IST = 07:15 UTC. Recommend mode only: scores real
+            # Cint buyer performance and creates human-review tasks for
+            # underperformers -- never calls the Cint API, never changes
+            # allocation or pricing.
+            'task': 'backend.tasks.intelligence_agent_tasks.run_cint_intelligence',
+            'schedule': crontab(hour=7, minute=15),
             'options': {'queue': 'default'},
         },
         'panel-health-check': {
