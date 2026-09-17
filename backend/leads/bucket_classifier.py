@@ -390,12 +390,29 @@ def _roles_share_a_model() -> bool:
         return False
 
 
+# Opt-in, off by default: routes ONLY the first-pass ("cheap") role to the
+# local Qwen2.5-0.5B instead of bedrock_client's cheap-role chain. Never
+# applies to the escalation ("smart") role -- that stays on bedrock_client
+# unconditionally, per standing instruction not to touch smart-role routing.
+# This is the one workload this session's live testing validated as reliable
+# on the local model (see docs/AI_VALIDATION_RESULTS.md); every other tested
+# shape failed. Enabled in production 2026-09-17 after mail-pool-ai and
+# lead-bucket-classification were both found silently failing every
+# scheduled run (Bedrock unavailable, no working cheap-role fallback) --
+# see docs/AI_MIGRATION_STATUS.md.
+USE_LOCAL_SLM_FOR_FIRST_PASS = os.getenv(
+    "BUCKET_CLASSIFIER_USE_LOCAL_SLM", "").strip().lower() in ("1", "true", "yes")
+
+
 def _classify_with(role: str, prompt: str, lead_id: str
                    ) -> Tuple[str, float, str, Optional[str]]:
     """
     One classification pass. Returns (bucket, confidence, reason, error).
     `error` is None on success.
     """
+    if role == CLASSIFIER_ROLE_FIRST_PASS and USE_LOCAL_SLM_FOR_FIRST_PASS:
+        return _classify_with_local(prompt, lead_id)
+
     from leads.bedrock_client import converse_json_object
 
     try:
@@ -410,6 +427,29 @@ def _classify_with(role: str, prompt: str, lead_id: str
         logger.warning("lead=%s %s classification call failed: %s",
                        lead_id, role, e)
         return REVIEW_BUCKET, 0.0, "", f"model call failed: {e}"
+
+    bucket, confidence, reason = validate_result(data)
+    return bucket, confidence, reason, None
+
+
+def _classify_with_local(prompt: str, lead_id: str
+                         ) -> Tuple[str, float, str, Optional[str]]:
+    """
+    First-pass classification via the local Qwen2.5-0.5B server, gated by
+    local_llm_gate (through local_slm_client.chat_json). Reuses the exact
+    same SYSTEM_PROMPT/prompt and validate_result() as the Bedrock path, so
+    behavior on a malformed/unexpected response is identical regardless of
+    provider -- only the transport differs.
+    """
+    from leads import local_slm_client as slm
+
+    try:
+        data = slm.chat_json(
+            system=SYSTEM_PROMPT, user=prompt, max_tokens=CLASSIFIER_MAX_TOKENS)
+    except slm.LocalSLMError as e:
+        logger.warning("lead=%s local SLM classification call failed: %s",
+                       lead_id, e)
+        return REVIEW_BUCKET, 0.0, "", f"local model call failed: {e}"
 
     bucket, confidence, reason = validate_result(data)
     return bucket, confidence, reason, None

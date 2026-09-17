@@ -221,6 +221,60 @@ def test_classify_raises_local_slm_unavailable_when_base_url_unset(monkeypatch, 
 # The gate is actually mandatory -- not bypassable by accident
 # ============================================================
 
+# ============================================================
+# chat_json() -- the low-level primitive for callers with their own prompt
+# ============================================================
+
+def test_chat_json_returns_the_parsed_object(monkeypatch, no_gate):
+    monkeypatch.setattr(
+        slm._transport, "chat",
+        _fake_chat(json.dumps({"bucket": "BIM", "confidence": 0.9, "reason": "match"})),
+    )
+    result = slm.chat_json(system="sys prompt", user="user prompt")
+    assert result == {"bucket": "BIM", "confidence": 0.9, "reason": "match"}
+
+
+def test_chat_json_strips_markdown_fences(monkeypatch, no_gate):
+    monkeypatch.setattr(
+        slm._transport, "chat",
+        _fake_chat('```json\n{"bucket": "REJECT", "confidence": 1.0, "reason": "x"}\n```'),
+    )
+    result = slm.chat_json(system="sys", user="user")
+    assert result["bucket"] == "REJECT"
+
+
+def test_chat_json_raises_on_non_json(monkeypatch, no_gate):
+    monkeypatch.setattr(slm._transport, "chat", _fake_chat("not json"))
+    with pytest.raises(slm.LocalSLMMalformedResponse):
+        slm.chat_json(system="sys", user="user")
+
+
+def test_chat_json_raises_on_non_object_json(monkeypatch, no_gate):
+    monkeypatch.setattr(slm._transport, "chat", _fake_chat(json.dumps(["a", "b"])))
+    with pytest.raises(slm.LocalSLMMalformedResponse, match="non-object"):
+        slm.chat_json(system="sys", user="user")
+
+
+def test_chat_json_raises_local_slm_unavailable_on_transport_error(monkeypatch, no_gate):
+    def _raise(*a, **k):
+        raise DOInferenceError("connection refused")
+    monkeypatch.setattr(slm._transport, "chat", _raise)
+    with pytest.raises(slm.LocalSLMUnavailable):
+        slm.chat_json(system="sys", user="user")
+
+
+def test_chat_json_does_not_impose_a_field_schema(monkeypatch, no_gate):
+    """Unlike classify(), chat_json() has no category/confidence contract of
+    its own -- it's the caller's job (e.g. bucket_classifier.validate_result)
+    to validate the shape. Any well-formed JSON object passes through."""
+    monkeypatch.setattr(
+        slm._transport, "chat",
+        _fake_chat(json.dumps({"anything": "goes", "no_category_key": True})),
+    )
+    result = slm.chat_json(system="sys", user="user")
+    assert result == {"anything": "goes", "no_category_key": True}
+
+
 def test_classify_goes_through_the_admission_gate(monkeypatch):
     """Unlike the other tests, this one does NOT install `no_gate` -- it
     proves acquire_local_llm_slot is actually called on the request path,

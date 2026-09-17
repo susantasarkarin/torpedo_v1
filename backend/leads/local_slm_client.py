@@ -143,6 +143,37 @@ def _strip_markdown_fences(text: str) -> str:
     return clean
 
 
+def chat_json(
+    *,
+    system: str,
+    user: str,
+    max_tokens: int = 512,
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Lower-level primitive: one gated call to the local server, parsed as JSON
+    with NO schema reshaping -- for a caller that already has its own proven
+    prompt and its own response-validation logic (e.g. bucket_classifier.py,
+    the one workload this session's testing validated as reliable on this
+    model -- see docs/AI_VALIDATION_RESULTS.md) and just needs the admission-
+    gated transport under it, not classify()'s guardrails built for a prompt
+    written from scratch.
+
+    Raises LocalSLMUnavailable / LocalSLMMalformedResponse exactly like
+    classify() -- callers must treat both as "no AI proposal", same as any
+    other call through this module.
+    """
+    text, _usage, _latency = _call(system, user, max_tokens, timeout)
+    clean = _strip_markdown_fences(text)
+    try:
+        parsed = json.loads(clean)
+    except json.JSONDecodeError as e:
+        raise LocalSLMMalformedResponse(f"model did not return valid JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise LocalSLMMalformedResponse(f"model returned non-object JSON: {parsed!r}")
+    return parsed
+
+
 def classify(
     *,
     task_description: str,
