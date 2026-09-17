@@ -29,7 +29,7 @@ none are implemented.
 
 | Workload | File | Current transport | Local SLM verdict | Route |
 |---|---|---|---|---|
-| Lead bucket classification | `bucket_classifier.py` | #1 | **ACCEPTED** (1.2–1.4s clean; 9–12s under mixed load — caveat, not a rejection) | LOCAL SLM (already in place) |
+| Lead bucket classification | `bucket_classifier.py` | #1 | **REJECTED as of 2026-09-17** — activated in production, mode-collapsed on real messy lead data (9/9 identical `SFW, confidence=0.90` regardless of actual content), confidence gate provided no protection. See `AI_VALIDATION_RESULTS.md` Test 10. Earlier "ACCEPTED" verdict was measured on clean synthetic leads only and did not generalize. | Reverted to Bedrock (currently failing there too — `model_errors`, but crucially writes nothing, which is the safer of the two known failure modes) |
 | Inbound email → CRM routing | `mail_pool_ai.py` | #1 | REJECTED — 100% timeout at 12s | BEDROCK (currently: unavailable; stays on whatever's configured, no change made) |
 | Mail Stage-1 prefilter | `mail_segregation_agent.py` | none (zero-AI by design) | N/A — deterministic by design, correctly so | DETERMINISTIC (no change — this is the right answer, not a gap) |
 | Gmail-app email classify/extract | `app/services/ai_classification_service.py` → `ai_gateway.py` | #1 | REJECTED — timeout at 12.01s (real prod prompt) | BEDROCK (blocked on account status) |
@@ -103,8 +103,17 @@ confirmed absent, not merely unaudited.
 
 ## Phase 1 status
 
-`leads/local_slm_client.py` — built, unit-tested (16/16), live-smoke-tested,
-committed (`7fd65b8`), deployed to `torpedo-prod`. Zero callers wired in yet;
-two candidates evaluated and **rejected** (see above). Structurally, this
-proves the gateway itself works — the bottleneck found so far is the model's
-semantic discrimination ability on nuanced categories, not the plumbing.
+`leads/local_slm_client.py` — built, unit-tested, live-smoke-tested,
+committed (`7fd65b8`), deployed to `torpedo-prod`. The gateway/transport
+layer itself works correctly (admission gate, JSON parsing, error handling
+all behaved exactly as designed even during the incident below). Three
+candidates evaluated: `reply_sentiment`/`reply_intent` rejected pre-
+production (live validation only); `bucket_classifier` was activated in
+production on 2026-09-17, found to mode-collapse on real data within
+~30 minutes, and rolled back — see `AI_MIGRATION_STATUS.md` for the full
+incident record. **As of this writing, no workload is running on
+`local_slm_client` in production.** The bottleneck across every candidate
+tested is the model's semantic discrimination ability, not the plumbing —
+the plumbing has now been proven correct under a real failure, including
+correctly catching and reporting the timeout cases inline rather than
+hanging or corrupting data.

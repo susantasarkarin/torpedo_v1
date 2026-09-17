@@ -96,6 +96,67 @@ this exact failure shape is strong enough evidence that the burden is now on
 a candidate to show its categories are meaningfully *coarser* than these,
 the way `bucket_classifier`'s and the bank-notification test's were.
 
+## Test 10 — bucket_classifier live production activation, 2026-09-17 — REVERSES the earlier GREEN verdict
+
+**This is the most important entry in this file.** `bucket_classifier.py` was
+the one workload every prior test in this document treated as validated-safe
+(row #1). That validation was run against clean, prototypical synthetic
+leads. When `BUCKET_CLASSIFIER_USE_LOCAL_SLM=true` was activated in
+production and hit the **real, messy backlog** of leads that had queued up
+while Bedrock was down, it failed the same way reply_sentiment/reply_intent
+failed — mode collapse — and the failure was worse here because it slipped
+past the confidence gate undetected.
+
+**What happened**: 9 consecutive real leads were classified `bucket=SFW,
+confidence=0.90` — identical bucket, identical confidence, every time.
+Checked against the actual lead data:
+
+| Lead | Title (real) | Company | Classified as |
+|---|---|---|---|
+| 1 | Executive Vice President & Group General Manager | Qualcomm | SFW (0.90) |
+| 2 | (garbled: company name in title field) | Rocket Software | SFW (0.90) |
+| 3 | Software Architecture, Security Research, Application... | — | SFW (0.90) |
+| 4 | (garbled: company name in title field) | Polaris Software | SFW (0.90) |
+| 5 | Hayner, PhD, CBIST, FACRM (looks like a name, not a title) | — | SFW (0.90) |
+
+None of these are plausibly, genuinely the same bucket. This is the model
+defaulting to one answer regardless of input — the same failure shape as
+Test 8/9, now proven on `bucket_classifier` too, and specifically triggered
+by **messy real-world data** (garbled titles, missing company/industry
+fields) that the original clean-synthetic-lead benchmark never exercised.
+
+**Confidence was not a safety net.** All 9 came back at exactly 0.90 —
+comfortably above the 0.7 gate meant to catch low-confidence guesses. A model
+that is wrong and reports 0.90 defeats a threshold designed to catch a model
+that is uncertain and reports 0.4. This is the starkest confirmation yet of
+the standing finding: **confidence from this model carries no information
+about correctness.**
+
+**Real consequence, corrected**: all 9 leads were persisted with
+`outreach_bucket=SFW`/`classification_basket=A` in both `leads_raw` and the
+mirrored `leads_enriched` collection (the collection real outreach
+auto-enrollment reads from). Checked for downstream propagation: **no
+`campaign_recipients` enrollment had yet occurred** for any of the 9 —
+caught before it reached an actual send. All 9 were reverted (`$unset` on
+every field `persist()` had written, in both collections) within minutes of
+being written.
+
+**Action taken**: `BUCKET_CLASSIFIER_USE_LOCAL_SLM` set back to `false` in
+production, `torpedo-sales-worker.service` restarted, confirmed active.
+`lead-bucket-classification` is back to its pre-fix state — failing against
+unavailable Bedrock (safe: produces `model_errors`, writes nothing) rather
+than succeeding against the local model (unsafe: produced confident,
+incorrect writes). A non-writing failure is the safer of the two known
+states until a real fix exists.
+
+**Revised verdict for bucket_classifier.py**: **REJECTED for unsupervised
+production use on real data**, reversing row #1's "ACCEPTED, with a load
+caveat." The earlier synthetic-lead benchmark measured something real
+(latency, format compliance) but not the thing that mattered (semantic
+accuracy on messy real inputs) — the same category of gap the "valid JSON ≠
+correct reasoning" lesson from Test 8/9 already named, now shown to apply to
+the one case previously thought exempt from it.
+
 ## Routing decision recorded
 
 - `reply_sentiment.py`, `reply_intent.py`: **remain on their current direct-
