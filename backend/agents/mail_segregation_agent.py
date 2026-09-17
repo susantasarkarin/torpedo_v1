@@ -517,8 +517,20 @@ class MailSegregationAgent:
             if force_rescan:
                 total_emails = mail_pool_emails.count_documents({})
                 # Clear BOTH the new and legacy fields on a forced rescan.
-                mail_pool_emails.update_many(
-                    {}, {"$unset": {RULE_STATUS_FIELD: "", LEGACY_RULE_STATUS_FIELD: ""}})
+                #
+                # Chunked by _id rather than one collection-wide update_many:
+                # on the real pool (367,698 docs) a single update_many({}, ...)
+                # exceeded MongoDB's default 20s socket timeout and aborted the
+                # whole run before any reclassification happened. Each
+                # individual chunk completes well within timeout; the total
+                # server-side work is the same either way.
+                clear_ids = [d["_id"] for d in mail_pool_emails.find({}, {"_id": 1})]
+                for i in range(0, len(clear_ids), 2000):
+                    chunk = clear_ids[i:i + 2000]
+                    mail_pool_emails.update_many(
+                        {"_id": {"$in": chunk}},
+                        {"$unset": {RULE_STATUS_FIELD: "", LEGACY_RULE_STATUS_FIELD: ""}},
+                    )
             else:
                 total_emails = mail_pool_emails.count_documents(_classified_filter(exists=False))
 
