@@ -32,8 +32,20 @@ HIGH_REWARD_FLOOR = 500.0        # only scrutinise once total rewards are materi
 _ID_KEYS = ["panelist_id", "panelistId", "id", "vid", "uid", "email"]
 _EMAIL_KEYS = ["email", "email_address", "panelistEmail"]
 _SURVEYS_KEYS = ["surveys_completed", "completes", "completed_surveys", "completes_n"]
-_REWARDS_KEYS = ["rewards_total", "reward_total", "points", "rewards", "total_rewards"]
+# rewards_balance added 2026-09-17 -- confirmed (via a 200-doc field-union
+# query against the real campaign_platform.panelists collection) to be the
+# actual field name in production; none of the original synonyms below
+# appear anywhere in the real schema, so without this the rewards check
+# always read 0 regardless of a panelist's actual balance.
+_REWARDS_KEYS = ["rewards_balance", "rewards_total", "reward_total", "points",
+                 "rewards", "total_rewards"]
 _STATUS_KEYS = ["status", "state", "panelStatus"]
+# Real distinct status values in production (campaign_platform.panelists):
+# active, bounced, confirmed, dnd. None of "flagged"/"suspicious"/"fraud"/
+# "banned" below have ever been observed there -- kept for a source that
+# might use them, but they cannot be assumed to mean anything for the real
+# collection this agent's own defaults point at.
+_INACTIVE_STATUSES = ("bounced", "dnd")
 
 
 def _first(doc, keys, default=None):
@@ -51,19 +63,39 @@ def _num(v) -> float:
         return 0.0
 
 
+def _has_any_key(doc: Dict[str, Any], keys: List[str]) -> bool:
+    return any(k in doc for k in keys)
+
+
 def assess_panelist(panelist: Dict[str, Any]) -> Dict[str, Any]:
-    """Pure fraud/anomaly heuristic. Returns {risk: low|high, reasons: [...]}. No I/O."""
+    """Pure fraud/anomaly heuristic. Returns {risk: low|high, reasons: [...]}. No I/O.
+
+    The rewards-vs-completions checks below only fire when the document
+    actually carries a survey-completion field. The real production
+    `panelists` collection this agent defaults to has NO completion-count
+    field at all (confirmed 2026-09-17) -- treating an absent field as "0
+    completions" would flag every panelist with any reward balance as
+    suspicious, which is a false-positive on missing data, not a real signal.
+    """
+    has_completion_data = _has_any_key(panelist, _SURVEYS_KEYS)
     surveys = _num(_first(panelist, _SURVEYS_KEYS, 0))
     rewards = _num(_first(panelist, _REWARDS_KEYS, 0))
     status = (_first(panelist, _STATUS_KEYS, "") or "").lower()
 
     reasons: List[str] = []
-    if rewards > 0 and surveys == 0:
-        reasons.append("rewards_without_completions")
-    if rewards >= HIGH_REWARD_FLOOR and surveys > 0 and (rewards / surveys) > REWARD_PER_SURVEY_LIMIT:
-        reasons.append("reward_per_survey_too_high")
+    if has_completion_data:
+        if rewards > 0 and surveys == 0:
+            reasons.append("rewards_without_completions")
+        if rewards >= HIGH_REWARD_FLOOR and surveys > 0 and (rewards / surveys) > REWARD_PER_SURVEY_LIMIT:
+            reasons.append("reward_per_survey_too_high")
     if status in ("flagged", "suspicious", "fraud", "banned"):
         reasons.append(f"status_{status}")
+    # Real, inferable signal given the actual schema: a reward balance
+    # sitting on an account marked bounced/dnd (do-not-disturb) is anomalous
+    # under any reasonable reading, regardless of whether completion data
+    # exists at all.
+    if rewards > 0 and status in _INACTIVE_STATUSES:
+        reasons.append(f"rewards_on_inactive_status:{status}")
 
     return {"risk": "high" if reasons else "low", "reasons": reasons}
 
@@ -74,7 +106,12 @@ def _mirror_col():
 
 def run(
     autonomy_mode: str = "recommend",
-    source_db: str = "panel",
+    # Corrected 2026-09-17: "panel" is empty in production -- the real
+    # panelist collection (224K+ documents) lives in campaign_platform,
+    # confirmed by direct query. The original default meant this agent, if
+    # ever run with no args exactly as its own module docstring's usage
+    # example shows, would scan zero panelists.
+    source_db: str = "campaign_platform",
     source_collection: str = "panelists",
     limit: Optional[int] = None,
     dry_run: bool = False,
@@ -137,7 +174,7 @@ def run(
 def main():
     parser = argparse.ArgumentParser(description="Mirror panel activity + flag fraud into the CRM spine.")
     parser.add_argument("--mode", default="recommend", choices=["observe", "recommend", "approve", "autopilot"])
-    parser.add_argument("--source-db", default="panel")
+    parser.add_argument("--source-db", default="campaign_platform")
     parser.add_argument("--source-collection", default="panelists")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--execute", action="store_true", help="Write changes (default is dry-run).")

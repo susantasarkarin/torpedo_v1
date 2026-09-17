@@ -101,6 +101,47 @@ matching) exists in this repo at all — only a one-time migration
 exists anywhere in v1** (no transcript/notes ingestion of any kind) —
 confirmed absent, not merely unaudited.
 
+## Real-data audit, cycle 5 (2026-09-17) — Panel is the richest real dataset
+
+Per the "start from what data actually exists to query" rule, checked real
+collection sizes rather than just code references:
+
+| Collection | DB | Real document count |
+|---|---|---|
+| `panelists` | `campaign_platform` | 224,004 |
+| `panel_invitation_log` | `campaign_platform` | 3,469,649 |
+| `panel_email_suppression` | `campaign_platform` | 29,416 |
+| `vendor_leads` | `email_automation` | 1,272 |
+| `vendors` | `email_automation` | 3 |
+| `panel_vendors` | `email_automation` | 0 |
+
+**Panel has by far the most real, usable history.** Vendors has almost no
+real data yet (3 records) — not enough to build any meaningful matching/
+scoring on today; that capability would need real vendor data collected
+first, which is itself the actual blocker, not a missing AI feature.
+
+**A real, concrete bug found and fixed as a result**:
+`agents/panel_intelligence_agent.py` (one of the 8 registered CRM agents,
+audited in cycle 2 as "correctly deterministic") defaulted to
+`source_db="panel"`, which is **empty** — confirmed via direct query. Run
+exactly as its own module docstring's usage example shows
+(`python -m backend.agents.panel_intelligence_agent --dry-run`), it would
+scan zero panelists. Separately, its fraud heuristic checked for
+`surveys_completed`-style fields that **do not exist anywhere in the real
+`campaign_platform.panelists` schema** (confirmed via a 200-document field-
+union query) — meaning even pointed at the right collection, it would have
+flagged every panelist with any reward balance as suspicious, a false
+positive on missing data rather than a real signal.
+
+**Fixed**: default `source_db` corrected to `campaign_platform`; the
+rewards-vs-completions check now only fires when completion data is actually
+present in the document; the real field name (`rewards_balance`) is
+recognized; a new, evidence-backed signal was added (reward balance sitting
+on a `bounced`/`dnd` account — a real anomaly given what data actually
+exists, not an invented policy). 12 new unit tests, all passing. This stays
+in `recommend` autonomy mode (unchanged) — it creates a human-review task,
+it does not autonomously act on any panelist record.
+
 ## Phase 1 status
 
 `leads/local_slm_client.py` — built, unit-tested, live-smoke-tested,

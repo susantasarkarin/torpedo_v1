@@ -27,6 +27,17 @@ alternative below.
 | **Corrective action** | All 9 leads' bad fields reverted (`$unset` in both collections) within minutes of being written; flag disabled; worker restarted; confirmed reverted to Bedrock-failing (safe) state |
 | **Verification of rollback** | Confirmed `BUCKET_CLASSIFIER_USE_LOCAL_SLM=false` in production `.env`, worker active, all 9 leads show `bucket=None basket=None` post-revert |
 
+### Standing rule adopted from this incident
+
+**No local SLM workload may be promoted to production merely because
+synthetic tests pass. Production acceptance requires representative
+real-data validation, and for any workload capable of changing CRM/business
+state, an independent correctness/sanity check must exist outside the
+model's own self-reported confidence.** This is now a permanent gate on
+every future local-SLM activation, not just guidance — `bucket_classifier`
+does not get re-activated on a re-read of its old synthetic-lead numbers;
+it needs a fresh real-data validation pass, same as any new candidate.
+
 ### What this changes going forward
 
 1. **A clean-synthetic-lead benchmark does not predict real-production-data
