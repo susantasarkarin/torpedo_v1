@@ -400,33 +400,18 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState, icp_se
 
 async def run_classification_batch(state: LeadSchedulerState) -> tuple:
     """
-    Classify pending leads in batch using OpenAI (web-based enrichment).
-    
-    Returns:
-        (success_count, failure_count)
+    DISABLED 2026-09-17: OPENAI_API_KEY is empty (confirmed via direct
+    length check on the deployed .env -- 0 characters), so every call here
+    was failing on an auth error before even reaching the network. This
+    codebase's classification path for real leads is now
+    leads/bucket_classifier.py (scheduled separately, cheap-role/local-SLM
+    routed) -- reviving this OpenAI path would duplicate that pipeline with
+    a second, incompatible classification result, not add coverage.
+    Matches the existing "DISABLED PER AI GOVERNANCE POLICY" pattern
+    already used for run_email_classification_batch/run_email_summary_batch
+    below, rather than leaving this to fail silently forever.
     """
-    from .service import classify_pending_leads
-    
-    try:
-        success, failure = classify_pending_leads(CLASSIFICATION_BATCH_SIZE)
-        
-        state.log_activity("classification_batch", {
-            "success": success,
-            "failure": failure,
-            "provider": "openai"
-        })
-        
-        print(f"[Scheduler] Lead Classification: {success} success, {failure} failures (OpenAI)")
-        
-        return success, failure
-    
-    except Exception as e:
-        state.error_count += 1
-        state.last_error = str(e)
-        state.save_state()
-        
-        print(f"[Scheduler] Lead Classification error: {e}")
-        return 0, 0
+    return 0, 0
 
 
 # ============== EMAIL CLASSIFICATION BATCH ==============
@@ -453,62 +438,15 @@ async def run_email_classification_batch() -> dict:
 
 async def run_company_enrichment_batch() -> dict:
     """
-    Enrich companies in batch using OpenAI (web search).
-    Batch size: 10 companies per API call
+    DISABLED 2026-09-17: same reason as run_classification_batch above --
+    OPENAI_API_KEY is empty. See that function's docstring.
     """
-    try:
-        from .openai_wrapper import batch_chat_completion
-        
-        # Get companies needing enrichment
-        companies_needing_enrichment = list(db['leads_enriched'].find(
-            {"company_enriched": {"$ne": True}, "company_name": {"$exists": True, "$ne": ""}},
-            {"_id": 1, "company_name": 1, "company_domain": 1}
-        ).limit(10))
-        
-        if not companies_needing_enrichment:
-            return {"processed": 0, "message": "No companies to enrich"}
-        
-        # Build batch prompt
-        def prompt_generator(batch):
-            companies = [f"- {c.get('company_name', 'Unknown')} ({c.get('company_domain', 'N/A')})" for c in batch]
-            return f"""Enrich these companies with industry, size, type, headquarters:
-{chr(10).join(companies)}
-
-Return JSON: {{"results": [{{"company_name": "...", "industry": "...", "company_size": "Startup|SMB|Mid-Market|Enterprise", "company_type": "Public|Private|Startup", "headquarters": "City, Country"}}]}}"""
-        
-        results = batch_chat_completion(
-            items=companies_needing_enrichment,
-            prompt_generator=prompt_generator,
-            source="scheduler",
-            batch_size=10,
-            max_output_tokens=800,
-            system_prompt="You are a B2B company research expert. Return accurate company data in JSON format."
-        )
-        
-        # Update companies
-        enriched_count = 0
-        for i, company in enumerate(companies_needing_enrichment):
-            if i < len(results) and not results[i].get("error"):
-                db['leads_enriched'].update_one(
-                    {"_id": company["_id"]},
-                    {"$set": {
-                        "company_enriched": True,
-                        "company_industry": results[i].get("industry", ""),
-                        "company_size": results[i].get("company_size", ""),
-                        "company_type": results[i].get("company_type", ""),
-                        "company_headquarters": results[i].get("headquarters", ""),
-                        "enriched_at": datetime.utcnow()
-                    }}
-                )
-                enriched_count += 1
-        
-        print(f"[Scheduler] Company Enrichment: {enriched_count}/{len(companies_needing_enrichment)} (OpenAI, 10/batch)")
-        
-        return {"processed": len(companies_needing_enrichment), "enriched": enriched_count}
-    
-    except Exception as e:
-        print(f"[Scheduler] Company Enrichment error: {e}")
-        return {"processed": 0, "enriched": 0, "error": str(e)}
+    return {
+        "processed": 0,
+        "enriched": 0,
+        "message": "DISABLED: OPENAI_API_KEY is empty in production config.",
+        "governance": "AI_GOVERNANCE_POLICY_ACTIVE",
+    }
 
 
 # ============== EMAIL SUMMARY BATCH ==============
@@ -534,58 +472,15 @@ async def run_email_summary_batch() -> dict:
 
 async def run_lead_scoring_batch() -> dict:
     """
-    Score leads in batch using OpenAI.
-    Batch size: 50 leads per API call
+    DISABLED 2026-09-17: same reason as run_classification_batch above --
+    OPENAI_API_KEY is empty. See that function's docstring.
     """
-    try:
-        from .openai_wrapper import batch_chat_completion
-        
-        # Get leads needing scoring
-        leads_needing_scoring = list(db['leads_enriched'].find(
-            {"lead_score": {"$exists": False}, "status": "classified"},
-            {"_id": 1, "full_name": 1, "title": 1, "company_name": 1, "seniority_level": 1, "department": 1}
-        ).limit(50))
-        
-        if not leads_needing_scoring:
-            return {"processed": 0, "message": "No leads to score"}
-        
-        def prompt_generator(batch):
-            leads = [f"- {l.get('full_name', 'Unknown')}, {l.get('title', 'N/A')} at {l.get('company_name', 'N/A')} ({l.get('seniority_level', 'Unknown')})" for l in batch]
-            return f"""Score these B2B leads from 1-100 based on decision-making authority and fit for market research services:
-{chr(10).join(leads)}
-
-Return JSON: {{"results": [{{"name": "...", "score": 1-100, "reason": "1 sentence"}}]}}"""
-        
-        results = batch_chat_completion(
-            items=leads_needing_scoring,
-            prompt_generator=prompt_generator,
-            source="scheduler",
-            batch_size=50,
-            max_output_tokens=2000,
-            system_prompt="You are a B2B lead scoring expert. Score leads based on title, seniority, and company fit."
-        )
-        
-        scored_count = 0
-        for i, lead in enumerate(leads_needing_scoring):
-            if i < len(results) and not results[i].get("error"):
-                score = results[i].get("score", 50)
-                db['leads_enriched'].update_one(
-                    {"_id": lead["_id"]},
-                    {"$set": {
-                        "lead_score": score,
-                        "score_reason": results[i].get("reason", ""),
-                        "scored_at": datetime.utcnow()
-                    }}
-                )
-                scored_count += 1
-        
-        print(f"[Scheduler] Lead Scoring: {scored_count}/{len(leads_needing_scoring)} (OpenAI, 50/batch)")
-        
-        return {"processed": len(leads_needing_scoring), "scored": scored_count}
-    
-    except Exception as e:
-        print(f"[Scheduler] Lead Scoring error: {e}")
-        return {"processed": 0, "scored": 0, "error": str(e)}
+    return {
+        "processed": 0,
+        "scored": 0,
+        "message": "DISABLED: OPENAI_API_KEY is empty in production config.",
+        "governance": "AI_GOVERNANCE_POLICY_ACTIVE",
+    }
 
 
 # ============== GMAIL SYNC BATCH ==============
