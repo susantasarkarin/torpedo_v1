@@ -538,14 +538,34 @@ class MailSegregationAgent:
 
             processed = 0
             failed = 0
+            # force_rescan cursor position: see the note below on why this
+            # can't just re-query {} each iteration.
+            last_id = None
 
             while True:
-                batch = list(mail_pool_emails.find(
-                    _classified_filter(exists=False) if not force_rescan else {}
-                ).limit(batch_size))
+                if force_rescan:
+                    # A bare find({}).limit(n) re-run every iteration is not
+                    # a safe way to page through a collection being mutated
+                    # in place: WiredTiger can relocate a document on disk
+                    # when an update grows it (adding RULE_STATUS_FIELD
+                    # does), so "natural order" isn't stable across calls.
+                    # Confirmed live on the real 367,698-email pool: this
+                    # used to depend on that relocation to incidentally make
+                    # progress at all, degrading (and eventually timing out)
+                    # as fragmentation grew. Sorting by _id and tracking the
+                    # last-seen id guarantees complete, non-overlapping,
+                    # deterministic coverage regardless of in-place mutation.
+                    query = {"_id": {"$gt": last_id}} if last_id is not None else {}
+                    batch = list(
+                        mail_pool_emails.find(query).sort("_id", 1).limit(batch_size))
+                else:
+                    batch = list(mail_pool_emails.find(
+                        _classified_filter(exists=False)).limit(batch_size))
 
                 if not batch:
                     break
+                if force_rescan:
+                    last_id = batch[-1]["_id"]
 
                 pool_ops = []
                 classified_ops = []
