@@ -12,6 +12,7 @@ Categories: internal, client, vendor, promotion, transactional, bank, gst_it_gov
 
 import os
 import re
+import time
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 from pymongo import MongoClient, UpdateOne
+from pymongo.errors import AutoReconnect, NetworkTimeout, PyMongoError
 from bson import ObjectId
 
 
@@ -502,6 +504,37 @@ class MailSegregationAgent:
     # Segregate all emails
     # ----------------------------------------------------------
 
+    # Added 2026-09-17: a real 367,698-email run got past the pagination fix
+    # (14,000 emails processed, 9x further than before it existed) but then
+    # hit a transient MongoDB timeout that killed the entire multi-hour job.
+    # Not a query problem -- the read side is now an efficient indexed range
+    # scan -- almost certainly connection/resource contention from running
+    # for several continuous minutes on a shared, resource-constrained box
+    # alongside everything else that also hits this database. A bounded
+    # retry-with-backoff on the actual I/O calls (not the pure-Python
+    # classify step, which never throws a PyMongo error and would just
+    # double-count stats on a retry) lets the job survive a transient blip
+    # instead of losing all prior progress.
+    _MAX_DB_RETRIES = 3
+    _RETRY_BACKOFF_SECONDS = 5
+    _TRANSIENT_DB_ERRORS = (AutoReconnect, NetworkTimeout, PyMongoError)
+
+    def _retry_db_op(self, op):
+        """Run `op()` (a zero-arg callable doing one Mongo call), retrying a
+        transient error a bounded number of times with backoff. Re-raises
+        after the last attempt so a genuinely persistent failure still stops
+        the run rather than looping forever."""
+        for attempt in range(1, self._MAX_DB_RETRIES + 1):
+            try:
+                return op()
+            except self._TRANSIENT_DB_ERRORS as e:
+                if attempt == self._MAX_DB_RETRIES:
+                    raise
+                logger.warning(
+                    f"Transient DB error (attempt {attempt}/{self._MAX_DB_RETRIES}), "
+                    f"retrying in {self._RETRY_BACKOFF_SECONDS}s: {e}")
+                time.sleep(self._RETRY_BACKOFF_SECONDS)
+
     def segregate_all_emails(
         self,
         strategy: SegmentationStrategy = SegmentationStrategy.CATEGORY,
@@ -527,10 +560,10 @@ class MailSegregationAgent:
                 clear_ids = [d["_id"] for d in mail_pool_emails.find({}, {"_id": 1})]
                 for i in range(0, len(clear_ids), 2000):
                     chunk = clear_ids[i:i + 2000]
-                    mail_pool_emails.update_many(
+                    self._retry_db_op(lambda chunk=chunk: mail_pool_emails.update_many(
                         {"_id": {"$in": chunk}},
                         {"$unset": {RULE_STATUS_FIELD: "", LEGACY_RULE_STATUS_FIELD: ""}},
-                    )
+                    ))
             else:
                 total_emails = mail_pool_emails.count_documents(_classified_filter(exists=False))
 
@@ -556,11 +589,11 @@ class MailSegregationAgent:
                     # last-seen id guarantees complete, non-overlapping,
                     # deterministic coverage regardless of in-place mutation.
                     query = {"_id": {"$gt": last_id}} if last_id is not None else {}
-                    batch = list(
-                        mail_pool_emails.find(query).sort("_id", 1).limit(batch_size))
+                    batch = self._retry_db_op(lambda: list(
+                        mail_pool_emails.find(query).sort("_id", 1).limit(batch_size)))
                 else:
-                    batch = list(mail_pool_emails.find(
-                        _classified_filter(exists=False)).limit(batch_size))
+                    batch = self._retry_db_op(lambda: list(mail_pool_emails.find(
+                        _classified_filter(exists=False)).limit(batch_size)))
 
                 if not batch:
                     break
@@ -607,9 +640,9 @@ class MailSegregationAgent:
                         failed += 1
 
                 if pool_ops:
-                    mail_pool_emails.bulk_write(pool_ops, ordered=False)
+                    self._retry_db_op(lambda: mail_pool_emails.bulk_write(pool_ops, ordered=False))
                 if classified_ops:
-                    classified_emails.bulk_write(classified_ops, ordered=False)
+                    self._retry_db_op(lambda: classified_emails.bulk_write(classified_ops, ordered=False))
 
                 logger.info(f"Processed {processed} emails, {failed} failed")
 

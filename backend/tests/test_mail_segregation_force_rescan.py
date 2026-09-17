@@ -16,10 +16,21 @@ against the real 367,698-email pool:
    guarantees complete, non-overlapping, deterministic coverage regardless
    of in-place mutation.
 
+3. A real 367,698-email run got 9x further with fix #2 in place (14,000
+   emails processed, vs. 1,500 before) but then hit the SAME timeout --
+   not a query problem this time (the read side is now an efficient
+   indexed range scan), almost certainly connection/resource contention
+   from running continuously for several minutes on a shared, constrained
+   box. Fixed with a bounded retry-with-backoff (_retry_db_op) around the
+   actual I/O calls (find/bulk_write), not the pure-Python classify step.
+
 Mocks the module-level `mail_pool_emails` collection directly -- no live
-Mongo needed to verify either fix.
+Mongo needed to verify any of the three fixes. Patches time.sleep so retry
+backoff tests run instantly.
 """
 from unittest.mock import MagicMock, patch
+
+from pymongo.errors import AutoReconnect
 
 from agents import mail_segregation_agent as msa
 
@@ -124,3 +135,71 @@ def test_non_force_rescan_still_uses_the_unclassified_filter_not_id_paging():
     fake_coll.update_many.assert_not_called()  # no clearing on a normal run
     call_filter = fake_coll.find.call_args_list[0].args[0]
     assert "_id" not in call_filter
+
+
+# ============================================================
+# _retry_db_op() -- the resilience fix for the real timeout that recurred
+# at 14,000 processed emails despite the pagination fix
+# ============================================================
+
+def test_retry_db_op_succeeds_after_transient_failures():
+    agent = msa.MailSegregationAgent()
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise AutoReconnect("connection reset")
+        return "ok"
+
+    with patch("agents.mail_segregation_agent.time.sleep") as mock_sleep:
+        result = agent._retry_db_op(flaky)
+
+    assert result == "ok"
+    assert calls["n"] == 3
+    assert mock_sleep.call_count == 2  # backoff between attempts 1->2 and 2->3
+
+
+def test_retry_db_op_raises_after_max_attempts():
+    agent = msa.MailSegregationAgent()
+
+    def always_fails():
+        raise AutoReconnect("still down")
+
+    with patch("agents.mail_segregation_agent.time.sleep"):
+        try:
+            agent._retry_db_op(always_fails)
+            assert False, "expected AutoReconnect to propagate"
+        except AutoReconnect:
+            pass
+
+
+def test_segregate_all_emails_survives_one_transient_batch_failure():
+    """The scenario that actually happened in production: a batch's
+    bulk_write times out once, then succeeds on retry -- the whole run must
+    not die, and progress (last_id) must not skip the retried batch."""
+    fake_coll = MagicMock()
+    fake_coll.count_documents.return_value = 1
+    page = [{"_id": 1, "from_email": "a@x.com", "subject": ""}]
+    fake_coll.find.side_effect = [[], _cursor(page), _cursor([])]
+
+    call_count = {"n": 0}
+
+    def flaky_bulk_write(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise AutoReconnect("connection reset")
+        return MagicMock()
+
+    fake_coll.bulk_write.side_effect = flaky_bulk_write
+
+    with patch.object(msa, "mail_pool_emails", fake_coll), \
+         patch.object(msa, "classified_emails", MagicMock()), \
+         patch("agents.mail_segregation_agent.time.sleep"):
+        agent = msa.MailSegregationAgent()
+        with patch.object(agent, "_generate_segment_summaries", return_value=[]):
+            result = agent.segregate_all_emails(force_rescan=True, batch_size=1)
+
+    assert result["success"] is True
+    assert result["processed"] == 1
+    assert call_count["n"] == 2  # one failure, one successful retry
