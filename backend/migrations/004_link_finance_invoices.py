@@ -20,6 +20,9 @@ Usage:
 import argparse
 from typing import Optional, Dict, Any, List
 
+from bson import ObjectId
+from bson.errors import InvalidId
+
 from database import get_database
 from app.services import crm_service
 
@@ -29,6 +32,31 @@ _CUSTOMER_KEYS = ["customer_name", "customer", "client_name", "client",
 _TOTAL_KEYS = ["total", "total_amount", "grand_total", "amount", "invoice_amount"]
 _INVNO_KEYS = ["invoice_number", "invoice_no", "invoice", "inv_number", "inv_no"]
 _BALANCE_KEYS = ["balance_due", "balance", "due_amount", "outstanding"]
+
+
+def _resolve_account_via_customer_id(doc: Dict[str, Any]) -> Optional[str]:
+    """
+    finance_db.invoices carries customer_id (-> finance_db.customers), not a
+    customer name -- the _CUSTOMER_KEYS name lookup below always misses on
+    the real data (confirmed live: 265/265 "no_customer" on a dry run).
+    finance_db.customers already carries crm_account_id, populated for every
+    customer that has ever been invoiced (confirmed live: 265/265 resolve to
+    a real crm_db.accounts doc) -- this is a direct, reliable join, no name
+    fuzzy-matching needed.
+    """
+    customer_id = doc.get("customer_id")
+    if not customer_id:
+        return None
+    try:
+        customer = get_database("finance_db")["customers"].find_one(
+            {"_id": ObjectId(customer_id)}, {"crm_account_id": 1}
+        )
+    except InvalidId:
+        return None
+    if not customer:
+        return None
+    account_id = customer.get("crm_account_id")
+    return str(account_id) if account_id else None
 
 
 def _first(doc: Dict[str, Any], keys: List[str], default=None):
@@ -70,6 +98,7 @@ def migrate_finance_invoices(
         "scanned": 0,
         "invoices_created": 0,
         "invoices_skipped_existing": 0,
+        "accounts_linked_via_customer_id": 0,
         "accounts_created": 0,
         "accounts_reused": 0,
         "no_customer": 0,
@@ -90,8 +119,10 @@ def migrate_finance_invoices(
             customer = _first(doc, _CUSTOMER_KEYS)
             amount = _to_float(_first(doc, _TOTAL_KEYS, 0))
 
-            account_id = None
-            if customer:
+            account_id = _resolve_account_via_customer_id(doc)
+            if account_id:
+                stats["accounts_linked_via_customer_id"] += 1
+            elif customer:
                 if dry_run:
                     existing = crm_service.find_account_by_name(customer)
                     stats["accounts_reused" if existing else "accounts_created"] += 1
