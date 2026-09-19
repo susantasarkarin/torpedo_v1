@@ -16,11 +16,15 @@ the import direction stays one-way: routers -> mail_pool_ai -> this module,
 and routers -> this module directly for reads.
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from bson.errors import InvalidId
+from pymongo.errors import DuplicateKeyError
+
+logger = logging.getLogger(__name__)
 
 COLLECTION = "rfq_review_queue"
 
@@ -41,7 +45,17 @@ def stage(
     sender_name: Optional[str] = None,
     confidence: Optional[str] = None,
 ) -> str:
-    """Record a proposed RFQ for human review. Returns the queue doc id."""
+    """
+    Record a proposed RFQ for human review. Returns the queue doc id --
+    either a freshly created one, or the id of an already-existing entry
+    for this exact source_email_id (repeated polling, retry execution, or
+    a worker/scheduler restart must never produce two proposals for the
+    same email; see Phase 9 dedup requirement).
+    """
+    existing = _col().find_one({"source_email_id": source_email_id}, {"_id": 1})
+    if existing:
+        return str(existing["_id"])
+
     now = datetime.utcnow()
     doc = {
         "payload": payload,
@@ -53,8 +67,18 @@ def stage(
         "created_at": now,
         "updated_at": now,
     }
-    result = _col().insert_one(doc)
-    return str(result.inserted_id)
+    try:
+        result = _col().insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        # Lost a race with a concurrent stage() call for the same email
+        # between the find_one above and this insert -- the unique index
+        # caught what the pre-check couldn't. Adopt the winner's id rather
+        # than raise; the caller only needs *a* queue_id for this email.
+        logger.info("[rfq-review-queue] duplicate stage() for source_email_id=%s "
+                   "-- adopting existing entry", source_email_id)
+        winner = _col().find_one({"source_email_id": source_email_id}, {"_id": 1})
+        return str(winner["_id"])
 
 
 def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:

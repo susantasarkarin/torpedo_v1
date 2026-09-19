@@ -81,6 +81,14 @@ def setup_indexes(db_manager=None):
         ("company", TEXT)
     ], name="contacts_text_search")
     
+    # RFQ review queue (sales/rfq_review_queue.py) -- one proposal per
+    # source email, ever. Unique so a race between two near-simultaneous
+    # stage() calls for the same email (retry, worker restart mid-batch,
+    # scheduler overlap) can't slip a duplicate past the app-level check.
+    rfq_review_queue = email_db["rfq_review_queue"]
+    create_index_safe(rfq_review_queue, "source_email_id", unique=True)
+    create_index_safe(rfq_review_queue, "status")
+
     # Lists collection
     lists = email_db["lists"]
     create_index_safe(lists, "name")

@@ -118,6 +118,73 @@ def test_slot_is_released_even_on_exception(monkeypatch, gate):
     assert elapsed < 0.5
 
 
+# ============================================
+# GATE: orphaned-slot recovery (2026-09-19 incident)
+# ============================================
+#
+# Confirmed live in production: a caller was SIGKILLed while blocked in a
+# synchronous HTTP call inside the `with` block. Python only runs pending
+# `finally` blocks between bytecode instructions -- a process torn down
+# while blocked in a C-level socket call never gets there, so the token
+# never made it back onto the list. Every subsequent caller queue-timed-out
+# ("server is at capacity") even though nothing was actually running, and
+# the gate stayed wedged shut until someone manually pushed a token back
+# via redis-cli. _reclaim_orphaned_slots() is the fix: it self-heals once
+# the crashed holder's lease naturally expires.
+
+def test_reclaim_does_nothing_while_a_lease_is_still_active(monkeypatch, gate):
+    """A slot that's still legitimately checked out (lease not yet expired)
+    must never be reclaimed out from under its real holder."""
+    monkeypatch.setenv("LOCAL_LLM_MAX_CONCURRENCY", "1")
+    client = gate._get_client()
+    gate._ensure_seeded(client, 1)
+    client.blpop([gate._GATE_KEY], timeout=1)  # simulate a real, in-progress checkout
+    client.set(f"{gate._LEASE_KEY_PREFIX}slot-0", "1", ex=180)
+
+    gate._reclaim_orphaned_slots(client, 1)
+
+    assert client.llen(gate._GATE_KEY) == 0  # nothing pushed back
+
+
+def test_reclaim_restores_a_slot_whose_lease_expired_without_release(monkeypatch, gate):
+    """The exact incident: a token checked out, its lease already expired
+    (simulating a crashed holder), and never returned to the list."""
+    monkeypatch.setenv("LOCAL_LLM_MAX_CONCURRENCY", "1")
+    client = gate._get_client()
+    gate._ensure_seeded(client, 1)
+    client.blpop([gate._GATE_KEY], timeout=1)
+    # No lease key set at all -- equivalent to one that already expired.
+
+    gate._reclaim_orphaned_slots(client, 1)
+
+    assert client.llen(gate._GATE_KEY) == 1  # self-healed
+
+
+def test_acquire_recovers_gate_wedged_shut_by_a_crashed_holder(monkeypatch, gate):
+    """End-to-end: simulate the exact production incident (token gone,
+    no lease) and confirm the NEXT caller through acquire_local_llm_slot()
+    succeeds instead of queue-timing-out forever."""
+    monkeypatch.setenv("LOCAL_LLM_MAX_CONCURRENCY", "1")
+    client = gate._get_client()
+    gate._ensure_seeded(client, 1)
+    client.blpop([gate._GATE_KEY], timeout=1)  # token now "lost" -- no lease, never released
+    assert client.llen(gate._GATE_KEY) == 0
+
+    with gate.acquire_local_llm_slot(timeout=1):
+        pass  # must not raise LocalLLMQueueTimeout
+
+
+def test_released_slot_clears_its_lease_key(monkeypatch, gate):
+    """A clean release must remove the lease too, or a stale lease key
+    could (harmlessly, but wastefully) linger until its own TTL passes."""
+    monkeypatch.setenv("LOCAL_LLM_MAX_CONCURRENCY", "1")
+    client = gate._get_client()
+    with gate.acquire_local_llm_slot(timeout=1):
+        active_leases = client.keys(f"{gate._LEASE_KEY_PREFIX}*")
+        assert len(active_leases) == 1
+    assert client.keys(f"{gate._LEASE_KEY_PREFIX}*") == []
+
+
 def test_queue_timeout_raises_specific_exception_not_a_hang(monkeypatch, gate):
     monkeypatch.setenv("LOCAL_LLM_MAX_CONCURRENCY", "1")
     monkeypatch.setenv("LOCAL_LLM_QUEUE_TIMEOUT_SECONDS", "0.3")

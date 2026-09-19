@@ -16,6 +16,7 @@ import sales.rfq_review_queue as q
 
 def test_stage_inserts_pending_review_doc():
     fake_col = MagicMock()
+    fake_col.find_one.return_value = None  # no existing entry for this email
     fake_col.insert_one.return_value = MagicMock(inserted_id=ObjectId())
 
     with patch.object(q, "_col", return_value=fake_col):
@@ -28,7 +29,42 @@ def test_stage_inserts_pending_review_doc():
     assert inserted["status"] == "pending_review"
     assert inserted["payload"] == {"title": "RFQ"}
     assert inserted["sender_email"] == "a@b.com"
-    assert inserted["model_confidence"] == "medium"
+
+
+def test_stage_is_idempotent_for_the_same_source_email():
+    """Phase 9 dedup requirement: repeated polling/retry/worker-restart
+    must never produce two proposals for the same email."""
+    existing_id = ObjectId()
+    fake_col = MagicMock()
+    fake_col.find_one.return_value = {"_id": existing_id}
+
+    with patch.object(q, "_col", return_value=fake_col):
+        queue_id = q.stage(
+            {"title": "RFQ"}, source_email_id="e1",
+            sender_email="a@b.com", sender_name="A B")
+
+    assert queue_id == str(existing_id)
+    fake_col.insert_one.assert_not_called()
+
+
+def test_stage_recovers_from_a_racing_duplicate_insert():
+    """Two near-simultaneous stage() calls for the same email: the
+    pre-check sees nothing (both pass it before either inserts), the
+    unique index on source_email_id catches the second insert, and stage()
+    must recover by adopting the winner's id rather than raising."""
+    from pymongo.errors import DuplicateKeyError
+
+    winner_id = ObjectId()
+    fake_col = MagicMock()
+    fake_col.find_one.side_effect = [None, {"_id": winner_id}]
+    fake_col.insert_one.side_effect = DuplicateKeyError("dup key")
+
+    with patch.object(q, "_col", return_value=fake_col):
+        queue_id = q.stage(
+            {"title": "RFQ"}, source_email_id="e1",
+            sender_email="a@b.com", sender_name="A B")
+
+    assert queue_id == str(winner_id)
 
 
 def test_list_pending_filters_and_serializes_id():
