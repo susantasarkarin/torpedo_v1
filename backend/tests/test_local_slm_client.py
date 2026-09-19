@@ -195,6 +195,24 @@ def test_classify_raises_local_slm_unavailable_on_transport_error(monkeypatch, n
         slm.classify(task_description="Classify.", categories=["A", "B"], content="...")
 
 
+def test_transport_error_message_never_says_digitalocean(monkeypatch, no_gate):
+    """2026-09-19: do_inference_client.py is a shared transport reused for
+    both the real DigitalOcean endpoint and this local server -- its
+    exception messages say "DigitalOcean" unconditionally, which was
+    confirmed live to make LOCAL timeouts confusingly show up in logs as
+    "DigitalOcean inference timed out" even though nothing ever left the
+    VM. The local path must relabel this before it reaches a caller."""
+    def _raise(*a, **k):
+        raise DOInferenceError("DigitalOcean inference timed out after 90.0s")
+    monkeypatch.setattr(slm._transport, "chat", _raise)
+    with pytest.raises(slm.LocalSLMUnavailable) as exc_info:
+        slm.classify(task_description="Classify.", categories=["A", "B"], content="...")
+    message = str(exc_info.value)
+    assert "DigitalOcean" not in message
+    assert "local model" in message
+    assert "90.0s" in message  # real detail preserved, just relabeled
+
+
 def test_classify_raises_local_slm_unavailable_on_queue_timeout(monkeypatch):
     import contextlib
 

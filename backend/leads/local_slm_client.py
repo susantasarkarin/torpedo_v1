@@ -135,7 +135,19 @@ def _call(system: str, user: str, max_tokens: int,
         raise LocalSLMUnavailable(
             f"queue timeout waiting for a local inference slot: {e}") from e
     except _transport.DOInferenceError as e:
-        raise LocalSLMUnavailable(f"local inference call failed: {e}") from e
+        # do_inference_client.py is a shared OpenAI-compatible transport
+        # reused for both the real DigitalOcean endpoint AND this local
+        # server (see its own module docstring) -- its exception messages
+        # say "DigitalOcean" unconditionally, which is flatly wrong when
+        # raised from here and actively misleading to debug (confirmed
+        # live, 2026-09-19: local-path timeouts logged as "DigitalOcean
+        # inference timed out" while nothing ever left this VM). Keep the
+        # real detail (timeout duration, status code, etc.) but relabel
+        # the provider name rather than silently relaying the wrong one.
+        corrected = str(e).replace("DigitalOcean", "local model")
+        raise LocalSLMUnavailable(
+            f"local inference call to {base_url} failed "
+            f"({type(e).__name__}): {corrected}") from e
 
 
 def _strip_markdown_fences(text: str) -> str:

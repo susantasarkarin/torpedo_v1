@@ -172,30 +172,26 @@ celery_app.conf.update(
             'schedule': crontab(hour=3, minute=30),
             'options': {'queue': 'default'},
         },
-        'mail-pool-ai-sender-batch': {
-            # 2026-09-19: switched from Bedrock (unavailable) to the local
-            # Qwen model, which serializes through a single-concurrency gate
-            # (leads/local_llm_gate.py) -- one call at a time. A live call
-            # against production measured 138s for this module's prompt
-            # (full email body + 15-field schema) -- far worse than
-            # docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md's 21.5-40s estimate, and a
-            # trivial 2-token prompt on the same box took 13s vs. the
-            # audit's 1.2-1.4s baseline, pointing at this VM's chronic
-            # memory/swap pressure as a real contributing factor. A sender
-            # needing a multi-chunk deep-scan could take many minutes.
-            # limit=2 (down from an already-reduced 5) plus the
-            # single-flight lock in sales/mail_pool_ai.py
-            # (_acquire_batch_lock) are what actually keep this safe under
-            # these real conditions: a slow tick just makes the NEXT
-            # scheduled tick skip itself rather than pile up, so throughput
-            # degrades gracefully instead of overlapping runs competing for
-            # the one inference slot. Re-tune after watching real tick
-            # durations in production -- these are not final numbers.
-            'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-            'schedule': 1200.0,
-            'kwargs': {'limit': 2},
-            'options': {'queue': 'ai_processing'},
-        },
+        # 'mail-pool-ai-sender-batch': PAUSED 2026-09-19. A 35-sample
+        # production benchmark showed 34/35 real calls timing out at 120s
+        # under normal production load (mongod + API + this task all
+        # competing for 2 vCPUs) -- this beat entry was firing every 20 min
+        # and almost certainly failing nearly every time, burning CPU on
+        # doomed attempts and adding to the exact contention causing the
+        # failures. Paused (not deleted) until the prompt-size fixes below
+        # are validated and/or the VM is resized -- see
+        # docs (or ask) for the re-enable checklist: (1) confirm a 5-sample
+        # test succeeds with normal production load running, not just with
+        # everything else paused, (2) re-enable at a conservative
+        # kwargs={'limit': 1}, (3) watch real tick outcomes before raising
+        # limit or re-shortening the schedule. Manual trigger still works
+        # via POST /rfq/resync while this is paused.
+        # 'mail-pool-ai-sender-batch': {
+        #     'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
+        #     'schedule': 1200.0,
+        #     'kwargs': {'limit': 2},
+        #     'options': {'queue': 'ai_processing'},
+        # },
         'lead-bucket-classification': {
             # Every 30 min: AI profile-classify newly-generated leads into
             # SFW/COGENTIX_RESEARCH/BIM/REJECT (leads/bucket_classifier.py).
