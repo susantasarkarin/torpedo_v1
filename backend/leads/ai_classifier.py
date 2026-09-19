@@ -20,6 +20,7 @@ import json
 import time
 import logging
 import hashlib
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
 from pymongo import MongoClient
@@ -155,8 +156,13 @@ def get_classification_prompt() -> Tuple[str, str]:
 
 
 # ============== CLASSIFICATION CACHE ==============
-
-_classification_cache = {}
+# 2026-09-19: was an unbounded dict with no eviction -- every distinct
+# name+title pair classified over the process's lifetime stayed in memory
+# forever. Identified as one of two concrete causes of the API's observed
+# memory growth (535MB -> 1GB+ over ~20h). Bounded LRU cache instead: same
+# get/set interface, but capped at a fixed size with oldest-entry eviction.
+_CLASSIFICATION_CACHE_MAX_SIZE = int(os.getenv("AI_CLASSIFICATION_CACHE_MAX_SIZE", "2000"))
+_classification_cache: "OrderedDict[str, AIClassificationOutput]" = OrderedDict()
 
 
 def get_cache_key(lead: LeadRaw) -> str:
@@ -169,9 +175,8 @@ def get_cached_classification(lead: LeadRaw) -> Optional[AIClassificationOutput]
     """Check if we have a cached classification for similar lead"""
     key = get_cache_key(lead)
     if key in _classification_cache:
-        cached = _classification_cache[key]
-        # Return cached result (copy with updated confidence to reflect it's cached)
-        return cached
+        _classification_cache.move_to_end(key)  # mark as recently used
+        return _classification_cache[key]
     return None
 
 
@@ -179,6 +184,9 @@ def cache_classification(lead: LeadRaw, result: AIClassificationOutput):
     """Cache classification result"""
     key = get_cache_key(lead)
     _classification_cache[key] = result
+    _classification_cache.move_to_end(key)
+    while len(_classification_cache) > _CLASSIFICATION_CACHE_MAX_SIZE:
+        _classification_cache.popitem(last=False)  # evict oldest
 
 
 # ============== OPENAI CLIENT ==============

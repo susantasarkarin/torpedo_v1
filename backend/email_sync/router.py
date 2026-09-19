@@ -32,7 +32,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email-sync", tags=["Email Sync"])
 
 # Background task tracking
+# 2026-09-19: was never cleaned up -- every recategorization/backfill task
+# ever triggered stayed in memory forever (grepped the whole file: zero
+# deletions). Identified as one of two concrete causes of the API's
+# observed memory growth. Swept opportunistically whenever a new task is
+# created, rather than touching every individual status-update site.
 _background_tasks = {}
+_BACKGROUND_TASK_TTL_SECONDS = int(os.getenv("EMAIL_SYNC_TASK_TTL_SECONDS", str(24 * 3600)))
+
+
+def _sweep_finished_background_tasks():
+    """Remove completed/failed tasks older than the TTL. Tasks still
+    pending/running are never touched, regardless of age."""
+    now = datetime.utcnow()
+    stale_ids = []
+    for task_id, task in _background_tasks.items():
+        if task.get("status") not in ("completed", "failed"):
+            continue
+        finished_at_str = task.get("completed_at") or task.get("created_at")
+        if not finished_at_str:
+            continue
+        try:
+            finished_at = datetime.fromisoformat(finished_at_str)
+        except (TypeError, ValueError):
+            continue
+        if (now - finished_at).total_seconds() > _BACKGROUND_TASK_TTL_SECONDS:
+            stale_ids.append(task_id)
+    for task_id in stale_ids:
+        _background_tasks.pop(task_id, None)
 
 # =========================================================================
 # DEPENDENCY
@@ -916,8 +943,9 @@ async def recategorize_all_emails(
         }
     
     # Create task ID
+    _sweep_finished_background_tasks()
     task_id = str(uuid.uuid4())
-    
+
     # Initialize task tracking
     _background_tasks[task_id] = {
         "task_id": task_id,
@@ -1024,8 +1052,9 @@ async def trigger_async_backfill(
         raise HTTPException(status_code=404, detail="Mailbox not found")
     
     # Create task ID
+    _sweep_finished_background_tasks()
     task_id = str(uuid.uuid4())
-    
+
     # Initialize task tracking
     _background_tasks[task_id] = {
         "task_id": task_id,
