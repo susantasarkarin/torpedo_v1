@@ -396,11 +396,19 @@ async def get_sync_status() -> Dict[str, Any]:
         # from collection metadata and drifts by a few documents, which made
         # `processed` (an exact count) come out HIGHER than the total.
         total_emails = email_metadata_collection.count_documents({})
-        # mail_pool_ai stamps each analyzed email with `ai_analysis` — that is
-        # the field its own sender query filters on, so count the same one.
-        processed = email_metadata_collection.count_documents(
-            {"ai_analysis": {"$exists": True}}
+        # 2026-09-19: `processed` was count_documents({"ai_analysis":
+        # {"$exists": True}}) directly -- confirmed live to take ~18s even
+        # with an index, because it matches ~99% of a 367k-doc collection
+        # (an index narrows down to a small result well; it barely helps
+        # when the result IS most of the collection). Derived instead as
+        # total minus its TRUE complement (same bare $exists:false, no
+        # extra filters -- unlike `pending` below, which additionally
+        # excludes internal/no-from-email mail and so is NOT processed's
+        # complement). Both counts are now small, index-backed results.
+        not_processed = email_metadata_collection.count_documents(
+            {"ai_analysis": {"$exists": False}}
         )
+        processed = total_emails - not_processed
         # Internal mail is skipped by design and can never become an RFQ, so
         # excluding it keeps "pending" from permanently overstating the backlog.
         pending = email_metadata_collection.count_documents({
