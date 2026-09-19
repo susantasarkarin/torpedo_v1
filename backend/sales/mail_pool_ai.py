@@ -1587,7 +1587,7 @@ def _process_sender_batch_locked(limit: int) -> Dict[str, Any]:
                 failed_senders.append(sender)
         except MailAIThrottled as e:
             # Systemic throttle/outage: stop now, mark no sender failed.
-            logger.error("[mail-ai] Bedrock throttled/outage — stopping sender "
+            logger.error("[mail-ai] AI transport throttled/outage — stopping sender "
                          "run, leaving senders unmarked for retry: %s", e)
             aborted = True
             failed_senders = []   # nothing marked on a throttle
@@ -1824,7 +1824,7 @@ def process_batch(limit: int = MAIL_AI_MAX_PER_RUN) -> Dict[str, Any]:
                 failed_ids.append(doc["_id"])
         except MailAIThrottled as e:
             throttled = True
-            logger.error("[mail-ai] Bedrock throttled/outage — stopping run, "
+            logger.error("[mail-ai] AI transport throttled/outage — stopping run, "
                          "leaving remaining emails unmarked for retry: %s", e)
             break
         except Exception as e:
