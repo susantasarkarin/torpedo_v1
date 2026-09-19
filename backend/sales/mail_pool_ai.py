@@ -195,18 +195,16 @@ _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company 
                    "for missing values, never the string \"null\".")
 
 
-def _local_ai():
+def _remote_ai():
     """
-    The AI transport for this module. Routed to the local Qwen model
-    (sales/mail_pool_local_ai.py), never Bedrock -- Bedrock is unavailable
-    (standing rule) and this module's real-world testing showed its DO
-    fallback has never had working credentials in production either (both
-    observed failing in the same live batch: UnrecognizedClientException /
-    DOFallbackNotConfigured). See docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md for why
-    this module needs its own timeout rather than reusing
-    leads/local_slm_client.py's short-prompt default.
+    The AI transport for this module: the DigitalOcean-hosted fallback
+    (sales/mail_pool_remote_ai.py), never Bedrock (standing rule) and never
+    the local self-hosted model (tried first on 2026-09-19; real calls
+    measured ~1.1 tokens/second on this VM -- CPU starvation, not a
+    prompt-size problem -- see mail_pool_remote_ai.py's docstring for the
+    full history).
     """
-    from sales import mail_pool_local_ai as bc
+    from sales import mail_pool_remote_ai as bc
     return bc
 
 
@@ -217,12 +215,12 @@ def _analysis_json(prompt: str, max_tokens: int,
     Never raises — an AI-transport/JSON failure returns (None, meta_with_error)
     so the caller leaves the email unmarked for the next beat to retry.
     """
-    bc = _local_ai()
+    bc = _remote_ai()
     try:
         result, meta = bc.converse_json_meta(
             role=MAIL_AI_ANALYSIS_ROLE, system=_MAIL_AI_SYSTEM, user=prompt,
             max_tokens=max_tokens, temperature=0.0)
-    except bc.LocalMailAIError as e:
+    except bc.RemoteMailAIError as e:
         # Local model unavailable / persistently malformed -> systemic.
         # Do NOT mark the email; the next beat retries it.
         raise MailAIThrottled(f"{caller}: {e}")
@@ -512,7 +510,7 @@ def _smart_parse_rfq_items(rfq: Dict[str, Any],
         for it in (rfq.get("items") or []) if it.get("description")
     ]
     try:
-        bc = _local_ai()
+        bc = _remote_ai()
         body = (email_doc.get("body_plain") or email_doc.get("body")
                 or email_doc.get("snippet") or "")
         result = bc.converse_json_object(
@@ -820,7 +818,7 @@ def _draft_follow_up(analysis: Dict[str, Any],
     if not analysis.get("follow_up_needed"):
         return None
     try:
-        bc = _local_ai()
+        bc = _remote_ai()
         try:
             draft = bc.converse_json_object(
                 role=MAIL_AI_WRITER_ROLE, system=_FOLLOWUP_SYSTEM,
@@ -1163,7 +1161,7 @@ def _scan_chunk(from_line: str, open_ledger, chunk_docs) -> Optional[Dict[str, A
         emails="\n\n".join(email_parts),
     )
     # RFQ scan reads sender history for quote intent — analysis (cheap) role.
-    bc = _local_ai()
+    bc = _remote_ai()
     try:
         result, _meta = bc.converse_json_meta(
             role=MAIL_AI_ANALYSIS_ROLE, system=_MAIL_AI_SYSTEM, user=prompt,
