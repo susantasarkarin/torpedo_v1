@@ -173,16 +173,19 @@ celery_app.conf.update(
             'options': {'queue': 'default'},
         },
         'mail-pool-ai-sender-batch': {
-            # Every 10 min: AI-process mail-pool SENDERS (summary, contacts,
-            # RFQ -> spine + draft estimate, follow-up drafts). One model call
-            # per sender covers ALL their emails. Was temporarily sped up to
-            # 2.5min/100 on 2026-08-28 to re-run the full pool through the new
-            # per-email classification prompt (446,881/447,599 done, ~99.8%,
-            # no systemic errors); reverted to normal cadence now the pool is
-            # current.
+            # 2026-09-19: switched from Bedrock (unavailable) to the local
+            # Qwen model, which serializes through a single-concurrency gate
+            # (leads/local_llm_gate.py) -- one call at a time, ~30-60s each
+            # for this module's large prompt (see
+            # docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md). limit=50 senders/tick, some
+            # triggering a multi-chunk deep-scan, could not finish in a
+            # 10-minute window on the old Bedrock-tuned schedule. Reduced to
+            # limit=5 and widened to 20 min so a slow tick has room to finish
+            # before the next one is due -- re-tune both after real
+            # measurement, these aren't final numbers.
             'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-            'schedule': 600.0,
-            'kwargs': {'limit': 50},
+            'schedule': 1200.0,
+            'kwargs': {'limit': 5},
             'options': {'queue': 'ai_processing'},
         },
         'lead-bucket-classification': {

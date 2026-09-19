@@ -588,9 +588,14 @@ function RFQ() {
                 : "Manage quotation requests detected from email conversations and track proposal status."}
             </p>
           </div>
-          <button className="btn btn-primary" onClick={openCreateModal}>
-            + Add RFQ
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <Link to="/admin/sales/rfq/review-queue" className="btn btn-outline">
+              Review Queue
+            </Link>
+            <button className="btn btn-primary" onClick={openCreateModal}>
+              + Add RFQ
+            </button>
+          </div>
         </div>
 
         {/* Direction tabs: inbound (client -> us) vs outbound (us -> vendor) */}

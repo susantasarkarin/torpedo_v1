@@ -39,7 +39,7 @@ when AI is unavailable.
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -189,8 +189,18 @@ _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company 
                    "for missing values, never the string \"null\".")
 
 
-def _bedrock():
-    from leads import bedrock_client as bc
+def _local_ai():
+    """
+    The AI transport for this module. Routed to the local Qwen model
+    (sales/mail_pool_local_ai.py), never Bedrock -- Bedrock is unavailable
+    (standing rule) and this module's real-world testing showed its DO
+    fallback has never had working credentials in production either (both
+    observed failing in the same live batch: UnrecognizedClientException /
+    DOFallbackNotConfigured). See docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md for why
+    this module needs its own timeout rather than reusing
+    leads/local_slm_client.py's short-prompt default.
+    """
+    from sales import mail_pool_local_ai as bc
     return bc
 
 
@@ -198,17 +208,17 @@ def _analysis_json(prompt: str, max_tokens: int,
                    caller: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """
     Run one cheap-model analysis call and return (parsed_dict_or_None, meta).
-    Never raises — a Bedrock/JSON failure returns (None, meta_with_error) so
-    the caller leaves the email unmarked for the next beat to retry.
+    Never raises — an AI-transport/JSON failure returns (None, meta_with_error)
+    so the caller leaves the email unmarked for the next beat to retry.
     """
-    bc = _bedrock()
+    bc = _local_ai()
     try:
         result, meta = bc.converse_json_meta(
             role=MAIL_AI_ANALYSIS_ROLE, system=_MAIL_AI_SYSTEM, user=prompt,
             max_tokens=max_tokens, temperature=0.0)
-    except bc.BedrockError as e:
-        # Transport/throttle/outage (retries already exhausted in bedrock_client)
-        # -> systemic. Do NOT mark the email; the next beat retries it.
+    except bc.LocalMailAIError as e:
+        # Local model unavailable / persistently malformed -> systemic.
+        # Do NOT mark the email; the next beat retries it.
         raise MailAIThrottled(f"{caller}: {e}")
     except Exception as e:
         # Content/JSON failure -> this specific email is the problem.
@@ -256,7 +266,9 @@ Return exactly this JSON shape:
     "ir": <incidence rate as a percentage number (e.g. 25 for 25%), or null>,
     "sample_size": <number of completes/respondents requested, integer, or null>,
     "country": "<target country/market, or null>",
-    "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>"
+    "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>",
+    "target_audience": "<who the survey/study should reach, or null>",
+    "timeline": "<the project timeline/duration stated, or null>"
   }}
 }}
 
@@ -494,7 +506,7 @@ def _smart_parse_rfq_items(rfq: Dict[str, Any],
         for it in (rfq.get("items") or []) if it.get("description")
     ]
     try:
-        bc = _bedrock()
+        bc = _local_ai()
         body = (email_doc.get("body_plain") or email_doc.get("body")
                 or email_doc.get("snippet") or "")
         result = bc.converse_json_object(
@@ -519,9 +531,92 @@ def _smart_parse_rfq_items(rfq: Dict[str, Any],
     return cheap_items
 
 
+def _derive_priority(rfq: Dict[str, Any]) -> str:
+    """
+    Deterministic, not AI-derived. Priority is judged from the stated
+    deadline alone -- never from budget: currency isn't normalized across
+    USD/INR/EUR/etc., so a budget-based threshold would be comparing
+    incompatible numbers. The AI proposes the fact (the deadline); this
+    function makes the actual call, consistent with the deterministic-first
+    pattern used elsewhere this session (panel/cint intelligence agents:
+    AI proposes, deterministic rules decide) -- one less AI-trust surface
+    on an already-risky extraction.
+    """
+    deadline_str = rfq.get("deadline")
+    if not deadline_str:
+        return "medium"
+    try:
+        deadline = datetime.fromisoformat(str(deadline_str).replace("Z", "+00:00")).replace(tzinfo=None)
+    except (ValueError, TypeError):
+        return "medium"
+    days_left = (deadline - datetime.utcnow()).days
+    if days_left <= 3:
+        return "high"
+    if days_left <= 14:
+        return "medium"
+    return "low"
+
+
+def _resolve_account_and_contact(
+    from_email: str, from_name: Optional[str],
+    sender_company: Optional[str], sender_title: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Account/contact resolution shared by staging and (for a sender not
+    yet on the spine at approval time) re-resolution. Never fabricates an
+    account from a bare email domain -- see the long-form rationale this
+    function used to carry inline, preserved in git history on this
+    function's prior name (_log_rfq_and_estimate)."""
+    from app.services import crm_service
+
+    account_id = None
+    if sender_company:
+        # AI-extracted company name — high confidence (the extraction
+        # prompt is explicitly told never to invent one), safe to
+        # create a new account from.
+        account, _ = crm_service.get_or_create_account(
+            sender_company, defaults={"account_type": "client",
+                                      "metadata": {"source": "mail_pool_ai"}})
+        account_id = account["_id"]
+    elif from_email and "@" in from_email:
+        # No AI-extracted company: LOOK UP only, never fabricate one.
+        # A domain-derived name ("bellsouth.net" -> "Bellsouth",
+        # "mailersend.com" -> "Mailersend") produced hundreds of
+        # placeholder "prospect" accounts for personal ISP webmail and
+        # SaaS notification senders that were never a real client —
+        # see scripts/cleanup_rfq_backfill_accounts.py. The RFQ stays
+        # correctly unlinked here rather than manufacturing an
+        # account; link it manually once a real account exists.
+        domain = from_email.split("@", 1)[1]
+        if domain and domain not in _RFQ_FALLBACK_SKIP_DOMAINS:
+            candidate_name = domain.split(".")[0].replace("-", " ").title()
+            existing = crm_service._col("accounts").find_one(
+                {"name": {"$regex": f"^{re.escape(candidate_name)}$", "$options": "i"},
+                 "metadata.hidden_from_accounts_list": {"$ne": True}},
+                {"_id": 1},
+            )
+            if existing:
+                account_id = str(existing["_id"])
+    contact_id = None
+    if from_email:
+        contact, _ = crm_service.get_or_create_contact(
+            from_email, defaults={"name": from_name, "title": sender_title,
+                                  "account_id": account_id,
+                                  "metadata": {"source": "mail_pool_ai"}})
+        contact_id = contact["_id"]
+    return account_id, contact_id
+
+
 def _log_rfq_and_estimate(analysis: Dict[str, Any],
                           email_doc: Dict[str, Any]) -> Dict[str, Any]:
-    """RFQ email -> spine opportunity+project AND a draft finance estimate."""
+    """
+    RFQ email -> staged for human review (sales/rfq_review_queue.py), NOT a
+    live spine write. Per the bucket_classifier incident, this model's
+    self-reported confidence carries no information about correctness on
+    real data -- so nothing here becomes a real Opportunity/estimate until
+    a human approves it (routers/rfq.py's review-queue endpoints ->
+    finalize_approved_rfq() below, which is what actually calls
+    crm_service.create_rfq()).
+    """
     out: Dict[str, Any] = {}
     rfq = analysis.get("rfq") or {}
     if not rfq.get("is_rfq"):
@@ -529,57 +624,20 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
 
     from_email = (email_doc.get("from_email") or email_doc.get("from") or "").strip().lower()
     sender_company = None
+    sender_title = None
     for c in (analysis.get("contacts") or []):
-        if c.get("company"):
+        if c.get("company") and not sender_company:
             sender_company = c["company"]
+        if c.get("title") and not sender_title:
+            sender_title = c["title"]
+        if sender_company and sender_title:
             break
     title = rfq.get("title") or f"RFQ: {email_doc.get('subject', 'email request')}"
     budget = rfq.get("budget") or 0
 
-    # --- CRM spine: account/contact + opportunity + project ----------------
     try:
-        from app.services import crm_service
-
-        account_id = None
-        if sender_company:
-            # AI-extracted company name — high confidence (the extraction
-            # prompt is explicitly told never to invent one), safe to
-            # create a new account from.
-            account, _ = crm_service.get_or_create_account(
-                sender_company, defaults={"account_type": "client",
-                                          "metadata": {"source": "mail_pool_ai"}})
-            account_id = account["_id"]
-        elif from_email and "@" in from_email:
-            # No AI-extracted company: LOOK UP only, never fabricate one.
-            # A domain-derived name ("bellsouth.net" -> "Bellsouth",
-            # "mailersend.com" -> "Mailersend") produced hundreds of
-            # placeholder "prospect" accounts for personal ISP webmail and
-            # SaaS notification senders that were never a real client —
-            # see scripts/cleanup_rfq_backfill_accounts.py. The RFQ stays
-            # correctly unlinked here rather than manufacturing an
-            # account; link it manually once a real account exists.
-            domain = from_email.split("@", 1)[1]
-            if domain and domain not in _RFQ_FALLBACK_SKIP_DOMAINS:
-                candidate_name = domain.split(".")[0].replace("-", " ").title()
-                existing = crm_service._col("accounts").find_one(
-                    {"name": {"$regex": f"^{re.escape(candidate_name)}$", "$options": "i"},
-                     "metadata.hidden_from_accounts_list": {"$ne": True}},
-                    {"_id": 1},
-                )
-                if existing:
-                    account_id = str(existing["_id"])
-        contact_id = None
-        if from_email:
-            contact, _ = crm_service.get_or_create_contact(
-                from_email, defaults={"name": email_doc.get("from_name"),
-                                      "account_id": account_id,
-                                      "metadata": {"source": "mail_pool_ai"}})
-            contact_id = contact["_id"]
-
-        rfq_result = crm_service.create_rfq({
+        payload = {
             "title": title,
-            "account_id": account_id,
-            "contact_id": contact_id,
             "budget": budget,
             # AI-extracted currency was parsed but never carried past this
             # point, so every RFQ silently fell back to the spine's INR
@@ -588,6 +646,7 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
             "description": rfq.get("description"),
             "deadline": rfq.get("deadline"),
             "source_email_id": str(email_doc.get("_id")),
+            "source_emails": [str(email_doc.get("_id"))],
             # Research-brief fields the RFQ page's LOI/IR/N/Country columns
             # read from metadata.rfq — previously never extracted at all.
             "methodology": rfq.get("methodology"),
@@ -596,28 +655,75 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
             "sample_size": rfq.get("sample_size"),
             "country": rfq.get("country"),
             "study_type": rfq.get("study_type"),
-        })
-        out["opportunity_id"] = rfq_result["opportunity"]["_id"]
-        out["project_id"] = rfq_result["project"]["_id"]
+            "target_audience": rfq.get("target_audience"),
+            "timeline": rfq.get("timeline"),
+            "ai_summary": analysis.get("summary"),
+            "priority": _derive_priority(rfq),
+            "items": rfq.get("items") or [],
+            "sender_company": sender_company,
+            "sender_title": sender_title,
+            "from_email": from_email,
+            "from_name": email_doc.get("from_name"),
+        }
+        from sales import rfq_review_queue
+        queue_id = rfq_review_queue.stage(
+            payload, source_email_id=str(email_doc.get("_id")),
+            sender_email=from_email, sender_name=email_doc.get("from_name"),
+            confidence=rfq.get("category_confidence"))
+        out["queue_id"] = queue_id
     except Exception as e:
-        logger.warning(f"[mail-ai] RFQ spine logging failed (non-fatal): {e}")
+        logger.warning(f"[mail-ai] RFQ staging failed (non-fatal): {e}")
+
+    return out
+
+
+def finalize_approved_rfq(queue_id: str) -> Dict[str, Any]:
+    """
+    A human approved a staged RFQ (routers/rfq.py's review-queue endpoint)
+    -> now do what mail_pool_ai used to do unconditionally the moment the
+    model said is_rfq: true: create the real spine opportunity+project,
+    draft a finance estimate, and notify. Same crm_service.create_rfq()
+    path as before this review gate existed -- an approved item becomes
+    exactly the Opportunity today's pipeline would have produced.
+    """
+    from sales import rfq_review_queue
+    from app.services import crm_service
+
+    queue_doc = rfq_review_queue.get(queue_id)
+    if not queue_doc:
+        raise ValueError(f"no review-queue item with id {queue_id}")
+    if queue_doc["status"] != "pending_review":
+        raise ValueError(f"review-queue item {queue_id} is already {queue_doc['status']}")
+
+    payload = queue_doc["payload"]
+    out: Dict[str, Any] = {}
+
+    account_id, contact_id = _resolve_account_and_contact(
+        payload.get("from_email"), payload.get("from_name"),
+        payload.get("sender_company"), payload.get("sender_title"))
+
+    rfq_result = crm_service.create_rfq({**payload,
+                                         "account_id": account_id,
+                                         "contact_id": contact_id})
+    out["opportunity_id"] = rfq_result["opportunity"]["_id"]
+    out["project_id"] = rfq_result["project"]["_id"]
+    rfq_review_queue.mark_approved(queue_id, out["opportunity_id"], out["project_id"])
 
     # --- Finance: draft estimate for human review --------------------------
     try:
+        email_doc = _get_db(MAIL_DB)[MAIL_COLLECTION].find_one(
+            {"_id": _to_object_id(payload.get("source_email_id"))}) or {}
         finance_db = _get_db("finance_db")
         customers = finance_db["customers"]
         estimates = finance_db["estimates"]
         now = datetime.utcnow()
 
         # No extracted company name -> this is a person, not a business, and
-        # must never be recorded as one. Previously fell back to from_name
-        # (or from_email) with customer_type "business" unconditionally,
-        # which is how a personal name ends up mirrored into crm_db.accounts
-        # and shown on the Accounts page as if it were a company (a finance
-        # customer with no crm_account_id gets backfilled by
-        # tasks/crm_spine_tasks.py's periodic reconcile regardless of what
-        # kind of name it holds).
-        customer_name = sender_company or email_doc.get("from_name") or from_email
+        # must never be recorded as one. See _resolve_account_and_contact's
+        # docstring for why a domain-derived name is never fabricated here.
+        sender_company = payload.get("sender_company")
+        from_email = payload.get("from_email")
+        customer_name = sender_company or payload.get("from_name") or from_email
         is_person_fallback = not sender_company
         customer = customers.find_one({"name": customer_name})
         if not customer:
@@ -636,11 +742,11 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
             customer_id = str(customer["_id"])
 
         # Line items are parsed by the SMART model (a human reads the estimate);
-        # falls back to the cheap analysis items, then to a single summary line.
-        items = _smart_parse_rfq_items(rfq, email_doc)
+        # falls back to the staged items, then to a single summary line.
+        items = _smart_parse_rfq_items(payload, email_doc) if email_doc else (payload.get("items") or [])
         if not items:
-            items = [{"description": rfq.get("description") or title,
-                      "quantity": 1, "rate": float(budget or 0),
+            items = [{"description": payload.get("description") or payload.get("title"),
+                      "quantity": 1, "rate": float(payload.get("budget") or 0),
                       "tax_amount": 0}]
         subtotal = sum(i["quantity"] * i["rate"] for i in items)
 
@@ -648,20 +754,18 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         estimate_doc = {
             "estimate_number": f"EST-{now.strftime('%Y%m')}-{str(count).zfill(4)}",
             "customer_id": customer_id,
-            # Cross-link to the spine opportunity created above, so estimate
-            # status changes can move the deal through the pipeline.
             "opportunity_id": out.get("opportunity_id"),
             "status": "draft",
             "items": items,
             "subtotal": subtotal,
             "tax_total": 0,
             "total_amount": subtotal,
-            "currency_code": rfq.get("currency") or "INR",
+            "currency_code": payload.get("currency") or "INR",
             "notes": (f"Auto-drafted from RFQ email "
                       f"'{email_doc.get('subject', '')}'. "
-                      f"AI summary: {analysis.get('summary', '')}"),
+                      f"AI summary: {payload.get('ai_summary', '')}"),
             "source": "mail_pool_ai",
-            "source_email_id": str(email_doc.get("_id")),
+            "source_email_id": payload.get("source_email_id"),
             "created_at": now, "updated_at": now,
         }
         ins = estimates.insert_one(estimate_doc)
@@ -672,18 +776,28 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
 
     # Surface the RFQ in CRM notifications (best-effort)
     try:
-        from app.services import crm_service
+        budget = payload.get("budget") or 0
         crm_service.notify(
             "rfq_received",
-            f"RFQ detected in mail pool: {title}"
-            + (f" (est. {rfq.get('currency') or ''} {budget})" if budget else ""),
+            f"RFQ approved from mail pool: {payload.get('title')}"
+            + (f" (est. {payload.get('currency') or ''} {budget})" if budget else ""),
             link_object_type="opportunity",
             link_object_id=out.get("opportunity_id"),
-            dedupe_key=f"rfq_email_{email_doc.get('_id')}")
+            dedupe_key=f"rfq_email_{payload.get('source_email_id')}")
     except Exception:
         pass
 
     return out
+
+
+def _to_object_id(value: Optional[str]):
+    if not value:
+        return None
+    try:
+        from bson import ObjectId
+        return ObjectId(value)
+    except Exception:
+        return None
 
 
 # A human/client reads these two outputs, so they use the SMART role.
@@ -700,7 +814,7 @@ def _draft_follow_up(analysis: Dict[str, Any],
     if not analysis.get("follow_up_needed"):
         return None
     try:
-        bc = _bedrock()
+        bc = _local_ai()
         try:
             draft = bc.converse_json_object(
                 role=MAIL_AI_WRITER_ROLE, system=_FOLLOWUP_SYSTEM,
@@ -874,7 +988,9 @@ For any email where category is "rfq", replace that email's "rfq": null with:
     "ir": <incidence rate as a percentage number, or null>,
     "sample_size": <number of completes/respondents requested, integer, or null>,
     "country": <target country/market, string, or null>,
-    "study_type": <"B2B"|"B2C"|"Healthcare"|"IT"|"Consumer"|"Other", or null>
+    "study_type": <"B2B"|"B2C"|"Healthcare"|"IT"|"Consumer"|"Other", or null>,
+    "target_audience": <who the survey/study should reach, e.g. "urban women 25-40", or null>,
+    "timeline": <the project timeline/duration the sender stated, e.g. "3 weeks from kickoff", or null>
   }}
 
 Rules:
@@ -981,7 +1097,9 @@ Return exactly this JSON shape:
       "ir": <incidence rate as a percentage number, or null>,
       "sample_size": <number of completes/respondents requested, integer, or null>,
       "country": "<target country/market, or null>",
-      "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>"}}
+      "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>",
+      "target_audience": "<who the survey/study should reach, or null>",
+      "timeline": "<the project timeline/duration stated, or null>"}}
   ],
   "rfq_updates": [
     {{"ref": "<ref of a previously identified RFQ>",
@@ -1019,7 +1137,7 @@ def _scan_chunk(from_line: str, open_ledger, chunk_docs) -> Optional[Dict[str, A
         emails="\n\n".join(email_parts),
     )
     # RFQ scan reads sender history for quote intent — analysis (cheap) role.
-    bc = _bedrock()
+    bc = _local_ai()
     try:
         result, _meta = bc.converse_json_meta(
             role=MAIL_AI_ANALYSIS_ROLE, system=_MAIL_AI_SYSTEM, user=prompt,
@@ -1051,9 +1169,11 @@ def _apply_rfq_stage(entry: Dict[str, Any]) -> None:
 
 
 def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
-                          sender_col) -> Dict[str, Any]:
-    """Read ALL of a sender's emails chronologically, log every RFQ on the
-    CRM spine (+ draft estimate), and set won/lost/quoted stages.
+                          sender_col, sender_contacts: Optional[List[Dict[str, Any]]] = None
+                          ) -> Dict[str, Any]:
+    """Read ALL of a sender's emails chronologically, stage every RFQ for
+    human review (+ apply won/lost/quoted stages once a staged RFQ has been
+    approved into a real opportunity).
 
     Incremental and resumable: scan position (last email date) and the RFQ
     ledger persist on the sender's mail_sender_analysis doc, so new mail
@@ -1105,18 +1225,29 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
                       "rfq_scan.scanned_at": datetime.utcnow()}},
             upsert=True)
 
-    # Log every RFQ not yet on the spine, then apply its current stage.
+    # Stage every RFQ not yet queued for review, then -- once a staged RFQ
+    # has been approved into a real opportunity -- apply its current stage.
+    # opportunity_id only ever appears here via the approval sync below, not
+    # via _log_rfq_and_estimate() directly (it stages, it doesn't create).
     logged = won = 0
+    from sales import rfq_review_queue
     for entry in ledger:
-        if not entry.get("opportunity_id"):
-            synth = {"rfq": {**entry, "is_rfq": True}, "contacts": [],
+        if not entry.get("queue_id") and not entry.get("opportunity_id"):
+            synth = {"rfq": {**entry, "is_rfq": True}, "contacts": sender_contacts or [],
                      "summary": entry.get("evidence") or entry.get("description")}
             out = _log_rfq_and_estimate(synth, newest_doc)
-            if out.get("opportunity_id"):
-                entry["opportunity_id"] = out["opportunity_id"]
-                entry["estimate_id"] = out.get("estimate_id")
-                entry["stage_applied"] = None
+            if out.get("queue_id"):
+                entry["queue_id"] = out["queue_id"]
                 logged += 1
+        elif entry.get("queue_id") and not entry.get("opportunity_id"):
+            # A human may have approved this staged RFQ since the last
+            # scan -- adopt the resulting opportunity so stage updates
+            # (quoted/won/lost) have something real to apply to.
+            qdoc = rfq_review_queue.get(entry["queue_id"])
+            if qdoc and qdoc.get("status") == "approved":
+                entry["opportunity_id"] = qdoc.get("opportunity_id")
+                entry["estimate_id"] = qdoc.get("estimate_id")
+                entry["stage_applied"] = None
         if entry.get("opportunity_id") and \
                 entry.get("stage_applied") != entry.get("status"):
             _apply_rfq_stage(entry)
@@ -1230,7 +1361,8 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
         # double-log the newest request).
         try:
             scan = deep_scan_sender_rfqs(
-                from_email, newest.get("from_name") or "", col, sender_col)
+                from_email, newest.get("from_name") or "", col, sender_col,
+                sender_contacts=flat.get("contacts"))
             actions["rfq_scan"] = scan
         except Exception as e:
             logger.warning(f"[mail-ai] deep RFQ scan failed for {from_email}: {e}")
@@ -1238,7 +1370,8 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
         # Not deep-scanned, so the sampled emails are the only chance to log
         # any RFQs in them — log each one, not just the rollup winner.
         for rfq_email in flat["rfq_emails"]:
-            rfq_flat = {**flat, "rfq": {**rfq_email["rfq"], "is_rfq": True}}
+            rfq_flat = {**flat, "summary": rfq_email.get("summary") or flat.get("summary"),
+                       "rfq": {**rfq_email["rfq"], "is_rfq": True}}
             actions.update(_log_rfq_and_estimate(rfq_flat, newest))
     followup_id = _draft_follow_up(flat, newest)
     if followup_id:
@@ -1328,13 +1461,67 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
             "emails_marked": marked + len(sampled_ids)}
 
 
+MAIL_POOL_AI_STATE_ID = "mail_pool_ai_sender_batch"
+# A slow tick (local Qwen serializes through a single-concurrency gate, so a
+# sender needing a multi-chunk deep-scan can take minutes) must not overlap
+# the next beat tick's run -- both would compete for the same one inference
+# slot and could double-process senders. A lock older than this is treated
+# as abandoned (worker crash/restart) rather than blocking forever.
+MAIL_POOL_AI_LOCK_STALE_SECONDS = 3600  # matches celery_app.py's task_time_limit
+
+
+def _acquire_batch_lock() -> bool:
+    """True if this call now holds the single-flight lock."""
+    state_col = _get_db("email_automation")["mail_pool_ai_state"]
+    # Ensure the doc exists first, as a separate step -- an upsert combined
+    # with the `$or` condition below would try to INSERT a second document
+    # with the same _id (a DuplicateKeyError) whenever the lock IS held,
+    # since the held-lock state doesn't match the $or and upsert only fires
+    # on zero matches.
+    state_col.update_one(
+        {"_id": MAIL_POOL_AI_STATE_ID},
+        {"$setOnInsert": {"is_running": False}},
+        upsert=True)
+    now = datetime.utcnow()
+    stale_before = now - timedelta(seconds=MAIL_POOL_AI_LOCK_STALE_SECONDS)
+    result = state_col.update_one(
+        {"_id": MAIL_POOL_AI_STATE_ID,
+         "$or": [{"is_running": {"$ne": True}},
+                 {"started_at": {"$lt": stale_before}}]},
+        {"$set": {"is_running": True, "started_at": now}})
+    return result.modified_count > 0
+
+
+def _release_batch_lock() -> None:
+    _get_db("email_automation")["mail_pool_ai_state"].update_one(
+        {"_id": MAIL_POOL_AI_STATE_ID},
+        {"$set": {"is_running": False, "finished_at": datetime.utcnow()}})
+
+
 def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
     """Process up to `limit` senders with unanalyzed mail (most recent first).
 
     Same failure policy as process_batch, at sender granularity: a failing
     sender is skipped after MAX_FAILED_ATTEMPTS; an all-fail run aborts early
     as a systemic outage without burning any sender's attempt budget.
+
+    Single-flight: skips entirely (returns immediately) if a previous tick
+    is still running, rather than starting a second run that would compete
+    with it for the local model's one inference slot.
     """
+    if not _acquire_batch_lock():
+        logger.info("[mail-ai] previous sender batch still running — skipping this tick")
+        return {"senders_processed": 0, "failed": 0, "emails_covered": 0,
+                "rfqs_detected": 0, "rfqs_won": 0, "aborted_systemic": False,
+                "skipped_already_running": True}
+
+    try:
+        return _process_sender_batch_locked(limit)
+    finally:
+        _release_batch_lock()
+
+
+def _process_sender_batch_locked(limit: int) -> Dict[str, Any]:
     col = _get_db(MAIL_DB)[MAIL_COLLECTION]
     sender_col = _get_db("email_automation")[SENDER_ANALYSIS_COLLECTION]
 

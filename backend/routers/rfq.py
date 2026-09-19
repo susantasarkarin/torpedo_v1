@@ -448,6 +448,75 @@ async def get_sync_status() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/review-queue")
+async def list_review_queue(
+    limit: int = Query(100, ge=1, le=500, description="Max pending items to return")
+) -> Dict[str, Any]:
+    """
+    RFQs the local-model extraction has proposed but that have not yet
+    become a real CRM Opportunity. Per the bucket_classifier incident
+    (this model's self-reported confidence carries no information about
+    correctness on real data), nothing here is live until a human calls
+    POST /rfq/review-queue/{id}/approve.
+    """
+    from sales import rfq_review_queue
+
+    try:
+        items = rfq_review_queue.list_pending(limit=limit)
+        return {"success": True, "count": len(items), "items": items}
+    except Exception as e:
+        logger.error(f"Error listing RFQ review queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/review-queue/{queue_id}/approve")
+async def approve_review_queue_item(queue_id: str) -> Dict[str, Any]:
+    """
+    Approve a staged RFQ: creates the real Opportunity+Project (the same
+    crm_service.create_rfq() path mail_pool_ai used to call directly before
+    this review gate existed), plus the usual draft finance estimate and
+    CRM notification.
+    """
+    from sales import rfq_review_queue
+    from sales.mail_pool_ai import finalize_approved_rfq
+
+    doc = rfq_review_queue.get(queue_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"no review-queue item with id {queue_id}")
+    if doc["status"] != "pending_review":
+        raise HTTPException(status_code=409, detail=f"item is already {doc['status']}")
+    try:
+        result = finalize_approved_rfq(queue_id)
+        return {"success": True, **result}
+    except ValueError as e:
+        # Lost a race with a concurrent approve/reject between the check
+        # above and here.
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error approving RFQ review-queue item {queue_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/review-queue/{queue_id}/reject")
+async def reject_review_queue_item(
+    queue_id: str, reason: Optional[str] = Body(None, embed=True)
+) -> Dict[str, Any]:
+    """Reject a staged RFQ. No Opportunity is ever created for it."""
+    from sales import rfq_review_queue
+
+    doc = rfq_review_queue.get(queue_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"no review-queue item with id {queue_id}")
+    if doc["status"] != "pending_review":
+        raise HTTPException(status_code=409, detail=f"item is already {doc['status']}")
+    try:
+        rfq_review_queue.mark_rejected(queue_id, reason=reason)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error rejecting RFQ review-queue item {queue_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{rfq_id}")
 async def get_rfq(rfq_id: str) -> Dict[str, Any]:
     """
