@@ -118,18 +118,29 @@ def _api_key() -> str:
     return os.getenv(_transport.SELF_HOSTED_KEY_ENV, "") or "not-required"
 
 
+def _json_mode_enabled() -> bool:
+    # Behind a flag, default OFF: 2026-09-19, not yet confirmed to reduce
+    # real latency (it constrains OUTPUT shape, not length) and this
+    # llama-server build's honoring of the parameter hasn't been validated
+    # against a real request yet -- see local_slm_client tests for the one
+    # live confirmation call this session did run. Flip on only after
+    # confirming it helps on the actual production hardware.
+    return os.getenv("LOCAL_LLM_JSON_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
 def _call(system: str, user: str, max_tokens: int,
           timeout: Optional[float]) -> Tuple[str, Dict[str, int], float]:
     """One gated call to the local server. Returns (text, usage, latency)."""
     effective_timeout = timeout if timeout is not None else _inference_timeout_seconds()
     base_url = _base_url()  # raises before touching the gate if unconfigured
+    extra_params = {"response_format": {"type": "json_object"}} if _json_mode_enabled() else None
     try:
         with acquire_local_llm_slot():
             return _transport.chat(
                 DEFAULT_MODEL_NAME, system, user,
                 max_tokens=max_tokens, temperature=0.0,
                 base_url=base_url, api_key=_api_key(),
-                timeout=effective_timeout,
+                timeout=effective_timeout, extra_params=extra_params,
             )
     except LocalLLMQueueTimeout as e:
         raise LocalSLMUnavailable(

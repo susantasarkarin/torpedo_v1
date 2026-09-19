@@ -381,6 +381,14 @@ def setup_indexes(db_manager=None):
     create_index_safe(email_metadata, "mailbox_id")
     create_index_safe(email_metadata, "from_email")
     create_index_safe(email_metadata, "ai_category", sparse=True)
+    # 2026-09-19: mail_pool_ai.py's own core queries (process_sender_batch's
+    # candidate aggregation, plus GET /rfq/sync-status's processed/pending
+    # counts) filter on ai_analysis {$exists: true/false} with no supporting
+    # index -- confirmed live, a plain count_documents() on this 367k-doc
+    # collection timed out under load. Non-sparse indexes cover $exists on
+    # both sides for a field that's either present-with-value or entirely
+    # absent (this one always is), which is exactly this field's shape.
+    create_index_safe(email_metadata, "ai_analysis")
     create_index_safe(email_metadata, [("mailbox_id", ASCENDING), ("timestamp", DESCENDING)])
     create_index_safe(email_metadata, [("ai_category", ASCENDING), ("ai_confidence", DESCENDING)])
     # For unclassified emails query

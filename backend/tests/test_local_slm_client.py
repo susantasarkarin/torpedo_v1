@@ -48,6 +48,48 @@ def _fake_chat(response_text, usage=None, latency=0.5):
 
 
 # ============================================================
+# JSON mode (response_format), behind a flag -- 2026-09-19
+# ============================================================
+
+def test_json_mode_defaults_to_disabled(monkeypatch):
+    monkeypatch.delenv("LOCAL_LLM_JSON_MODE", raising=False)
+    assert slm._json_mode_enabled() is False
+
+
+def test_json_mode_enabled_by_env_flag(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_JSON_MODE", "true")
+    assert slm._json_mode_enabled() is True
+
+
+def test_chat_json_omits_response_format_when_flag_is_off(monkeypatch, no_gate):
+    monkeypatch.delenv("LOCAL_LLM_JSON_MODE", raising=False)
+    calls = []
+
+    def _chat(model, system, user, max_tokens=1024, temperature=0.0,
+             base_url=None, api_key=None, extra_params=None, timeout=None):
+        calls.append(extra_params)
+        return '{"a": 1}', {}, 0.1
+    monkeypatch.setattr(slm._transport, "chat", _chat)
+
+    slm.chat_json(system="s", user="u")
+    assert calls == [None]
+
+
+def test_chat_json_requests_json_object_format_when_flag_is_on(monkeypatch, no_gate):
+    monkeypatch.setenv("LOCAL_LLM_JSON_MODE", "true")
+    calls = []
+
+    def _chat(model, system, user, max_tokens=1024, temperature=0.0,
+             base_url=None, api_key=None, extra_params=None, timeout=None):
+        calls.append(extra_params)
+        return '{"a": 1}', {}, 0.1
+    monkeypatch.setattr(slm._transport, "chat", _chat)
+
+    slm.chat_json(system="s", user="u")
+    assert calls == [{"response_format": {"type": "json_object"}}]
+
+
+# ============================================================
 # Happy path
 # ============================================================
 
