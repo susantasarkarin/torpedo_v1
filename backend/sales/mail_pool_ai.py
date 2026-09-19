@@ -1202,7 +1202,15 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
 
     Incremental and resumable: scan position (last email date) and the RFQ
     ledger persist on the sender's mail_sender_analysis doc, so new mail
-    only scans the delta and a mid-scan failure resumes where it stopped."""
+    only scans the delta and a mid-scan failure resumes where it stopped.
+
+    Returns "complete": False when a chunk call failed and the scan stopped
+    partway through this sender's backlog. Callers must NOT treat an
+    incomplete scan as "this sender has no more RFQs" -- a gate timeout or
+    transient model failure on a sender who never emails again would
+    otherwise permanently strand real RFQs behind the failed chunk (see
+    process_sender(), which skips its blanket "mark analyzed" stamp on an
+    incomplete scan so the sender stays a batch candidate for retry)."""
     state = (sender_col.find_one({"_id": from_email}) or {}).get("rfq_scan", {})
     ledger = state.get("ledger", [])
     last_date = state.get("last_scanned_date")
@@ -1215,11 +1223,12 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
                 "snippet": 1, "from_name": 1}
     ).sort("date", 1).limit(MAX_SCAN_EMAILS_PER_SENDER))
     if not docs:
-        return {"scanned": 0, "rfqs_logged": 0, "rfqs_won": 0}
+        return {"scanned": 0, "rfqs_logged": 0, "rfqs_won": 0, "complete": True}
 
     from_line = f"{from_name} <{from_email}>".strip()
     newest_doc = docs[-1]
     scanned = 0
+    complete = True
     by_ref = {r["ref"]: r for r in ledger if r.get("ref")}
 
     for i in range(0, len(docs), RFQ_SCAN_CHUNK):
@@ -1228,6 +1237,7 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
         if not isinstance(result, dict):
             logger.warning(f"[mail-ai] RFQ scan chunk failed for {from_email} "
                            f"— stopping; resume point persisted")
+            complete = False
             break
         for rfq in (result.get("new_rfqs") or []):
             if not rfq.get("ref") or rfq["ref"] in by_ref:
@@ -1283,7 +1293,7 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
         {"_id": from_email}, {"$set": {"rfq_scan.ledger": ledger}}, upsert=True)
 
     return {"scanned": scanned, "rfqs_logged": logged, "rfqs_won": won,
-            "rfqs_total": len(ledger)}
+            "rfqs_total": len(ledger), "complete": complete}
 
 
 def _rollup_from_sender_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
@@ -1380,6 +1390,7 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     is_human = (flat["sender_type"] in _HUMAN_SENDER_TYPES
                 or bool(flat["rfq_emails"])
                 or has_rfq_signal_words)
+    deep_scan_complete = True
     if is_human:
         # Real correspondent: read their FULL history for RFQs and outcomes.
         # This supersedes the sample-based rfq field (which would only
@@ -1389,8 +1400,10 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
                 from_email, newest.get("from_name") or "", col, sender_col,
                 sender_contacts=flat.get("contacts"))
             actions["rfq_scan"] = scan
+            deep_scan_complete = scan.get("complete", True)
         except Exception as e:
             logger.warning(f"[mail-ai] deep RFQ scan failed for {from_email}: {e}")
+            deep_scan_complete = False
     else:
         # Not deep-scanned, so the sampled emails are the only chance to log
         # any RFQs in them — log each one, not just the rollup winner.
@@ -1473,7 +1486,21 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     # summary. RFQ coverage for this remainder is NOT lost: the deep-scan
     # safety net above (is_human, widened by the RFQ keyword pre-screen)
     # reads every one of a sender's emails chronologically regardless of
-    # whether they were in this sample.
+    # whether they were in this sample -- PROVIDED that scan actually
+    # completed. If it stopped early (gate timeout, malformed-JSON retry
+    # exhausted, transport error), stamping the rest as "analyzed" here
+    # would remove this sender from every future batch-candidate query
+    # (they're only reselected via ai_analysis: {$exists: false}), and
+    # deep_scan_sender_rfqs's own resume cursor only gets revisited when
+    # this sender emails again. A sender who never writes again after the
+    # chunk that failed would have a real RFQ stranded behind that chunk
+    # forever, silently. So: skip the blanket stamp and report failure
+    # instead, so this sender stays a batch candidate and gets retried
+    # (existing failed_attempts bookkeeping below still caps that retry).
+    if is_human and not deep_scan_complete:
+        return {"success": False, "error": "deep_scan_incomplete",
+                "emails_marked": len(sampled_ids)}
+
     marked = col.update_many(
         {**base_query, "_id": {"$nin": sampled_ids}},
         {"$set": {"ai_analysis": stub,

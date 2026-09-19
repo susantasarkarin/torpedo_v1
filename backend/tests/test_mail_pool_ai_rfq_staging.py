@@ -272,3 +272,100 @@ def test_process_sender_batch_releases_lock_even_on_exception():
             pass
 
     release.assert_called_once()
+
+
+# ============================================================
+# deep_scan_sender_rfqs / process_sender — a failed chunk must never be
+# recorded as "this sender has no more RFQs". Found during the 2026-09-19
+# real-data benchmark: a gate timeout on _scan_chunk was silently
+# indistinguishable from "no RFQ in this chunk", and process_sender()'s
+# blanket "mark analyzed" stamp on the rest of a sender's mail would strand
+# a real RFQ behind that chunk forever if the sender never emailed again
+# (only new mail from a sender re-triggers deep_scan_sender_rfqs's own
+# resume cursor; the outer batch only reselects senders with unanalyzed
+# mail, and the blanket stamp removes them from that pool).
+# ============================================================
+
+def test_deep_scan_reports_incomplete_and_does_not_advance_past_a_failed_chunk():
+    """_scan_chunk returning None (gate timeout, transport error, malformed
+    JSON after retry) must surface as complete=False, and the persisted
+    resume point (last_scanned_date) must not move past the failed chunk --
+    otherwise the next scan would skip the very emails that were never
+    actually read."""
+    docs = [{"_id": "e1", "subject": "RFQ", "date": "2026-01-05", "body_plain": "please quote"}]
+    fake_col = MagicMock()
+    fake_col.find.return_value = _cursor(docs)
+    fake_sender_col = MagicMock()
+    fake_sender_col.find_one.return_value = {
+        "rfq_scan": {"ledger": [], "last_scanned_date": "2026-01-01"}}
+
+    with patch.object(m, "_scan_chunk", return_value=None):
+        result = m.deep_scan_sender_rfqs("a@b.com", "A", fake_col, fake_sender_col)
+
+    assert result["complete"] is False
+    # The only update_one call inside the chunk loop persists progress after
+    # a SUCCESSFUL chunk; a failed chunk breaks before reaching it, so the
+    # resume-point update must never have been called with e1's date.
+    for call in fake_sender_col.update_one.call_args_list:
+        set_doc = call.args[1].get("$set", {})
+        assert set_doc.get("rfq_scan.last_scanned_date") != "2026-01-05"
+
+
+def test_deep_scan_complete_true_when_all_chunks_succeed():
+    docs = [{"_id": "e1", "subject": "thanks", "date": "2026-01-05", "body_plain": "ok"}]
+    fake_col = MagicMock()
+    fake_col.find.return_value = _cursor(docs)
+    fake_sender_col = MagicMock()
+    fake_sender_col.find_one.return_value = {
+        "rfq_scan": {"ledger": [], "last_scanned_date": "2026-01-01"}}
+
+    with patch.object(m, "_scan_chunk", return_value={"new_rfqs": [], "rfq_updates": []}):
+        result = m.deep_scan_sender_rfqs("a@b.com", "A", fake_col, fake_sender_col)
+
+    assert result["complete"] is True
+
+
+def _process_sender_fixture(deep_scan_result):
+    """Isolates process_sender()'s stamping decision from everything else
+    it touches -- analyze_sender, _rollup_from_sender_analysis,
+    _ingest_contacts and _draft_follow_up are all patched directly rather
+    than fed realistic inputs, matching this suite's existing style of
+    mocking at the seam of the function under test."""
+    fake_col = MagicMock()
+    fake_col.find.return_value = _cursor(
+        [{"_id": "e1", "from_name": "A", "date": "2026-01-05"}])
+    fake_col.count_documents.return_value = 1
+    flat = {"sender_type": "client", "rfq_emails": [], "contacts": [],
+            "category": "sales", "rfq": {}, "summary": "hi"}
+    patches = [
+        patch.object(m, "analyze_sender",
+                     return_value={"emails": [], "analyzed_at": "2026-01-05T00:00:00"}),
+        patch.object(m, "_rollup_from_sender_analysis", return_value=flat),
+        patch.object(m, "_ingest_contacts", return_value=0),
+        patch.object(m, "_draft_follow_up", return_value=None),
+        patch.object(m, "deep_scan_sender_rfqs", return_value=deep_scan_result),
+        patch.object(m, "_get_db", return_value={"mail_sender_analysis": MagicMock()}),
+    ]
+    return fake_col, patches
+
+
+def test_process_sender_skips_blanket_stamp_when_deep_scan_incomplete():
+    fake_col, patches = _process_sender_fixture(
+        {"scanned": 1, "rfqs_logged": 0, "rfqs_won": 0, "rfqs_total": 0, "complete": False})
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        result = m.process_sender("a@b.com", fake_col)
+
+    assert result["success"] is False
+    assert result["error"] == "deep_scan_incomplete"
+    fake_col.update_many.assert_not_called()
+
+
+def test_process_sender_runs_blanket_stamp_when_deep_scan_complete():
+    fake_col, patches = _process_sender_fixture(
+        {"scanned": 1, "rfqs_logged": 0, "rfqs_won": 0, "rfqs_total": 0, "complete": True})
+    fake_col.update_many.return_value = MagicMock(modified_count=0)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        result = m.process_sender("a@b.com", fake_col)
+
+    assert result["success"] is True
+    fake_col.update_many.assert_called_once()
