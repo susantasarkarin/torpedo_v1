@@ -5,12 +5,17 @@ Deliberately separate from both leads/bedrock_client.py's role-based
 Bedrock/DO chain and leads/local_slm_client.py's classify() (hard-capped at
 3 extra fields -- far too small for RFQ's schema). Reuses
 local_slm_client.chat_json() as the transport primitive but does not share
-its 12-second default timeout: docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md found
-mail_pool_ai's prompt (full email body + a 15-field JSON schema) takes
-21.5-40+ seconds against the local model in real testing, far past the
-timeout tuned for bucket_classifier.py's short prompts. Changing that
-shared default would risk regressing every other chat_json()/classify()
-caller; this module gets its own env-driven timeout instead.
+its 12-second default timeout: docs/LOCAL_SLM_CHEAP_ROLE_AUDIT.md estimated
+21.5-40+ seconds for this module's prompt (full email body + a 15-field
+JSON schema); a live call against production on 2026-09-19 measured
+138 seconds end-to-end on this shared, memory/swap-constrained VM -- worse
+than the audit's estimate, and confirmed NOT a one-off (a trivial 2-token
+prompt on the same box took 13s, vs. the audit's own 1.2-1.4s baseline,
+pointing at current VM load/swap pressure as a real contributing factor,
+not just prompt size). Changing local_slm_client's shared default would
+risk regressing every other chat_json()/classify() caller; this module
+gets its own env-driven timeout, set well above the worst measurement
+seen so far.
 
 Mirrors bedrock_client.py's converse_json_meta()/converse_json_object()
 call shape so sales/mail_pool_ai.py's call sites barely change -- only the
@@ -37,10 +42,12 @@ MODEL_ID = _slm.DEFAULT_MODEL_NAME
 
 def _timeout_seconds() -> float:
     # Read live, not at import time, so ops/tests can override per call.
+    # Default of 180s carries real headroom above the 138s worst call
+    # measured live on 2026-09-19 -- see this module's docstring.
     try:
-        return float(os.getenv("MAIL_POOL_LOCAL_TIMEOUT_SECONDS", "60"))
+        return float(os.getenv("MAIL_POOL_LOCAL_TIMEOUT_SECONDS", "180"))
     except (TypeError, ValueError):
-        return 60.0
+        return 180.0
 
 
 class LocalMailAIError(Exception):
