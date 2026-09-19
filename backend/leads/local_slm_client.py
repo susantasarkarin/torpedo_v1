@@ -55,7 +55,13 @@ from leads.local_llm_gate import LocalLLMQueueTimeout, acquire_local_llm_slot
 
 logger = logging.getLogger("local_slm_client")
 
-DEFAULT_MODEL_NAME = "qwen2.5-0.5b-instruct"
+# 2026-09-19: the shared local model (torpedo-v2-llm.service, port 8003)
+# was swapped from Qwen2.5-0.5B to Qwen2.5-1.5B after real testing showed
+# the 0.5B model too weak for reliable structured extraction (see
+# sales/mail_pool_local_ai.py's docstring). llama-server ignores the
+# "model" field on a single-model server, so this is a label/log-accuracy
+# fix, not a behavior change for existing callers.
+DEFAULT_MODEL_NAME = "qwen2.5-1.5b-instruct"
 
 # classify()'s structural guardrail: the proven-safe shape is a handful of
 # fields, not the 15-field nested JSON that failed in mail_pool_ai.py. This is
