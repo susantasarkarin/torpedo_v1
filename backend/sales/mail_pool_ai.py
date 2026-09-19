@@ -66,11 +66,17 @@ MAIL_DB = "torpedo_gmail"
 MAIL_COLLECTION = "email_metadata"
 FOLLOWUP_COLLECTION = "mail_followup_drafts"  # stored in email_automation
 
-# --- Bedrock role routing (roles resolve to models inside bedrock_client) ---
+# --- AI role routing (roles are a vestige of the old Bedrock chain -- the
+# local model ignores them, kept only for interface compatibility) ---
 MAIL_AI_ANALYSIS_ROLE = os.getenv("MAIL_AI_ANALYSIS_ROLE", "cheap")   # summary/category/RFQ-detect
 MAIL_AI_WRITER_ROLE = os.getenv("MAIL_AI_WRITER_ROLE", "smart")       # follow-up drafts, RFQ line items
-MAIL_AI_ANALYSIS_MAX_TOKENS = int(os.getenv("MAIL_AI_ANALYSIS_MAX_TOKENS", "4000"))
-MAIL_AI_SCAN_MAX_TOKENS = int(os.getenv("MAIL_AI_SCAN_MAX_TOKENS", "8000"))
+# 2026-09-19: lowered from the Bedrock-era defaults (4000/8000) after real
+# local-model calls measured 138-190+s per call -- on CPU, generation time
+# scales with output length, so these ceilings were themselves a major
+# latency driver. Real answers rarely need anywhere near 4000 tokens; this
+# caps the worst case instead of just hoping for a short answer.
+MAIL_AI_ANALYSIS_MAX_TOKENS = int(os.getenv("MAIL_AI_ANALYSIS_MAX_TOKENS", "1500"))
+MAIL_AI_SCAN_MAX_TOKENS = int(os.getenv("MAIL_AI_SCAN_MAX_TOKENS", "2500"))
 # Per-run cap on how many emails/senders one beat processes.
 MAIL_AI_MAX_PER_RUN = int(os.getenv("MAIL_AI_MAX_PER_RUN", "200"))
 
@@ -921,14 +927,23 @@ SYSTEMIC_FAIL_PROBE = 5   # abort the run if this many items fail before any suc
 # email from that sender at once.
 
 SENDER_ANALYSIS_COLLECTION = "mail_sender_analysis"   # in email_automation
-MAX_SAMPLE_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_SENDER_SAMPLE", "3"))
+# 2026-09-19: lowered from 3 -- fewer emails per call means less output to
+# generate (dominant cost on the local model's CPU inference). The
+# has_rfq_signal_words keyword pre-screen across ALL of a sender's
+# unanalyzed mail (not just this sample) is what actually protects RFQ
+# recall, not sample size -- see process_sender()'s is_human logic.
+MAX_SAMPLE_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_SENDER_SAMPLE", "2"))
 
 # Deep RFQ scan: senders classified as real correspondents get ALL their mail
 # read chronologically in chunks, so every RFQ in the history is found and
 # followed to its outcome (quoted / won / lost). Automated/newsletter/spam
 # senders are excluded — that's where the bulk of the volume (and none of the
 # RFQs) lives.
-RFQ_SCAN_CHUNK = int(os.getenv("MAIL_POOL_RFQ_SCAN_CHUNK", "10"))
+# 2026-09-19: lowered from 10 -- a smaller chunk means less input AND less
+# potential new_rfqs/rfq_updates output per call, both of which cost real
+# time on the local model. More chunks per sender, each cheaper and more
+# likely to finish, rather than fewer expensive ones.
+RFQ_SCAN_CHUNK = int(os.getenv("MAIL_POOL_RFQ_SCAN_CHUNK", "5"))
 MAX_SCAN_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_MAX_SCAN_EMAILS", "1000"))
 _HUMAN_SENDER_TYPES = {"client", "prospect", "vendor", "other"}
 
@@ -1032,16 +1047,27 @@ def _clean_email_body(body: str) -> str:
         return str(body)[:2000]
 
 
+#  2026-09-19: real production calls against the local Qwen model measured
+#  138-190+s per call at the old 4000-token ceiling and 3-email sample --
+#  far past what a 10-30 min beat tick can absorb. Trimming both what goes
+#  IN (per-email body length, sample count) and what must come OUT
+#  (max_tokens) is the direct lever: on CPU, generation time scales with
+#  output length, so a smaller ceiling caps worst-case latency even though
+#  most real answers don't need anywhere near 4000 tokens.
+_SENDER_EMAIL_BODY_CHARS = int(os.getenv("MAIL_POOL_SENDER_EMAIL_BODY_CHARS", "1200"))
+
+
 def analyze_sender(from_email: str, from_name: str, total_count: int,
                    sample_docs) -> Optional[Dict[str, Any]]:
     """One AI call covering a sender's recent emails, classified individually."""
     parts = []
     for idx, d in enumerate(sample_docs, start=1):
         body = (d.get("body_plain") or d.get("body") or d.get("snippet") or "")
+        cleaned = _clean_email_body(body)[:_SENDER_EMAIL_BODY_CHARS]
         parts.append(
             f"--- Email {idx} (dated {d.get('date', 'unknown')}) ---\n"
             f"Subject: {d.get('subject') or '(no subject)'}\n"
-            f"{_clean_email_body(body)}"
+            f"{cleaned}"
         )
     prompt = _SENDER_ANALYSIS_PROMPT.format(
         from_line=f"{from_name} <{from_email}>".strip(),
