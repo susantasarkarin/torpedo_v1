@@ -44,6 +44,7 @@ def get_anthropic_api_key() -> Optional[str]:
         return os.getenv("ANTHROPIC_API_KEY")
 
 # Cost optimization modules
+from .extraction_stash import stash_unextracted_results, take_stashed_results
 from .search_cache import (
     get_cached_response, 
     cache_response, 
@@ -344,8 +345,11 @@ async def search_linkedin_leads(
     
     # ===== GOOGLE SEARCH =====
     # We perform the search first to get raw data
-    search_results = await perform_google_search(search_query, num_results)
-    
+    # Results stashed by an earlier extraction outage replay for free (keyed on
+    # clean_query, same as the stash in extract_leads_from_google_results).
+    search_results = take_stashed_results(clean_query) or \
+        await perform_google_search(search_query, num_results)
+
     if not search_results:
         # No results from Google - return empty (do NOT fallback to ChatGPT)
         logger.info(f"Google CSE returned no results for: {clean_query}")
@@ -450,7 +454,13 @@ Return only valid JSON. No markdown fences."""
             return leads
         logger.warning("[Bedrock extraction] No usable leads parsed - falling back to regex")
     except Exception as e:
-        logger.warning(f"[Bedrock extraction] Failed: {e} - falling back to regex")
+        # Fail closed -- see the same note in ingestion.py: the regex parser
+        # turns a LinkedIn headline into a company name and guessed email.
+        logger.error(
+            f"[Bedrock extraction] Model unavailable: {e} - leaving "
+            f"{len(search_results)} results un-ingested for a later run")
+        stash_unextracted_results(query, search_results, str(e))
+        return []
 
     leads = [parse_google_search_result(item) for item in search_results]
     return [lead for lead in leads if lead]

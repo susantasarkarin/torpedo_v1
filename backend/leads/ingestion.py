@@ -34,6 +34,7 @@ from .search_cache import (
     get_cache_settings,
     get_cache_stats
 )
+from .extraction_stash import stash_unextracted_results, take_stashed_results
 from .deduplication import (
     check_duplicate,
     check_duplicates_batch,
@@ -316,14 +317,17 @@ async def search_linkedin_leads(
     # Search broadly — no site: restriction so all countries are covered
     search_query = clean_query
     logger.info(f"[Google CSE] Searching: {search_query[:80]}...")
-    search_results = await perform_google_search(search_query, num_results, start=start)
-    
+    # Results stashed by an earlier extraction outage replay for free; only a
+    # query with nothing stashed spends CSE quota.
+    search_results = take_stashed_results(search_query, start) or \
+        await perform_google_search(search_query, num_results, start=start)
+
     if not search_results:
         logger.warning(f"No results found for query: {clean_query}")
         return []
-    
+
     # Parse Google results with OpenAI
-    leads = await extract_leads_from_google_results(search_results, clean_query)
+    leads = await extract_leads_from_google_results(search_results, clean_query, start=start)
     
     if leads:
         # Set source to google_search
@@ -521,10 +525,13 @@ def parse_extracted_leads(data: Optional[dict]) -> List[dict]:
     return leads
 
 
-async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
+async def extract_leads_from_google_results(search_results: List[dict], query: str,
+                                            start: int = 1) -> List[dict]:
     """
     Extract leads from Google search results via Bedrock (role="cheap").
-    Falls back to regex parsing if the model call fails or will not parse.
+    If the model is unreachable, returns [] and stashes the raw results for a
+    later re-run (see extraction_stash). If it answers but yields nothing
+    usable, falls back to regex parsing.
     """
     extraction_prompt = build_extraction_prompt(search_results, query)
 
@@ -546,9 +553,19 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         logger.warning("[Bedrock extraction] No usable leads parsed — falling back to regex")
 
     except Exception as e:
-        logger.warning(f"[Bedrock extraction] Failed: {e} — falling back to regex")
+        # Fail closed: a provider outage is not a property of these results, and
+        # the regex parser below reads a LinkedIn headline as the company name,
+        # which then feeds domain/email guessing and mints undeliverable leads.
+        # Nothing is cached on an empty return, so the query is simply retried.
+        # The raw results cost CSE quota and are not cached, so stash them: the
+        # next run of the same query replays them instead of calling Google.
+        logger.error(
+            f"[Bedrock extraction] Model unavailable: {e} — leaving "
+            f"{len(search_results)} results un-ingested for a later run")
+        stash_unextracted_results(query, search_results, str(e), start=start)
+        return []
 
-    # Regex fallback
+    # Regex fallback (model answered but produced nothing usable)
     leads = [parse_google_search_result(item) for item in search_results]
     return [l for l in leads if l]
 
@@ -1357,9 +1374,12 @@ def _infer_company_domain(company_name: str, snippet: str) -> str:
         )
         clean = re.sub(r'[^a-zA-Z0-9\s]', '', clean).strip()
         words = clean.split()
-        if words:
+        # A real company name is short. A headline or sentence scraped into the
+        # company field (e.g. "OpenTable. My focus is on setting clear strategy
+        # ...") would otherwise become an absurd domain and a guessed address.
+        if words and len(words) <= 5:
             guess = "".join(w.lower() for w in words if w)
-            if len(guess) >= 3:
+            if 3 <= len(guess) <= 30:
                 return f"{guess}.com"
 
     return ""
