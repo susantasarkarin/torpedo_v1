@@ -315,6 +315,9 @@ async def resync_rfqs_from_mail(
     Queues the same Celery task the scheduler runs, so there is exactly one code
     path that turns mail into RFQs.
     """
+    from sales import mail_ai_switch
+    if not mail_ai_switch.mail_ai_enabled():
+        raise HTTPException(status_code=409, detail=mail_ai_switch.disabled_message())
     from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
 
     try:
@@ -346,6 +349,9 @@ async def resync_all_rfqs_from_mail_pool(
     ledgers. Resumable and rate-limited — call repeatedly with a small
     `limit`; check GET /rfq/rebuild-status for how many senders remain.
     """
+    from sales import mail_ai_switch
+    if not mail_ai_switch.mail_ai_enabled():
+        raise HTTPException(status_code=409, detail=mail_ai_switch.disabled_message())
     from tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
 
     try:

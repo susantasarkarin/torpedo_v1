@@ -85,6 +85,11 @@ def _trigger_mail_ai(new_count: int, mailbox_email: Optional[str] = None) -> Non
     remains the safety net: it picks up any sender this pass misses, and it is
     what covers the case where the broker is unreachable here.
     """
+    from sales.mail_ai_switch import mail_ai_enabled
+    if not mail_ai_enabled():
+        logger.debug("[mail-ai] switched off; not queuing an AI pass for %d new emails", new_count)
+        return
+
     try:
         from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
     except ImportError:  # pragma: no cover

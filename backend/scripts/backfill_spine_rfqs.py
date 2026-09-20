@@ -228,6 +228,11 @@ def queue_mail_backfill(batches: int, per_batch: int, dry_run: bool = False) -> 
                  batches, per_batch, batches * per_batch)
         return {"queued": 0, "would_queue": batches}
 
+    from sales import mail_ai_switch
+    if not mail_ai_switch.mail_ai_enabled():
+        log.warning(mail_ai_switch.disabled_message())
+        return {"queued": 0, "disabled": True}
+
     from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
 
     queued = []

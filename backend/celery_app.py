@@ -7,6 +7,7 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 from kombu import Queue
+from sales.mail_ai_switch import beat_entries as mail_ai_beat_entries
 
 # Redis configuration (using existing Redis setup from session_store)
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
@@ -172,26 +173,10 @@ celery_app.conf.update(
             'schedule': crontab(hour=3, minute=30),
             'options': {'queue': 'default'},
         },
-        # 'mail-pool-ai-sender-batch': PAUSED 2026-09-19. A 35-sample
-        # production benchmark showed 34/35 real calls timing out at 120s
-        # under normal production load (mongod + API + this task all
-        # competing for 2 vCPUs) -- this beat entry was firing every 20 min
-        # and almost certainly failing nearly every time, burning CPU on
-        # doomed attempts and adding to the exact contention causing the
-        # failures. Paused (not deleted) until the prompt-size fixes below
-        # are validated and/or the VM is resized -- see
-        # docs (or ask) for the re-enable checklist: (1) confirm a 5-sample
-        # test succeeds with normal production load running, not just with
-        # everything else paused, (2) re-enable at a conservative
-        # kwargs={'limit': 1}, (3) watch real tick outcomes before raising
-        # limit or re-shortening the schedule. Manual trigger still works
-        # via POST /rfq/resync while this is paused.
-        # 'mail-pool-ai-sender-batch': {
-        #     'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-        #     'schedule': 1200.0,
-        #     'kwargs': {'limit': 2},
-        #     'options': {'queue': 'ai_processing'},
-        # },
+        # Mail-AI entries (sender batch + prefilter audit) exist only while the
+        # single switch is on -- see sales/mail_ai_switch.py. Paused 2026-09-19:
+        # the legacy scan timed out on ~all real calls and, worse, fabricated RFQs.
+        **mail_ai_beat_entries(),
         'lead-bucket-classification': {
             # Every 30 min: AI profile-classify newly-generated leads into
             # SFW/COGENTIX_RESEARCH/BIM/REJECT (leads/bucket_classifier.py).
@@ -204,14 +189,6 @@ celery_app.conf.update(
             'task': 'backend.tasks.lead_bucket_tasks.classify_lead_bucket_batch',
             'schedule': 1800.0,
             'kwargs': {'limit': 50},
-            'options': {'queue': 'ai_processing'},
-        },
-        'mail-pool-ai-prefilter-audit': {
-            # Nightly (02:00 UTC): re-check a random sample of rule-prefiltered
-            # -out emails with the cheap model; records disagreements so a
-            # too-aggressive rule filter eating real client mail is caught.
-            'task': 'backend.tasks.mail_pool_ai_tasks.audit_prefiltered_mail',
-            'schedule': crontab(hour=2, minute=0),
             'options': {'queue': 'ai_processing'},
         },
         'yield-abandoned-session-sweep': {
