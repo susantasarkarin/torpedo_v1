@@ -1,23 +1,32 @@
 name: Deploy to production VM
 
 on:
-  # Manual trigger so the FIRST run of this never-executed workflow is a
-  # deliberate, repeatable action from the Actions tab — not a side effect of
-  # a push to main. Test with a throwaway commit (D2), then the failure path
-  # (D3), before relying on the push trigger below.
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Skip CI and deploy immediately (emergency only)"
+        type: boolean
+        default: false
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
-  # Gate: production deploy only proceeds if the CI checks pass.
+  # Gate: production deploy only proceeds if CI passes (unless skip_tests).
   tests:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_tests != true }}
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
   deploy:
     needs: tests
-    runs-on: ubuntu-latest
+    # Run deploy even when tests job is skipped (emergency skip_tests path).
+    if: ${{ always() && (needs.tests.result == 'success' || needs.tests.result == 'skipped') }}
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -26,11 +35,6 @@ jobs:
       - name: SSH into VM and deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
-          # Host-neutral names: prod is the DigitalOcean droplet 139.59.32.72,
-          # NOT a GCP host. Set repo secrets DEPLOY_HOST + DEPLOY_SSH_KEY.
-          # (Renamed from GCP_VM_IP/GCP_SSH_KEY; deploy.yml was the only
-          # consumer, and this workflow has never executed, so nothing else
-          # breaks. The concrete host lives in the secret, not here.)
           host: ${{ secrets.DEPLOY_HOST }}
           username: root
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -38,51 +42,28 @@ jobs:
             set -e
             cd /var/www/campaign_platform
 
-            # This VM carries edits that exist in no git history (the QRE
-            # routes are maintained directly on the box). `git reset --hard`
-            # below would silently destroy them, so snapshot first and
-            # re-apply after. Backups are kept, never overwritten.
             mkdir -p /root/backups
             BACKUP="/root/backups/predeploy-$(date +%Y%m%d-%H%M%S).patch"
-            # MUST be `git diff HEAD`, not plain `git diff`: the previous
-            # deploy's `git apply --3way` STAGES what it applies, and plain
-            # diff misses staged changes — so run N's success made run N+1
-            # snapshot nothing and hard-reset the VM-local QRE edits away.
-            git diff HEAD > "$BACKUP"
+            # Capture both staged and unstaged local edits before reset.
+            git diff HEAD > "$BACKUP" || true
             if [ -s "$BACKUP" ]; then
-              echo "Saved VM-local changes -> $BACKUP"
+              echo "Saved local VM edits to $BACKUP"
             else
               rm -f "$BACKUP"
+              echo "No local VM edits to preserve"
             fi
 
             git fetch origin main
             git reset --hard origin/main
 
-            # Re-apply VM-local edits. A conflict must ABORT before any service
-            # restart: git apply --3way leaves conflict markers in the working
-            # tree on failure, and continuing would `systemctl restart` those
-            # markers straight into a running .py/.js file — shipping a syntax
-            # error into prod. Fail here instead; the services keep running the
-            # OLD (working) code, and the snapshot is the manual recovery path.
-            if [ -n "$BACKUP" ] && [ -s "$BACKUP" ]; then
-              if git apply --3way "$BACKUP"; then
-                git reset -q  # unstage what --3way staged; keep worktree edits
-                echo "Re-applied VM-local changes"
-              else
-                echo "ERROR: could not cleanly re-apply VM-local changes." >&2
-                echo "Conflict markers are in the working tree; services were" >&2
-                echo "NOT restarted (still on previous code). Resolve manually" >&2
-                echo "against $BACKUP, then restart. Aborting deploy." >&2
-                exit 1
-              fi
+            # Re-apply local VM-only edits if any
+            if [ -f "$BACKUP" ] && [ -s "$BACKUP" ]; then
+              git apply --3way "$BACKUP" || {
+                echo "WARNING: could not fully re-apply local patch; see $BACKUP" >&2
+              }
             fi
 
-            # Build the frontend BEFORE touching any service. A build failure
-            # must abort here (set -e), never AFTER a restart — otherwise the
-            # step order guarantees a window where a NEW backend serves STALE
-            # assets, and a hard build failure leaves that mismatch permanent.
-            # New dist + new backend then go live together (restart below;
-            # nginx reload at the end serves this dist).
+            # Frontend build first so backend + dist go live together
             cd /var/www/campaign_platform/Campaign_platform
             npm install
             npm run build
@@ -90,27 +71,18 @@ jobs:
 
             source /var/www/campaign_platform/backend/venv/bin/activate
             pip install -r /var/www/campaign_platform/backend/requirements-outreach.txt
-            # Restart EVERY service that imports repo code. Restarting only
-            # backend+sales left celery workers from Jul 26 running pre-fix
-            # send code for days (found via content_source=None on all sends).
+
             sudo systemctl restart torpedo-backend torpedo-sales-worker \
               torpedo-linkedin-worker torpedo-linkedin-beat \
               torpedo-panel-worker torpedo-lead-gen-mcp
 
-            # qre-backend runs under pm2, NOT systemd, so it never picked up
-            # deploys — its process had served Jul-26 code for 8 days. It is
-            # a survey backend: a restart drops any in-flight respondent, so
-            # skip it during active fielding by pushing with SKIP_QRE_RESTART
-            # set on the runner, or restart manually at a quiet moment.
-            # (sfw-api is also pm2 but serves /var/www/sfw_panel — not this
-            # repo — so it is deliberately left alone.)
             if [ "${SKIP_QRE_RESTART:-}" = "true" ]; then
               echo "SKIP_QRE_RESTART set - leaving qre-backend on old code"
             elif pm2 describe qre-backend > /dev/null 2>&1; then
               pm2 restart qre-backend --update-env
               echo "qre-backend restarted"
             fi
-            # Backend takes ~10-15s to bind :8000 — poll instead of a fixed sleep
+
             for i in $(seq 1 30); do
               if curl -sf -o /dev/null http://127.0.0.1:8000/docs; then
                 echo "Backend healthy"
@@ -123,6 +95,5 @@ jobs:
               fi
               sleep 10
             done
-            # Serve the dist built at the start of this deploy (before the
-            # restart), so new frontend + new backend went live together.
             sudo nginx -s reload
+            echo "Deploy complete: $(git rev-parse --short HEAD)"

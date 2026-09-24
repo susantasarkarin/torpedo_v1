@@ -1,0 +1,21 @@
+name: Actions health check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/actions-health.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Runner ping
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Hello
+        run: |
+          echo "Actions runner is alive"
+          echo "date=$(date -u)"
+          uname -a

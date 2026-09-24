@@ -1,24 +1,29 @@
 name: CI
 
-# Runs on every pull request, and is reusable (workflow_call) so the deploy
-# workflow can gate production deploys on the same checks.
 on:
   pull_request:
   workflow_call:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   backend-tests:
     name: Backend tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     services:
       mongodb:
         image: mongo:7
         ports:
           - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       MONGO_URI: mongodb://localhost:27017
-      # CI-only values; production injects real secrets via environment.
       SESSION_SECRET: ci-not-a-real-secret-override-in-prod
       CORS_ORIGINS: http://localhost:5173
       CRM_DB_NAME: crm_db_ci
@@ -26,51 +31,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
       - name: Install CI dependencies
         run: pip install -r backend/requirements-ci.txt
-
-      # Static counterpart to the fail-fast router mounts (TOR-05/TOR-11).
-      # With the 338 relative/absolute import fallbacks gone, a broken import
-      # is a real failure rather than something the other branch papers over —
-      # catch it here in seconds instead of at boot. This is what found
-      # leads/clay_routes.py importing five of its own siblings as top-level
-      # modules.
       - name: Check every intra-project import resolves
         run: python backend/scripts/check_imports.py
-
-      # Ratchet, not a ban (TOR-22): four live modules still construct AI
-      # clients directly and need their request/response shapes rewritten to
-      # migrate. This stops the count growing while that happens.
       - name: No new direct AI clients outside ai_governance/
         run: python backend/scripts/check_ai_gateway.py
-
-      # The whole suite, not a hand-picked eighth of it (TOR-14).
-      #
-      # This used to run backend/tests/smoke minus seven ignored files plus
-      # eight named lead-pipeline files — about a quarter of the tests, and the
-      # quarter covering the newest module. Nothing exercised the CRM spine,
-      # finance, traffic, CINT/CPX or the panel, all of which have tests that
-      # were simply never run.
-      #
-      # The stated reason ("other files hang on collection") was stale: the
-      # full suite collects in ~13s. What the excluded files actually need is a
-      # RUNNING SERVER, which is a different problem and now has its own
-      # marker. `-m "not smoke"` deselects exactly those.
       - name: Run test suite
         run: pytest backend/tests -m "not smoke" -q
-
-      # The app has to be importable in-process, which it was not until the
-      # sys.path bootstrap in backend/conftest.py (TOR-11). Run it separately
-      # so a mount failure is unmistakable in the log: since router mounts now
-      # raise instead of warning (TOR-05), this step is what stops a deploy
-      # that would come up with a module missing.
       - name: Verify the app imports and mounts every router
         run: pytest backend/tests/smoke/test_backend_startup.py -q
 
   frontend-build:
     name: Frontend build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: Campaign_platform
@@ -86,16 +61,13 @@ jobs:
 
   dependency-audit:
     name: Dependency advisories
-    runs-on: ubuntu-latest
-    # Reports, does not gate (TOR-51). A new advisory in a transitive
-    # dependency should be visible immediately, but it should not block an
-    # unrelated deploy at 2am — that is how audit steps get disabled.
+    runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
       - name: pip-audit
         run: |
           pip install pip-audit
@@ -110,12 +82,9 @@ jobs:
 
   no-secrets:
     name: No secrets or PII in the tree
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      # TOR-01/TOR-07 were both "a file that should never have been committed,
-      # committed". .gitignore cannot help once a path is tracked, so assert it
-      # directly and fail the build rather than discovering it in an audit.
       - name: Reject tracked credentials and data exports
         run: |
           set -e
