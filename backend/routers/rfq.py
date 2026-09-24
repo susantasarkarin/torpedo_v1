@@ -1072,15 +1072,18 @@ def _generate_line_items_from_rfq(rfq: Dict[str, Any], unit_price: Optional[floa
 
 def _find_or_create_customer(rfq: Dict[str, Any]) -> Optional[str]:
     """
-    Resolve the finance customer for an RFQ, or None if there is no match.
-
-    Reads account_name/contact_email — the fields the spine adapter actually
-    populates. It previously read client_name/client_email, which no RFQ
-    document has ever carried, so it always returned None and every conversion
-    without an explicit customer_id failed with "Customer not found".
+    Resolve or create the finance customer for an RFQ.
+    Creates a new customer on RFQ-won handoff when no match exists.
     """
-    account_name = (rfq.get("account_name") or rfq.get("sender_company") or "").strip()
-    contact_email = (rfq.get("contact_email") or "").strip()
+    account_name = (
+        rfq.get("account_name") or rfq.get("sender_company")
+        or rfq.get("company") or rfq.get("client_name") or ""
+    ).strip()
+    contact_email = (
+        rfq.get("contact_email") or rfq.get("email")
+        or rfq.get("client_email") or ""
+    ).strip()
+    contact_name = (rfq.get("contact_name") or rfq.get("name") or "").strip()
 
     if not account_name and not contact_email:
         return None
@@ -1099,7 +1102,21 @@ def _find_or_create_customer(rfq: Dict[str, Any]) -> Optional[str]:
         if customer:
             return str(customer["_id"])
 
-    return None
+    now = datetime.utcnow()
+    doc = {
+        "name": account_name or contact_name or contact_email,
+        "email": contact_email or None,
+        "contact_name": contact_name or None,
+        "source": "rfq_won",
+        "rfq_id": str(rfq.get("_id") or rfq.get("id") or ""),
+        "payment_terms": rfq.get("payment_terms") or "Net 30",
+        "status": "active",
+        "total_receivables": 0,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = customers_collection.insert_one(doc)
+    return str(result.inserted_id)
 
 
 def _get_next_document_number(collection, prefix: str) -> str:

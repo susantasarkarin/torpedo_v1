@@ -51,16 +51,52 @@
           "script_template": "Hi {first_name},\n\nQuick note — {recent_news_or_hook}.\n\nGiven that context, I thought our previous conversation about {pain_area} might be worth revisiting.\n\nOpen to a brief call?\n\nBest,\nSusanta"
         }
       ]
+    },
+    "positive_nurture": {
+      "steps": [
+        {
+          "step": 1,
+          "label": "Acknowledge & Propose Concall",
+          "delay_days": 0,
+          "subject_template": "Re: {original_subject} — next step",
+          "script_template": "Hi {first_name},\n\nThank you for getting back to me — glad this is relevant for {company}.\n\nThe best next step is usually a short 15–20 minute call so I can understand your current priorities and share how we typically help teams like yours.\n\nWould any of these work for you this week?\n• Tuesday or Wednesday afternoon\n• Thursday morning\n\nHappy to adjust to your calendar.\n\nBest,\nSusanta"
+        },
+        {
+          "step": 2,
+          "label": "Concall Reminder / Soft Nudge",
+          "delay_days": 3,
+          "subject_template": "Re: next step with {company}",
+          "script_template": "Hi {first_name},\n\nJust checking in — did any of the times work, or would another slot be better?\n\nI can also send a short one-pager on how we work with {persona_type} teams if that would be more useful before a call.\n\nBest,\nSusanta"
+        },
+        {
+          "step": 3,
+          "label": "Value + Soft Qualification",
+          "delay_days": 7,
+          "subject_template": "Quick thought for {company}",
+          "script_template": "Hi {first_name},\n\nSharing a brief thought based on what you mentioned.\n\nTeams in a similar position usually care most about {pain_area}. We typically start with a short discovery conversation, then move to a scoped proposal only if there is a clear fit.\n\nIf you already have an RFQ or brief, feel free to send it across — happy to respond formally.\n\nOtherwise, still happy to jump on a short call.\n\nBest,\nSusanta"
+        },
+        {
+          "step": 4,
+          "label": "RFQ / Proposal Path",
+          "delay_days": 12,
+          "subject_template": "Ready when you are — {company}",
+          "script_template": "Hi {first_name},\n\nI'll keep this short.\n\nWhenever you are ready to move forward — whether that is a call, a formal RFQ, or a scoped proposal — just reply here and I'll prioritise it.\n\nNo pressure either way.\n\nBest,\nSusanta"
+        }
+      ]
     }
   },
   "reply_wait_hours": {
     "step_1": 96,
     "step_2": 96,
     "step_3": 120,
-    "step_4": 144
+    "step_4": 144,
+    "nurture_step_1": 72,
+    "nurture_step_2": 96,
+    "nurture_step_3": 120,
+    "nurture_step_4": 168
   },
   "bounce_action": "flag_and_remove",
-  "positive_reply_action": "move_to_crm",
+  "positive_reply_action": "start_nurture_sequence",
   "negative_reply_action": "archive_and_flag",
   "neutral_reply_action": "flag_for_manual_review"
 }

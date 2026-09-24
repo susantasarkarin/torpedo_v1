@@ -152,22 +152,22 @@ class ReplyHandlerService:
         prompt_context = self._build_classification_context(context)
         
         try:
-            response = await self.ai_client.chat.completions.create(
-                model="claude-opus-4-8",
-                messages=[
-                    {"role": "user", "content": f"{REPLY_CLASSIFIER_PROMPT}\n\n---\n\nREPLY TO CLASSIFY:\n{prompt_context}"}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,  # Low temperature for consistent classification
-                max_tokens=400
+            # Qwen-only via bedrock_client (single source of truth)
+            from leads.bedrock_client import converse_json_object
+
+            data = converse_json_object(
+                role="cheap",
+                system=REPLY_CLASSIFIER_PROMPT,
+                user=f"REPLY TO CLASSIFY:\n{prompt_context}",
+                max_tokens=400,
+                temperature=0.1,
             )
-            
-            result = json.loads(response.choices[0].message.content)
-            return ClassifiedReply(**result)
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse classification response: {e}")
-            # Return conservative default
+            if not data:
+                raise ValueError("empty Qwen classification response")
+            return ClassifiedReply(**data)
+
+        except Exception as e:
+            logger.error(f"Reply classification failed: {e}")
             return ClassifiedReply(
                 classification="Unclear",
                 confidence=0.0,
@@ -175,9 +175,6 @@ class ReplyHandlerService:
                 key_phrases=[],
                 recommended_action="Manual review required - classification failed"
             )
-        except Exception as e:
-            logger.error(f"Reply classification failed: {e}")
-            raise
     
     async def generate_auto_response(
         self,
@@ -227,19 +224,19 @@ CONTACT: {context.contact_name} at {context.company_name}
 """
         
         try:
-            response = await self.ai_client.chat.completions.create(
-                model="claude-opus-4-8",
-                messages=[
-                    {"role": "user", "content": f"{AUTO_RESPONSE_PROMPT}\n\n---\n\n{prompt_context}"}
-                ],
-                response_format={"type": "json_object"},
+            from leads.bedrock_client import converse_json_object
+
+            data = converse_json_object(
+                role="smart",
+                system=AUTO_RESPONSE_PROMPT,
+                user=prompt_context,
+                max_tokens=400,
                 temperature=0.5,
-                max_tokens=400
             )
-            
-            result = json.loads(response.choices[0].message.content)
-            return AutoResponse(**result)
-            
+            if not data:
+                return None
+            return AutoResponse(**data)
+
         except Exception as e:
             logger.error(f"Auto-response generation failed: {e}")
             return None

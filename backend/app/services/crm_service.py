@@ -383,22 +383,47 @@ def create_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
-    """Opportunity Won -> activate Project (if any) and create an Invoice stub."""
+    """
+    Opportunity Won — the ONLY path that converts a lead/RFQ into a client.
+
+    Side effects (Finance + Operations):
+      1. Opportunity stage/status → won, closed_at set
+      2. Linked project activated (or created)
+      3. Draft invoice stub created
+      4. Linked lead stage → won (stops outreach/nurture)
+    """
     opportunity = get("opportunities", opp_id)
     if not opportunity:
         return None
 
-    # closed_at is the real close timestamp. The pipeline report used to derive
-    # days-to-close from updated_at, which any later edit — a note, an owner
-    # change, the nightly reconcile — pushed forward, inflating the sales-cycle
-    # metric indefinitely (TOR-17).
     now = datetime.utcnow()
     update("opportunities", opp_id,
            {"stage": "won", "status": "won", "closed_at": now})
 
     project_id = opportunity.get("project_id")
+    project = None
     if project_id:
-        update("projects", project_id, {"status": "active"})
+        update("projects", project_id, {
+            "status": "active",
+            "activated_at": now,
+            "customer_id": opportunity.get("account_id"),
+        })
+        project = get("projects", project_id)
+    else:
+        project = create(
+            "projects",
+            {
+                "name": opportunity.get("title") or "Project",
+                "account_id": opportunity.get("account_id"),
+                "opportunity_id": opp_id,
+                "status": "active",
+                "activated_at": now,
+                "source": "rfq_won",
+            },
+        )
+        project_id = project.get("_id") if project else None
+        if project_id:
+            update("opportunities", opp_id, {"project_id": project_id})
 
     invoice = create(
         "invoices",
@@ -407,8 +432,31 @@ def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
             "project_id": project_id,
             "amount": opportunity.get("amount", 0),
             "status": "draft",
+            "payment_terms": opportunity.get("payment_terms") or "Net 30",
+            "source": "rfq_won",
+            "created_at": now,
         },
     )
+
+    lead_id = opportunity.get("lead_id")
+    if lead_id:
+        try:
+            from db_pools import get_background_db
+            from bson import ObjectId
+            db = get_background_db()
+            db["leads"].update_one(
+                {"_id": ObjectId(str(lead_id))},
+                {"$set": {
+                    "stage": "won",
+                    "engagement_status": "converted",
+                    "converted_at": now,
+                    "opportunity_id": opp_id,
+                    "project_id": project_id,
+                    "updated_at": now,
+                }},
+            )
+        except Exception:
+            pass
 
     log_activity(
         {
@@ -421,7 +469,7 @@ def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
     )
     return {
         "opportunity": get("opportunities", opp_id),
-        "project": get("projects", project_id) if project_id else None,
+        "project": project or (get("projects", project_id) if project_id else None),
         "invoice": invoice,
     }
 

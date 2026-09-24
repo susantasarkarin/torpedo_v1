@@ -1414,3 +1414,119 @@ def save_clients_roster(payload: Dict[str, Any] = Body(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Project close → final invoice + CA package (Step 8)
+# ---------------------------------------------------------------------------
+
+@router.post("/projects/{project_id}/close")
+def close_project(
+    project_id: str,
+    payload: Dict[str, Any] = Body(default={}),
+):
+    """
+    Close a project. Raises a final invoice for remaining unbilled value
+    unless skip_final_invoice=true.
+    """
+    try:
+        project = projects_collection.find_one({"_id": ObjectId(project_id)})
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("status") in ("completed", "closed"):
+            return {"message": "Project already closed", "project_id": project_id,
+                    "status": project.get("status")}
+
+        now = datetime.utcnow()
+        skip_invoice = bool(payload.get("skip_final_invoice", False))
+        notes = payload.get("notes") or ""
+        invoice_result = None
+
+        if not skip_invoice:
+            project_value = float(project.get("projectValue") or project.get("amount") or 0)
+            already = sum(float(i.get("total_amount") or 0)
+                          for i in invoices_collection.find({"project_id": project_id}))
+            remaining = max(0.0, project_value - already)
+            if remaining > 0:
+                invoice_result = create_invoice_from_project(
+                    project_id,
+                    {
+                        "items": [{
+                            "description": f"Final billing — {project.get('projectName') or project.get('name') or 'Project'}",
+                            "quantity": 1,
+                            "rate": remaining,
+                            "tax_rate": payload.get("tax_rate", 18),
+                        }],
+                        "notes": notes or "Final invoice on project close",
+                        "customer_id": payload.get("customer_id")
+                            or project.get("customer_id")
+                            or project.get("finance_customer_id"),
+                    },
+                )
+
+        projects_collection.update_one(
+            {"_id": ObjectId(project_id)},
+            {"$set": {"status": "completed", "closed_at": now,
+                      "close_notes": notes, "updated_at": now}},
+        )
+        return {
+            "message": "Project closed",
+            "project_id": project_id,
+            "status": "completed",
+            "closed_at": now.isoformat(),
+            "final_invoice": invoice_result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error closing project: {e}")
+
+
+@router.get("/projects/{project_id}/ca-package")
+def get_project_ca_package(project_id: str):
+    """Assemble invoices, payments, bills for CA tax filing."""
+    try:
+        project = projects_collection.find_one({"_id": ObjectId(project_id)})
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project = serialize_doc(project)
+        invoices = [serialize_doc(i) for i in invoices_collection.find({"project_id": project_id})]
+        invoice_ids = [i.get("_id") for i in invoices if i.get("_id")]
+        payments = []
+        if invoice_ids:
+            payments = [serialize_doc(p) for p in payments_received_collection.find({
+                "$or": [{"project_id": project_id}, {"invoice_id": {"$in": invoice_ids}}]
+            })]
+        bills = []
+        try:
+            bills = [serialize_doc(b) for b in bills_collection.find({"project_id": project_id})]
+        except Exception:
+            pass
+        invoiced = sum(float(i.get("total_amount") or 0) for i in invoices)
+        received = sum(float(p.get("amount") or p.get("amount_received") or 0) for p in payments)
+        return {
+            "project": {
+                "id": project.get("_id"),
+                "name": project.get("projectName") or project.get("name"),
+                "client": project.get("client"),
+                "status": project.get("status"),
+                "closed_at": project.get("closed_at"),
+                "project_value": project.get("projectValue") or project.get("amount"),
+            },
+            "invoices": invoices,
+            "payments_received": payments,
+            "bills": bills,
+            "summary": {
+                "invoiced_total": invoiced,
+                "received_total": received,
+                "outstanding": max(0.0, invoiced - received),
+                "invoice_count": len(invoices),
+                "payment_count": len(payments),
+            },
+            "generated_at": datetime.utcnow().isoformat(),
+            "purpose": "CA tax filing package",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error building CA package: {e}")

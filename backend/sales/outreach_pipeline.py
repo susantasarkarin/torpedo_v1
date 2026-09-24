@@ -1,17 +1,17 @@
 """
 MODULES 4 + 5 + 6 — OUTREACH PIPELINE
 ========================================
-Module 4: Business unit routing via Gemini
+Module 4: Business unit routing via Qwen
 Module 5: Gmail outreach + follow-up scheduling
-Module 6: Email tracking & reply sentiment analysis via Gemini
+Module 6: Email tracking & reply sentiment analysis via Qwen
 
 Pipeline flow per lead:
   enriched lead
-    → route_lead_to_bu()        [Gemini picks BU + drafts personalised email]
+    → route_lead_to_bu()        [Qwen picks BU + drafts personalised email]
     → send_initial_outreach()   [Gmail API sends email, records send]
     → schedule_followups()      [reads followup_scripts.json, queues follow-up tasks]
     → [time passes — tracking events arrive]
-    → handle_email_event()      [bounce → remove, reply → Gemini sentiment → CRM/archive]
+    → handle_email_event()      [bounce → remove, reply → Qwen sentiment → CRM/archive]
     → send_followup_email()     [if not opened within wait window, send next step]
 """
 
@@ -122,7 +122,7 @@ def _send_via_gmail(
 )
 def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
     """
-    Module 4: Use Gemini to research the lead, read BU descriptions,
+    Module 4: Use Qwen to research the lead, read BU descriptions,
     identify the gap, route to the best BU, and draft a personalised outreach email.
 
     Stores on the lead:
@@ -165,16 +165,16 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
         result = gateway.route_to_business_unit(lead_context, business_units)
 
         if not result.get("success"):
-            logger.error(f"[BU Routing] Gemini routing failed for {lead_id}: {result.get('error')}")
+            logger.error(f"[BU Routing] Qwen routing failed for {lead_id}: {result.get('error')}")
             return {"error": "routing_failed", "detail": result.get("error")}
 
-        # Find the full BU description for the chosen slug (for OpenAI drafting)
+        # Find the full BU description for the chosen slug (for Qwen drafting)
         chosen_bu = next(
             (bu for bu in business_units if bu["slug"] == result.get("slug")),
             business_units[0] if business_units else {}
         )
 
-        # Draft the outreach email via Claude (ai_governance gateway)
+        # Draft the outreach email via Qwen (ai_governance gateway)
         draft = gateway.draft_outreach_email(
             lead_context=lead_context,
             bu_description=chosen_bu.get("description", ""),
@@ -183,7 +183,7 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
         )
 
         if not draft.get("subject") or not draft.get("body"):
-            logger.error(f"[BU Routing] OpenAI email draft empty for lead {lead_id}")
+            logger.error(f"[BU Routing] Qwen email draft empty for lead {lead_id}")
             return {"error": "draft_failed"}
 
         # Store routing + draft on lead
@@ -341,15 +341,17 @@ def schedule_followups(
     steps = sequence.get("steps", [])
     reply_wait = config.get("reply_wait_hours", {})
 
-    # Find next step
     next_steps = [s for s in steps if s["step"] > step]
     if not next_steps:
-        logger.info(f"[Schedule] Lead {lead_id} has completed all follow-up steps.")
+        logger.info(f"[Schedule] Lead {lead_id} completed all steps (track={track}).")
         return {"status": "sequence_complete"}
 
     next_step = next_steps[0]
     delay_days = next_step.get("delay_days", 4)
-    wait_hours = reply_wait.get(f"step_{step}", 96)
+    wait_key = f"nurture_step_{step}" if track == "positive_nurture" else f"step_{step}"
+    wait_hours = reply_wait.get(wait_key, reply_wait.get(f"step_{step}", 96))
+    if step == 0 and track == "positive_nurture":
+        wait_hours = min(wait_hours, 2)
 
     # ETA = max(wait_hours since send, now + delay_days)
     eta = datetime.utcnow() + timedelta(hours=max(wait_hours, delay_days * 24))
@@ -395,10 +397,15 @@ def send_followup_email(
         if not lead:
             return {"error": "lead_not_found"}
 
-        # Abort conditions — lead replied, bounced, or unsubscribed
+        # Abort: won/lost always stop; "replied" only stops cold sequences.
+        # positive_nurture may continue after a positive reply.
         stage = lead.get("stage", "")
-        if stage in ("replied", "won", "lost"):
+        track = lead.get("track", "cold")
+        if stage in ("won", "lost"):
             logger.info(f"[Followup] Lead {lead_id} stage={stage}, skipping step {step}.")
+            return {"status": "skipped", "reason": stage}
+        if stage == "replied" and track != "positive_nurture":
+            logger.info(f"[Followup] Lead {lead_id} stage=replied (cold), skipping step {step}.")
             return {"status": "skipped", "reason": stage}
 
         email_status = lead.get("email_status", "")
@@ -513,7 +520,7 @@ def handle_email_event(event: Dict[str, Any]) -> Dict[str, Any]:
 
     Routing:
       bounced       → flag lead, add to suppression list, remove from sequence
-      reply_received → Gemini sentiment → positive→CRM, negative→archive, neutral→manual review
+      reply_received → Qwen sentiment → positive→CRM, negative→archive, neutral→manual review
       not_opened    → already handled by schedule_followups timer
     """
     from bson import ObjectId
@@ -597,7 +604,7 @@ def _handle_bounce(lead_id: str, email: str, db) -> None:
 )
 def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) -> Dict[str, Any]:
     """
-    Module 6: Use Gemini to analyse the sentiment of a reply.
+    Module 6: Use Qwen to analyse the sentiment of a reply.
     Routes the lead based on result:
       positive  → stage='replied', move to CRM (active leads section)
       negative  → stage='lost', archive and flag for review
@@ -640,6 +647,8 @@ def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) ->
                 {"$set": {
                     "stage": "replied",
                     "engagement_status": "replied_positive",
+                    "track": "positive_nurture",
+                    "nurture_step": 0,
                     "last_reply": reply_record,
                     "crm_added_at": now,
                     "updated_at": now,
@@ -653,7 +662,13 @@ def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) ->
                 "read": False,
                 "created_at": now,
             })
-            logger.info(f"[Reply] Lead {lead_id} → POSITIVE → moved to CRM")
+            logger.info(f"[Reply] Lead {lead_id} → POSITIVE → moved to CRM + nurture started")
+            try:
+                thread_id = lead.get("gmail_thread_id") or ""
+                last_msg = gmail_message_id or lead.get("last_gmail_message_id") or ""
+                schedule_followups.delay(lead_id, thread_id, last_msg, step=0)
+            except Exception as e:
+                logger.warning(f"[Reply] Could not schedule nurture for {lead_id}: {e}")
 
         elif action == "archive_and_flag":
             leads.update_one(

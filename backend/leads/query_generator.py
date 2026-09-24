@@ -133,13 +133,14 @@ def generate_search_plan(
             print(f"[QueryGen] Using cached plan ({len(cached)} queries)")
             return cached
     
-    # Import here to avoid circular dependency
+    # Qwen-only path via bedrock_client (single source of truth)
     try:
-        from .openai_wrapper import chat_completion, is_ai_disabled
-        
-        if is_ai_disabled():
+        import os
+        if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
             return _generate_fallback_queries(persona, industry, location, count)
-        
+
+        from leads.bedrock_client import converse_string_list, BedrockError, JSONParseError
+
         user_prompt = SEARCH_PLAN_USER_PROMPT.format(
             count=count,
             persona=persona,
@@ -147,38 +148,31 @@ def generate_search_plan(
             location=location or "Global",
             context=context or "Focus on decision-makers"
         )
-        
-        result = chat_completion(
-            messages=[
-                {"role": "system", "content": SEARCH_PLAN_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            source="background",
-            endpoint="generate_search_plan",
-            # Qwen-only policy: no explicit model= here so chat_completion()
-            # resolves to its governed default (CHEAP_MODEL = Qwen).
-            max_output_tokens=500,
-            temperature=0.7,  # Higher for variety
-            response_format={"type": "json_object"}
+
+        raw = converse_string_list(
+            role="cheap",
+            system=SEARCH_PLAN_SYSTEM_PROMPT,
+            user=user_prompt,
+            key="queries",
+            max_tokens=500,
+            temperature=0.7,
         )
-        
-        if not result["success"]:
-            print(f"[QueryGen] AI failed: {result['error']}, using fallback")
+
+        if not raw:
+            print("[QueryGen] Qwen returned no usable queries, using fallback")
             return _generate_fallback_queries(persona, industry, location, count)
-        
-        # Parse response
-        parsed = json.loads(result["content"])
-        queries = parsed.get("queries", [])
-        
+
+        queries = [q for q in raw if isinstance(q, str) and q.strip()][:count]
         if not queries:
             return _generate_fallback_queries(persona, industry, location, count)
-        
-        # Cache the plan
+
         cache_search_plan(persona, industry, location, queries)
-        
-        print(f"[QueryGen] Generated {len(queries)} smart queries")
+        print(f"[QueryGen] Generated {len(queries)} smart queries via Qwen")
         return queries
-        
+
+    except (BedrockError, JSONParseError) as e:
+        print(f"[QueryGen] Qwen call failed: {e}, using fallback")
+        return _generate_fallback_queries(persona, industry, location, count)
     except Exception as e:
         print(f"[QueryGen] Error: {e}, using fallback")
         return _generate_fallback_queries(persona, industry, location, count)

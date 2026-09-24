@@ -4124,3 +4124,145 @@ def get_export_file(export_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Open invoice follow-up + payment reconciliation (Step 8)
+# ---------------------------------------------------------------------------
+
+@router.get("/invoices/open-followups")
+def list_open_invoice_followups(
+    days_overdue: int = Query(0, description="Minimum days past due"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """List open/overdue invoices needing follow-up."""
+    try:
+        now = datetime.utcnow()
+        query = {"status": {"$in": ["draft", "pending", "sent", "overdue", "partial"]}}
+        invoices = list(invoices_collection.find(query).sort("due_date", 1).limit(limit * 2))
+        results = []
+        for inv in invoices:
+            if hasattr(inv.get("_id"), "__str__"):
+                inv["_id"] = str(inv["_id"])
+            due = inv.get("due_date")
+            overdue_days = 0
+            if due:
+                if isinstance(due, str):
+                    try:
+                        due = datetime.fromisoformat(due.replace("Z", ""))
+                    except Exception:
+                        due = None
+                if isinstance(due, datetime):
+                    overdue_days = max(0, (now - due).days)
+            if overdue_days < days_overdue:
+                continue
+            total = float(inv.get("total_amount") or inv.get("total") or 0)
+            paid = float(inv.get("amount_paid") or 0)
+            results.append({
+                "invoice_id": inv.get("_id"),
+                "invoice_number": inv.get("invoice_number") or inv.get("document_number"),
+                "customer_id": inv.get("customer_id"),
+                "project_id": inv.get("project_id"),
+                "total_amount": total,
+                "amount_paid": paid,
+                "balance_due": float(inv.get("balance_due") or max(0, total - paid)),
+                "due_date": inv.get("due_date"),
+                "overdue_days": overdue_days,
+                "status": inv.get("status"),
+                "followup_priority": "high" if overdue_days >= 30 else ("medium" if overdue_days >= 7 else "normal"),
+            })
+            if len(results) >= limit:
+                break
+        return {"count": len(results), "invoices": results, "as_of": now.isoformat()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/payments/reconcile")
+def reconcile_payment(payload: Dict[str, Any] = Body(...)):
+    """Apply a payment to one or more invoices; mark paid/partial."""
+    try:
+        invoice_id = payload.get("invoice_id")
+        invoice_ids = payload.get("invoice_ids") or ([invoice_id] if invoice_id else [])
+        amount = float(payload.get("amount") or 0)
+        if not invoice_ids or amount <= 0:
+            raise HTTPException(status_code=400, detail="invoice_id and positive amount required")
+        now = datetime.utcnow()
+        remaining = amount
+        applied = []
+        for iid in invoice_ids:
+            if remaining <= 0:
+                break
+            inv = invoices_collection.find_one({"_id": ObjectId(str(iid))})
+            if not inv:
+                continue
+            total = float(inv.get("total_amount") or inv.get("total") or 0)
+            paid = float(inv.get("amount_paid") or 0)
+            due = max(0.0, total - paid)
+            apply_amt = min(remaining, due)
+            if apply_amt <= 0:
+                continue
+            new_paid = paid + apply_amt
+            new_status = "paid" if new_paid >= total - 0.01 else "partial"
+            invoices_collection.update_one(
+                {"_id": inv["_id"]},
+                {"$set": {
+                    "amount_paid": new_paid,
+                    "balance_due": max(0.0, total - new_paid),
+                    "status": new_status,
+                    "updated_at": now,
+                    "last_payment_at": now,
+                }},
+            )
+            remaining -= apply_amt
+            applied.append({"invoice_id": str(inv["_id"]), "amount_applied": apply_amt,
+                            "new_status": new_status})
+        payment_doc = {
+            "payment_number": generate_payment_number("PMT"),
+            "amount": amount,
+            "amount_unapplied": remaining,
+            "invoice_ids": [a["invoice_id"] for a in applied],
+            "applications": applied,
+            "payment_date": payload.get("payment_date") or now,
+            "method": payload.get("method") or "bank_transfer",
+            "reference": payload.get("reference") or "",
+            "notes": payload.get("notes") or "",
+            "customer_id": payload.get("customer_id"),
+            "project_id": payload.get("project_id"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        result = payments_received_collection.insert_one(payment_doc)
+        payment_doc["_id"] = str(result.inserted_id)
+        return {"message": "Payment reconciled", "payment": payment_doc,
+                "applied": applied, "unapplied": remaining}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/invoices/{invoice_id}/followup")
+def record_invoice_followup(invoice_id: str, payload: Dict[str, Any] = Body(default={})):
+    """Record a follow-up action on an open invoice."""
+    try:
+        inv = invoices_collection.find_one({"_id": ObjectId(invoice_id)})
+        if not inv:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        now = datetime.utcnow()
+        entry = {
+            "at": now,
+            "channel": payload.get("channel") or "email",
+            "note": payload.get("note") or "Follow-up recorded",
+            "by": payload.get("by") or "system",
+        }
+        invoices_collection.update_one(
+            {"_id": ObjectId(invoice_id)},
+            {"$push": {"followups": entry},
+             "$set": {"last_followup_at": now, "updated_at": now}},
+        )
+        return {"message": "Follow-up recorded", "invoice_id": invoice_id, "entry": entry}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

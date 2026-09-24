@@ -77,7 +77,9 @@ BUCKETS: Dict[str, Dict[str, Any]] = {
         ),
         # REPLACE ME. What you actually offer, why it beats the incumbent, and
         # any proof point worth stating. Until this is real, --send refuses.
-        "pitch": PITCH_PLACEHOLDER,
+        "pitch": (
+            "We run high-quality survey fieldwork and panel studies for research teams that need reliable sample, clean data and faster turnaround. Our panel and programming capabilities cover India, APAC, UK, Europe and the Middle East, with strong quality controls and transparent feasibility. Teams use us when they want primary research executed properly without the usual delays or sample surprises."
+        ),
     },
     "COGENTIX_RESEARCH": {
         "label": "Cogentix Research",
@@ -96,7 +98,9 @@ BUCKETS: Dict[str, Dict[str, Any]] = {
             "goods and consumer electronics companies."
         ),
         # REPLACE ME — see note on the SFW bucket above.
-        "pitch": PITCH_PLACEHOLDER,
+        "pitch": (
+            "Cogentix is an AI-native consumer intelligence platform that helps brand and marketing teams understand their consumers faster. We combine brand tracking, concept testing and continuous insight so you can see what is working, what is not, and what to do next — without waiting weeks for a traditional study. Built for mid-market and global brands that need clear, actionable consumer signal."
+        ),
     },
     "BIM": {
         "label": "BIMwave",
@@ -115,7 +119,9 @@ BUCKETS: Dict[str, Dict[str, Any]] = {
             "architecture, engineering, construction and infrastructure firms."
         ),
         # REPLACE ME — see note on the SFW bucket above.
-        "pitch": PITCH_PLACEHOLDER,
+        "pitch": (
+            "BIMwave provides specialised BIM modelling, coordination and digital delivery for architecture, engineering and construction firms. We help teams meet ISO 19650 requirements, reduce coordination clashes and deliver cleaner models on time. Ideal when you need experienced BIM capacity without expanding your permanent headcount."
+        ),
     },
 }
 
