@@ -771,7 +771,10 @@ def resume_campaign(campaign_id: str):
     )
     if res.matched_count == 0:
         raise HTTPException(404, "Campaign not found")
-    return {"ok": True}
+    # Bring back leads a past pause parked as "paused"; without this, resuming
+    # does nothing for exactly the leads that were touched while it was paused.
+    from services.outreach_resume import restore_paused_leads
+    return {"ok": True, "restored_leads": restore_paused_leads(db, campaign_id)}
 
 
 @router.get("/campaigns/{campaign_id}/stats")
@@ -2341,21 +2344,18 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             _kill_doc = db["outreach_kill_switch"].find_one({"_id": "global"})
         except Exception:
             _kill_doc = None
+        # A pause HOLDS the lead: it stays selectable and goes out after resume.
+        # (The send loop's preflight normally returns before any lead is picked;
+        # this is the backstop for a switch flipped mid-cycle.)
         if not _kill_doc or _kill_doc.get("paused", True):
-            db["outreach_leads_v2"].update_one(
-                {"_id": lead_record["_id"]},
-                {"$set": {"workflow_status": "paused", "updated_at": datetime.utcnow()}}
-            )
+            _hold_lead(db, lead_record, "kill switch active")
             return False
 
         campaign = db["outreach_campaigns_v2"].find_one(
             {"campaign_id": lead_record["campaign_id"]}
         )
         if not campaign or not campaign.get("is_active"):
-            db["outreach_leads_v2"].update_one(
-                {"_id": lead_record["_id"]},
-                {"$set": {"workflow_status": "paused", "updated_at": datetime.utcnow()}}
-            )
+            _hold_lead(db, lead_record, "campaign inactive or missing")
             return False
 
         steps_sent = lead_record.get("current_step", 0)
@@ -2479,22 +2479,19 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 error=_reason,
                 metadata={"campaign_id": lead_record.get("campaign_id"),
                           "lead_id": lead_record.get("lead_id")})
-            if _category == "config":
-                # A deployment problem (e.g. no postal address), not a fact
-                # about this lead. Leave workflow_status alone so the lead stays
-                # selectable and sends the moment the setting is fixed; the
-                # send loop's preflight normally catches this before any lead
-                # is touched, this is the backstop for a mid-cycle change.
-                db["outreach_leads_v2"].update_one(
-                    {"_id": lead_record["_id"]},
-                    {"$set": {"last_send_error": f"config: {_reason}"[:300],
-                              "last_send_attempt_at": datetime.utcnow()}})
+            if _category in ("config", "disabled"):
+                # A deployment problem (e.g. no postal address) or a global stop
+                # (SENDING_ENABLED=false), not a fact about this lead. Leave
+                # workflow_status alone so the lead stays selectable and sends
+                # once it is fixed; the send loop's preflight normally catches
+                # config before any lead is touched, this is the backstop for a
+                # mid-cycle change.
+                _hold_lead(db, lead_record, f"{_category}: {_reason}")
                 return False
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"workflow_status": {"suppressed": "suppressed",
-                                              "budget": "budget_held",
-                                              "disabled": "paused"}.get(_category, "skipped_gate"),
+                                              "budget": "budget_held"}.get(_category, "skipped_gate"),
                           "last_send_error": f"{_category}: {_reason}"[:300],
                           "updated_at": datetime.utcnow()}})
             return False
@@ -2878,6 +2875,16 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         return False
 
 
+def _hold_lead(db, lead_record: dict, why: str) -> None:
+    """Note why a lead was not sent this cycle WITHOUT changing its workflow_status,
+    so it stays selectable. Retiring a lead is a statement about the lead; a pause,
+    a config problem or a global stop is not."""
+    db["outreach_leads_v2"].update_one(
+        {"_id": lead_record["_id"]},
+        {"$set": {"last_send_error": f"held: {why}"[:300],
+                  "last_send_attempt_at": datetime.utcnow()}})
+
+
 _CONFIG_HOLD_ALERT_EVERY = timedelta(minutes=15)
 _config_hold_last_alert: Optional[datetime] = None
 _config_hold_active = False
@@ -2940,6 +2947,18 @@ def process_due_outreach_sends() -> dict:
         # any lead so no lead is touched, and none can be retired for it. Before
         # this, the first cycle after the kill switch was cleared marked 338
         # good leads skipped_gate — a status the send query never selects again.
+        # Kill switch, same reasoning: a pause must leave every lead exactly as it
+        # was. It used to be checked per lead, and each lead touched while paused
+        # was written workflow_status="paused" -- a status nothing selects and
+        # nothing restored, so "resume" quietly did nothing for those leads.
+        # Missing/unreadable doc = paused (fail safe), as before.
+        try:
+            _kill = db["outreach_kill_switch"].find_one({"_id": "global"})
+        except Exception:
+            _kill = None
+        if not _kill or _kill.get("paused", True):
+            return {"processed": 0, "sent": 0, "skipped": 0, "held": "kill switch active"}
+
         _hold = _config_hold_reason()
         _record_config_hold(db, _hold)
         if _hold:

@@ -381,7 +381,13 @@ def test_kill_switch_blocks_send_and_short_circuits(monkeypatch, kill_doc):
     assert db.outreach_kill_switch.find_one_calls == 1
     # The real proof: campaign lookup must never be reached.
     assert db.outreach_campaigns_v2.find_one_calls == 0
-    assert db.outreach_leads_v2.update_one_calls[0][1]["$set"]["workflow_status"] == "paused"
+    # A pause HOLDS the lead: it is stamped with why it wasn't sent but its
+    # workflow_status is left alone, so it is still selectable after resume. It
+    # used to be written "paused" -- a status nothing selects and nothing
+    # restored (see test_outreach_resume.py).
+    stamp = db.outreach_leads_v2.update_one_calls[0][1]["$set"]
+    assert "workflow_status" not in stamp
+    assert "kill switch" in stamp["last_send_error"]
 
 
 def test_kill_switch_resumed_allows_processing_to_continue(monkeypatch):

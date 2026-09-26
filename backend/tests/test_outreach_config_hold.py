@@ -83,6 +83,8 @@ def _db_with(leads):
     colls = {name: _empty_coll() for name in (
         "outreach_campaigns_v2", "outreach_leads_v2", "outreach_health",
         "outreach_kill_switch", "outreach_mailboxes")}
+    # Kill switch OFF (sending allowed); a missing doc would mean "paused".
+    colls["outreach_kill_switch"].find_one.return_value = {"_id": "global", "paused": False}
     colls["outreach_campaigns_v2"].find.return_value = [
         {"campaign_id": "c1", "business": "sfw", "mailbox_ids": []}]
     colls["outreach_leads_v2"].find.return_value.limit.return_value = leads
@@ -165,7 +167,7 @@ def test_backstop_config_block_leaves_status_alone(router):
     sets = [c.args[1]["$set"] for c in leads.update_one.call_args_list]
     assert sets, "expected the lead to be stamped with the error"
     assert all("workflow_status" not in s for s in sets)
-    assert any(s.get("last_send_error", "").startswith("config:") for s in sets)
+    assert any("config:" in s.get("last_send_error", "") for s in sets)
 
 
 def test_backstop_lead_level_block_still_retires_the_lead(router):

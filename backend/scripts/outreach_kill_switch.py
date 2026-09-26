@@ -2,8 +2,10 @@
 Global outreach kill switch — read/set the single doc that
 routers/cold_outreach_router.py::_process_one_outreach_lead() checks as
 the very first thing, before even looking at campaign.is_active. Missing
-doc or paused=True means every send attempt is refused and the lead is
-marked workflow_status="paused" instead.
+doc or paused=True means every send attempt is refused and every lead is left
+exactly as it was (the send loop returns before selecting any). `resume` also
+restores any lead an older version of the loop had parked as
+workflow_status="paused", which nothing else would ever bring back.
 
 This is deliberately a DB flag, not an env var — it takes effect on the
 next send attempt with no deploy or process restart needed, which matters
@@ -58,6 +60,11 @@ def main() -> int:
         upsert=True,
     )
     print(f"Kill switch set to {'PAUSED' if paused else 'ACTIVE'}.")
+    if not paused:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from services.outreach_resume import restore_paused_leads
+        restored = restore_paused_leads(client[MONGO_DB_NAME])
+        print(f"Restored {restored} lead(s) that had been parked as 'paused'.")
     return 0
 
 
