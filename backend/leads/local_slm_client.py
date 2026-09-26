@@ -129,11 +129,24 @@ def _json_mode_enabled() -> bool:
 
 
 def _call(system: str, user: str, max_tokens: int,
-          timeout: Optional[float]) -> Tuple[str, Dict[str, int], float]:
-    """One gated call to the local server. Returns (text, usage, latency)."""
+          timeout: Optional[float],
+          json_schema: Optional[Dict[str, Any]] = None) -> Tuple[str, Dict[str, int], float]:
+    """One gated call to the local server. Returns (text, usage, latency).
+
+    json_schema: constrain the output to this JSON Schema (server-side grammar).
+    Verified 2026-09-20 on this llama.cpp build: plain response_format
+    "json_object" is silently IGNORED (byte-identical output, markdown fences
+    and invalid values like `"loi": 45 - 60` included), so the LOCAL_LLM_JSON_MODE
+    env flag does nothing here; only a schema is enforced."""
     effective_timeout = timeout if timeout is not None else _inference_timeout_seconds()
     base_url = _base_url()  # raises before touching the gate if unconfigured
-    extra_params = {"response_format": {"type": "json_object"}} if _json_mode_enabled() else None
+    if json_schema is not None:
+        extra_params = {"response_format": {"type": "json_schema", "json_schema": {
+            "name": "response", "strict": True, "schema": json_schema}}}
+    elif _json_mode_enabled():
+        extra_params = {"response_format": {"type": "json_object"}}
+    else:
+        extra_params = None
     try:
         with acquire_local_llm_slot():
             return _transport.chat(
@@ -178,6 +191,7 @@ def chat_json(
     user: str,
     max_tokens: int = 512,
     timeout: Optional[float] = None,
+    json_schema: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Lower-level primitive: one gated call to the local server, parsed as JSON
@@ -192,7 +206,7 @@ def chat_json(
     classify() -- callers must treat both as "no AI proposal", same as any
     other call through this module.
     """
-    text, _usage, _latency = _call(system, user, max_tokens, timeout)
+    text, _usage, _latency = _call(system, user, max_tokens, timeout, json_schema)
     clean = _strip_markdown_fences(text)
     try:
         parsed = json.loads(clean)

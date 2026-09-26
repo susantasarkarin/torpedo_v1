@@ -89,6 +89,47 @@ def test_chat_json_requests_json_object_format_when_flag_is_on(monkeypatch, no_g
     assert calls == [{"response_format": {"type": "json_object"}}]
 
 
+def _capture_extra_params(monkeypatch):
+    calls = []
+
+    def _chat(model, system, user, max_tokens=1024, temperature=0.0,
+             base_url=None, api_key=None, extra_params=None, timeout=None):
+        calls.append(extra_params)
+        return '{"a": 1}', {}, 0.1
+    monkeypatch.setattr(slm._transport, "chat", _chat)
+    return calls
+
+
+SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+SCHEMA_FORMAT = {"response_format": {"type": "json_schema", "json_schema": {
+    "name": "response", "strict": True, "schema": SCHEMA}}}
+
+
+def test_json_schema_sends_a_schema_constrained_response_format(monkeypatch, no_gate):
+    monkeypatch.delenv("LOCAL_LLM_JSON_MODE", raising=False)
+    calls = _capture_extra_params(monkeypatch)
+    slm.chat_json(system="s", user="u", json_schema=SCHEMA)
+    assert calls == [SCHEMA_FORMAT]
+
+
+def test_json_schema_wins_over_the_env_json_mode_flag(monkeypatch, no_gate):
+    monkeypatch.setenv("LOCAL_LLM_JSON_MODE", "true")
+    calls = _capture_extra_params(monkeypatch)
+    slm.chat_json(system="s", user="u", json_schema=SCHEMA)
+    assert calls == [SCHEMA_FORMAT]
+
+
+def test_without_a_schema_the_env_flag_still_decides(monkeypatch, no_gate):
+    monkeypatch.setenv("LOCAL_LLM_JSON_MODE", "true")
+    calls = _capture_extra_params(monkeypatch)
+    slm.chat_json(system="s", user="u")
+    assert calls == [{"response_format": {"type": "json_object"}}]
+    monkeypatch.delenv("LOCAL_LLM_JSON_MODE")
+    calls.clear()
+    slm.chat_json(system="s", user="u")
+    assert calls == [None]
+
+
 # ============================================================
 # Happy path
 # ============================================================
