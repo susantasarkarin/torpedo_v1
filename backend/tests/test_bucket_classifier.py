@@ -317,12 +317,78 @@ def test_threshold_is_configurable():
     assert result["bucket"] == "BIM"
 
 
-def test_low_confidence_reject_is_not_downgraded():
-    """REJECT is not gated — a rejection stands regardless of confidence."""
+def test_low_confidence_reject_goes_to_review_not_final():
+    """
+    A REJECT is terminal (the lead leaves every pipeline for good), so it is
+    held to the confidence bar like any other verdict. Before 2026-09-20 it was
+    accepted at ANY confidence, so a model that answers REJECT / 0.0 to every
+    lead would silently discard all of them.
+    """
     payload = '{"bucket": "REJECT", "confidence": 0.3, "reason": "unclear"}'
     with patch.object(bedrock_client, "converse", return_value=payload):
         result = classify_lead(QUALIFIED, threshold=0.7)
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["proposed_bucket"] == REJECT_BUCKET   # kept for the reviewer
+
+
+def test_reject_with_zero_confidence_never_discards_a_lead():
+    """The exact failure the local 3B produced on 40 of 40 real leads."""
+    payload = ('{"bucket": "REJECT", "confidence": 0.0, "reason": '
+               '"Title and industry do not match any ideal buyer profile."}')
+    bim_manager = dict(QUALIFIED, title="BIM Manager", company="Ramboll")
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(bim_manager, threshold=0.7)
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["bucket"] != REJECT_BUCKET
+
+
+def test_reject_exactly_at_threshold_is_accepted():
+    payload = '{"bucket": "REJECT", "confidence": 0.7, "reason": "recruiter"}'
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
+
+
+def test_low_confidence_cheap_reject_escalates_when_a_stronger_model_exists(distinct_role_models):
+    cheap = '{"bucket": "REJECT", "confidence": 0.0, "reason": "no fit found"}'
+    smart = '{"bucket": "SFW", "confidence": 0.9, "reason": "research buyer"}'
+    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]) as mock:
+        result = classify_lead(QUALIFIED, threshold=0.7)
+    assert mock.call_count == 2
+    assert result["bucket"] == "SFW"
+
+
+def test_low_confidence_smart_reject_also_goes_to_review(distinct_role_models):
+    cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
+    smart = '{"bucket": "REJECT", "confidence": 0.1, "reason": "no fit found"}'
+    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+        result = classify_lead(QUALIFIED, threshold=0.7)
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["proposed_bucket"] == REJECT_BUCKET
+
+
+def test_deterministic_exclusions_are_unaffected_by_the_gate():
+    """A student is rejected by rule at confidence 1.0, with no model call."""
+    student = dict(QUALIFIED, title="Student")
+    with patch.object(bedrock_client, "converse") as mock:
+        result = classify_lead(student, threshold=0.7)
+    assert result["bucket"] == REJECT_BUCKET
+    assert result["method"] == "exclusion_filter"
+    mock.assert_not_called()
+
+
+def test_prompt_gives_reject_a_confidence_scale_and_no_numeric_example_to_copy():
+    """
+    Production data: 8,138 of 8,154 REJECT verdicts carried confidence 0 -- the
+    old model copied the prompt's `"confidence": 0.0` example, and the scale
+    only defined confidence for matches. With REJECTs now gated on confidence,
+    that prompt would send almost every reject to review. It must define REJECT
+    confidence and must not show a literal number to imitate.
+    """
+    from leads.bucket_classifier import USER_PROMPT
+    assert '"confidence": 0.0' not in USER_PROMPT
+    assert '"confidence": <a number between 0 and 1>' in USER_PROMPT
+    assert 'For "REJECT", confidence means' in USER_PROMPT
 
 
 def test_model_failure_routes_to_review():

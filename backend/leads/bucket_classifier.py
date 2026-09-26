@@ -224,10 +224,18 @@ Set "confidence" honestly:
   - 0.4-0.7  plausible but thin evidence; missing industry or seniority
   - 0.0-0.4  guessing
 
-Return JSON in exactly this shape and nothing else:
+For "REJECT", confidence means how sure you are that the lead is one of the
+REJECT categories listed above -- NOT how sure you are that no bucket fits:
+  - 0.9-1.0  the profile plainly states it (student, recruiter, retired, ...)
+  - 0.0-0.4  you are rejecting only because you could not find a fit
+A lead you cannot place is not a confident REJECT; give it a low confidence so
+that a person looks at it.
+
+Return JSON in exactly this shape and nothing else. Replace every placeholder
+with your own value; do not copy the placeholders:
 {{"bucket": "SFW" | "COGENTIX_RESEARCH" | "BIM" | "REJECT",
-  "confidence": 0.0,
-  "reason": "one short sentence"}}"""
+  "confidence": <a number between 0 and 1>,
+  "reason": "<one short sentence>"}}"""
 
 
 def build_prompt(lead: Dict[str, Any]) -> str:
@@ -323,7 +331,14 @@ def classify_lead(lead: Dict[str, Any],
         return {"bucket": bucket, "confidence": confidence,
                 "reason": reason, "method": "cheap"}
 
-    if bucket == REJECT_BUCKET:
+    # A REJECT is terminal: the lead leaves every pipeline and nothing ever
+    # looks at it again. So it is held to the same confidence bar as any other
+    # verdict. It used to be accepted at ANY confidence, which meant a model that
+    # fails by answering REJECT / 0.0 to everything (the local 3B did, on 40 of
+    # 40 real leads, including "BIM Manager") would silently discard every good
+    # lead. A low-confidence REJECT falls through to escalation / REVIEW, with
+    # the REJECT kept as `proposed_bucket` for the human who looks at it.
+    if bucket == REJECT_BUCKET and confidence >= threshold:
         logger.info("lead=%s bucket=REJECT confidence=%.2f method=cheap",
                     lead_id, confidence)
         return {"bucket": bucket, "confidence": confidence,
@@ -361,7 +376,7 @@ def classify_lead(lead: Dict[str, Any],
         return {"bucket": smart_bucket, "confidence": smart_confidence,
                 "reason": smart_reason, "method": "smart_escalation"}
 
-    if smart_bucket == REJECT_BUCKET:
+    if smart_bucket == REJECT_BUCKET and smart_confidence >= threshold:
         logger.info("lead=%s bucket=REJECT confidence=%.2f method=smart_escalation",
                     lead_id, smart_confidence)
         return {"bucket": smart_bucket, "confidence": smart_confidence,
