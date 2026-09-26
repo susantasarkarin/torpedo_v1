@@ -35,6 +35,19 @@ from leads.outreach_config import (
 )
 
 
+# A title that names no role we sell to: a model REJECT on it is not second-guessed
+# by the fit-signal veto (leads/fit_signals.py). QUALIFIED's "Head of BIM" is
+# exactly the kind of title the veto protects.
+NO_FIT_SIGNAL = {
+    "_id": "def456",
+    "name": "Ravi Menon",
+    "title": "Chief Financial Officer",
+    "company": "Acme Logistics",
+    "company_industry": "Logistics",
+    "country": "India",
+    "seniority_level": "C-Suite",
+}
+
 QUALIFIED = {
     "_id": "abc123",
     "name": "Asha Rao",
@@ -270,7 +283,7 @@ def test_escalation_can_reject(distinct_role_models):
     cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
     smart = '{"bucket": "REJECT", "confidence": 0.95, "reason": "vendor sales"}'
     with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
-        result = classify_lead(QUALIFIED, threshold=0.7)
+        result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
 
 
@@ -278,7 +291,7 @@ def test_reject_on_cheap_pass_does_not_escalate():
     """A confident rejection is final — no need to spend the smart model."""
     payload = '{"bucket": "REJECT", "confidence": 0.9, "reason": "student"}'
     with patch.object(bedrock_client, "converse", return_value=payload) as mock:
-        result = classify_lead(QUALIFIED, threshold=0.7)
+        result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
     assert mock.call_count == 1
 
@@ -345,7 +358,7 @@ def test_reject_with_zero_confidence_never_discards_a_lead():
 def test_reject_exactly_at_threshold_is_accepted():
     payload = '{"bucket": "REJECT", "confidence": 0.7, "reason": "recruiter"}'
     with patch.object(bedrock_client, "converse", return_value=payload):
-        result = classify_lead(QUALIFIED, threshold=0.7)
+        result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
 
 
@@ -465,3 +478,62 @@ def test_escalation_skipped_when_both_roles_are_the_same_model(monkeypatch):
     assert result["bucket"] == REVIEW_BUCKET
     assert result["method"] == "low_confidence_no_escalation"
     assert result["proposed_bucket"] == "BIM"
+
+
+
+# ---------------------------------------------------------------- fit-signal veto
+
+@pytest.mark.parametrize("title,bucket", [
+    ("Head of BIM", "BIM"),
+    ("BIM Manager / Product Owner (integrations)", "BIM"),
+    ("Research Director", "SFW"),
+    ("VP, Research & Insights at FutureBrand", "SFW"),
+    ("Chief Marketing Officer at Tourism Australia", "COGENTIX_RESEARCH"),
+    ("Global Insights Manager", "SFW"),
+])
+def test_confident_model_reject_of_a_fit_title_goes_to_review(title, bucket):
+    """
+    The independent check: the local 3B rejected these at confidence 0.9, which no
+    threshold can catch. A REJECT on a title that names a role we sell to is not
+    final; it goes to REVIEW with the REJECT kept as the proposal.
+    """
+    payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no clear fit"}'
+    lead = dict(NO_FIT_SIGNAL, title=title)
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(lead, threshold=0.7)
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["method"] == "reject_vetoed_fit_signal"
+    assert result["proposed_bucket"] == REJECT_BUCKET
+    assert "no clear fit" in result["reason"]      # the model's own reason is preserved
+
+
+def test_veto_also_covers_a_reject_from_the_escalation_model(distinct_role_models):
+    cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
+    smart = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
+    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+        result = classify_lead(QUALIFIED, threshold=0.7)     # "Head of BIM"
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["proposed_bucket"] == REJECT_BUCKET
+
+
+def test_veto_never_accepts_a_lead_into_a_bucket():
+    """The signal only stops a REJECT; it must never promote a lead by itself."""
+    payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(QUALIFIED, threshold=0.7)
+    assert result["bucket"] not in ("SFW", "COGENTIX_RESEARCH", "BIM")
+
+
+def test_veto_does_not_touch_a_reject_on_a_title_with_no_signal():
+    payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
+    assert result["bucket"] == REJECT_BUCKET
+    assert result["method"] == "cheap"
+
+
+def test_veto_leaves_a_model_service_line_verdict_alone():
+    payload = '{"bucket": "BIM", "confidence": 0.9, "reason": "BIM lead"}'
+    with patch.object(bedrock_client, "converse", return_value=payload):
+        result = classify_lead(QUALIFIED, threshold=0.7)
+    assert result["bucket"] == "BIM"

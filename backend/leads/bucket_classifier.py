@@ -89,6 +89,8 @@ except ImportError:
         config_summary,
     )
 
+from leads.fit_signals import strongest_fit
+
 logger = logging.getLogger("bucket_classifier")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
@@ -301,6 +303,28 @@ def validate_result(data: Optional[Dict[str, Any]]) -> Tuple[str, float, str]:
 # CLASSIFICATION
 # ============================================================
 
+def _veto_reject(lead: Dict[str, Any], lead_id: str,
+                 verdict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Independent check on a model-issued REJECT. A confidence threshold cannot
+    catch a model that is confidently wrong (the local 3B rejected "BIM Manager"
+    and "Research Director" at 0.9), so a REJECT on a title that names a role we
+    sell to is never final: the lead goes to REVIEW with the REJECT kept as the
+    proposal, and a person decides. Deterministic exclusions (student, retired,
+    ...) run before any model and are not affected. See leads/fit_signals.py.
+    """
+    hit = strongest_fit(lead.get("title") or lead.get("job_title"))
+    if not hit:
+        return verdict
+    bucket, term = hit
+    logger.info("lead=%s model REJECT vetoed: title carries a %s fit signal (%r) -> REVIEW",
+                lead_id, bucket, term)
+    return {"bucket": REVIEW_BUCKET, "confidence": verdict["confidence"],
+            "reason": (f"model rejected, but the title carries a strong {bucket} "
+                       f"signal ({term!r}); model said: {verdict['reason']}"),
+            "method": "reject_vetoed_fit_signal", "proposed_bucket": REJECT_BUCKET}
+
+
 def classify_lead(lead: Dict[str, Any],
                   threshold: float = CONFIDENCE_THRESHOLD) -> Dict[str, Any]:
     """
@@ -341,8 +365,8 @@ def classify_lead(lead: Dict[str, Any],
     if bucket == REJECT_BUCKET and confidence >= threshold:
         logger.info("lead=%s bucket=REJECT confidence=%.2f method=cheap",
                     lead_id, confidence)
-        return {"bucket": bucket, "confidence": confidence,
-                "reason": reason, "method": "cheap"}
+        return _veto_reject(lead, lead_id, {"bucket": bucket, "confidence": confidence,
+                                            "reason": reason, "method": "cheap"})
 
     # --- Step 3: escalate borderline leads to the smart model ----------
     # Unless both roles resolve to the same model, which they do under the
@@ -379,8 +403,8 @@ def classify_lead(lead: Dict[str, Any],
     if smart_bucket == REJECT_BUCKET and smart_confidence >= threshold:
         logger.info("lead=%s bucket=REJECT confidence=%.2f method=smart_escalation",
                     lead_id, smart_confidence)
-        return {"bucket": smart_bucket, "confidence": smart_confidence,
-                "reason": smart_reason, "method": "smart_escalation"}
+        return _veto_reject(lead, lead_id, {"bucket": smart_bucket, "confidence": smart_confidence,
+                                            "reason": smart_reason, "method": "smart_escalation"})
 
     # --- Step 4: still inconclusive -> review --------------------------
     logger.info("lead=%s bucket=REVIEW after escalation "
