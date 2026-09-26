@@ -133,6 +133,39 @@ def test_hold_clears_when_the_setting_is_fixed(router, monkeypatch):
     db.colls["outreach_health"].delete_one.assert_called_once_with({"_id": "config_hold"})
 
 
+def test_stale_hold_doc_from_a_prior_process_is_still_cleared(router, monkeypatch):
+    """
+    A restart resets _config_hold_active to False even though the config
+    problem was already fixed before the restart -- so a doc the OLD process
+    left behind must still be cleaned up, or it goes stale forever. Reproduces
+    the 2026-09-26 incident: after setting the postal address and restarting,
+    outreach_health/config_hold kept showing the old, resolved reason.
+    """
+    monkeypatch.setenv("OUTREACH_SENDER_POSTAL_ADDRESS", "1 Test Street, Kolkata")
+    db = _db_with([])
+    # Simulate: no config problem right now, and this fresh process never
+    # recorded one (the default state right after a restart) -- but the DB
+    # doc from a prior process is still sitting there.
+    assert router._config_hold_active is False
+    db.colls["outreach_health"].delete_one.return_value.deleted_count = 1
+    with patch.object(router, "get_db", return_value=db):
+        router.process_due_outreach_sends()
+    db.colls["outreach_health"].delete_one.assert_called_once_with({"_id": "config_hold"})
+
+
+def test_no_log_spam_when_nothing_was_ever_held(router, monkeypatch, caplog):
+    """The common case, every cycle: no problem now, no doc to clear. Must not
+    log 'cleared' every 60s forever."""
+    import logging
+    monkeypatch.setenv("OUTREACH_SENDER_POSTAL_ADDRESS", "1 Test Street, Kolkata")
+    db = _db_with([])
+    db.colls["outreach_health"].delete_one.return_value.deleted_count = 0
+    with patch.object(router, "get_db", return_value=db), caplog.at_level(logging.INFO):
+        for _ in range(3):
+            router.process_due_outreach_sends()
+    assert "configuration problem cleared" not in caplog.text
+
+
 def test_bookkeeping_failure_never_breaks_the_cycle(router, monkeypatch):
     monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
     db = _db_with([])

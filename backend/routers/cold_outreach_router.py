@@ -2933,11 +2933,19 @@ def _record_config_hold(db, reason: Optional[str]) -> None:
                 {"_id": "config_hold"},
                 {"$set": {"reason": reason, "last_seen": now}, "$setOnInsert": {"since": now}},
                 upsert=True)
-        elif _config_hold_active:
+        else:
+            # Always attempt the delete, not just when THIS process's in-memory
+            # flag says it was active: a restart resets that flag to False, but
+            # a doc a PRIOR process left behind is still sitting in the DB and
+            # would otherwise go stale forever, showing "held" long after
+            # sending has actually resumed. delete_one on a doc that doesn't
+            # exist is a harmless no-op, so this never logs on a normal cycle
+            # with nothing to clear.
             _config_hold_active = False
             _config_hold_last_alert = None
-            db["outreach_health"].delete_one({"_id": "config_hold"})
-            logger.info("[Outreach] configuration problem cleared — sending resumes")
+            result = db["outreach_health"].delete_one({"_id": "config_hold"})
+            if result.deleted_count:
+                logger.info("[Outreach] configuration problem cleared — sending resumes")
     except Exception as e:  # bookkeeping must never stop or fake a send cycle
         logger.warning("[Outreach] could not record config hold: %s", e)
 
