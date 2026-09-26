@@ -35,6 +35,7 @@ from .search_cache import (
     get_cache_stats
 )
 from .extraction_stash import stash_unextracted_results, take_stashed_results
+from .linkedin_snippet_parser import has_no_real_signal, resolve_company_with_confidence
 from .deduplication import (
     check_duplicate,
     check_duplicates_batch,
@@ -1390,6 +1391,10 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
     Parse a Google Custom Search result into lead format.
     Extracts name, title, company info and attempts to infer company_domain
     so that the email-pattern step can fire during Gemini enrichment.
+
+    A profile with no usable content at all (LinkedIn/Google chrome instead
+    of a real bio -- a private or inactive profile) is skipped entirely
+    rather than minted as an empty-field lead.
     """
     link = item.get("link", "")
 
@@ -1400,6 +1405,9 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
     title = item.get("title", "")
     snippet = item.get("snippet", "")
 
+    if has_no_real_signal(snippet):
+        return None
+
     # Extract name and job title from the Google search title
     # Format is usually: "Name - Title at Company - LinkedIn"
     name, job_title = extract_name_and_title(title)
@@ -1407,15 +1415,17 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
     if not name:
         return None
 
-    # Try to extract company name from the title / snippet
-    company_name = ""
-    at_match = re.search(r'\bat\s+([A-Z][^|\-\n·•]+?)(?:\s*[-–|·•]|$)', title)
-    if not at_match:
-        at_match = re.search(r'\bat\s+([A-Z][^|\-\n·•]+?)(?:\s*[-–|·•]|$)', snippet)
-    if at_match:
-        company_name = at_match.group(1).strip()
+    # Company/location: LinkedIn's own "Experience: X · Location: Y" snippet
+    # fields when present, else the title/snippet's own "at/of Company"
+    # clause -- see linkedin_snippet_parser's module docstring for why the
+    # old title-only "at Company" match minted undeliverable leads. A
+    # free-text-guessed company (high_confidence=False) is shown to a human
+    # via company_name but never fed into the domain/email guess below --
+    # that guess-from-a-guess chain is exactly what produced the
+    # undeliverable synthetic addresses this module exists to stop.
+    company_name, location, high_confidence = resolve_company_with_confidence(title, snippet)
 
-    company_domain = _infer_company_domain(company_name, snippet)
+    company_domain = _infer_company_domain(company_name, snippet) if high_confidence else ""
     email_candidate = ""
     if company_domain:
         name_parts = re.findall(r"[A-Za-z]+", name.lower())
@@ -1430,6 +1440,7 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
         "company_name": company_name,
         "company_domain": company_domain,
         "email_candidate": email_candidate,
+        "location": location,
         "source": "google_search",
     }
 

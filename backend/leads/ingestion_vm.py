@@ -45,6 +45,7 @@ def get_anthropic_api_key() -> Optional[str]:
 
 # Cost optimization modules
 from .extraction_stash import stash_unextracted_results, take_stashed_results
+from .linkedin_snippet_parser import has_no_real_signal, resolve_company_with_confidence
 from .search_cache import (
     get_cached_response, 
     cache_response, 
@@ -1217,35 +1218,41 @@ def parse_google_search_result_discovery(item: dict) -> Optional[dict]:
 def parse_google_search_result(item: dict) -> Optional[dict]:
     """
     Parse a Google Custom Search result into lead format.
+
+    A profile with no usable content at all (LinkedIn/Google chrome instead
+    of a real bio -- a private or inactive profile) is skipped entirely
+    rather than minted as an empty-field lead.
     """
     link = item.get("link", "")
-    
+
     # Only process LinkedIn profile URLs
     if "linkedin.com/in/" not in link:
         return None
-    
+
     title = item.get("title", "")
     snippet = item.get("snippet", "")
-    
+
+    if has_no_real_signal(snippet):
+        return None
+
     # Extract name and job title from the Google search title
     # Format is usually: "Name - Title - LinkedIn"
     name, job_title = extract_name_and_title(title)
-    
+
     if not name:
         return None
 
-    company_name = ""
     company_domain = ""
-    location = ""
 
-    if snippet:
-        company_match = re.search(r'(?:\bat\b|@|\|)\s+([A-Z][^|•·\-\n]+?)(?:\s*[|•·\-]|$)', snippet)
-        if company_match:
-            company_name = company_match.group(1).strip()
-
-        location_match = re.search(r'(?:Location|Based in|Located in)[:\s]+([^|•·\n]+)', snippet, re.IGNORECASE)
-        if location_match:
-            location = location_match.group(1).strip()
+    # Company/location: LinkedIn's own "Experience: X · Location: Y" snippet
+    # fields when present, else the title/snippet's own "at/of Company"
+    # clause -- see linkedin_snippet_parser's module docstring for why a
+    # loose title-only "at Company" match can mint an undeliverable lead. A
+    # free-text-guessed company (high_confidence=False) is shown to a human
+    # via company_name but the displayLink domain below is independent of it
+    # either way (unlike ingestion.py's _infer_company_domain, which derives
+    # a domain FROM company_name and so must gate on confidence itself).
+    company_name, location, _high_confidence = resolve_company_with_confidence(title, snippet)
 
     domain_match = re.search(r'https?://(?:www\.)?([^/\s]+)', item.get("displayLink", "") or "")
     if domain_match:
