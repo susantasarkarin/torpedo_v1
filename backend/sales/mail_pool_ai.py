@@ -1145,7 +1145,18 @@ Rules:
 
 
 def _scan_chunk(from_line: str, open_ledger, chunk_docs) -> Optional[Dict[str, Any]]:
-    """One AI call over a chronological chunk of a sender's emails."""
+    """Scan one chronological chunk of a sender's emails for RFQs. Returns
+    None when a model call failed, so the caller retries the chunk.
+
+    Default: the two-stage pipeline (sales/mail_pool_rfq_extract.py --
+    deterministic prefilter, tiny yes/no classifier, flat extraction, grounding
+    in code). The single-prompt path below is the legacy one that the
+    2026-09-20 benchmark showed fabricates RFQs on a small model; it stays
+    selectable (MAIL_AI_RFQ_PIPELINE=legacy) only so the two can be benchmarked
+    side by side."""
+    if os.getenv("MAIL_AI_RFQ_PIPELINE", "two_stage").strip().lower() != "legacy":
+        from sales import mail_pool_rfq_extract
+        return mail_pool_rfq_extract.scan_chunk(open_ledger, chunk_docs)
     ledger_lines = [
         f"- ref={r['ref']} | {r.get('title')} | status={r.get('status')}"
         for r in open_ledger if r.get("status") not in ("won", "lost")
@@ -1220,7 +1231,8 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
         query["date"] = {"$gt": last_date}
     docs = list(col.find(
         query, {"subject": 1, "date": 1, "body_plain": 1, "body": 1,
-                "snippet": 1, "from_name": 1}
+                "snippet": 1, "from_name": 1, "from_email": 1,
+                "direction": 1, "gmail_thread_id": 1}
     ).sort("date", 1).limit(MAX_SCAN_EMAILS_PER_SENDER))
     if not docs:
         return {"scanned": 0, "rfqs_logged": 0, "rfqs_won": 0, "complete": True}
@@ -1266,11 +1278,16 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
     # via _log_rfq_and_estimate() directly (it stages, it doesn't create).
     logged = won = 0
     from sales import rfq_review_queue
+    doc_by_id = {str(d.get("_id")): d for d in docs}
     for entry in ledger:
         if not entry.get("queue_id") and not entry.get("opportunity_id"):
             synth = {"rfq": {**entry, "is_rfq": True}, "contacts": sender_contacts or [],
                      "summary": entry.get("evidence") or entry.get("description")}
-            out = _log_rfq_and_estimate(synth, newest_doc)
+            # Trace the RFQ to the email it actually came from; entries from
+            # the legacy single-prompt scan carry no source id and fall back
+            # to the sender's newest email as before.
+            source_doc = doc_by_id.get(str(entry.get("source_email_id")), newest_doc)
+            out = _log_rfq_and_estimate(synth, source_doc)
             if out.get("queue_id"):
                 entry["queue_id"] = out["queue_id"]
                 logged += 1

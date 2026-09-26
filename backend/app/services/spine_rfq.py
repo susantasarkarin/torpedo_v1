@@ -173,12 +173,15 @@ def opportunity_to_rfq(
         "summary": rfq_payload.get("summary") or rfq_payload.get("description") or "",
         "ai_summary": rfq_payload.get("ai_summary"),
         # --- money ---
+        # No currency default: a missing currency must read as unknown, never
+        # INR (2026-09-26 -- a real ~$180K IDR fieldwork quote defaulting to
+        # INR is most of why the page's "Total Value" read ~INR 468 crore).
         "extracted_value": rfq_payload.get("budget"),
-        "extracted_currency": rfq_payload.get("currency") or "INR",
+        "extracted_currency": rfq_payload.get("currency"),
         "manual_value": opportunity.get("amount") if opportunity.get("amount") else None,
         "manual_currency": opportunity.get("currency"),
         "final_value": amount,
-        "final_currency": opportunity.get("currency") or rfq_payload.get("currency") or "INR",
+        "final_currency": opportunity.get("currency") or rfq_payload.get("currency"),
         "budget": rfq_payload.get("budget"),
         # --- direction: inbound (client -> us, the historical default — every
         # record before this field existed has no metadata.rfq.direction and
@@ -193,7 +196,12 @@ def opportunity_to_rfq(
         "loss_reason": opportunity.get("loss_reason"),
         "priority": opportunity.get("priority") or rfq_payload.get("priority") or "medium",
         # --- dates ---
-        "received_date": _iso(opportunity.get("created_at")),
+        # received_at (backfilled from the source email's own date, see
+        # scripts/backfill_rfq_received_dates.py) is the true date a client
+        # sent the RFQ. created_at is only when this record was written to
+        # the CRM (a 2026-08-03 bulk migration for most legacy rows), which
+        # is not something a user asked about.
+        "received_date": _iso(rfq_payload.get("received_at") or opportunity.get("created_at")),
         "due_date": _iso(rfq_payload.get("deadline") or opportunity.get("due_date")),
         "quoted_date": _iso(opportunity.get("quoted_at")),
         "closed_date": _iso(opportunity.get("closed_at")),
@@ -418,7 +426,29 @@ def get_stats(direction: Optional[str] = None) -> Dict[str, Any]:
         docs = list(cursor)
         return float(docs[0]["total"]) if docs else 0.0
 
+    def _sum_by_currency(match: Dict[str, Any]) -> Dict[str, float]:
+        cursor = col.aggregate([
+            {"$match": match},
+            {"$group": {"_id": "$currency", "total": {"$sum": "$amount"}}},
+        ])
+        # An unset currency must read as "unknown", never assume a currency
+        # (2026-09-26: this is exactly how a real ~$180K IDR fieldwork quote
+        # got displayed as ~INR 288 crore -- see docs/RFQ_PAGE_P1_AUDIT.md).
+        return {(doc["_id"] or "unknown"): float(doc["total"]) for doc in cursor}
+
+    # Kept for callers that only want a single headline number -- but that
+    # number mixes currencies (see the module docstring's warning) and MUST
+    # NOT be shown as a single amount on the RFQ page; use value_by_currency.
     stats["pipeline_value"] = _sum(_rfq_query(state="open", direction=direction))
     stats["won_value"] = _sum(_rfq_query(state="won", direction=direction))
+
+    pipeline_by_cur = _sum_by_currency(_rfq_query(state="open", direction=direction))
+    won_by_cur = _sum_by_currency(_rfq_query(state="won", direction=direction))
+    currencies = sorted(set(pipeline_by_cur) | set(won_by_cur))
+    stats["value_by_currency"] = [
+        {"currency": cur, "pipeline_value": pipeline_by_cur.get(cur, 0.0),
+         "won_value": won_by_cur.get(cur, 0.0)}
+        for cur in currencies
+    ]
 
     return stats

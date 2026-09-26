@@ -369,3 +369,62 @@ def test_process_sender_runs_blanket_stamp_when_deep_scan_complete():
 
     assert result["success"] is True
     fake_col.update_many.assert_called_once()
+
+
+# ============================================================
+# Two-stage pipeline wiring (sales/mail_pool_rfq_extract.py)
+# ============================================================
+
+def test_scan_chunk_uses_the_two_stage_pipeline_by_default(monkeypatch):
+    monkeypatch.delenv("MAIL_AI_RFQ_PIPELINE", raising=False)
+    with patch("sales.mail_pool_rfq_extract.scan_chunk",
+               return_value={"new_rfqs": [], "rfq_updates": []}) as two_stage, \
+         patch.object(m, "_local_ai", side_effect=AssertionError("legacy path used")):
+        out = m._scan_chunk("a@b.com", [{"ref": "r1"}], [{"_id": "e1"}])
+    two_stage.assert_called_once_with([{"ref": "r1"}], [{"_id": "e1"}])
+    assert out == {"new_rfqs": [], "rfq_updates": []}
+
+
+def test_scan_chunk_legacy_path_is_still_selectable(monkeypatch):
+    monkeypatch.setenv("MAIL_AI_RFQ_PIPELINE", "legacy")
+    fake_ai = MagicMock()
+    fake_ai.converse_json_meta.return_value = ({"new_rfqs": [], "rfq_updates": []}, {})
+    with patch("sales.mail_pool_rfq_extract.scan_chunk",
+               side_effect=AssertionError("two-stage used")), \
+         patch.object(m, "_local_ai", return_value=fake_ai):
+        out = m._scan_chunk("a@b.com", [], [{"_id": "e1", "subject": "s", "body_plain": "b"}])
+    assert out == {"new_rfqs": [], "rfq_updates": []}
+
+
+def test_deep_scan_stages_an_rfq_against_its_own_source_email_not_the_newest():
+    docs = [{"_id": "spec-mail", "subject": "RFQ", "date": "2026-01-01", "body_plain": "spec"},
+            {"_id": "newest-mail", "subject": "thanks", "date": "2026-01-09", "body_plain": "ok"}]
+    fake_col = MagicMock()
+    fake_col.find.return_value = _cursor(docs)
+    fake_sender_col = MagicMock()
+    fake_sender_col.find_one.return_value = {}
+    chunk_result = {"new_rfqs": [{"ref": "thr-1", "title": "T", "source_email_id": "spec-mail"}],
+                    "rfq_updates": []}
+
+    with patch.object(m, "_scan_chunk", return_value=chunk_result), \
+         patch.object(m, "_log_rfq_and_estimate", return_value={"queue_id": "q1"}) as stage_call:
+        m.deep_scan_sender_rfqs("a@b.com", "A", fake_col, fake_sender_col)
+
+    staged_against = stage_call.call_args.args[1]
+    assert staged_against["_id"] == "spec-mail"
+
+
+def test_deep_scan_falls_back_to_newest_email_for_entries_without_a_source_id():
+    docs = [{"_id": "old", "subject": "RFQ", "date": "2026-01-01", "body_plain": "spec"},
+            {"_id": "newest-mail", "subject": "x", "date": "2026-01-09", "body_plain": "ok"}]
+    fake_col = MagicMock()
+    fake_col.find.return_value = _cursor(docs)
+    fake_sender_col = MagicMock()
+    fake_sender_col.find_one.return_value = {}
+    chunk_result = {"new_rfqs": [{"ref": "legacy-1", "title": "T"}], "rfq_updates": []}
+
+    with patch.object(m, "_scan_chunk", return_value=chunk_result), \
+         patch.object(m, "_log_rfq_and_estimate", return_value={"queue_id": "q1"}) as stage_call:
+        m.deep_scan_sender_rfqs("a@b.com", "A", fake_col, fake_sender_col)
+
+    assert stage_call.call_args.args[1]["_id"] == "newest-mail"
