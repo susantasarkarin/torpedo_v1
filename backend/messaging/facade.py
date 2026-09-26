@@ -64,7 +64,7 @@ class SendBlocked(Exception):
 class SendResult:
     delivered: bool
     reason: Optional[str] = None
-    category: Optional[str] = None      # suppressed | budget | disabled | transport | compliance
+    category: Optional[str] = None      # suppressed | budget | disabled | transport | compliance | config
     provider_message_id: Optional[str] = None
     log_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -145,9 +145,16 @@ def gate(addr: str, *, identity: str, channel: str,
     if not sending_enabled():
         return ("SENDING_ENABLED=false (kill switch active)", "disabled")
 
+    # "config", not "compliance": a missing setting says nothing about THIS
+    # address, and callers must be able to tell the two apart. "compliance" is a
+    # property of the lead (malformed, placeholder or free-webmail address) and
+    # is a legitimate reason to retire it; "config" is a property of the
+    # deployment and must HOLD the lead. Conflating them permanently retired 338
+    # good leads on 2026-09-04, the first cycle after the postal address was
+    # found to be unset.
     problem = _compliance_problem(transactional)
     if problem:
-        return (problem, "compliance")
+        return (problem, "config")
 
     # 1. Suppression, before budget — a suppressed address must not burn quota.
     if skip_suppression:

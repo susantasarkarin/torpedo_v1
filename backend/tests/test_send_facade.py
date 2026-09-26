@@ -149,7 +149,9 @@ def test_bulk_send_refuses_without_compliance_fields(transport, monkeypatch, mis
         result = _send(transport)
 
     assert result.delivered is False
-    assert result.category == "compliance"
+    # "config", not "compliance": a missing setting is a property of the
+    # deployment, not of this address, and callers must hold rather than retire.
+    assert result.category == "config"
     transport.assert_not_called()
 
 

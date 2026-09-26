@@ -2479,6 +2479,17 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 error=_reason,
                 metadata={"campaign_id": lead_record.get("campaign_id"),
                           "lead_id": lead_record.get("lead_id")})
+            if _category == "config":
+                # A deployment problem (e.g. no postal address), not a fact
+                # about this lead. Leave workflow_status alone so the lead stays
+                # selectable and sends the moment the setting is fixed; the
+                # send loop's preflight normally catches this before any lead
+                # is touched, this is the backstop for a mid-cycle change.
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {"last_send_error": f"config: {_reason}"[:300],
+                              "last_send_attempt_at": datetime.utcnow()}})
+                return False
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"workflow_status": {"suppressed": "suppressed",
@@ -2867,6 +2878,51 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         return False
 
 
+_CONFIG_HOLD_ALERT_EVERY = timedelta(minutes=15)
+_config_hold_last_alert: Optional[datetime] = None
+_config_hold_active = False
+
+
+def _config_hold_reason() -> Optional[str]:
+    """Why bulk sending is impossible for a reason unrelated to any lead, or None."""
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    return _facade._compliance_problem(transactional=False)
+
+
+def _record_config_hold(db, reason: Optional[str]) -> None:
+    """
+    Make a config hold loud, and clear it when the config is fixed.
+
+    Holding silently is only marginally better than retiring silently: the
+    postal address sat unset for weeks. So a hold logs at ERROR at most every
+    15 minutes and keeps one queryable doc (torpedo.outreach_health/config_hold)
+    that an ops view or a human can look at. Never raises.
+    """
+    global _config_hold_last_alert, _config_hold_active
+    now = datetime.utcnow()
+    try:
+        if reason:
+            if _config_hold_last_alert is None or now - _config_hold_last_alert >= _CONFIG_HOLD_ALERT_EVERY:
+                _config_hold_last_alert = now
+                logger.error("[Outreach] HOLDING ALL SENDS — configuration problem, no lead is being "
+                             "retired: %s", reason)
+            _config_hold_active = True
+            db["outreach_health"].update_one(
+                {"_id": "config_hold"},
+                {"$set": {"reason": reason, "last_seen": now}, "$setOnInsert": {"since": now}},
+                upsert=True)
+        elif _config_hold_active:
+            _config_hold_active = False
+            _config_hold_last_alert = None
+            db["outreach_health"].delete_one({"_id": "config_hold"})
+            logger.info("[Outreach] configuration problem cleared — sending resumes")
+    except Exception as e:  # bookkeeping must never stop or fake a send cycle
+        logger.warning("[Outreach] could not record config hold: %s", e)
+
+
 def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
@@ -2878,6 +2934,16 @@ def process_due_outreach_sends() -> dict:
     try:
         now = datetime.utcnow()
         db = get_db()
+
+        # Preflight: a configuration problem (missing postal address /
+        # unsubscribe URL) blocks every send equally. Check it BEFORE selecting
+        # any lead so no lead is touched, and none can be retired for it. Before
+        # this, the first cycle after the kill switch was cleared marked 338
+        # good leads skipped_gate — a status the send query never selects again.
+        _hold = _config_hold_reason()
+        _record_config_hold(db, _hold)
+        if _hold:
+            return {"processed": 0, "sent": 0, "skipped": 0, "held": _hold}
 
         # NOTE: catch-up enrollment deliberately does NOT run here. It used to,
         # and because it scans every basket's leads_enriched rows plus the full

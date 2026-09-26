@@ -535,7 +535,7 @@ def run(send: bool = False, bucket: Optional[str] = None,
             stats["sent"] += 1
             logger.info("lead=%s bucket=%s subject=%r message_id=%s SENT",
                         lead_id, lead_bucket, subject, result.provider_message_id)
-        elif result.category in ("budget", "disabled"):
+        elif result.category in ("budget", "disabled", "config"):
             # A global stop, not a per-lead problem — everything after this
             # would be refused too, so stop rather than burn the queue.
             logger.warning("stopping: %s", result.reason)
