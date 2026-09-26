@@ -9,6 +9,7 @@ import importlib.util
 from bson import ObjectId
 import os
 import sys
+import tempfile
 from unittest.mock import MagicMock, patch
 
 _PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -33,7 +34,8 @@ def _run(argv, opps_docs, email_by_id, contact_by_email):
     with patch("database.get_db_manager", return_value=fake_db_manager), \
          patch("db_pools.get_db", fake_get_db), \
          patch("app.services.crm_service.find_contact_by_email", fake_find_contact), \
-         patch("sys.argv", ["prog"] + argv):
+         patch("sys.argv", ["prog", "--backup-path",
+                                 os.path.join(tempfile.mkdtemp(), "backup.json")] + argv):
         link_script.main()
     return fake_opps
 

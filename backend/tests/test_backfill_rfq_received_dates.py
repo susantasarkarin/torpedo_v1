@@ -8,6 +8,7 @@ import importlib.util
 from bson import ObjectId
 import os
 import sys
+import tempfile
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -33,7 +34,8 @@ def _run(argv, opps_docs, email_by_id):
 
     with patch("database.get_db_manager", return_value=fake_db_manager), \
          patch("db_pools.get_db", fake_get_db), \
-         patch("sys.argv", ["prog"] + argv):
+         patch("sys.argv", ["prog", "--backup-path",
+                                 os.path.join(tempfile.mkdtemp(), "backup.json")] + argv):
         backfill.main()
     return fake_opps
 
