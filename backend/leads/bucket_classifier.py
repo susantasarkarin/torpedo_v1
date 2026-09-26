@@ -552,15 +552,29 @@ def persist(lead: Dict[str, Any], result: Dict[str, Any],
     # needed it.
     #
     # Only the three service-line buckets carry an ICP segment — REJECT has no
-    # ICP and REVIEW has no *decided* one, so neither is mirrored.
+    # ICP and REVIEW has no *decided* one, so neither one's classification_basket
+    # is mirrored (setting a basket is an enrollment-eligibility decision this
+    # classifier does not get to make for either verdict).
+    #
+    # outreach_bucket itself IS always mirrored, including for REJECT/REVIEW.
+    # Before 2026-09-26 it wasn't, and enrollment (_build_basket_enrollment_query)
+    # reads leads_enriched, never leads_raw — so a REJECT/REVIEW verdict here was
+    # invisible to enrollment no matter what. classification_basket is set by a
+    # separate, earlier, rule-based classifier at ingestion
+    # (canonical_ingestion.compute_icp_basket) that runs independently of this
+    # one; a lead it had already basketed kept enrolling (and got mailed —
+    # measured: 5,569 REJECT-bucketed, 3,190 REVIEW-bucketed leads already sent)
+    # regardless of what this classifier decided afterwards, because nothing
+    # downstream ever looked at outreach_bucket. Mirroring it unconditionally is
+    # what lets the enrollment query's new exclusion clause have anything to act
+    # on.
     enriched_id = lead.get("enriched_lead_id")
-    if cfg and cfg.get("icp_slug") and enriched_id:
-        mirror = {
-            "outreach_bucket": bucket,
-            "icp_segment": cfg["icp_slug"],
-            "classification_basket": cfg["basket"],
-            "classification_basket_name": cfg["label"],
-        }
+    if enriched_id:
+        mirror: Dict[str, Any] = {"outreach_bucket": bucket}
+        if cfg and cfg.get("icp_slug"):
+            mirror["icp_segment"] = cfg["icp_slug"]
+            mirror["classification_basket"] = cfg["basket"]
+            mirror["classification_basket_name"] = cfg["label"]
         try:
             leads_enriched = leads_raw.database["leads_enriched"]
             leads_enriched.update_one({"_id": ObjectId(enriched_id)},

@@ -1046,6 +1046,18 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
         "email_status": {"$nin": ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]},
         # Exclude leads explicitly marked as Do Not Contact
         "lead_status": {"$ne": "Negative"},
+        # Exclude a lead the AI classifier has since explicitly rejected or flagged
+        # uncertain (leads/bucket_classifier.py). classification_basket is written by
+        # a SEPARATE, earlier, rule-based classifier (canonical_ingestion.compute_icp_basket,
+        # at ingestion) that this query has always read — the AI classifier's verdict was
+        # never consulted here at all. Found 2026-09-26: 5,569 REJECT-bucketed and 3,190
+        # REVIEW-bucketed leads had already been mailed, because a later REJECT/REVIEW
+        # verdict never touches classification_basket and this query never checked
+        # outreach_bucket. Absence of the field (the default — most leads are never
+        # touched by the AI classifier) still matches, so this changes nothing for the
+        # dominant, already-working case; it only stops a lead the AI has since rejected
+        # from being (re-)swept in by the periodic catch-up sync.
+        "outreach_bucket": {"$nin": ["REJECT", "REVIEW"]},
         "$or": clauses,
     }
 
