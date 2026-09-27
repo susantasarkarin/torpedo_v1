@@ -237,6 +237,29 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
             if page_start > 100:
                 break
 
+            # Reserve a slot BEFORE this request, not just react to a 429
+            # after the fact. Found live 2026-09-26: leads/router.py's
+            # WebSearch jobs each track their OWN per-job daily counter, so 3
+            # running at once could fire ~300 requests before any one of them
+            # individually noticed the real, shared 100/day cap -- see
+            # leads/google_rate_limit.py's reserve_query_slot() docstring.
+            try:
+                from leads.google_rate_limit import reserve_query_slot
+                allowed, reason = reserve_query_slot()
+                if not allowed:
+                    logger.warning(f"[Google CSE] Skipping search — {reason}")
+                    # Set the SAME pause flag a reactive 429 would set. This is
+                    # what leads/router.py's WebSearch job loop already checks
+                    # (_is_cse_paused()) to idle gracefully every 60s instead of
+                    # cycling to the next query and marking it "exhausted" for
+                    # an empty result that was never actually fetched -- the
+                    # exact protection the 429 path already has, now extended
+                    # to a quota stop caught before ever reaching a real 429.
+                    _pause_cse_for_24h()
+                    break
+            except ImportError:
+                pass  # rate limiter unavailable — fail open, the 429 handling below still applies
+
             try:
                 url = "https://www.googleapis.com/customsearch/v1"
                 params = {

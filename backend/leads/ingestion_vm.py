@@ -59,8 +59,7 @@ from .deduplication import (
     log_rejected_duplicate
 )
 from .google_rate_limit import (
-    can_make_query,
-    record_query,
+    reserve_query_slot,
     get_usage_stats
 )
 
@@ -133,12 +132,6 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
     Returns:
         List of Google Search result items
     """
-    # Check rate limits before making API call
-    allowed, reason = can_make_query()
-    if not allowed:
-        logger.warning(f"Google Search rate limited: {reason}")
-        return []
-    
     api_key, cse_id = get_google_api_credentials()
     
     if not api_key or not cse_id:
@@ -155,7 +148,20 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
         for i in range(pages):
             start = i * 10 + 1
             if start > 100: break # Google CSE limit
-            
+
+            # Reserve a slot BEFORE this request rather than only recording it
+            # after a successful one -- the old check-then-record sequence
+            # (can_make_query() once, record_query() per success) is
+            # check-then-act: two concurrent callers can both pass the check
+            # and both proceed, overshooting the real 100/day cap. A single
+            # atomic $inc, refunded if it turns out to have gone over, is
+            # race-free -- see leads/google_rate_limit.py's
+            # reserve_query_slot() docstring for the incident this fixes.
+            allowed, reason = reserve_query_slot()
+            if not allowed:
+                logger.warning(f"Google Search rate limited: {reason}")
+                break
+
             try:
                 url = "https://www.googleapis.com/customsearch/v1"
                 params = {
@@ -165,13 +171,10 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
                     'num': min(10, num_results - len(results)),
                     'start': start
                 }
-                
+
                 response = await client.get(url, params=params, timeout=15.0)
-                
+
                 if response.status_code == 200:
-                    # Record successful API call for rate limiting
-                    record_query(1)
-                    
                     data = response.json()
                     items = data.get('items', [])
                     results.extend(items)

@@ -185,6 +185,63 @@ def record_query(queries: int = 1) -> Dict[str, Any]:
     return get_usage_stats()
 
 
+def reserve_query_slot() -> Tuple[bool, str]:
+    """
+    Atomically reserve one Google CSE query slot for the current day+hour, or
+    refuse if the daily or hourly cap is already reached.
+
+    can_make_query()-then-record_query() (above) is check-then-act: two
+    concurrent callers can both read a count below the limit and both proceed,
+    overshooting it -- exactly the bug already found and fixed for outreach
+    sends (routers/cold_outreach_router.py's _reserve_daily_send_slot: "the
+    previous implementation counted sends and then sent... concurrent workers
+    each saw a count below the limit and all sent, overshooting the cap").
+    Found live 2026-09-26: multiple concurrent lead-search workers (leads/
+    router.py's WebSearch jobs, each tracking its OWN per-job leads_today
+    counter rather than this shared one) fired 5 queries within 1.6 seconds
+    against the real 100/day cap. A single atomic $inc, refunded if it turns
+    out to have gone over, is race-free the same way.
+
+    Callers must reserve a slot before EVERY actual HTTP request, not once per
+    logical search (a paginated search issues one request per page/quota unit).
+    """
+    settings = get_rate_limit_settings()
+    if not settings["rate_limit_enabled"]:
+        return True, "Rate limiting disabled"
+
+    today = get_today_key()
+    current_hour = str(get_current_hour())
+
+    doc = usage_collection.find_one_and_update(
+        {"date": today},
+        {
+            "$inc": {"total_queries": 1, f"hourly_queries.{current_hour}": 1},
+            "$set": {"updated_at": datetime.utcnow()},
+            "$setOnInsert": {"created_at": datetime.utcnow(), "date": today},
+        },
+        upsert=True,
+        return_document=True,
+    )
+
+    total = doc.get("total_queries", 0)
+    hourly = (doc.get("hourly_queries") or {}).get(current_hour, 0)
+    over_daily = total > settings["daily_limit"]
+    over_hourly = hourly > settings["hourly_limit"]
+
+    if over_daily or over_hourly:
+        # Over cap -- refund the reservation we just made so the counter stays
+        # truthful (a refused slot must not count against tomorrow's budget).
+        usage_collection.update_one(
+            {"date": today},
+            {"$inc": {"total_queries": -1, f"hourly_queries.{current_hour}": -1}},
+        )
+        if over_daily:
+            return False, f"Daily quota exceeded ({settings['daily_limit']}/day). Resets at midnight UTC."
+        return False, f"Hourly quota exceeded ({settings['hourly_limit']}/hour). Resets within the hour."
+
+    return True, "OK"
+
+
 def reset_daily_counter() -> Dict[str, Any]:
     """
     Manually reset today's counter (for testing/admin purposes).
