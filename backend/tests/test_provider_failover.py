@@ -25,7 +25,8 @@ def _clean_env(monkeypatch):
     for var in ("BEDROCK_MODEL_CHEAP", "BEDROCK_MODEL_SMART",
                 "BEDROCK_FALLBACKS_CHEAP", "BEDROCK_FALLBACKS_SMART",
                 "DO_INFERENCE_API_KEY", "DIGITALOCEAN_INFERENCE_KEY",
-                "BEDROCK_MAX_RETRIES", "SELF_HOSTED_EXTRA_PARAMS"):
+                "BEDROCK_MAX_RETRIES", "SELF_HOSTED_EXTRA_PARAMS",
+                "LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS"):
         monkeypatch.delenv(var, raising=False)
     bc._demoted.clear()
     yield

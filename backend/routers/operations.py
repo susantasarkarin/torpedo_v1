@@ -1464,9 +1464,12 @@ def close_project(
                     },
                 )
 
+        # projectStatus is what the Operations page shows; without it a closed
+        # project kept displaying as "live".
         projects_collection.update_one(
             {"_id": ObjectId(project_id)},
-            {"$set": {"status": "completed", "closed_at": now,
+            {"$set": {"status": "completed", "projectStatus": "close",
+                      "projectCloseDate": now, "closed_at": now,
                       "close_notes": notes, "updated_at": now}},
         )
         return {
@@ -1492,11 +1495,13 @@ def get_project_ca_package(project_id: str):
         project = serialize_doc(project)
         invoices = [serialize_doc(i) for i in invoices_collection.find({"project_id": project_id})]
         invoice_ids = [i.get("_id") for i in invoices if i.get("_id")]
-        payments = []
-        if invoice_ids:
-            payments = [serialize_doc(p) for p in payments_received_collection.find({
-                "$or": [{"project_id": project_id}, {"invoice_id": {"$in": invoice_ids}}]
-            })]
+        # /payments/reconcile records applications under invoice_ids (a list);
+        # older/manual payments may carry a single invoice_id.
+        payments = [serialize_doc(p) for p in payments_received_collection.find({
+            "$or": [{"project_id": project_id},
+                    {"invoice_id": {"$in": invoice_ids}},
+                    {"invoice_ids": {"$in": invoice_ids}}]
+        })]
         bills = []
         try:
             bills = [serialize_doc(b) for b in bills_collection.find({"project_id": project_id})]

@@ -60,6 +60,20 @@ def clean_clients():
     bc.reset_clients()
 
 
+# Production .env routes every role to the local SLM with no fallbacks
+# (BEDROCK_MODEL_*=local:..., BEDROCK_FALLBACKS_*= empty). These tests exercise
+# the module's own Bedrock/fallback logic against a mocked boto client, so they
+# must not inherit that host configuration. Tests that need a value set it.
+_ROUTING_ENV = ("BEDROCK_MODEL_CHEAP", "BEDROCK_MODEL_SMART", "BEDROCK_FALLBACKS_CHEAP",
+                "BEDROCK_FALLBACKS_SMART", "LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS")
+
+
+@pytest.fixture(autouse=True)
+def isolate_routing_env(monkeypatch):
+    for var in _ROUTING_ENV:
+        monkeypatch.delenv(var, raising=False)
+
+
 # ============================================
 # parse_json_strict — WELL-FORMED
 # ============================================

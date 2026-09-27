@@ -467,10 +467,18 @@ def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
             "project_id": project_id,
         }
     )
+
+    # Hand the client over to the Finance and Operations modules (customer,
+    # work order, contract, operations project). Best-effort and idempotent:
+    # a failure there must never undo or block the win itself.
+    from app.services.won_handoff import handoff_won_opportunity
+    handoff = handoff_won_opportunity(opportunity, project)
+
     return {
         "opportunity": get("opportunities", opp_id),
         "project": project or (get("projects", project_id) if project_id else None),
         "invoice": invoice,
+        "handoff": handoff,
     }
 
 

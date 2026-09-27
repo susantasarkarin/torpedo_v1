@@ -2214,8 +2214,21 @@ async def startup_event():
                               id="lead_nurture", name="Positive Lead Nurture",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Reply triage (5 min) and lead nurture (15 min) scheduled")
+
+            def _finance_automation_job():
+                try:
+                    from app.services.finance_automation import run_daily_finance_automation
+                    run_daily_finance_automation()
+                except Exception as e:
+                    print(f"[FinanceAutomation] Error: {e}")
+
+            from apscheduler.triggers.cron import CronTrigger
+            scheduler.add_job(_finance_automation_job, CronTrigger(hour=3, minute=30),  # 09:00 IST
+                              id="finance_automation", name="Overdue invoices, reminders, reconcile, CA pack",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Daily finance automation scheduled (03:30 UTC)")
     except Exception as e:
-        print(f"⚠️ Could not schedule reply triage / nurture: {e}")
+        print(f"⚠️ Could not schedule reply triage / nurture / finance automation: {e}")
 
     # ----------------------------
     # Email Classification Job (every 2 minutes, batch of 10)

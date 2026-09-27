@@ -1226,13 +1226,17 @@ class GmailWorkspaceService:
         body_plain: str,
         thread_id: Optional[str] = None,
         signature_html: Optional[str] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Create (not send) a Gmail draft in from_email's mailbox, threaded
-        into thread_id when given, so a person can review and send it."""
+        into thread_id when given, so a person can review and send it.
+        attachments: [{filename, content (bytes|str), mime_type}]."""
         import base64
         import html as _html
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
+        from email.mime.base import MIMEBase
+        from email import encoders
 
         try:
             mailbox = self.mailboxes.find_one({
@@ -1249,12 +1253,28 @@ class GmailWorkspaceService:
             if signature_html:
                 body_html += "<br><br>" + signature_html
 
-            msg = MIMEMultipart("alternative")
+            body = MIMEMultipart("alternative")
+            body.attach(MIMEText(body_plain, "plain"))
+            body.attach(MIMEText(body_html, "html"))
+            if attachments:
+                msg = MIMEMultipart("mixed")
+                msg.attach(body)
+                for att in attachments:
+                    content = att.get("content") or b""
+                    if isinstance(content, str):
+                        content = content.encode("utf-8")
+                    maintype, _, subtype = (att.get("mime_type") or "application/octet-stream").partition("/")
+                    part = MIMEBase(maintype, subtype or "octet-stream")
+                    part.set_payload(content)
+                    encoders.encode_base64(part)
+                    part.add_header("Content-Disposition", "attachment",
+                                    filename=att.get("filename") or "attachment")
+                    msg.attach(part)
+            else:
+                msg = body
             msg["To"] = ", ".join(to)
             msg["From"] = from_email
             msg["Subject"] = subject
-            msg.attach(MIMEText(body_plain, "plain"))
-            msg.attach(MIMEText(body_html, "html"))
 
             message: Dict[str, Any] = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
             if thread_id:

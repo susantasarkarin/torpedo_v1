@@ -787,7 +787,15 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
         if stage_result.get("invoice"):
             response["invoice_created"] = True
             response["invoice_id"] = stage_result["invoice"].get("_id")
-        response["message"] = "RFQ won — project activated"
+        handoff = stage_result.get("handoff") or {}
+        if handoff.get("work_order_id"):
+            response["handoff"] = handoff
+            response["message"] = (
+                f"RFQ won — client {handoff.get('customer_number')}, work order "
+                f"{handoff.get('work_order_number')} and contract {handoff.get('contract_number')} "
+                f"(drafts) created; operations project is live")
+        else:
+            response["message"] = "RFQ won — project activated"
 
     return response
 
