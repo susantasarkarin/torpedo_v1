@@ -154,7 +154,11 @@ function RFQ() {
             won: data.stats?.won?.count || 0,
             pending: data.stats?.pending?.count || 0,
           },
+          // total_value is a cross-currency sum -- kept only as a fallback
+          // for the rare case value_by_currency is missing. Render
+          // value_by_currency instead; never this as a single amount.
           total_value: data.total_value,
+          value_by_currency: data.value_by_currency || [],
         })
       }
     } catch (error) {
@@ -444,14 +448,15 @@ function RFQ() {
     }
   }
 
-  // Default matches the backend's spine fallback (backend/app/services/spine_rfq.py
-  // defaults extracted_currency to "INR"), so an RFQ with no currency detected
-  // renders the same symbol here as the value the backend actually stored —
-  // it previously defaulted to "$" here while the backend defaulted to "₹",
-  // so an unpriced/uncurrencied RFQ showed a currency symbol nobody set.
-  const formatCurrency = (value, currency = "INR") => {
+  // 2026-09-27: the backend (spine_rfq.py) no longer defaults a missing
+  // currency to "INR" -- it returns None/undefined when nothing was ever
+  // detected or set, specifically so an unpriced/uncurrencied RFQ doesn't
+  // show a currency symbol nobody chose. Match that here: no currency means
+  // no symbol, not a silent guess.
+  const formatCurrency = (value, currency) => {
     if (!value && value !== 0) return "—"
-    const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES.find(c => c.code === "INR")
+    const currencyInfo = CURRENCIES.find(c => c.code === currency)
+    if (!currencyInfo) return value.toLocaleString()
     return `${currencyInfo.symbol}${value.toLocaleString()}`
   }
 
@@ -565,8 +570,18 @@ function RFQ() {
           <div className="stat-label">Pending</div>
         </div>
         <div className="stat-card info">
-          <div className="stat-value">{stats ? formatCurrency(stats.total_value) : "—"}</div>
-          <div className="stat-label">Total Value</div>
+          {stats?.value_by_currency?.length ? (
+            <div className="stat-value" style={{ fontSize: "0.95em", lineHeight: 1.4 }}>
+              {stats.value_by_currency.map((row) => (
+                <div key={row.currency}>
+                  {formatCurrency((row.pipeline_value || 0) + (row.won_value || 0), row.currency)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="stat-value">—</div>
+          )}
+          <div className="stat-label">Total Value (by currency)</div>
         </div>
       </div>
 

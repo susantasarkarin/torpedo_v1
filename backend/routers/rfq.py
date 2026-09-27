@@ -271,10 +271,14 @@ async def get_rfq_stats(
         "stats": legacy,
         "by_state": spine_stats["by_state"],
         "by_stage": spine_stats["by_stage"],
+        # Deprecated: a cross-currency sum, kept only so old clients don't
+        # break. Never render these as a single amount -- use
+        # value_by_currency, which is what the RFQ page must show instead.
         "pipeline_value": spine_stats["pipeline_value"],
         "won_value": spine_stats["won_value"],
-        "total_count": spine_stats["total"],
         "total_value": spine_stats["pipeline_value"] + spine_stats["won_value"],
+        "total_count": spine_stats["total"],
+        "value_by_currency": spine_stats["value_by_currency"],
     }
 
 
