@@ -503,7 +503,65 @@ def check_and_reset_daily_limit(job_id: str) -> bool:
 
 # ============== QUERY GENERATOR ==============
 
-def generate_query_combinations(designations: List[str], countries: List[str], 
+def generate_job_queries(icp_id: Optional[str], config: dict) -> List[str]:
+    """
+    Build the initial query list for a WebSearch job.
+
+    If the job is tagged with an ICP (icp_id -- already used to tag imported
+    leads, previously unused for query generation), prefer AI-generated
+    queries via leads/icp_query_ai.generate_icp_queries() -- the same
+    Qwen-via-bedrock_client path leads/scheduler.py's LeadScheduler already
+    uses in production. Qwen naturally varies title synonyms and boolean-OR
+    groups the template below never tries, and doesn't blindly cross every
+    designation with every seniority and every industry the way a cartesian
+    product can't help but do (one observed job: 2,648 combinations from 5
+    designations x 5 countries x a few seniorities x 27 industries, many of
+    them nonsensical).
+
+    Falls back to generate_query_combinations() -- unchanged, proven -- when
+    there's no icp_id, the ICP slug doesn't resolve, or AI generation returns
+    nothing. generate_icp_queries() already falls back internally to its own
+    template; this is a second, independent safety net using the EXACT
+    designations/countries/seniorities/industries this job was actually
+    started with, which may narrow an ICP's own broader defaults.
+    """
+    if icp_id:
+        try:
+            from .icp_config import get_icp_by_slug
+            from .icp_query_ai import generate_icp_queries
+
+            icp = get_icp_by_slug(icp_id)
+            if icp:
+                icp_for_job = dict(icp)
+                for job_field, icp_field in (
+                    ("designations", "designations"),
+                    ("countries", "countries"),
+                    ("seniorities", "seniority_levels"),
+                    ("industries", "industries"),
+                ):
+                    if config.get(job_field):
+                        icp_for_job[icp_field] = config[job_field]
+
+                queries = generate_icp_queries(icp_for_job, count=25)
+                if queries:
+                    print(f"[WebSearch] Generated {len(queries)} queries via Qwen for ICP '{icp_id}'")
+                    return queries
+                print(f"[WebSearch] Qwen query generation returned nothing for ICP '{icp_id}' -- using template")
+            else:
+                print(f"[WebSearch] ICP '{icp_id}' not found -- using template")
+        except Exception as e:
+            print(f"[WebSearch] Qwen query generation failed for ICP '{icp_id}': {e} -- using template")
+
+    return generate_query_combinations(
+        config.get("designations", []),
+        config.get("countries", []),
+        config.get("seniorities", []),
+        config.get("custom_query", ""),
+        config.get("industries", [])
+    )
+
+
+def generate_query_combinations(designations: List[str], countries: List[str],
                                  seniorities: List[str], custom_query: str,
                                  industries: List[str] = None) -> List[str]:
     """Generate diverse search query combinations"""
@@ -709,13 +767,7 @@ async def run_web_search_job(job_id: str):
     # Generate queries if not already stored
     query_combinations = job.get("query_combinations", [])
     if not query_combinations:
-        query_combinations = generate_query_combinations(
-            config.get("designations", []),
-            config.get("countries", []),
-            config.get("seniorities", []),
-            config.get("custom_query", ""),
-            config.get("industries", [])
-        )
+        query_combinations = generate_job_queries(icp_id, config)
         update_job(job_id, {"query_combinations": query_combinations})
     
     seen_urls = set(job.get("seen_urls", []))
