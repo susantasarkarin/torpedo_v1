@@ -163,6 +163,18 @@ async def perform_openai_web_search(query: str, num_results: int = 10) -> str:
 # ── Google CSE 429 cooldown helpers ──────────────────────────────────────────
 _CSE_STATE_KEY = "google_cse_state"
 
+# A single perform_google_search() call must never fire more than this many
+# real HTTP requests (each page = one quota unit). Google CSE serves at most
+# 10 results per request, so this is also a hard cap on results-per-call, not
+# just requests. The 2026-09-26/27 incidents both trace back to bursts of
+# multiple requests fired in quick succession -- the shared reserve_query_slot()
+# budget (below) stops a burst from overshooting the day's quota, but does
+# nothing to slow a single caller down within its own call. A caller that
+# genuinely wants more than 10 results makes another call with an advanced
+# `start` offset -- which goes through the same budget check and, at the
+# router.py WebSearch job level, is already paced a second apart.
+MAX_RESULTS_PER_CALL = 10
+
 
 def _is_cse_paused() -> bool:
     """Return True if Google CSE is in a 24-hour 429 cooldown."""
@@ -220,6 +232,12 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
     if _is_cse_paused():
         logger.warning("[Google CSE] Skipping search — in 24-hour 429 cooldown")
         return []
+
+    if num_results > MAX_RESULTS_PER_CALL:
+        logger.warning(f"[Google CSE] Capping num_results {num_results} -> "
+                       f"{MAX_RESULTS_PER_CALL} per call — page again with an "
+                       f"advanced start offset for more")
+        num_results = MAX_RESULTS_PER_CALL
 
     api_key, cse_id = get_google_api_credentials()
 

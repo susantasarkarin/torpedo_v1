@@ -121,25 +121,36 @@ def get_google_api_credentials() -> Tuple[Optional[str], Optional[str]]:
 
 # ============== OPENAI WEB SEARCH FOR LINKEDIN ==============
 
+# A single call must never fire more than this many real HTTP requests (each
+# page = one quota unit) -- see the matching constant + comment in
+# leads/ingestion.py, the sibling implementation this mirrors.
+MAX_RESULTS_PER_CALL = 10
+
+
 async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
     """
     Perform a Google Custom Search to find LinkedIn profiles.
-    
+
     Args:
         query: Search query
         num_results: Number of results to fetch
-        
+
     Returns:
         List of Google Search result items
     """
+    if num_results > MAX_RESULTS_PER_CALL:
+        logger.warning(f"Google Search capping num_results {num_results} -> "
+                       f"{MAX_RESULTS_PER_CALL} per call")
+        num_results = MAX_RESULTS_PER_CALL
+
     api_key, cse_id = get_google_api_credentials()
-    
+
     if not api_key or not cse_id:
         logger.warning("Google API credentials missing. Automated web search will be limited.")
         return []
-        
+
     results = []
-    
+
     # Google API allows max 10 per request
     # We'll fetch in batches if needed
     pages = (num_results + 9) // 10

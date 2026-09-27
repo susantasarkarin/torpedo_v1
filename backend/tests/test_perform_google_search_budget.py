@@ -69,15 +69,64 @@ def test_refused_reservation_stops_further_pages_but_keeps_earlier_results(inges
 
     reservations = iter([(True, "OK"), (False, "Daily quota exceeded")])
 
+    # Raise the per-call cap for this one test so a multi-page call is
+    # actually reachable -- the default (10, one page) makes this scenario
+    # structurally impossible, which is exactly the point of that cap; this
+    # test covers the (still-live) refusal-mid-pagination code path in case
+    # the cap is ever raised.
     with patch.object(ingestion, "_is_cse_paused", return_value=False), \
          patch.object(ingestion, "get_google_api_credentials", return_value=("key", "cx")), \
          patch("httpx.AsyncClient", return_value=fake_client_cm), \
          patch.object(ingestion, "_pause_cse_for_24h"), \
+         patch.object(ingestion, "MAX_RESULTS_PER_CALL", 20), \
          patch("leads.google_rate_limit.reserve_query_slot", side_effect=lambda: next(reservations)):
         results = _run(ingestion.perform_google_search("test query", num_results=20))
 
     assert results == [{"title": "Lead A"}]
     assert fake_client.get.call_count == 1   # page 2 never attempted
+
+
+def test_a_single_call_never_exceeds_the_per_call_result_cap(ingestion):
+    """The 2026-09-27 fix: don't let one call fire up to 10 requests just
+    because a caller asked for up to 100 results -- cap it to 10 (one page)
+    regardless of what's requested."""
+    ok_response = MagicMock(status_code=200)
+    ok_response.json.return_value = {"items": [{"title": f"Lead {i}"} for i in range(10)]}
+
+    fake_client = MagicMock()
+    fake_client.get = AsyncMock(return_value=ok_response)
+    fake_client_cm = MagicMock()
+    fake_client_cm.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(ingestion, "_is_cse_paused", return_value=False), \
+         patch.object(ingestion, "get_google_api_credentials", return_value=("key", "cx")), \
+         patch("httpx.AsyncClient", return_value=fake_client_cm), \
+         patch("leads.google_rate_limit.reserve_query_slot", return_value=(True, "OK")) as reserve_mock:
+        results = _run(ingestion.perform_google_search("test query", num_results=100))
+
+    assert len(results) == 10
+    assert fake_client.get.call_count == 1     # never the up-to-10 requests 100 results implies
+    assert reserve_mock.call_count == 1        # exactly one budget unit spent, not up to 10
+
+
+def test_a_request_within_the_cap_is_unaffected(ingestion):
+    ok_response = MagicMock(status_code=200)
+    ok_response.json.return_value = {"items": [{"title": "Lead A"}]}
+    fake_client = MagicMock()
+    fake_client.get = AsyncMock(return_value=ok_response)
+    fake_client_cm = MagicMock()
+    fake_client_cm.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(ingestion, "_is_cse_paused", return_value=False), \
+         patch.object(ingestion, "get_google_api_credentials", return_value=("key", "cx")), \
+         patch("httpx.AsyncClient", return_value=fake_client_cm), \
+         patch("leads.google_rate_limit.reserve_query_slot", return_value=(True, "OK")):
+        results = _run(ingestion.perform_google_search("test query", num_results=5))
+
+    assert results == [{"title": "Lead A"}]
+    assert fake_client.get.call_count == 1
 
 
 def test_granted_reservation_lets_the_request_through_as_before(ingestion):
