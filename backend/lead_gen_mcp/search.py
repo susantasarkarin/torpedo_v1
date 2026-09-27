@@ -21,7 +21,12 @@ import httpx
 
 from .schemas import SearchBatchResult, SERPResult
 
-# Reuse existing rate-limit tracker from the main backend.
+# Reuse the same atomic quota reservation every other Google CSE caller uses
+# (leads/google_rate_limit.py's reserve_query_slot()), so this server can't
+# race the primary search paths on the shared daily/hourly/monthly counters
+# (google_cse_usage / google_cse_monthly_usage). Previously used the older
+# can_make_query()/record_query() pair -- check-then-act, non-atomic, and
+# only consulted once per query rather than once per actual request.
 # We import the module file directly to avoid triggering backend/leads/__init__.py,
 # which loads scheduler_optimized and requires a live MongoDB connection.
 import importlib.util as _ilu
@@ -36,15 +41,11 @@ def _load_rate_limiter():
 
 try:
     _rl = _load_rate_limiter()
-    can_make_query = _rl.can_make_query
-    record_query = _rl.record_query
+    reserve_query_slot = _rl.reserve_query_slot
 except Exception:
-    # Fallback stubs for isolated testing / CI without MongoDB
-    def can_make_query():  # type: ignore
+    # Fallback stub for isolated testing / CI without MongoDB
+    def reserve_query_slot():  # type: ignore
         return True, "ok"
-
-    def record_query(queries: int = 1):  # type: ignore
-        return {}
 
 GCSE_API_URL = "https://www.googleapis.com/customsearch/v1"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
@@ -153,14 +154,6 @@ async def run_search_batch(
 
     async with httpx.AsyncClient() as client:
         for raw_query in queries:
-            # Check global rate limit
-            allowed, msg = can_make_query()
-            if not allowed:
-                results.append(SearchBatchResult(
-                    query=raw_query, error=f"Rate limited: {msg}"
-                ))
-                continue
-
             if budget_remaining is not None and budget_remaining <= 0:
                 results.append(SearchBatchResult(
                     query=raw_query, error="ICP daily query budget exhausted"
@@ -174,9 +167,18 @@ async def run_search_batch(
 
             for page in range(pages_per_query):
                 start = page * 10 + 1
+
+                # Reserve a slot on the shared, atomic counter before EVERY
+                # actual request -- not once per query -- so a multi-page
+                # batch can't slip past the daily/hourly/monthly caps between
+                # a single upfront check and later pages.
+                allowed, reason = reserve_query_slot()
+                if not allowed:
+                    error_msg = f"Rate limited: {reason}"
+                    break
+
                 try:
                     items = await _fetch_page(client, linkedin_query, start, recency_filter)
-                    record_query(1)
                     pages_fetched += 1
 
                     if budget_remaining is not None:
