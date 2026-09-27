@@ -24,11 +24,41 @@ const TIER_STYLE = {
 
 const LEAD_STATUS_STYLE = {
   Positive: { bg: "#dcfce7", color: "#15803d", border: "#86efac", icon: "✅" },
+  "Needs Human": { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", icon: "🙋" },
   Negative: { bg: "#fee2e2", color: "#b91c1c", border: "#fca5a5", icon: "🚫" },
   Neutral:  { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db", icon: "⬜" },
 }
 
-const STATUS_OPTIONS = ["Positive", "Neutral", "Negative"]
+const STATUS_OPTIONS = ["Positive", "Needs Human", "Neutral", "Negative"]
+
+const NURTURE_LABEL = {
+  active: "Nurturing",
+  paused_new_reply: "Paused — they replied",
+  completed: "Nurture done",
+  stopped: "Stopped",
+}
+
+function ReplyCell({ lead }) {
+  const t = lead.reply_triage
+  const n = lead.nurture
+  if (!t && !n) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>
+  const title = t ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"` : ""
+  return (
+    <div style={{ fontSize: "0.75rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
+      {t?.reply_text && (
+        <div style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          “{t.reply_text.replace(/\s+/g, " ").slice(0, 70)}”
+        </div>
+      )}
+      {n?.status && (
+        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#2563eb", fontWeight: 600 }}>
+          {NURTURE_LABEL[n.status] || n.status}
+          {n.status === "active" ? ` · step ${n.step || 0}/4` : ""}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function LeadStatusBadge({ lead, sessionId, onUpdated }) {
   const [saving, setSaving] = useState(false)
@@ -116,7 +146,7 @@ function Leads() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, fitTier, basket, source, sessionId, navigate])
+  }, [page, search, fitTier, basket, source, leadStatus, sessionId, navigate])
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
 
@@ -273,6 +303,7 @@ function Leads() {
         >
           <option value="">All Statuses</option>
           <option value="Positive">✅ Positive</option>
+          <option value="Needs Human">🙋 Needs Human</option>
           <option value="Neutral">⬜ Neutral</option>
           <option value="Negative">🚫 Negative</option>
         </select>
@@ -309,6 +340,7 @@ function Leads() {
                 <th>Email Status</th>
                 <th>ICP Segment</th>
                 <th>Fit Tier</th>
+                <th>Reply / Nurture</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -364,6 +396,7 @@ function Leads() {
                       )
                     })() : <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>}
                   </td>
+                  <td><ReplyCell lead={lead} /></td>
                   {/* Lead Status */}
                   <td onClick={e => e.stopPropagation()}>
                     <LeadStatusBadge

@@ -586,7 +586,11 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     # Qualified-only mode: show only Gmail contacts and outreach-replied leads
     QUALIFIED_SOURCES = GMAIL_SOURCES + ["outreach_reply"]
     if filters.qualified_only:
-        query["source"] = {"$in": QUALIFIED_SOURCES}
+        # A prospect who replied to outreach is qualified whatever source first
+        # created the record (google search, linkedin...), so match on the
+        # reply itself too, not only on source.
+        query["$and"] = [{"$or": [{"source": {"$in": QUALIFIED_SOURCES}},
+                                  {"outreach_replied_at": {"$exists": True}}]}]
 
     # Filter by lead_stage if provided
     # Maps 'leads' -> early-stage leads, 'contacts' -> active deals (discovery_call onwards)

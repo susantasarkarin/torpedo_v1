@@ -1218,6 +1218,57 @@ class GmailWorkspaceService:
                 "error": str(e)
             }
 
+    def create_draft(
+        self,
+        from_email: str,
+        to: List[str],
+        subject: str,
+        body_plain: str,
+        thread_id: Optional[str] = None,
+        signature_html: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create (not send) a Gmail draft in from_email's mailbox, threaded
+        into thread_id when given, so a person can review and send it."""
+        import base64
+        import html as _html
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        try:
+            mailbox = self.mailboxes.find_one({
+                "$or": [{"email": from_email.lower()},
+                        {"aliases.email": from_email.lower()},
+                        {"aliases": from_email.lower()}],
+                "is_active": True,
+            })
+            if not mailbox:
+                return {"success": False, "error": f"No active mailbox found for {from_email}"}
+
+            gmail = self._get_service(mailbox["email"])
+            body_html = _html.escape(body_plain).replace("\n", "<br>")
+            if signature_html:
+                body_html += "<br><br>" + signature_html
+
+            msg = MIMEMultipart("alternative")
+            msg["To"] = ", ".join(to)
+            msg["From"] = from_email
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body_plain, "plain"))
+            msg.attach(MIMEText(body_html, "html"))
+
+            message: Dict[str, Any] = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
+            if thread_id:
+                message["threadId"] = thread_id
+            result = gmail.users().drafts().create(userId="me", body={"message": message}).execute()
+            return {"success": True, "draft_id": result.get("id"),
+                    "thread_id": (result.get("message") or {}).get("threadId", thread_id)}
+        except HttpError as e:
+            logger.error(f"Gmail API error creating draft: {e}")
+            return {"success": False, "error": f"Gmail API error: {e}"}
+        except Exception as e:
+            logger.error(f"Error creating draft: {e}")
+            return {"success": False, "error": str(e)}
+
     # =========================================================================
     # HISTORIC EMAIL SYNC (Background - Low Priority)
     # =========================================================================

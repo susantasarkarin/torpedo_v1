@@ -2932,12 +2932,15 @@ async def get_enriched_lead_endpoint(lead_id: str):
 async def update_lead_status_endpoint(lead_id: str, data: dict = Body(...)):
     """
     PATCH /leads/{lead_id}/status
-    Update the lead_status field (Positive / Negative / Neutral).
+    Update the lead_status field (Positive / Negative / Neutral / Needs Human).
     Negative leads are excluded from all outreach communications.
+
+    A status set here is a human decision: reply triage never overwrites it.
+    Positive starts (or resumes) the nurture track; Negative stops it.
     """
     from bson import ObjectId
 
-    VALID_STATUSES = {"Positive", "Negative", "Neutral"}
+    VALID_STATUSES = {"Positive", "Negative", "Neutral", "Needs Human"}
     new_status = data.get("lead_status")
     if new_status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"lead_status must be one of: {', '.join(sorted(VALID_STATUSES))}")
@@ -2949,12 +2952,25 @@ async def update_lead_status_endpoint(lead_id: str, data: dict = Body(...)):
 
     result = leads_enriched_collection.update_one(
         {"_id": obj_id},
-        {"$set": {"lead_status": new_status, "updated_at": datetime.utcnow().isoformat()}},
+        {"$set": {"lead_status": new_status, "lead_status_source": "human",
+                  "needs_human_review": new_status == "Needs Human",
+                  "updated_at": datetime.utcnow().isoformat()}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    return {"success": True, "lead_id": lead_id, "lead_status": new_status}
+    nurture = None
+    try:
+        from sales import nurture as _nurture
+        if new_status == "Positive":
+            nurture = "resumed" if _nurture.resume_nurture(lead_id) else (
+                "started" if _nurture.start_nurture(lead_id, started_by="human") else None)
+        elif new_status == "Negative":
+            nurture = "stopped" if _nurture.stop_nurture(lead_id, "marked Negative by a person") else None
+    except Exception as e:
+        logger.warning(f"nurture hook failed for lead {lead_id}: {e}")
+
+    return {"success": True, "lead_id": lead_id, "lead_status": new_status, "nurture": nurture}
 
 
 @router.put("/enriched/{lead_id}")

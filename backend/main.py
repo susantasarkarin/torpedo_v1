@@ -2185,7 +2185,38 @@ async def startup_event():
                 print(f"⚠️ Startup reply backfill failed: {_e}")
     except Exception as e:
         print(f"⚠️ Could not schedule outreach bounce & reply scanner: {e}")
-    
+
+    # ----------------------------
+    # Reply triage (every 5 min) + positive-lead nurture (every 15 min)
+    # Labels each outreach reply Positive / Negative / Needs Human on the Sales
+    # > Leads page and advances nurture drafts for positive leads.
+    # ----------------------------
+    try:
+        if scheduler.running:
+            def _reply_triage_job():
+                try:
+                    from sales.reply_triage import run_reply_triage_batch
+                    run_reply_triage_batch(limit=10)
+                except Exception as e:
+                    print(f"[ReplyTriage] Error: {e}")
+
+            def _nurture_job():
+                try:
+                    from sales.nurture import run_nurture_due_batch
+                    run_nurture_due_batch(limit=20)
+                except Exception as e:
+                    print(f"[Nurture] Error: {e}")
+
+            scheduler.add_job(_reply_triage_job, IntervalTrigger(seconds=300),
+                              id="reply_triage", name="Outreach Reply Triage",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            scheduler.add_job(_nurture_job, IntervalTrigger(seconds=900),
+                              id="lead_nurture", name="Positive Lead Nurture",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Reply triage (5 min) and lead nurture (15 min) scheduled")
+    except Exception as e:
+        print(f"⚠️ Could not schedule reply triage / nurture: {e}")
+
     # ----------------------------
     # Email Classification Job (every 2 minutes, batch of 10)
     # Feature flag: EMAIL_CLASSIFICATION_ENABLED=true (default: false for safety)
