@@ -47,7 +47,10 @@ Countries / regions: {countries}
 Seniority levels: {seniorities}
 
 Requirements for the queries:
-- Most should use site:linkedin.com/in/ to target individual profiles.
+- Do not add a site: filter. The pipeline strips any site: clause before the
+  query reaches Google and searches the open web instead -- LinkedIn-profile
+  filtering happens afterward, on the results. A site: filter in your query
+  text would be discarded, so spend the space on better search terms instead.
 - Vary the approach across the set: exact-title quotes, boolean OR groups of
   title synonyms, industry-qualified searches, and country-qualified searches.
 - Use title synonyms and adjacent titles a real person might actually have,
