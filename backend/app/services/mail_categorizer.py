@@ -48,6 +48,11 @@ CATEGORIES = ("outreach_reply", "outreach", "rfq", "active_deal", "proposal", "n
               "automated", "spam", "others")
 MODEL_CATEGORIES = ["rfq", "active_deal", "proposal", "new_inquiry", "client", "vendor",
                     "invoice", "promotional", "automated", "spam", "others"]
+# Sales-facing labels the local model may suggest but not assign on its own: in
+# the first live cycle it filed a password reset and an investment pitch as
+# "rfq". Its suggestion is kept (ai_tier1_model_suggestion) and the message
+# stays in "others" until a rule or a person places it.
+UNTRUSTED_MODEL_CATEGORIES = {"rfq", "active_deal", "proposal", "new_inquiry", "client"}
 
 # ---------------------------------------------------------------------------
 # patterns
@@ -72,7 +77,7 @@ _AUTOMATED_FROM = re.compile(
     r"slack\.com|atlassian\.net|referrals\.digitalocean\.com)", _I)
 _AUTOMATED_SUBJECT = re.compile(
     r"terms of service|privacy policy|security alert|password (reset|changed|reminder)|"
-    r"reset your password|verify your|verification code|sign-?in to your|new sign-in|"
+    r"reset (your )?password|change (your )?password|verify your|verification code|sign-?in to your|new sign-in|"
     r"\botp\b|one time password|subscription (has )?expired|credits (have been )?reset|"
     r"account (deletion|is ready)|action required.*account|scheduled (weekly|monthly) report", _I)
 # Newsletters / marketing: promotional.
@@ -462,6 +467,15 @@ def run_rules_pass(client, ctx: Optional[Context] = None, limit: Optional[int] =
     return stats
 
 
+def model_verdict_fields(cat: str, reason: str, now: datetime) -> Dict[str, Any]:
+    fields = {"ai_tier1_category": cat, "ai_tier1_reason": reason, "ai_tier1_source": SOURCE_AI,
+              "ai_tier1_status": "done", "ai_tier1_at": now}
+    if cat in UNTRUSTED_MODEL_CATEGORIES:
+        fields.update(ai_tier1_category="others", ai_tier1_model_suggestion=cat,
+                      ai_tier1_reason=f"possible {cat} (model only, unverified): {reason}"[:300])
+    return fields
+
+
 def run_ai_pass(client, limit: int = 10) -> Dict[str, int]:
     """Let the local model place the newest messages the rules left pending."""
     col = client["torpedo_gmail"]["email_metadata"]
@@ -474,9 +488,7 @@ def run_ai_pass(client, limit: int = 10) -> Dict[str, int]:
         cat, reason = model_categorize(doc)
         now = datetime.utcnow()
         if cat:
-            col.update_one({"_id": doc["_id"]}, {"$set": {
-                "ai_tier1_category": cat, "ai_tier1_reason": reason, "ai_tier1_source": SOURCE_AI,
-                "ai_tier1_status": "done", "ai_tier1_at": now}})
+            col.update_one({"_id": doc["_id"]}, {"$set": model_verdict_fields(cat, reason, now)})
             stats["resolved"] += 1
         else:
             # Left pending; the next cycle retries it. A model outage is never

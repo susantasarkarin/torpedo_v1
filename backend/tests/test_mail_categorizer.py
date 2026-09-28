@@ -167,3 +167,16 @@ def test_ai_pass_records_model_verdicts(monkeypatch):
     q, u = col.updates[0]
     assert u["$set"]["ai_tier1_category"] == "vendor"
     assert u["$set"]["ai_tier1_source"] == mc.SOURCE_AI and u["$set"]["ai_tier1_status"] == "done"
+
+
+def test_model_only_rfq_is_kept_as_a_suggestion_not_a_label(monkeypatch):
+    col = _Col([{"_id": 1, "subject": "Reset Password", "from_email": "researchers@theoremreach.com"}])
+    monkeypatch.setattr(mc, "model_categorize", lambda doc: ("rfq", "asks for a quote"))
+    mc.run_ai_pass({"torpedo_gmail": {"email_metadata": col}}, limit=5)
+    s = col.updates[0][1]["$set"]
+    assert s["ai_tier1_category"] == "others" and s["ai_tier1_model_suggestion"] == "rfq"
+    assert s["ai_tier1_reason"].startswith("possible rfq (model only, unverified)")
+
+
+def test_reset_password_notice_is_automated():
+    assert _in("Reset Password", "researchers@theoremreach.com")["category"] == "automated"
