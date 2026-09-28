@@ -304,7 +304,8 @@ def _status_is_ours(enriched: Optional[Dict[str, Any]]) -> bool:
     status always wins."""
     if not enriched or not enriched.get("lead_status"):
         return True
-    return enriched.get("lead_status_source") == "reply_triage"
+    # mail_pool_triage: the same rules run over the whole mail pool (sales/mailpool_leads.py)
+    return enriched.get("lead_status_source") in ("reply_triage", "mail_pool_triage")
 
 
 def apply_verdict(enriched_col, promoted: Dict[str, Any], triage: Dict[str, Any],

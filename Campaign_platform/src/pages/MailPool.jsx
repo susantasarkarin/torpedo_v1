@@ -1751,6 +1751,25 @@ function MailPool() {
               </div>
             </div>
 
+            {/* Mail pool extraction: who it is with, CC, summary */}
+            {selectedEmail.email_type !== "system" && (selectedEmail.mail_summary || selectedEmail.mail_party) && (
+              <div style={{
+                margin: "12px 0", padding: "10px 14px", backgroundColor: "#f9fafb",
+                border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.8rem", color: "#374151",
+              }}>
+                {selectedEmail.mail_party && (
+                  <div style={{ marginBottom: "4px" }}>
+                    <strong style={{ textTransform: "capitalize" }}>{selectedEmail.mail_party}</strong>
+                    {selectedEmail.mail_counterparty ? ` · ${selectedEmail.mail_counterparty}` : ""}
+                  </div>
+                )}
+                {selectedEmail.cc_emails?.length > 0 && (
+                  <div style={{ marginBottom: "4px", color: "#6b7280" }}>CC: {selectedEmail.cc_emails.join(", ")}</div>
+                )}
+                {selectedEmail.mail_summary && <div>{selectedEmail.mail_summary}</div>}
+              </div>
+            )}
+
             {/* System Email Notice (Phase 3 - UX hardening) */}
             {selectedEmail.email_type === "system" && (
               <div style={{

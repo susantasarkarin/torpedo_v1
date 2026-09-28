@@ -41,14 +41,29 @@ const NURTURE_LABEL = {
 function ReplyCell({ lead }) {
   const t = lead.reply_triage
   const n = lead.nurture
-  if (!t && !n) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>
-  const title = t ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"` : ""
+  const m = lead.mail_pool
+  if (!t && !n && !m) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>
+  const mailSummary = m ? (m.model_summary || m.last_summary || "") : ""
+  const title = t
+    ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
+    : m ? `${m.last_subject || ""}\n\n${mailSummary}${m.triage?.reason ? `\n\nTriage: ${m.triage.reason}` : ""}` : ""
   return (
     <div style={{ fontSize: "0.75rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
       {t?.reply_text && (
         <div style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           “{t.reply_text.replace(/\s+/g, " ").slice(0, 70)}”
         </div>
+      )}
+      {!t && m && (
+        <>
+          <div style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {mailSummary.replace(/\s+/g, " ").slice(0, 70) || m.last_subject}
+          </div>
+          <div style={{ color: "#6b7280" }}>
+            Mail: {m.messages_in} in / {m.messages_out} out
+            {m.last_contact_at ? ` · last ${String(m.last_contact_at).slice(0, 10)}` : ""}
+          </div>
+        </>
       )}
       {n?.status && (
         <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#2563eb", fontWeight: 600 }}>

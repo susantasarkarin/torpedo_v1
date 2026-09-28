@@ -378,6 +378,7 @@ function VendorLeadsPage() {
               <th>Title</th>
               <th>Company</th>
               <th>Vendor</th>
+              <th>Mail</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -385,7 +386,7 @@ function VendorLeadsPage() {
           <tbody>
             {paginatedLeads.length === 0 ? (
               <tr>
-                <td colSpan="8" style={{ textAlign: "center", padding: "48px" }}>
+                <td colSpan="9" style={{ textAlign: "center", padding: "48px" }}>
                   No vendor leads found
                 </td>
               </tr>
@@ -408,6 +409,22 @@ function VendorLeadsPage() {
                   <td>{lead.title || "-"}</td>
                   <td>{lead.company || "-"}</td>
                   <td>{lead.vendor_name || "-"}</td>
+                  <td
+                    style={{ fontSize: "0.75rem", maxWidth: 240 }}
+                    title={lead.mail_pool ? `${lead.mail_pool.last_subject || ""}\n\n${lead.mail_pool.model_summary || lead.mail_pool.last_summary || ""}` : ""}
+                  >
+                    {lead.mail_pool ? (
+                      <>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {(lead.mail_pool.model_summary || lead.mail_pool.last_summary || lead.mail_pool.last_subject || "").slice(0, 60)}
+                        </div>
+                        <div style={{ color: "#6b7280" }}>
+                          {lead.mail_pool.messages_in} in / {lead.mail_pool.messages_out} out
+                          {lead.mail_pool.last_contact_at ? ` · ${String(lead.mail_pool.last_contact_at).slice(0, 10)}` : ""}
+                        </div>
+                      </>
+                    ) : "-"}
+                  </td>
                   <td>
                     <span className="stage-badge" style={getStatusBadge(lead.status)}>
                       {lead.status || "New"}

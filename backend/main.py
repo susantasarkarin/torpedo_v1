@@ -2234,6 +2234,13 @@ async def startup_event():
                     run_scheduled_cycle()
                 except Exception as e:
                     print(f"[MailSegregation] Error: {e}")
+                # Then: client/vendor/promotional per message, Sales > Leads and
+                # Vendor > Leads records, won conversions, triage (points 3, 4, 6).
+                try:
+                    from sales.mailpool_leads import run_scheduled_cycle as run_mailpool_leads
+                    run_mailpool_leads()
+                except Exception as e:
+                    print(f"[MailPoolLeads] Error: {e}")
 
             scheduler.add_job(_mail_segregation_job, IntervalTrigger(seconds=600),
                               id="mail_pool_segregation", name="Mail Pool Segregation (rules + Qwen)",

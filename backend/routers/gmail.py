@@ -2221,6 +2221,7 @@ def get_mail_pool_emails(
             "ai_category": 1, "ai_confidence": 1, "ai_urgency": 1,
             "ai_intent": 1, "ai_tier1_category": 1, "ai_tier1_reason": 1,
             "ai_tier1_status": 1, "email_type": 1, "system_subtype": 1,
+            "cc_emails": 1, "mail_party": 1, "mail_summary": 1, "mail_counterparty": 1,
             "ai_summary": 1, "segment": 1, "segment_source": 1,
             "ai_analysis.contacts": 1, "ai_analysis.rfq": 1,
         }
