@@ -7,6 +7,7 @@ Cost Optimization:
     - Deduplication prevents duplicate leads from entering the database
 """
 
+import asyncio
 import os
 import re
 import csv
@@ -447,7 +448,9 @@ Return only valid JSON. No markdown fences."""
     try:
         from .bedrock_client import converse_json_object
 
-        data = converse_json_object(
+        # Blocking model call: off the event loop (see leads/ingestion.py).
+        data = await asyncio.to_thread(
+            converse_json_object,
             role="cheap",
             system="You extract structured lead data. You return only valid JSON.",
             user=extraction_prompt,

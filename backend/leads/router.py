@@ -1043,9 +1043,10 @@ async def run_web_search_job(job_id: str):
             save_query_ledger(query, dupe_streak=streak,
                               exhausted=window_consumed or streak >= EXHAUSTED_THRESHOLD)
         
-        # Auto-classify after each batch
+        # Auto-classify after each batch -- on a thread: it makes a model call
+        # (and email lookups) per lead, and run inline it froze the web server.
         try:
-            success, failure = classify_pending_leads(50)
+            success, failure = await asyncio.to_thread(classify_pending_leads, 50)
             if success > 0:
                 # Count emails found (leads with predicted_email)
                 from .service import leads_enriched_collection

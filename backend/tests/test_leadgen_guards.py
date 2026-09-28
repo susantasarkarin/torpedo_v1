@@ -42,6 +42,35 @@ def test_company_domain_is_cleaned():
     assert company_email_domain("localhost") == ""
 
 
+def test_extraction_does_not_freeze_the_event_loop(monkeypatch):
+    """The model call runs on a thread: other requests keep being served
+    while it waits (it froze the whole backend on 2026-09-28)."""
+    import asyncio
+    import time
+    import leads.bedrock_client as bc
+    import leads.ingestion as ing
+
+    def slow_model(**kw):
+        time.sleep(0.5)
+        return {"leads": []}
+
+    monkeypatch.setattr(bc, "converse_json_object", slow_model)
+    ticks = []
+
+    async def other_requests():
+        for _ in range(8):
+            ticks.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    async def main():
+        await asyncio.gather(
+            ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"),
+            other_requests())
+
+    asyncio.run(main())
+    assert len(ticks) == 8 and ticks[-1] - ticks[0] < 0.45  # they ran during the 0.5s call
+
+
 def test_no_address_is_rendered_on_a_platform_domain():
     assert not render_pattern_email("{first}.{last}@{domain}", "Radar", "Healthcare", "uk.linkedin.com")
     assert render_pattern_email("{first}.{last}@{domain}", "Jane", "Doe", "www.acme.com") == "jane.doe@acme.com"

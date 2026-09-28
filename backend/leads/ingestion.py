@@ -7,6 +7,7 @@ Cost Optimization:
     - Deduplication prevents duplicate leads from entering the database
 """
 
+import asyncio
 import os
 import re
 import csv
@@ -605,7 +606,13 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
     try:
         from .bedrock_client import converse_json_object
 
-        data = converse_json_object(
+        # converse_json_object blocks (a local-model call takes 10-60s, plus
+        # its wait for the single model slot). Called straight from this
+        # coroutine it froze the web server's event loop for every extraction:
+        # on 2026-09-28 the backend stopped answering entirely -- /takesurvey
+        # included -- whenever the WebSearch job ran. Run it on a thread.
+        data = await asyncio.to_thread(
+            converse_json_object,
             role="cheap",
             system=EXTRACTION_SYSTEM_PROMPT,
             user=extraction_prompt,
