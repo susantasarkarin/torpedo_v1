@@ -208,8 +208,15 @@ def run_message_pass(client, ctx=None, limit: Optional[int] = None, batch_size: 
 # ---------------------------------------------------------------------------
 # per correspondent
 # ---------------------------------------------------------------------------
+def _own_addresses() -> Set[str]:
+    """Our own people's addresses outside our domains (a director's personal
+    Gmail shows up in RFQ threads as an outside party)."""
+    raw = os.getenv("MAIL_POOL_OWN_ADDRESSES", "")
+    return {a.strip().lower() for a in raw.split(",") if "@" in a}
+
+
 def _is_person_address(addr: str) -> bool:
-    if not addr or "@" not in addr:
+    if not addr or "@" not in addr or addr.lower() in _own_addresses():
         return False
     bounce_from, _, _ = mc._production_patterns()
     return not (bounce_from.search(addr) or mc._AUTOMATED_FROM.search(addr))
@@ -409,6 +416,16 @@ def _status_is_automated(lead: Dict[str, Any]) -> bool:
     return not lead.get("lead_status") or lead.get("lead_status_source") in ("reply_triage", TRIAGE_SOURCE)
 
 
+PROSPECT_CATEGORIES = {"outreach_reply", "new_inquiry"}
+
+
+def is_prospect(mail_pool: Dict[str, Any]) -> bool:
+    """Nurture is for people answering our outreach or enquiring. The first
+    backfill also started it for vendors who booked a call to pitch us, an
+    active deal, and a director's personal address -- all stopped by hand."""
+    return bool(PROSPECT_CATEGORIES & set(mail_pool.get("categories") or []))
+
+
 def _established_client(email: str, ctx: "mc.Context", won_domains: Dict[str, str]) -> bool:
     d = mc._domain(email)
     return (ctx.party(email) in ("client", "both")) or d in won_domains
@@ -480,7 +497,7 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
                                  "triaged_at": now},
             "updated_at": now}})
         fresh = isinstance(last.get("ts"), datetime) and last["ts"] >= now - timedelta(days=NURTURE_MAX_AGE_DAYS)
-        if verdict == "positive" and fresh and lead.get("stage") != "won" \
+        if verdict == "positive" and fresh and is_prospect(mp) and lead.get("stage") != "won" \
                 and not _established_client(email, ctx, won_domains):
             try:
                 from sales.nurture import start_nurture

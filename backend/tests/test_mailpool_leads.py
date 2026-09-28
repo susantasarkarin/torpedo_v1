@@ -99,6 +99,21 @@ def test_prospect_reply_is_client_side():
     assert _party("new_inquiry", "someone@startup.io") == "client"
 
 
+def test_nurture_only_for_people_answering_outreach_or_enquiring():
+    assert ml.is_prospect({"categories": ["active_deal", "outreach_reply"]})
+    assert ml.is_prospect({"categories": ["new_inquiry"]})
+    assert not ml.is_prospect({"categories": ["active_deal"]})  # a vendor booking a call to pitch us
+    assert not ml.is_prospect({"categories": ["rfq"]})
+
+
+def test_our_own_personal_addresses_never_become_leads(monkeypatch):
+    monkeypatch.setenv("MAIL_POOL_OWN_ADDRESSES", "director.personal@gmail.com, other@yahoo.com")
+    monkeypatch.setattr(mc, "_production_patterns",
+                        lambda: (mc.re.compile("mailer-daemon"), mc.re.compile("x"), None))
+    assert not ml._is_person_address("Director.Personal@gmail.com")
+    assert ml._is_person_address("buyer@gmail.com")
+
+
 def test_system_addresses_never_become_leads(monkeypatch):
     monkeypatch.setattr(mc, "_production_patterns",
                         lambda: (mc.re.compile("mailer-daemon"), mc.re.compile("x"), None))

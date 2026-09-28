@@ -189,7 +189,9 @@ def test_dry_run_never_blocked():
     assert preflight(send=False) == []
 
 
-def test_placeholder_pitch_blocks_sending():
+def test_placeholder_pitch_blocks_sending(monkeypatch):
+    # Real pitch copy has been written since; simulate a bucket still on the placeholder.
+    monkeypatch.setattr(om, "buckets_missing_pitch", lambda: ["A"])
     blockers = preflight(send=True)
     assert any("pitch copy" in b for b in blockers)
 
