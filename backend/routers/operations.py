@@ -560,6 +560,16 @@ def generate_idempotency_key(project_id: str, items: List[Dict]) -> str:
 
 
 @router.post("/projects/{project_id}/invoice")
+def default_gst_rate(currency: str, gstin: str = None) -> float:
+    """GST on our services when nobody set a rate: 18% for an Indian client
+    (billed in INR, or registered with a GSTIN), 0% for an export of
+    services billed in foreign currency under LUT (owner, 2026-09-28).
+    Rates that differ by service are set on the invoice itself."""
+    if gstin or (currency or "INR").upper() == "INR":
+        return 18.0
+    return 0.0
+
+
 def create_invoice_from_project(
     project_id: str,
     invoice_data: Dict[str, Any] = Body(default={})
@@ -608,8 +618,21 @@ def create_invoice_from_project(
         cpi = float(project.get("cpi", 0) or 0)
         sample_size = int(project.get("totalCompletesRequired", 0) or 0)
         
-        items = invoice_data.get("items", [])
-        
+        items = [dict(i) for i in invoice_data.get("items", [])]
+
+        # The project's own currency (set by the RFQ-won handoff) -- a USD
+        # project must not be invoiced in INR. INR stays the fallback only for
+        # older projects that never recorded a currency.
+        currency = invoice_data.get("currency_code") or project.get("currency") or "INR"
+        customer_doc = None
+        try:
+            customer_doc = customers_collection.find_one({"_id": ObjectId(customer_id)}, {"gstin": 1})
+        except Exception:
+            customer_doc = None
+        tax_rate = invoice_data.get("tax_rate")
+        if tax_rate is None:
+            tax_rate = default_gst_rate(currency, (customer_doc or {}).get("gstin"))
+
         if not items:
             # Auto-generate item from project
             if cpi > 0 and sample_size > 0:
@@ -618,8 +641,7 @@ def create_invoice_from_project(
                     "details": f"Survey No: {project.get('surveyNo', 'N/A')} | LOI: {project.get('loi', 'N/A')} mins",
                     "quantity": sample_size,
                     "rate": cpi,
-                    "tax_rate": invoice_data.get("tax_rate", 18),
-                    "tax_amount": (sample_size * cpi) * (invoice_data.get("tax_rate", 18) / 100),
+                    "tax_rate": tax_rate,
                 }]
             elif project_value > 0:
                 items = [{
@@ -627,10 +649,19 @@ def create_invoice_from_project(
                     "details": f"Survey No: {project.get('surveyNo', 'N/A')}",
                     "quantity": 1,
                     "rate": project_value,
-                    "tax_rate": invoice_data.get("tax_rate", 18),
-                    "tax_amount": project_value * (invoice_data.get("tax_rate", 18) / 100),
+                    "tax_rate": tax_rate,
                 }]
-        
+
+        # Every line's tax is computed from its own rate. Items passed in (the
+        # project-close invoice) carried a rate but no tax_amount, so the line
+        # said 18% while the total charged 0%.
+        for item in items:
+            if item.get("tax_rate") is None:
+                item["tax_rate"] = tax_rate
+            if item.get("tax_amount") is None:
+                item["tax_amount"] = round(float(item.get("quantity", 0) or 0) * float(item.get("rate", 0) or 0)
+                                           * float(item["tax_rate"]) / 100, 2)
+
         # Calculate totals
         subtotal = sum(item.get("quantity", 0) * item.get("rate", 0) for item in items)
         tax_total = sum(item.get("tax_amount", 0) for item in items)
@@ -653,10 +684,6 @@ def create_invoice_from_project(
         
         # Create invoice
         now = datetime.utcnow()
-        # The project's own currency (set by the RFQ-won handoff) -- a USD
-        # project must not be invoiced in INR. INR stays the fallback only for
-        # older projects that never recorded a currency.
-        currency = invoice_data.get("currency_code") or project.get("currency") or "INR"
         new_invoice = {
             "invoice_number": generate_invoice_number(),
             "idempotency_key": idempotency_key,
@@ -1489,7 +1516,8 @@ def close_project(
                             "description": f"Final billing — {project.get('projectName') or project.get('name') or 'Project'}",
                             "quantity": 1,
                             "rate": remaining,
-                            "tax_rate": payload.get("tax_rate", 18),
+                            # None: decided by currency / GSTIN (default_gst_rate)
+                            "tax_rate": payload.get("tax_rate"),
                         }],
                         "notes": notes or "Final invoice on project close",
                         "customer_id": payload.get("customer_id")

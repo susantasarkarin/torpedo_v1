@@ -83,6 +83,35 @@ def test_dates_are_stored_as_datetimes(monkeypatch):
     assert (inv["due_date"] - inv["invoice_date"]).days == 30
 
 
+def test_indian_client_is_charged_18_percent_gst(monkeypatch):
+    inv = _raise(monkeypatch, _project(currency="INR"))
+    assert inv["tax_total"] == 180.0 and inv["total_amount"] == 1180.0
+
+
+def test_export_invoice_carries_no_gst(monkeypatch):
+    inv = _raise(monkeypatch, _project(currency="USD"))
+    assert inv["tax_total"] == 0 and inv["total_amount"] == 1000.0
+
+
+def test_close_items_are_actually_taxed(monkeypatch):
+    # The close invoice passes items with a rate and no amount: the line said
+    # 18% and the total charged 0%.
+    items = [{"description": "Final billing", "quantity": 1, "rate": 500.0, "tax_rate": 18}]
+    inv = _raise(monkeypatch, _project(currency="INR"), {"items": items})
+    assert inv["items"][0]["tax_amount"] == 90.0 and inv["total_amount"] == 590.0
+
+
+def test_a_rate_set_by_hand_wins(monkeypatch):
+    inv = _raise(monkeypatch, _project(currency="INR"), {"tax_rate": 5})
+    assert inv["tax_total"] == 50.0
+
+
+def test_gstin_means_domestic_whatever_the_currency():
+    assert ops.default_gst_rate("USD", "27AABCU9603R1ZM") == 18.0
+    assert ops.default_gst_rate("USD", None) == 0.0
+    assert ops.default_gst_rate(None, None) == 18.0
+
+
 def test_string_dates_from_the_ui_are_parsed(monkeypatch):
     inv = _raise(monkeypatch, _project(), {"invoice_date": "2026-10-01", "due_date": "2026-10-31"})
     assert inv["invoice_date"] == datetime(2026, 10, 1)
