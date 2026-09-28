@@ -90,6 +90,38 @@ def test_lead_extraction_waits_longer_for_the_model_slot(monkeypatch):
     assert seen == [90.0]
 
 
+def test_extraction_gets_a_longer_inference_limit(monkeypatch):
+    import asyncio
+    import leads.bedrock_client as bc
+    import leads.ingestion as ing
+    from leads import local_llm_gate as g
+    seen = []
+    monkeypatch.setattr(bc, "converse_json_object",
+                        lambda **kw: seen.append(g.inference_timeout_override()) or {"leads": []})
+    asyncio.run(ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"))
+    assert seen == [180.0] and g.inference_timeout_override() is None
+
+
+def test_no_results_means_no_model_call(monkeypatch):
+    import asyncio
+    import leads.bedrock_client as bc
+    import leads.ingestion as ing
+    monkeypatch.setattr(bc, "converse_json_object", lambda **kw: {"leads": [{"name": "John Doe"}]})
+    assert asyncio.run(ing.extract_leads_from_google_results([], "q")) == []
+
+
+def test_invented_leads_are_dropped():
+    from leads.ingestion import grounded_leads
+    results = [{"link": "https://uk.linkedin.com/in/jane-roe-123?trk=x", "title": "Jane Roe - Head of Insights",
+                "snippet": "Jane Roe leads consumer research at Acme."}]
+    leads = [{"name": "Jane Roe", "linkedin_url": "https://www.linkedin.com/in/jane-roe-123/"},
+             {"name": "John Doe", "linkedin_url": "https://www.linkedin.com/in/johndoe"},
+             {"name": "Jane Roe", "linkedin_url": ""},
+             {"name": "Mary Major", "linkedin_url": ""}]
+    kept = grounded_leads(leads, results)
+    assert [l["name"] for l in kept] == ["Jane Roe", "Jane Roe"]
+
+
 def test_no_address_is_rendered_on_a_platform_domain():
     assert not render_pattern_email("{first}.{last}@{domain}", "Radar", "Healthcare", "uk.linkedin.com")
     assert render_pattern_email("{first}.{last}@{domain}", "Jane", "Doe", "www.acme.com") == "jane.doe@acme.com"

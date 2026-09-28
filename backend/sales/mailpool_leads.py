@@ -519,7 +519,7 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
 # local-model conversation summaries (a few per cycle)
 # ---------------------------------------------------------------------------
 _SUMMARY_SCHEMA = {"type": "object", "additionalProperties": False,
-                   "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
+                   "properties": {"summary": {"type": "string", "maxLength": 400}}, "required": ["summary"]}
 _SUMMARY_SYSTEM = ("You summarise the recent email conversation between a market-research fieldwork "
                    "company (us) and one correspondent. Two sentences, factual: what they want or "
                    "offer, and where it stands. JSON only.")
@@ -550,7 +550,8 @@ def run_summary_pass(client, limit: int = 5) -> Dict[str, int]:
             continue
         stats["attempted"] += 1
         try:
-            out = chat_json(system=_SUMMARY_SYSTEM, user=convo, max_tokens=160, json_schema=_SUMMARY_SCHEMA)
+            # 160 tokens cut the JSON off mid-string (live, 2026-09-28).
+            out = chat_json(system=_SUMMARY_SYSTEM, user=convo, max_tokens=320, json_schema=_SUMMARY_SCHEMA)
         except LocalSLMError as e:
             stats["unavailable"] += 1
             logger.warning("mail pool summary: local model unavailable: %s", e)

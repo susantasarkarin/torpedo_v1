@@ -521,7 +521,9 @@ def _call_self_hosted(model_id: str, system: str, user: str,
             f"{_oai.SELF_HOSTED_BASE_URL_ENV} not set — self-hosted model "
             f"{model_id!r} is in the chain but has nowhere to call")
 
-    inference_timeout = float(os.getenv("LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS", "12"))
+    from leads.local_llm_gate import inference_timeout_override
+    inference_timeout = (inference_timeout_override()
+                         or float(os.getenv("LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS", "12")))
 
     try:
         with acquire_local_llm_slot():

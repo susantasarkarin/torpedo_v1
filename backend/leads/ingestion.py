@@ -593,6 +593,32 @@ def parse_extracted_leads(data: Optional[dict]) -> List[dict]:
     return leads
 
 
+def _norm_profile_url(url: str) -> str:
+    u = (url or "").strip().lower().split("?")[0].split("#")[0].rstrip("/")
+    u = re.sub(r"^https?://", "", u)
+    return re.sub(r"^([a-z]{2,3}\.|www\.)linkedin\.com", "linkedin.com", u)
+
+
+def grounded_leads(leads: List[dict], search_results: List[dict]) -> List[dict]:
+    """Keep only leads the search results actually contain.
+
+    A small local model will fill a slot with a plausible stranger; a lead
+    must match a result's profile URL, or (without one) have its name appear
+    in a result's title or snippet."""
+    links = {_norm_profile_url(r.get("link") or "") for r in search_results}
+    text = " ".join(f"{r.get('title') or ''} {r.get('snippet') or ''}" for r in search_results).lower()
+    kept = []
+    for lead in leads:
+        url = _norm_profile_url(lead.get("linkedin_url") or "")
+        name = (lead.get("name") or "").strip().lower()
+        if (url and url in links) or (not url and name and name in text):
+            kept.append(lead)
+    dropped = len(leads) - len(kept)
+    if dropped:
+        logger.warning(f"[Bedrock extraction] Dropped {dropped} lead(s) not found in the search results")
+    return kept
+
+
 async def extract_leads_from_google_results(search_results: List[dict], query: str,
                                             start: int = 1) -> List[dict]:
     """
@@ -601,6 +627,10 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
     later re-run (see extraction_stash). If it answers but yields nothing
     usable, falls back to regex parsing.
     """
+    if not search_results:
+        # Given nothing, the local model invents a lead ("John Doe, VP of
+        # Sales, Salesforce" -- seen 2026-09-28). Nothing in, nothing out.
+        return []
     extraction_prompt = build_extraction_prompt(search_results, query)
 
     try:
@@ -616,7 +646,8 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         def _extract():
             # Wait for the shared model slot rather than give up after the
             # default 5s: the results are already paid for in search quota.
-            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "90"))):
+            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "90")),
+                            inference_seconds=float(os.getenv("LEAD_EXTRACTION_INFERENCE_SECONDS", "180"))):
                 return converse_json_object(
                     role="cheap",
                     system=EXTRACTION_SYSTEM_PROMPT,
@@ -626,7 +657,7 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
                 )
 
         data = await asyncio.to_thread(_extract)
-        leads = parse_extracted_leads(data)
+        leads = grounded_leads(parse_extracted_leads(data), search_results)
 
         if leads:
             logger.info(f"[Bedrock extraction] Extracted {len(leads)} leads from {len(search_results)} results")

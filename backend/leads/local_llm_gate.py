@@ -133,15 +133,27 @@ import contextvars
 # affected.
 _queue_wait_override: contextvars.ContextVar = contextvars.ContextVar(
     "local_llm_queue_wait", default=None)
+# Same idea for how long one inference may run: extracting ten leads as JSON
+# on the CPU model takes 60-120s, past the 60s default, so every real
+# extraction was cut off and reported as "model unavailable".
+_inference_timeout_override: contextvars.ContextVar = contextvars.ContextVar(
+    "local_llm_inference_timeout", default=None)
 
 
 @contextlib.contextmanager
-def queue_wait(seconds: float):
+def queue_wait(seconds: float, inference_seconds: Optional[float] = None):
     token = _queue_wait_override.set(float(seconds))
+    itoken = _inference_timeout_override.set(
+        float(inference_seconds) if inference_seconds is not None else None)
     try:
         yield
     finally:
         _queue_wait_override.reset(token)
+        _inference_timeout_override.reset(itoken)
+
+
+def inference_timeout_override() -> Optional[float]:
+    return _inference_timeout_override.get()
 
 
 def queue_timeout_seconds() -> float:
