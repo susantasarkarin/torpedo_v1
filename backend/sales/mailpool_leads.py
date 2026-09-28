@@ -618,5 +618,10 @@ def run_scheduled_cycle() -> Dict[str, Any]:
                                   model_limit=int(os.getenv("MAIL_POOL_TRIAGE_AI_PER_RUN", "3"))),
         "summaries": run_summary_pass(client, limit=int(os.getenv("MAIL_POOL_SUMMARY_AI_PER_RUN", "3"))),
     }
+    try:  # RFQs from client-opened RFQ threads (app/services/rfq_from_mail.py)
+        from app.services import rfq_from_mail
+        out["rfqs"] = rfq_from_mail.run_scheduled_cycle(client)
+    except Exception as e:
+        logger.warning("[MailPoolLeads] rfq build failed: %s", e)
     logger.info("[MailPoolLeads] %s", out)
     return out
