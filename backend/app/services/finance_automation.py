@@ -109,8 +109,14 @@ def mark_overdue_invoices(now: Optional[datetime] = None) -> int:
 # 2. reminders
 # ---------------------------------------------------------------------------
 def due_milestone(days_overdue: int, already_sent: List[int]) -> Optional[int]:
-    """The highest reminder milestone reached and not yet reminded, if any."""
-    reached = [m for m in REMINDER_MILESTONES if days_overdue >= m and m not in already_sent]
+    """The highest reminder milestone reached and not yet covered, if any.
+
+    A reminder at milestone M also covers every lower milestone: an invoice
+    first seen at 77 days overdue gets one 30-day reminder, not a 15-, 7- and
+    1-day one on the following days (seen live on the first run, 2026-09-28).
+    """
+    covered = max((m for m in already_sent if m is not None), default=0)
+    reached = [m for m in REMINDER_MILESTONES if days_overdue >= m and m > covered]
     return max(reached) if reached else None
 
 

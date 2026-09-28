@@ -25,6 +25,16 @@ def test_not_yet_at_first_milestone_returns_none():
     assert fa.due_milestone(0, already_sent=[]) is None
 
 
+def test_a_higher_milestone_covers_the_lower_ones():
+    # First live run, 2026-09-28: invoices first seen 77-115 days overdue got
+    # a 30-day reminder; the lower milestones must not fire on later days.
+    assert fa.due_milestone(78, already_sent=[30]) is None
+
+
+def test_next_milestone_still_fires_after_a_lower_one():
+    assert fa.due_milestone(8, already_sent=[1]) == 7
+
+
 def test_reminder_text_names_the_invoice_amount_and_days():
     inv = {"invoice_number": "SF/25-26/010", "currency": "USD", "total_amount": 5000,
            "amount_paid": 1000, "due_date": datetime(2026, 1, 1)}
