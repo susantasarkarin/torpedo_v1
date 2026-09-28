@@ -24,8 +24,39 @@ def test_monthly_budget_stops_search_until_next_month():
 
 
 def test_real_429_waits_for_googles_daily_reset():
-    assert cse_resume_time("429 from Google", datetime(2026, 9, 27, 18, 53)) == datetime(2026, 9, 28, 8, 0)
-    assert cse_resume_time("429 from Google", datetime(2026, 9, 28, 3, 0)) == datetime(2026, 9, 28, 8, 0)
+    # midnight US Pacific: 07:00 UTC in daylight saving, 08:00 UTC in winter
+    assert cse_resume_time("429 from Google", datetime(2026, 9, 27, 18, 53)) == datetime(2026, 9, 28, 7, 0)
+    assert cse_resume_time("429 from Google", datetime(2026, 9, 28, 3, 0)) == datetime(2026, 9, 28, 7, 0)
+    assert cse_resume_time("429 from Google", datetime(2026, 12, 15, 10, 0)) == datetime(2026, 12, 16, 8, 0)
+
+
+def test_free_tier_stop_waits_for_the_daily_reset_not_next_month():
+    reason = "Daily free quota reached (100/day). Resets at midnight US Pacific."
+    assert cse_resume_time(reason, datetime(2026, 9, 28, 10, 32)) == datetime(2026, 9, 29, 7, 0)
+
+
+def test_free_tier_refuses_past_the_daily_limit(monkeypatch):
+    import leads.google_rate_limit as g
+
+    class _Usage:
+        def __init__(self):
+            self.total = 100
+            self.refunds = 0
+
+        def find_one_and_update(self, q, u, **k):
+            self.total += 1
+            return {"total_queries": self.total, "hourly_queries": {}}
+
+        def update_one(self, q, u):
+            self.refunds += 1
+
+    usage = _Usage()
+    monkeypatch.setattr(g, "usage_collection", usage)
+    monkeypatch.setattr(g, "get_rate_limit_settings", lambda: {
+        "rate_limit_enabled": True, "daily_limit": 100, "hourly_limit": 50,
+        "monthly_budget_usd": 0.0, "cost_per_1000_queries": 5.0, "monthly_paid_query_limit": 0})
+    allowed, reason = g.reserve_query_slot()
+    assert not allowed and "Daily free quota" in reason and usage.refunds == 1
 
 
 # ---- addresses are built on the company's domain, never a platform's ------------

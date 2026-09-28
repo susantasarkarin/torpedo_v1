@@ -652,20 +652,34 @@ def create_invoice_from_project(
                     "tax_rate": tax_rate,
                 }]
 
-        # Every line's tax is computed from its own rate. Items passed in (the
-        # project-close invoice) carried a rate but no tax_amount, so the line
-        # said 18% while the total charged 0%.
+        # Project figures are final amounts as billed in Zoho Books (owner,
+        # 2026-09-28): the total stays exactly that figure and GST is worked
+        # backwards out of it -- taxable = amount / (1 + rate), GST = the
+        # rest. (Items once carried a rate but no tax_amount, so the line
+        # said 18% while the total charged 0%.) A line that arrives with its
+        # own tax_amount was priced before tax by whoever sent it and is kept.
         for item in items:
             if item.get("tax_rate") is None:
                 item["tax_rate"] = tax_rate
+            qty = float(item.get("quantity", 0) or 0)
+            rate = float(item.get("rate", 0) or 0)
             if item.get("tax_amount") is None:
-                item["tax_amount"] = round(float(item.get("quantity", 0) or 0) * float(item.get("rate", 0) or 0)
-                                           * float(item["tax_rate"]) / 100, 2)
+                gross = round(qty * rate, 2)
+                taxable = round(gross / (1 + float(item["tax_rate"]) / 100), 2)
+                item["amount_inclusive"] = gross
+                item["taxable_amount"] = taxable
+                item["tax_amount"] = round(gross - taxable, 2)
+                item["rate_inclusive"] = rate
+                item["rate"] = round(taxable / qty, 4) if qty else 0.0
+                item["tax_inclusive"] = True
+            else:
+                item["taxable_amount"] = round(qty * rate, 2)
+                item["amount_inclusive"] = round(item["taxable_amount"] + float(item["tax_amount"]), 2)
 
         # Calculate totals
-        subtotal = sum(item.get("quantity", 0) * item.get("rate", 0) for item in items)
-        tax_total = sum(item.get("tax_amount", 0) for item in items)
-        total_amount = subtotal + tax_total
+        subtotal = round(sum(item["taxable_amount"] for item in items), 2)
+        tax_total = round(sum(float(item.get("tax_amount", 0) or 0) for item in items), 2)
+        total_amount = round(sum(item["amount_inclusive"] for item in items), 2)
         
         # P0.14: Generate idempotency key and check for duplicates
         idempotency_key = generate_idempotency_key(project_id, items)

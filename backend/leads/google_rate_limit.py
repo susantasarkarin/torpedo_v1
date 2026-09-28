@@ -73,7 +73,8 @@ def get_rate_limit_settings() -> Dict[str, Any]:
     try:
         cfg = _app_settings.find_one({"_id": "app_config"})
         if cfg:
-            monthly_budget_usd = cfg.get("google_cse_monthly_budget_usd", 10.0)
+            # Free tier only by default (owner, 2026-09-28): 0 paid queries.
+            monthly_budget_usd = cfg.get("google_cse_monthly_budget_usd", 0.0)
             cost_per_1000_queries = cfg.get("google_cse_cost_per_1000_queries", 5.0)
             return {
                 "daily_limit": cfg.get("google_cse_daily_limit", 100),
@@ -88,7 +89,7 @@ def get_rate_limit_settings() -> Dict[str, Any]:
         pass
 
     # Defaults from env or hardcoded
-    monthly_budget_usd = float(os.getenv("GOOGLE_CSE_MONTHLY_BUDGET_USD", "10.0"))
+    monthly_budget_usd = float(os.getenv("GOOGLE_CSE_MONTHLY_BUDGET_USD", "0"))
     cost_per_1000_queries = float(os.getenv("GOOGLE_CSE_COST_PER_1000_QUERIES", "5.0"))
     return {
         "daily_limit": int(os.getenv("GOOGLE_CSE_DAILY_LIMIT", "100")),
@@ -102,8 +103,17 @@ def get_rate_limit_settings() -> Dict[str, Any]:
 
 
 def get_today_key() -> str:
-    """Get the date key for today (UTC)"""
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    """The quota day as Google counts it: midnight to midnight US Pacific.
+
+    It used to be the UTC date, which rolls over 7-8 hours before Google's
+    reset -- every UTC morning we believed 100 fresh queries were available
+    while Google still counted the previous day, and the searches 429'd."""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone
+        return datetime.now(timezone.utc).astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+    except Exception:
+        return datetime.utcnow().strftime("%Y-%m-%d")
 
 
 def get_current_hour() -> int:
@@ -295,6 +305,15 @@ def reserve_query_slot() -> Tuple[bool, str]:
 
     if not is_billable:
         return True, "OK"
+
+    if settings.get("monthly_paid_query_limit", 0) <= 0:
+        # Free tier only (owner, 2026-09-28): no paid queries at all. The
+        # wording must not say "monthly" -- the caller pauses until the limit
+        # named in the reason resets, and this one resets at Google's daily
+        # reset, not next month.
+        _refund_daily()
+        return False, (f"Daily free quota reached ({settings['daily_limit']}/day). "
+                       "Resets at midnight US Pacific.")
 
     # Past the free daily tier -- this query only proceeds if the monthly
     # paid budget has room for it.

@@ -261,17 +261,18 @@ def test_derive_monthly_paid_query_limit_never_divides_by_zero():
     assert grl._derive_monthly_paid_query_limit(10.0, 0) == 0
 
 
-def test_real_default_settings_derive_the_2000_query_monthly_limit():
-    """No DB override, no env override: get_rate_limit_settings()'s hardcoded
-    defaults must resolve to exactly the $10/month, 2000-paid-query budget."""
+def test_real_default_settings_are_the_free_tier_only():
+    """No DB override, no env override: the defaults are Google's free tier
+    and nothing paid (owner, 2026-09-28 -- the $10/month budget was undone).
+    The paid path stays available by setting a budget."""
     with patch.object(grl, "_app_settings", MagicMockNoConfig()), \
          patch.dict(os.environ, {}, clear=False):
         for var in ("GOOGLE_CSE_MONTHLY_BUDGET_USD", "GOOGLE_CSE_COST_PER_1000_QUERIES"):
             os.environ.pop(var, None)
         settings = grl.get_rate_limit_settings()
-    assert settings["monthly_budget_usd"] == 10.0
-    assert settings["cost_per_1000_queries"] == 5.0
-    assert settings["monthly_paid_query_limit"] == 2000
+    assert settings["monthly_budget_usd"] == 0.0
+    assert settings["daily_limit"] == 100
+    assert settings["monthly_paid_query_limit"] == 0
 
 
 class MagicMockNoConfig:

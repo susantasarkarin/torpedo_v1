@@ -216,8 +216,16 @@ def cse_resume_time(reason: str, now: Optional[datetime] = None) -> datetime:
     if "monthly" in r:
         first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         return (first + timedelta(days=32)).replace(day=1)
-    reset = now.replace(hour=8, minute=0, second=0, microsecond=0)
-    return reset if reset > now else reset + timedelta(days=1)
+    try:  # the next midnight in US Pacific, daylight saving included
+        from datetime import timezone
+        from zoneinfo import ZoneInfo
+        pac = ZoneInfo("America/Los_Angeles")
+        local = now.replace(tzinfo=timezone.utc).astimezone(pac)
+        midnight = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    except Exception:
+        reset = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        return reset if reset > now else reset + timedelta(days=1)
 
 
 def _pause_cse_for_24h(reason: str = "429 from Google"):

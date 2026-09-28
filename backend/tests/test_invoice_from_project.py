@@ -83,27 +83,37 @@ def test_dates_are_stored_as_datetimes(monkeypatch):
     assert (inv["due_date"] - inv["invoice_date"]).days == 30
 
 
-def test_indian_client_is_charged_18_percent_gst(monkeypatch):
-    inv = _raise(monkeypatch, _project(currency="INR"))
-    assert inv["tax_total"] == 180.0 and inv["total_amount"] == 1180.0
+def test_gst_is_worked_backwards_from_the_final_figure(monkeypatch):
+    # Project values are final amounts from Zoho Books: the total must not move.
+    inv = _raise(monkeypatch, _project(currency="INR", projectValue=1180.0))
+    assert inv["total_amount"] == 1180.0
+    assert inv["subtotal"] == 1000.0 and inv["tax_total"] == 180.0
+    assert inv["items"][0]["rate"] == 1000.0 and inv["items"][0]["rate_inclusive"] == 1180.0
 
 
 def test_export_invoice_carries_no_gst(monkeypatch):
     inv = _raise(monkeypatch, _project(currency="USD"))
-    assert inv["tax_total"] == 0 and inv["total_amount"] == 1000.0
+    assert inv["tax_total"] == 0 and inv["total_amount"] == 1000.0 and inv["subtotal"] == 1000.0
 
 
-def test_close_items_are_actually_taxed(monkeypatch):
+def test_close_items_keep_their_total_and_are_actually_taxed(monkeypatch):
     # The close invoice passes items with a rate and no amount: the line said
     # 18% and the total charged 0%.
-    items = [{"description": "Final billing", "quantity": 1, "rate": 500.0, "tax_rate": 18}]
+    items = [{"description": "Final billing", "quantity": 1, "rate": 590.0, "tax_rate": 18}]
     inv = _raise(monkeypatch, _project(currency="INR"), {"items": items})
-    assert inv["items"][0]["tax_amount"] == 90.0 and inv["total_amount"] == 590.0
+    assert inv["total_amount"] == 590.0
+    assert inv["items"][0]["tax_amount"] == 90.0 and inv["subtotal"] == 500.0
+
+
+def test_totals_add_up_after_rounding(monkeypatch):
+    inv = _raise(monkeypatch, _project(currency="INR", projectValue=121245.0))
+    assert inv["total_amount"] == 121245.0
+    assert round(inv["subtotal"] + inv["tax_total"], 2) == 121245.0
 
 
 def test_a_rate_set_by_hand_wins(monkeypatch):
     inv = _raise(monkeypatch, _project(currency="INR"), {"tax_rate": 5})
-    assert inv["tax_total"] == 50.0
+    assert inv["total_amount"] == 1000.0 and inv["tax_total"] == 47.62
 
 
 def test_gstin_means_domestic_whatever_the_currency():
