@@ -1460,12 +1460,27 @@ def close_project(
         skip_invoice = bool(payload.get("skip_final_invoice", False))
         notes = payload.get("notes") or ""
         invoice_result = None
+        warning = None
 
         if not skip_invoice:
             project_value = float(project.get("projectValue") or project.get("amount") or 0)
             already = sum(float(i.get("total_amount") or 0)
                           for i in invoices_collection.find({"project_id": project_id}))
             remaining = max(0.0, project_value - already)
+            if project_value <= 0:
+                # Nothing to bill from: the value was never entered. In the
+                # 2026-09-28 replay 55 of 65 closes ended here silently with
+                # no invoice. Say so, and leave someone a task.
+                warning = "Project has no value — no final invoice was raised; enter the value and invoice it"
+                try:
+                    from app.services import crm_service
+                    crm_service.create("tasks", {
+                        "title": f"Closed with no value: {project.get('projectName') or project.get('name') or project_id}",
+                        "description": warning, "due_date": now, "status": "open",
+                        "source": "project_close", "linked_object_type": "project",
+                        "linked_object_id": project_id})
+                except Exception as task_err:
+                    print(f"close_project: task for zero-value project failed: {task_err}")
             if remaining > 0:
                 invoice_result = create_invoice_from_project(
                     project_id,
@@ -1497,6 +1512,7 @@ def close_project(
             "status": "completed",
             "closed_at": now.isoformat(),
             "final_invoice": invoice_result,
+            "warning": warning,
         }
     except HTTPException:
         raise

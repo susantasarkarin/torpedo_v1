@@ -547,12 +547,17 @@ def build_extraction_prompt(search_results: List[dict], query: str) -> str:
             "snippet": item.get("snippet", "")
         })
 
+    # Compact on purpose: the local model has a 2048-token window shared by
+    # prompt and answer. Ten results with indented JSON plus an answer that
+    # echoed every snippet and guessed an email per lead used all 2048 and the
+    # JSON was cut off (2026-09-28). The snippet is attached afterwards from
+    # the matching result, and email guessing belongs to the pattern system.
     return f"""Extract LinkedIn profile information from these Google search results.
 
 Query: {query}
 
 Search results:
-{json.dumps(search_context, indent=2)}
+{json.dumps(search_context, separators=(",", ":"))}
 
 Return a JSON object with a "leads" array. Each lead must have:
 - name: full name (string)
@@ -563,8 +568,6 @@ Return a JSON object with a "leads" array. Each lead must have:
 - location: city/country if mentioned (string)
 - seniority_level: inferred from title — VP/Director/Manager/Lead/Senior (string)
 - department: inferred from title — Sales/Marketing/Research/Analytics/Operations (string)
-- snippet: the search snippet text (string)
-- email_candidate: best-guess work email using firstname.lastname@domain pattern if company_domain known, else empty string
 
 Only include profiles with a valid linkedin.com/in/ URL. Skip company pages, group pages, or directories.
 Return ONLY the JSON object, no markdown."""
@@ -611,6 +614,8 @@ def grounded_leads(leads: List[dict], search_results: List[dict]) -> List[dict]:
     for lead in leads:
         url = _norm_profile_url(lead.get("linkedin_url") or "")
         name = (lead.get("name") or "").strip().lower()
+        if url and not url.startswith("linkedin.com/in/"):
+            continue  # a company or directory page is not a person, whatever the model says
         if (url and url in links) or (not url and name and name in text):
             kept.append(lead)
     dropped = len(leads) - len(kept)
@@ -631,7 +636,7 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         # Given nothing, the local model invents a lead ("John Doe, VP of
         # Sales, Salesforce" -- seen 2026-09-28). Nothing in, nothing out.
         return []
-    extraction_prompt = build_extraction_prompt(search_results, query)
+    batch = max(1, int(os.getenv("LEAD_EXTRACTION_BATCH", "5")))
 
     try:
         from .bedrock_client import converse_json_object
@@ -643,7 +648,7 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         # included -- whenever the WebSearch job ran. Run it on a thread.
         from .local_llm_gate import queue_wait
 
-        def _extract():
+        def _extract(chunk):
             # Wait for the shared model slot rather than give up after the
             # default 5s: the results are already paid for in search quota.
             with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "90")),
@@ -651,13 +656,22 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
                 return converse_json_object(
                     role="cheap",
                     system=EXTRACTION_SYSTEM_PROMPT,
-                    user=extraction_prompt,
-                    max_tokens=2048,
+                    user=build_extraction_prompt(chunk, query),
+                    max_tokens=1024,
                     temperature=0.0,
                 )
 
-        data = await asyncio.to_thread(_extract)
-        leads = grounded_leads(parse_extracted_leads(data), search_results)
+        # A few results per call so prompt + answer fit the model's window.
+        parsed: List[dict] = []
+        for i in range(0, len(search_results), batch):
+            data = await asyncio.to_thread(_extract, search_results[i:i + batch])
+            parsed.extend(parse_extracted_leads(data))
+        leads = grounded_leads(parsed, search_results)
+        by_link = {_norm_profile_url(r.get("link") or ""): r for r in search_results}
+        for lead in leads:
+            src = by_link.get(_norm_profile_url(lead.get("linkedin_url") or ""))
+            if src and not lead.get("snippet"):
+                lead["snippet"] = (src.get("snippet") or "").strip()
 
         if leads:
             logger.info(f"[Bedrock extraction] Extracted {len(leads)} leads from {len(search_results)} results")

@@ -110,6 +110,28 @@ def test_no_results_means_no_model_call(monkeypatch):
     assert asyncio.run(ing.extract_leads_from_google_results([], "q")) == []
 
 
+def test_extraction_runs_in_small_batches_and_keeps_the_real_snippet(monkeypatch):
+    import asyncio
+    import json
+    import leads.bedrock_client as bc
+    import leads.ingestion as ing
+    results = [{"title": f"P{i} - Head of Research", "link": f"https://www.linkedin.com/in/p{i}",
+                "snippet": f"snippet {i}"} for i in range(12)]
+    prompts = []
+
+    def fake(**kw):
+        prompts.append(kw["user"])
+        batch = json.loads(kw["user"].split("Search results:\n", 1)[1].split("\n\nReturn", 1)[0])
+        return {"leads": [{"name": r["title"].split(" - ")[0], "title": "Head of Research",
+                           "linkedin_url": r["link"]} for r in batch]}
+
+    monkeypatch.setattr(bc, "converse_json_object", fake)
+    leads = asyncio.run(ing.extract_leads_from_google_results(results, "q"))
+    assert len(prompts) == 3 and len(leads) == 12
+    assert leads[0]["snippet"] == "snippet 0"
+    assert "email_candidate" not in prompts[0] and "\n  " not in prompts[0]
+
+
 def test_invented_leads_are_dropped():
     from leads.ingestion import grounded_leads
     results = [{"link": "https://uk.linkedin.com/in/jane-roe-123?trk=x", "title": "Jane Roe - Head of Insights",
@@ -120,6 +142,13 @@ def test_invented_leads_are_dropped():
              {"name": "Mary Major", "linkedin_url": ""}]
     kept = grounded_leads(leads, results)
     assert [l["name"] for l in kept] == ["Jane Roe", "Jane Roe"]
+
+
+def test_company_pages_are_not_people():
+    from leads.ingestion import grounded_leads
+    results = [{"link": "https://kr.linkedin.com/company/dn-automotive-corporation", "title": "DN Automotive", "snippet": ""}]
+    assert grounded_leads([{"name": "DN Automotive",
+                            "linkedin_url": "https://kr.linkedin.com/company/dn-automotive-corporation"}], results) == []
 
 
 def test_no_address_is_rendered_on_a_platform_domain():

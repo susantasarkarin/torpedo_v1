@@ -334,9 +334,42 @@ def run_monthly_ca_pack(now: Optional[datetime] = None) -> Dict[str, Any]:
     return {k: v for k, v in record.items() if k != "_id"}
 
 
+DRAFT_NUDGE_AFTER_DAYS = 3
+DRAFT_NUDGE_MAX_AGE_DAYS = 60
+
+
+def flag_unsent_drafts(now: Optional[datetime] = None) -> int:
+    """A CRM task for each invoice left in draft.
+
+    Reminders, overdue marking and the CA pack only see invoices that were
+    sent. Invoices raised on project close are drafts, and nothing sends them:
+    in the 2026-09-28 replay of the whole mail history every close invoice sat
+    in draft for good and no later finance step ever saw it. One task per
+    draft, once; drafts older than DRAFT_NUDGE_MAX_AGE_DAYS are left alone."""
+    now = now or datetime.utcnow()
+    fin = _fin()
+    n = 0
+    for inv in fin["invoices"].find({
+            "status": "draft", "is_deleted": {"$ne": True}, "draft_nudged_at": {"$exists": False},
+            "created_at": {"$lte": now - timedelta(days=DRAFT_NUDGE_AFTER_DAYS),
+                           "$gte": now - timedelta(days=DRAFT_NUDGE_MAX_AGE_DAYS)}}).limit(200):
+        number = inv.get("invoice_number") or str(inv["_id"])
+        _crm("tasks", {
+            "title": f"Invoice {number} is still a draft — review and send it",
+            "description": (f"{inv.get('customer_name') or ''} "
+                            f"{inv.get('currency_code') or inv.get('currency') or ''} "
+                            f"{inv.get('total_amount') or ''}").strip(),
+            "due_date": now, "status": "open", "source": "finance_automation",
+            "linked_object_type": "invoice", "linked_object_id": str(inv["_id"])})
+        fin["invoices"].update_one({"_id": inv["_id"]}, {"$set": {"draft_nudged_at": now}})
+        n += 1
+    return n
+
+
 def run_daily_finance_automation() -> Dict[str, Any]:
     now = datetime.utcnow()
     out: Dict[str, Any] = {"overdue_marked": mark_overdue_invoices(now)}
+    out["unsent_drafts_flagged"] = flag_unsent_drafts(now)
     out["reminders"] = run_invoice_reminders(now)
     out["reconcile"] = auto_reconcile_payments(now)
     if now.day <= 5:
