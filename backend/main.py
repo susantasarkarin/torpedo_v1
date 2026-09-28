@@ -988,6 +988,10 @@ except Exception as e:
         f"loaded application. Original error: {e}"
     ) from e
 
+# "Needs your attention" for the main dashboard
+from routers import attention as attention_router
+app.include_router(attention_router.router, prefix="/api")
+
 # RFQ (Request for Quote) router
 try:
     app.include_router(rfq_router.router, prefix="/api")
