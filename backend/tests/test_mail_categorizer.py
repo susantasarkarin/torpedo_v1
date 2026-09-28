@@ -188,6 +188,11 @@ def test_outbound_bulk_mail_is_outreach():
                 ["x@acme.com"])["category"] == "outreach"
 
 
+def test_our_bulk_pitch_to_a_vendor_is_still_outreach():
+    assert _out("SurveyFieldwork - One stop solution for all your research needs",
+                ["sheik@cint.com"])["category"] == "outreach"
+
+
 def test_outbound_to_own_domain_only_is_internal():
     assert _out("lunch", ["indira@surveyfieldwork.com"])["category"] == "internal"
 

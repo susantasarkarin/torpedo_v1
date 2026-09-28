@@ -469,14 +469,16 @@ def categorize_outbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
         return out("internal", "sent to our own domain only")
     if _INVOICE.search(subject):
         return out("invoice", "invoice / payment mail we sent")
+    # Bulk pitches first: we mailed thousands of them to vendors' staff too
+    # (6,441 to kantar.com alone), and a pitch is selling, not purchasing.
+    if not _RFQ.search(subject) and ctx.is_bulk_subject(subject):
+        return out("outreach", "bulk outreach / marketing mail")
     roles = {ctx.role(r, doc.get("gmail_thread_id")) for r in recipients} - {None}
     if roles == {"vendor"}:
         # our RFQ / PO / pricing to a supplier is purchasing, not a sales lead
         return out("vendor", "sent to a vendor")
     if _RFQ.search(subject):
         return out("rfq", "RFQ thread")
-    if ctx.is_bulk_subject(subject):
-        return out("outreach", "bulk outreach / marketing mail")
     if _ACTIVE_DEAL.search(subject):
         return out("active_deal", "sign-off / PO / contract / next steps")
     if _PROPOSAL.search(subject):
