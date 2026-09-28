@@ -141,10 +141,8 @@ def test_kill_switch_is_read_at_call_time(transport, monkeypatch):
 
 
 # -------------------------------------------------------------- compliance
-@pytest.mark.parametrize("missing", ["OUTREACH_SENDER_POSTAL_ADDRESS",
-                                     "OUTREACH_UNSUBSCRIBE_URL"])
-def test_bulk_send_refuses_without_compliance_fields(transport, monkeypatch, missing):
-    monkeypatch.delenv(missing, raising=False)
+def test_bulk_send_refuses_without_unsubscribe_url(transport, monkeypatch):
+    monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     with patch.object(facade._log, "record", return_value="log-1"):
         result = _send(transport)
 
@@ -153,6 +151,17 @@ def test_bulk_send_refuses_without_compliance_fields(transport, monkeypatch, mis
     # deployment, not of this address, and callers must hold rather than retire.
     assert result.category == "config"
     transport.assert_not_called()
+
+
+def test_missing_postal_address_does_not_block_bulk_send(transport, monkeypatch):
+    # Optional by owner decision (2026-09-28).
+    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
+    assert facade._compliance_problem(transactional=False) is None
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport)
+    assert result.delivered is True
 
 
 def test_transactional_mail_is_exempt_from_compliance_fields(transport, monkeypatch):

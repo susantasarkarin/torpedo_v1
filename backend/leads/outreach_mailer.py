@@ -277,13 +277,19 @@ def unsubscribe_url(email: str) -> str:
     return f"{base}?email={quote(email)}"
 
 
+def _postal_address() -> str:
+    """The configured address, or "" -- never a placeholder."""
+    return (SENDER_POSTAL_ADDRESS or "").strip()
+
+
 def build_footer(email: str) -> str:
-    """CAN-SPAM / GDPR footer: opt-out plus physical postal address."""
+    """Opt-out footer, plus the postal address when one is configured."""
+    address = _postal_address()
     return (
         f"\n\n---\n"
         f"{SENDER_NAME}\n"
-        f"{SENDER_POSTAL_ADDRESS}\n\n"
-        f"Don't want to hear from me again? Unsubscribe: {unsubscribe_url(email)}\n"
+        + (f"{address}\n" if address else "")
+        + f"\nDon't want to hear from me again? Unsubscribe: {unsubscribe_url(email)}\n"
     )
 
 
@@ -300,7 +306,9 @@ def build_message(lead: Dict[str, Any], subject: str, body: str) -> MIMEMultipar
         f"<html><body style=\"font-family:Arial,sans-serif;font-size:14px\">"
         f"{html_body}"
         f"<hr><p style=\"font-size:12px;color:#666\">"
-        f"{SENDER_NAME}<br>{SENDER_POSTAL_ADDRESS}<br><br>"
+        f"{SENDER_NAME}<br>"
+        + (f"{_postal_address()}<br>" if _postal_address() else "")
+        + f"<br>"
         f"<a href=\"{unsubscribe_url(to_email)}\">Unsubscribe</a>"
         f"</p></body></html>"
     )
@@ -450,8 +458,6 @@ def preflight(send: bool) -> List[str]:
     if missing:
         blockers.append(
             f"pitch copy is still a placeholder for: {', '.join(missing)}")
-    if not SENDER_POSTAL_ADDRESS.strip():
-        blockers.append("OUTREACH_SENDER_POSTAL_ADDRESS unset (required by CAN-SPAM)")
     if not SENDER_EMAIL.strip():
         blockers.append("OUTREACH_SENDER_EMAIL unset")
     if not UNSUBSCRIBE_BASE_URL.strip():

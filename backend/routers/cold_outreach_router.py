@@ -2962,8 +2962,8 @@ def process_due_outreach_sends() -> dict:
         now = datetime.utcnow()
         db = get_db()
 
-        # Preflight: a configuration problem (missing postal address /
-        # unsubscribe URL) blocks every send equally. Check it BEFORE selecting
+        # Preflight: a configuration problem (missing unsubscribe URL -- the
+        # postal address is optional) blocks every send equally. Check it BEFORE selecting
         # any lead so no lead is touched, and none can be retired for it. Before
         # this, the first cycle after the kill switch was cleared marked 338
         # good leads skipped_gate — a status the send query never selects again.

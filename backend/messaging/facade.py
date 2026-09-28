@@ -90,16 +90,19 @@ def sending_enabled() -> bool:
 
 def _compliance_problem(transactional: bool) -> Optional[str]:
     """
-    Bulk mail is illegal without a postal address and an unsubscribe path
-    (CAN-SPAM). outreach_mailer already refused to send without these; the rule
-    belongs here so it covers every channel rather than one of thirteen.
+    Bulk mail needs a working unsubscribe path. The rule lives here so it
+    covers every channel rather than one of thirteen.
+
+    OUTREACH_SENDER_POSTAL_ADDRESS is optional (owner decision, 2026-09-28):
+    when set it is printed in the outreach footer, when unset the line is
+    omitted and nothing is blocked. Note CAN-SPAM requires a physical postal
+    address (a registered office or PO box qualifies) in commercial mail to US
+    recipients -- setting one is how to satisfy that, not a placeholder.
 
     Transactional mail is exempt — a password reset needs no unsubscribe link.
     """
     if transactional:
         return None
-    if not os.getenv("OUTREACH_SENDER_POSTAL_ADDRESS", "").strip():
-        return "OUTREACH_SENDER_POSTAL_ADDRESS is not set (legally required for bulk mail)"
     if not os.getenv("OUTREACH_UNSUBSCRIBE_URL", "").strip():
         return "OUTREACH_UNSUBSCRIBE_URL is not set (unsubscribe path required for bulk mail)"
     return None

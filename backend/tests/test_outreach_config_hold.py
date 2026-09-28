@@ -15,6 +15,9 @@ nothing about them. These tests pin the corrected behaviour:
   * a real lead-level problem still retires the lead (skipped_gate);
   * the hold is loud (an ERROR log and a queryable outreach_health doc) and
     clears itself once the setting is fixed.
+
+2026-09-28: the postal address became optional (owner decision), so these
+tests use the still-required OUTREACH_UNSUBSCRIBE_URL to trigger a hold.
 """
 import importlib
 import logging
@@ -45,16 +48,14 @@ def facade():
 
 # ------------------------------------------------------------- gate category
 
-def test_missing_postal_address_is_config_not_compliance(facade, monkeypatch):
+def test_missing_postal_address_is_not_a_config_problem(facade, monkeypatch):
     monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
     monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_URL", "https://example.test/unsub")
-    with patch.object(facade, "sending_enabled", return_value=True):
-        blocked = facade.gate("ceo@bigcorp.com", identity="a@b.com", channel="outreach")
-    assert blocked is not None and blocked[1] == "config"
+    assert facade._compliance_problem(transactional=False) is None
 
 
 def test_missing_unsubscribe_url_is_config(facade, monkeypatch):
-    monkeypatch.setenv("OUTREACH_SENDER_POSTAL_ADDRESS", "1 Test Street, Kolkata")
+    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
     monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     with patch.object(facade, "sending_enabled", return_value=True):
         blocked = facade.gate("ceo@bigcorp.com", identity="a@b.com", channel="outreach")
@@ -95,13 +96,13 @@ def _db_with(leads):
 
 
 def test_preflight_holds_without_touching_any_lead(router, monkeypatch, caplog):
-    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
+    monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     db = _db_with([{"_id": 1, "campaign_id": "c1", "email": "a@corp.com"}])
     with patch.object(router, "get_db", return_value=db), caplog.at_level(logging.ERROR):
         result = router.process_due_outreach_sends()
 
     leads = db.colls["outreach_leads_v2"]
-    assert "OUTREACH_SENDER_POSTAL_ADDRESS" in result["held"]
+    assert "OUTREACH_UNSUBSCRIBE_URL" in result["held"]
     assert result["sent"] == 0
     leads.find.assert_not_called()          # no lead was even selected
     leads.update_one.assert_not_called()    # ...so none can be retired
@@ -113,7 +114,7 @@ def test_preflight_holds_without_touching_any_lead(router, monkeypatch, caplog):
 
 
 def test_hold_alert_is_rate_limited(router, monkeypatch, caplog):
-    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
+    monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     db = _db_with([])
     with patch.object(router, "get_db", return_value=db), caplog.at_level(logging.ERROR):
         for _ in range(5):
@@ -122,12 +123,12 @@ def test_hold_alert_is_rate_limited(router, monkeypatch, caplog):
 
 
 def test_hold_clears_when_the_setting_is_fixed(router, monkeypatch):
-    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
+    monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     db = _db_with([])
     with patch.object(router, "get_db", return_value=db):
         router.process_due_outreach_sends()
         assert router._config_hold_active is True
-        monkeypatch.setenv("OUTREACH_SENDER_POSTAL_ADDRESS", "1 Test Street, Kolkata")
+        monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_URL", "https://example.test/unsub")
         router.process_due_outreach_sends()
     assert router._config_hold_active is False
     db.colls["outreach_health"].delete_one.assert_called_once_with({"_id": "config_hold"})
@@ -167,7 +168,7 @@ def test_no_log_spam_when_nothing_was_ever_held(router, monkeypatch, caplog):
 
 
 def test_bookkeeping_failure_never_breaks_the_cycle(router, monkeypatch):
-    monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
+    monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
     db = _db_with([])
     db.colls["outreach_health"].update_one.side_effect = RuntimeError("mongo down")
     with patch.object(router, "get_db", return_value=db):
@@ -196,7 +197,7 @@ def _one_lead_send(router, gate_result):
 
 
 def test_backstop_config_block_leaves_status_alone(router):
-    leads = _one_lead_send(router, ("OUTREACH_SENDER_POSTAL_ADDRESS is not set", "config"))
+    leads = _one_lead_send(router, ("OUTREACH_UNSUBSCRIBE_URL is not set", "config"))
     sets = [c.args[1]["$set"] for c in leads.update_one.call_args_list]
     assert sets, "expected the lead to be stamped with the error"
     assert all("workflow_status" not in s for s in sets)

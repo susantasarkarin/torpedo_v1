@@ -194,10 +194,12 @@ def test_placeholder_pitch_blocks_sending():
     assert any("pitch copy" in b for b in blockers)
 
 
-def test_missing_postal_address_blocks_sending(monkeypatch):
+def test_missing_postal_address_does_not_block_sending(monkeypatch):
+    # Optional by owner decision (2026-09-28): a missing address omits the
+    # footer line, it must never stop a run.
     monkeypatch.setattr(om, "SENDER_POSTAL_ADDRESS", "")
     blockers = preflight(send=True)
-    assert any("POSTAL_ADDRESS" in b for b in blockers)
+    assert not any("POSTAL_ADDRESS" in b for b in blockers)
 
 
 def test_missing_unsubscribe_url_blocks_sending(monkeypatch):
@@ -224,6 +226,27 @@ def test_footer_contains_unsubscribe_and_address(monkeypatch):
     assert "1 Test St" in footer
     assert "unsubscribe" in footer.lower()
     assert "https://x.test/u" in footer
+
+
+def test_footer_without_address_has_no_address_line(monkeypatch):
+    monkeypatch.setattr(om, "SENDER_NAME", "Indira Das")
+    monkeypatch.setattr(om, "SENDER_POSTAL_ADDRESS", "")
+    monkeypatch.setattr(om, "UNSUBSCRIBE_BASE_URL", "https://x.test/u")
+    footer = build_footer("asha@acme.com")
+    assert footer == ("\n\n---\nIndira Das\n\n"
+                      "Don't want to hear from me again? Unsubscribe: "
+                      "https://x.test/u?email=asha%40acme.com\n")
+
+
+def test_html_part_without_address_has_no_empty_address_slot(monkeypatch):
+    monkeypatch.setattr(om, "SENDER_EMAIL", "me@acme.com")
+    monkeypatch.setattr(om, "SENDER_NAME", "Me")
+    monkeypatch.setattr(om, "SENDER_POSTAL_ADDRESS", "   ")
+    monkeypatch.setattr(om, "UNSUBSCRIBE_BASE_URL", "https://x.test/u")
+    msg = build_message(LEAD, "Subject", _body())
+    html = [p for p in msg.get_payload() if p.get_content_subtype() == "html"][0]
+    text = html.get_payload(decode=True).decode("utf-8")
+    assert "Me<br><br><a href=" in text   # name, spacer, unsubscribe -- no address
 
 
 def test_unsubscribe_url_encodes_email(monkeypatch):

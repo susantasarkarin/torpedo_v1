@@ -50,7 +50,7 @@ Sending only:
 | Variable | Notes |
 |---|---|
 | `OUTREACH_SENDER_EMAIL` / `OUTREACH_SENDER_NAME` | verified SES identity |
-| `OUTREACH_SENDER_POSTAL_ADDRESS` | **legally required** (CAN-SPAM); send refuses without it |
+| `OUTREACH_SENDER_POSTAL_ADDRESS` | optional; printed in the outreach footer when set, line omitted when unset, never blocks sending. CAN-SPAM requires a physical postal address (registered office or PO box qualifies) in commercial mail to US recipients -- set a real one to satisfy that, never a placeholder |
 | `OUTREACH_UNSUBSCRIBE_URL` | must resolve to the unsubscribe route below |
 | `OUTREACH_TRANSPORT` | `ses` (default) or `smtp` (+ `SMTP_HOST/PORT/USER/PASSWORD`) |
 
@@ -114,8 +114,8 @@ python -m leads.outreach_mailer --send
 
 Emails are written by DeepSeek (`role="smart"`) and validated (length, CTA,
 correct name, no placeholders, no invented claims about the recipient's
-company; max 2 regenerations). Sending refuses if pitch copy, postal address,
-sender email, or unsubscribe URL is missing. Caps, randomized 45–180s spacing,
+company; max 2 regenerations). Sending refuses if pitch copy, sender email,
+or unsubscribe URL is missing (the postal address is optional). Caps, randomized 45–180s spacing,
 plain-text part, `List-Unsubscribe` headers, full send log in
 `outreach_send_logs` (bodies never logged).
 
