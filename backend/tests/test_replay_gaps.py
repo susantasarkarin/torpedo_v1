@@ -24,6 +24,19 @@ class _Invoices:
         self.updates.append((q, u))
 
 
+def test_nurture_finds_the_thread_for_a_prospect_found_in_the_mail_pool(monkeypatch):
+    from sales import nurture
+
+    class _Mailboxes:
+        def find_one(self, q):
+            return {"email": "susanta@surveyfieldwork.com", "display_name": "Susanta"}
+
+    monkeypatch.setattr(nurture, "_db", lambda name: {"workspace_mailboxes": _Mailboxes()})
+    lead = {"mail_pool": {"triage": {"mailbox_id": "696b529f87549d9a1c9c0dcc", "gmail_thread_id": "t-9"}}}
+    box = nurture._thread_mailbox(lead)
+    assert box == {"email": "susanta@surveyfieldwork.com", "display_name": "Susanta", "thread_id": "t-9"}
+
+
 def test_unsent_drafts_get_one_task_each(monkeypatch):
     now = datetime(2026, 9, 28)
     inv = _Invoices([

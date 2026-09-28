@@ -477,7 +477,8 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
             continue
         if undecided_before and (not use_model or model_used >= model_limit):
             continue
-        doc = em.find_one({"_id": last["mid"]}, {"subject": 1, "body_plain": 1, "snippet": 1})
+        doc = em.find_one({"_id": last["mid"]}, {"subject": 1, "body_plain": 1, "snippet": 1,
+                                                  "mailbox_id": 1, "gmail_thread_id": 1})
         body, subject = (doc or {}).get("body_plain") or (doc or {}).get("snippet") or "", (doc or {}).get("subject") or ""
         stats["checked"] += 1
         if undecided_before:
@@ -499,8 +500,13 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
             "lead_status": LEAD_STATUS_FOR_VERDICT[verdict], "lead_status_source": TRIAGE_SOURCE,
             "needs_human_review": verdict == "needs_human",
             "mail_pool.triaged_message_id": str(last["mid"]), "mail_pool.triage_pending": False,
+            # mailbox + thread: nurture drafts its follow-up in the thread the
+            # prospect wrote in, from the mailbox they wrote to.
             "mail_pool.triage": {"verdict": verdict, "method": triage.get("method"),
                                  "reason": triage.get("reason"), "model_verdict": triage.get("model_verdict"),
+                                 "gmail_message_id": str(last["mid"]),
+                                 "gmail_thread_id": (doc or {}).get("gmail_thread_id"),
+                                 "mailbox_id": (doc or {}).get("mailbox_id"),
                                  "triaged_at": now},
             "updated_at": now}})
         fresh = isinstance(last.get("ts"), datetime) and last["ts"] >= now - timedelta(days=NURTURE_MAX_AGE_DAYS)

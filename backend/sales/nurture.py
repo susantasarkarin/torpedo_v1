@@ -182,7 +182,10 @@ def _new_reply_since(lead: Dict[str, Any], since: datetime) -> bool:
 
 def _thread_mailbox(lead: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """The outreach mailbox the prospect replied to, and its thread id."""
-    triage = lead.get("reply_triage") or {}
+    # reply_triage: outreach replies; mail_pool.triage: prospects found in the
+    # mail pool. Reading only the first left every mail-pool nurture with "no
+    # outreach mailbox" -- stored, never drafted (seen live, 2026-09-28).
+    triage = lead.get("reply_triage") or (lead.get("mail_pool") or {}).get("triage") or {}
     mailbox_id = triage.get("mailbox_id")
     mailbox = None
     if mailbox_id:
