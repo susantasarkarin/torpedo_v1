@@ -134,19 +134,40 @@ class Context:
     def __init__(self, client_domains: Set[str], vendor_domains: Set[str],
                  client_emails: Set[str], vendor_emails: Set[str],
                  outreach_threads: Set[str], bulk_subjects: Optional[Set[str]] = None,
-                 relationships: Optional[Dict[str, str]] = None):
+                 relationships: Optional[Dict[str, str]] = None,
+                 both_defaults: Optional[Dict[str, str]] = None,
+                 thread_opener: Optional[Dict[str, str]] = None):
         # build_context has already resolved domains that look like both.
         self.client_domains = client_domains - vendor_domains
         self.vendor_domains = vendor_domains
         self.client_emails = client_emails
         self.vendor_emails = vendor_emails - client_emails
-        # Set by a person (domain or address -> client/vendor); beats all evidence.
+        # Set by a person (domain or address -> client/vendor/both); beats all evidence.
         self.relationships = {k.lower(): v for k, v in (relationships or {}).items()
-                              if v in ("client", "vendor")}
+                              if v in ("client", "vendor", "both")}
+        # For "both": which side to assume when the thread does not say.
+        self.both_defaults = {k.lower(): v for k, v in (both_defaults or {}).items()}
+        # thread id -> "us" / "them": who sent its first message (threads with a "both" party).
+        self.thread_opener = thread_opener or {}
         self.outreach_threads = outreach_threads
         # Subjects we have mailed in bulk (older campaigns predate the
         # outreach_sends_v2 log, so thread matching alone misses them).
         self.bulk_subjects = bulk_subjects or set()
+
+    def role(self, addr: str, thread_id: Optional[str] = None) -> Optional[str]:
+        """client / vendor / None for this message. A party that is both (Cint
+        buys our panel sample and sells us sample) is a client in threads they
+        opened and a vendor in threads we opened -- who asked whom."""
+        party = self.party(addr)
+        if party != "both":
+            return party
+        opener = self.thread_opener.get(thread_id or "")
+        if opener == "them":
+            return "client"
+        if opener == "us":
+            return "vendor"
+        addr = (addr or "").lower()
+        return self.both_defaults.get(addr) or self.both_defaults.get(_domain(addr)) or "vendor"
 
     def is_bulk_subject(self, subject: Optional[str]) -> bool:
         s = normalize_subject(subject)
@@ -234,11 +255,43 @@ def rfq_thread_direction(client) -> Tuple[Dict[str, int], Dict[str, int]]:
     return asked_us, we_asked
 
 
-def load_relationships(client) -> Dict[str, str]:
+def load_relationships(client) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """-> (key -> client/vendor/both, key -> default side for 'both')."""
     db, name = RELATIONSHIPS_COLLECTION
-    return {r["key"]: r["relationship"] for r in client[db][name].find(
-        {"key": {"$type": "string"}, "relationship": {"$in": ["client", "vendor"]}},
-        {"key": 1, "relationship": 1})}
+    rels, defaults = {}, {}
+    for r in client[db][name].find(
+            {"key": {"$type": "string"}, "relationship": {"$in": ["client", "vendor", "both"]}},
+            {"key": 1, "relationship": 1, "default": 1}):
+        key = r["key"].strip().lower()
+        rels[key] = r["relationship"]
+        if r["relationship"] == "both":
+            defaults[key] = r.get("default") if r.get("default") in ("client", "vendor") else "vendor"
+    return rels, defaults
+
+
+def thread_openers(client, keys) -> Dict[str, str]:
+    """thread id -> 'us' / 'them' for threads involving these domains or
+    addresses. 'us' = we sent the first message. 'them' only when they opened
+    it with an RFQ: Cint also opens hundreds of platform-notice threads about
+    surveys we run on Cint, and those are Cint as our vendor."""
+    if not keys:
+        return {}
+    alts = "|".join(re.escape(k) if "@" in k else "@" + re.escape(k) for k in keys)
+    rx = {"$regex": f"({alts})$", "$options": "i"}
+    em = client["torpedo_gmail"]["email_metadata"]
+    threads = [t for t in em.distinct("gmail_thread_id", {"$or": [{"from_email": rx}, {"to_emails": rx}]}) if t]
+    out: Dict[str, str] = {}
+    for i in range(0, len(threads), 5000):
+        for t in em.aggregate([
+                {"$match": {"gmail_thread_id": {"$in": threads[i:i + 5000]}}},
+                {"$sort": {"timestamp": 1}},
+                {"$group": {"_id": "$gmail_thread_id", "dir": {"$first": "$direction"},
+                            "s": {"$first": "$subject"}}}], allowDiskUse=True):
+            if t.get("dir") == "outbound":
+                out[t["_id"]] = "us"
+            elif _RFQ.search(t.get("s") or ""):
+                out[t["_id"]] = "them"
+    return out
 
 
 def build_context(client) -> Context:
@@ -302,8 +355,10 @@ def build_context(client) -> Context:
     strong_clients = {d for d in client_domains if asked_us.get(d, 0) >= STRONG_CLIENT_THREADS
                       and asked_us[d] >= 3 * we_asked.get(d, 0)}
     vendor_domains -= strong_clients
+    rels, both_defaults = load_relationships(client)
     return Context(client_domains, vendor_domains, ce, ve, threads, bulk,
-                   relationships=load_relationships(client))
+                   relationships=rels, both_defaults=both_defaults,
+                   thread_opener=thread_openers(client, [k for k, v in rels.items() if v == "both"]))
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +413,7 @@ def categorize_inbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
 
     # 4. banking & tax, then invoices. A bank that is also a client (IDFC's
     #    mystery-shopping work) is a client, not "banking".
-    party = ctx.party(sender)
+    party = ctx.role(sender, doc.get("gmail_thread_id"))
     if party is None and (_BANKING.search(sender) or _BANKING.search(subject)):
         return out("banking", "bank / tax authority")
     if _INVOICE.search(sender) or _INVOICE.search(subject):
@@ -414,6 +469,10 @@ def categorize_outbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
         return out("internal", "sent to our own domain only")
     if _INVOICE.search(subject):
         return out("invoice", "invoice / payment mail we sent")
+    roles = {ctx.role(r, doc.get("gmail_thread_id")) for r in recipients} - {None}
+    if roles == {"vendor"}:
+        # our RFQ / PO / pricing to a supplier is purchasing, not a sales lead
+        return out("vendor", "sent to a vendor")
     if _RFQ.search(subject):
         return out("rfq", "RFQ thread")
     if ctx.is_bulk_subject(subject):
@@ -423,7 +482,7 @@ def categorize_outbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     if _PROPOSAL.search(subject):
         return out("proposal", "proposal / quote / pricing")
     for r in recipients:
-        party = ctx.party(r)
+        party = ctx.role(r, doc.get("gmail_thread_id"))
         if party:
             return out(party, f"sent to a known {party}")
     return out("others", "no rule matched (outbound)")

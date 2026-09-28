@@ -119,6 +119,32 @@ def test_relationship_set_by_a_person_beats_evidence():
     assert ctx.party("keya.kundu@hansaresearch.com") == "client"
 
 
+def _both_ctx():
+    return _ctx(relationships={"cint.com": "both"}, both_defaults={"cint.com": "vendor"},
+                thread_opener={"t-they-asked": "them", "t-we-asked": "us"})
+
+
+def test_both_party_is_a_client_in_threads_they_opened():
+    r = mc.categorize_inbound({"subject": "RFQ - India GP feasibility", "from_email": "rohit@cint.com",
+                               "gmail_thread_id": "t-they-asked", "direction": "inbound"}, _both_ctx())
+    assert r["category"] == "rfq"
+
+
+def test_both_party_is_a_vendor_in_threads_we_opened():
+    r = mc.categorize_inbound({"subject": "RE: RFQ - US GP n=500", "from_email": "rohit@cint.com",
+                               "gmail_thread_id": "t-we-asked", "direction": "inbound"}, _both_ctx())
+    assert r["category"] == "vendor"
+    o = mc.categorize_outbound({"subject": "RFQ - US GP n=500", "to_emails": ["rohit@cint.com"],
+                                "gmail_thread_id": "t-we-asked", "direction": "outbound"}, _both_ctx())
+    assert o["category"] == "vendor"
+
+
+def test_both_party_uses_its_default_when_the_thread_is_unknown():
+    assert _both_ctx().role("rohit@cint.com", "t-unknown") == "vendor"
+    ctx = _ctx(relationships={"cint.com": "both"}, both_defaults={"cint.com": "client"})
+    assert ctx.role("rohit@cint.com", None) == "client"
+
+
 def test_relationship_for_one_address_beats_its_domain():
     ctx = _ctx(relationships={"ipsos.com": "client", "denis.popa@ipsos.com": "vendor"})
     assert ctx.party("denis.popa@ipsos.com") == "vendor"
