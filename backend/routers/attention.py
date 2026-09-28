@@ -130,9 +130,15 @@ def _automation(c, now) -> List[Dict[str, Any]]:
         sendable = t["outreach_leads_v2"].count_documents({"campaign_id": {"$in": active}, "sendable": True,
                                                            "workflow_status": {"$in": ["in_sequence", "not_started"]}})
         if sendable == 0:
+            verdicts = {r["_id"]: r["n"] for r in t["outreach_leads_v2"].aggregate([
+                {"$match": {"verification_status_inhouse": {"$exists": True}}},
+                {"$group": {"_id": "$verification_status_inhouse", "n": {"$sum": 1}}}])}
+            detail = "New leads stay unsendable until you decide which verification verdicts may be sent to"
+            if verdicts:
+                detail += " — in-house check: " + ", ".join(
+                    f"{verdicts.get('inhouse:' + v, 0)} {v}" for v in ("valid", "likely", "risky", "unknown", "invalid"))
             out.append(_item("outreach_no_sendable", "Active campaigns have no verified leads to send to", 1,
-                             "/admin/sales/outreach", "high",
-                             "New leads stay unsendable until an email verifier is in place"))
+                             "/admin/sales/outreach", "high", detail))
     st = c["email_automation"]["scheduler_state"].find_one({"_id": "google_cse_state"}) or {}
     if st.get("paused_until") and st["paused_until"] > now:
         out.append(_item("leadgen_paused", "Lead search is paused", 1, "/admin/sales/campaign/ai-leads", "normal",
