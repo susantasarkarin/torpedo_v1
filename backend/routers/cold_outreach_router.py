@@ -581,20 +581,29 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
         raise HTTPException(400, "Step has no content yet — save the template first")
 
     # â”€â”€ Find a mailbox to send from â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # The same sender, content, footer and transport the scheduled send uses,
+    # so a test shows exactly what a recipient gets. This endpoint used to
+    # reference gmail_mailbox / smtp_mailbox, which were never defined here --
+    # every click on the campaign's Test button failed with a NameError -- and
+    # it sent without the opt-out footer the real path adds.
     sender_cfg = _resolve_sender_for_campaign(db, campaign)
     if not sender_cfg:
         raise HTTPException(
             400,
-            "No mailbox found for this campaign’s business — connect a Gmail account "
+            "No mailbox found for this campaign's business - connect a Gmail account "
             "via the Mailboxes tab or add SMTP credentials"
         )
     sender_email = sender_cfg["from_email"]
     sender_name = sender_cfg["display_name"]
+    transport = sender_cfg.get("transport")
+    business = campaign.get("business", "sfw")
+    business_label = BUSINESS_LABEL.get(business, business)
 
     # Replace tokens with sample data
     sample = {
         "{{first_name}}": "Alex",
         "{{last_name}}": "Johnson",
+        "{{name}}": "Alex Johnson",
         "{{company}}": "Acme Corp",
         "{{title}}": "Head of Research",
         "{{industry}}": "Market Research",
@@ -606,69 +615,38 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
             text = text.replace(token, val)
         return text
 
-    subject = _replace(step.get("subject", "(no subject)"))
+    subject = "[TEST] " + _replace(step.get("subject", "(no subject)"))
     body_html = _replace(step.get("body_html", ""))
-    # â”€â”€ Fetch sender signature via Gmail API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    signature_html = ""
-    if gmail_mailbox:
-        from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
-        _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-        _ws = _GWS(mongo_uri=_mongo)
-        _ws.load_service_account()
-        if _ws.is_configured():
-            signature_html = _ws.get_signature(sender_email) or ""
 
-    # Build final body with signature
-    if signature_html:
-        full_body_html = body_html + "<br><br>" + signature_html
-    else:
-        full_body_html = body_html
+    try:
+        from services.outreach_unsubscribe import compliance_footer, footer_blocker
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.services.outreach_unsubscribe import compliance_footer, footer_blocker
+    problem = footer_blocker()
+    if problem:
+        raise HTTPException(400, f"Real sends are refused until this is fixed: {problem}")
+    body_html = body_html + compliance_footer(req.recipient_email, business_label)
+    attachments = step.get("attachments") or None
 
-    body_text = full_body_html.replace("<br>", "\n").replace("<br/>", "\n")
-    body_text = re.sub(r"<[^>]+>", "", body_text)
-
-    msg = MIMEMultipart("alternative")
-    msg["From"] = f"{sender_name} <{sender_email}>"
-    msg["To"] = req.recipient_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body_text, "plain"))
-    msg.attach(MIMEText(full_body_html, "html"))
-
-    # â”€â”€ Send via Gmail API or SMTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    if gmail_mailbox:
-        # Reuse the workspace service created for signature fetch, or create one
-        if not signature_html:
-            from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
-            _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-            _ws = _GWS2(mongo_uri=_mongo)
-            _ws.load_service_account()
-
-        if not _ws.is_configured():
-            raise HTTPException(500, "Gmail service account not configured on server")
-
-        try:
-            service = _ws._get_service(sender_email)
-            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-            result = service.users().messages().send(
-                userId="me", body={"raw": raw}
-            ).execute()
-        except Exception as e:
-            logger.error(f"Gmail API test send failed: {e}")
-            raise HTTPException(500, f"Gmail API error: {e}")
-    else:
-        # Fallback: SMTP
-        import smtplib
-        try:
-            with smtplib.SMTP(smtp_mailbox["smtp_host"], smtp_mailbox["smtp_port"], timeout=30) as server:
-                server.starttls()
-                server.login(smtp_mailbox["smtp_username"], smtp_mailbox["smtp_password"])
-                server.send_message(msg)
-        except Exception as e:
-            logger.error(f"SMTP test send failed: {e}")
-            raise HTTPException(500, f"SMTP error: {e}")
+    try:
+        if transport == "gmail":
+            result = _send_via_gmail_api(sender_email, req.recipient_email, subject, body_html,
+                                         sender_name, attachments=attachments)
+        elif transport == "smtp":
+            result = _send_via_smtp(sender_cfg.get("mailbox_doc") or {}, req.recipient_email,
+                                    subject, body_html, sender_name, attachments=attachments)
+        else:
+            raise HTTPException(400, f"Unsupported sender transport: {transport!r}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Test send failed: {e}")
+        raise HTTPException(500, f"Send failed: {e}")
 
     logger.info(f"Test email for step {step_number} sent to {req.recipient_email} via {sender_email}")
-    return {"ok": True, "sent_to": req.recipient_email, "from": sender_email}
+    return {"ok": True, "sent_to": req.recipient_email, "from": sender_email,
+            "transport": transport, "message_id": (result or {}).get("message_id"),
+            "thread_id": (result or {}).get("thread_id")}
 
 
 # â”€â”€ CSV / File attachment upload for campaign steps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1501,6 +1479,86 @@ async def track_click(send_id: str, url: str = Query(...)):
         logger.error(f"Click-track write failed for send_id={send_id}: {exc}")
 
     return RedirectResponse(url=decoded_url, status_code=302)
+
+
+# ── Opt-out ───────────────────────────────────────────────────────────────────
+#
+# Public for the same reason the pixel is: the person clicking has no session,
+# and the link lives inside mail that has already been delivered. It writes to
+# messaging.suppression — the canonical list every sender consults — not to
+# panel_email_suppression, which nothing on this path reads.
+
+
+def _record_outreach_optout(email: str, source: str) -> None:
+    """Suppress the address everywhere, and close out its outreach rows."""
+    try:
+        from messaging import suppression as _suppression
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import suppression as _suppression
+
+    normalized = _suppression.normalize(email)
+    _suppression.suppress(normalized, reason="unsubscribed", source=source)
+    try:
+        get_db()["outreach_leads_v2"].update_many(
+            {"email": normalized},
+            {"$set": {"unsubscribed": True,
+                      "unsubscribed_at": datetime.utcnow(),
+                      "sendable": False,
+                      "workflow_status": "suppressed",
+                      "updated_at": datetime.utcnow()}})
+    except Exception as exc:
+        # The suppression write is the one that stops mail; this is bookkeeping.
+        logger.error("[outreach-unsub] lead rows not updated for %s: %s",
+                     normalized, exc)
+
+
+_UNSUB_PAGE = (
+    "<!doctype html><meta charset=utf-8>"
+    "<meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>Unsubscribed</title>"
+    "<div style=\"font:16px/1.6 Arial,sans-serif;max-width:32rem;margin:12vh auto;"
+    "padding:0 1.25rem;color:#1a1a1a\">"
+    "<h1 style='font-size:1.35rem;margin:0 0 .75rem'>You've been unsubscribed</h1>"
+    "<p style='margin:0;color:#555'>We won't email you again. Nothing else is "
+    "needed from you.</p></div>"
+)
+
+
+@router.get("/unsubscribe/{token}")
+async def outreach_unsubscribe(token: str):
+    """Human-facing opt-out. Acts on GET deliberately.
+
+    A confirmation step loses real opt-outs — people assume the click worked
+    and the next message is then a complaint, not a click. Mail-client link
+    prefetch can trigger this without a human, which costs us one address we
+    were not going to convert anyway. That trade runs one way.
+    """
+    from services.outreach_unsubscribe import read_token
+
+    email = read_token(token)
+    if email:
+        _record_outreach_optout(email, source="unsubscribe_link")
+    else:
+        logger.warning("[outreach-unsub] link carried no resolvable address")
+    # Identical response either way: this endpoint is public and must not
+    # confirm whether an address is one of ours.
+    return Response(content=_UNSUB_PAGE, media_type="text/html")
+
+
+@router.post("/unsubscribe/{token}/one-click")
+async def outreach_unsubscribe_one_click(token: str):
+    """RFC 8058 one-click target. Always 200 — a non-200 makes the mailbox
+    provider treat our unsubscribe as broken."""
+    from services.outreach_unsubscribe import read_token
+
+    try:
+        email = read_token(token)
+        if email:
+            _record_outreach_optout(email, source="one_click")
+    except Exception as exc:
+        logger.error("[outreach-unsub] one-click failed: %s", exc)
+    return {"status": "unsubscribed"}
+
 
 
 # â”€â”€ Helpers: inject pixel & rewrite links in outgoing HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2705,6 +2763,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         # Collect step attachments (CSV files, etc.) if any
         step_attachments = step_template.get("attachments") or []
+
+
+        # ── Compliance footer ────────────────────────────────────────────────
+        # Every commercial message must carry the sender's postal address and a
+        # working opt-out. messaging.facade already refuses to send unless the
+        # two env vars exist, but that check only proves they are SET — nothing
+        # here ever put them into the message. Build the footer from the same
+        # configuration and refuse the send if it cannot be built, so the gate
+        # and the mail can never disagree.
+        try:
+            from services.outreach_unsubscribe import (compliance_footer,
+                                                       footer_blocker)
+        except ImportError:  # pragma: no cover - packaging fallback
+            from backend.services.outreach_unsubscribe import (compliance_footer,
+                                                               footer_blocker)
+        _footer_problem = footer_blocker()
+        if _footer_problem:
+            logger.error("[Outreach] refusing to send to %s: %s", email, _footer_problem)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"last_send_error": f"compliance: {_footer_problem}"[:300],
+                          "last_send_attempt_at": datetime.utcnow(),
+                          "updated_at": datetime.utcnow()}})
+            _release_daily_send_slot(db, from_email)
+            return False
+        body_html = body_html + compliance_footer(email, business_label)
 
         # Generate send_id BEFORE sending so the tracking pixel can embed it
         send_id = str(uuid.uuid4())
