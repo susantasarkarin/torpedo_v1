@@ -113,6 +113,19 @@ def generate_invoice_number() -> str:
     return f"INV-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
+def _as_datetime(value: Any, default: datetime) -> datetime:
+    """Invoice dates are stored as datetimes everywhere else in finance_db;
+    a string due_date never matches the overdue query ({"$lt": now})."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", ""))
+        except ValueError:
+            pass
+    return default
+
+
 def _safe_to_float(value: Any) -> float:
     """Convert mixed numeric/string values to float without raising."""
     if value is None:
@@ -639,6 +652,11 @@ def create_invoice_from_project(
             }
         
         # Create invoice
+        now = datetime.utcnow()
+        # The project's own currency (set by the RFQ-won handoff) -- a USD
+        # project must not be invoiced in INR. INR stays the fallback only for
+        # older projects that never recorded a currency.
+        currency = invoice_data.get("currency_code") or project.get("currency") or "INR"
         new_invoice = {
             "invoice_number": generate_invoice_number(),
             "idempotency_key": idempotency_key,
@@ -646,8 +664,8 @@ def create_invoice_from_project(
             "project_id": project_id,  # Link to project
             "project_name": project.get("projectName"),
             "survey_no": project.get("surveyNo"),
-            "invoice_date": invoice_data.get("invoice_date", datetime.utcnow().strftime("%Y-%m-%d")),
-            "due_date": invoice_data.get("due_date", (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")),
+            "invoice_date": _as_datetime(invoice_data.get("invoice_date"), now),
+            "due_date": _as_datetime(invoice_data.get("due_date"), now + timedelta(days=30)),
             "items": items,
             "subtotal": subtotal,
             "tax_total": tax_total,
@@ -655,7 +673,8 @@ def create_invoice_from_project(
             "balance_due": total_amount,
             "amount_paid": 0,
             "status": "draft",
-            "currency_code": invoice_data.get("currency_code", "INR"),
+            "currency_code": currency,
+            "currency": currency,
             "notes": invoice_data.get("notes", f"Invoice for project: {project.get('projectName')}"),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
