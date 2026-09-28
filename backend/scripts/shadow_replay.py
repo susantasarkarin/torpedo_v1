@@ -236,6 +236,11 @@ def reset_shadow():
         SHADOW["torpedo"]["outreach_campaigns_v2"].insert_one(doc)
     for doc in src_f["vendors"].find():
         SHADOW["finance_db"]["vendors"].insert_one(doc)
+    # Nurture drafts from the mailbox the prospect wrote to; without the
+    # mailbox list every step was "stored" (third replay, 2026-09-28).
+    for doc in SOURCE["torpedo_gmail"]["workspace_mailboxes"].find({}, {"email": 1, "display_name": 1,
+                                                                        "is_active": 1}):
+        SHADOW["torpedo_gmail"]["workspace_mailboxes"].insert_one(doc)
     em = SHADOW["torpedo_gmail"]["email_metadata"]
     for keys in (("timestamp",), ("gmail_thread_id",), ("from_email",), ("direction", "timestamp")):
         em.create_index([(k, 1) for k in keys])
