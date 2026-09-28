@@ -345,45 +345,110 @@ def enrich_open(client, limit: int = 2) -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 # our quote: CPI, currency, value -- read from our own reply in the thread
 # ---------------------------------------------------------------------------
-_CUR = r"(INR|Rs\.?|₹|USD|US\$|\$|EUR|€|GBP|£|AUD|SGD|AED)"
+_CUR_CODES = ("INR|USD|EUR|GBP|AUD|CAD|SGD|AED|SAR|IDR|MYR|THB|VND|JPY|CNY|KRW|ZAR|CHF|HKD|NZD|PHP")
+_CUR = rf"(\b(?:{_CUR_CODES})\b|Rs\.?|₹|US\$|\$|€|£)"
 _NUM = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
-# "CPI - 160 + taxes", "CPI = INR 170 + taxes", "CPI: USD 4.5"
-_CPI_LABEL = re.compile(rf"\bcpi\b\s*(?:[-=:@]|is|of|would be|will be)?\s*{_CUR}?\s*{_NUM}\s*{_CUR}?", re.I)
-# "$10 per complete", "USD 60 per completed interview", "150 INR per respondent"
-_PER_UNIT = re.compile(rf"(?:{_CUR}\s*{_NUM}|{_NUM}\s*{_CUR})\s*(?:per|/)\s*"
-                       r"(?:complete|completed interview|interview|respondent|survey)", re.I)
+_PRICE = rf"(?:{_CUR}\s*{_NUM}|{_NUM}\s*{_CUR})"
+_NOT_A_PRICE = re.compile(r"^\s*(%|percent|min|mins|minutes|days|weeks|hours|pp\b|respondents|completes)", re.I)
+_TAXES = re.compile(r"^\s*\+?\s*(\(?\s*(local\s+)?taxes|tax\b|gst)", re.I)
+# A price after a quote word, with words (never digits) in between:
+# "CPI - 160", "Our quote for this study is INR 115+taxes", "CPI in this case is $10"
+_LABELED = re.compile(rf"\b(cpi|quote|quotation|cost|rate|price|charges?|execute this study for)\b[^\d\n%]{{0,60}}?"
+                      rf"(?:{_PRICE}|{_NUM})", re.I)
+# A bare price with taxes on top: "INR 150+taxes"
+_TAXED = re.compile(rf"{_PRICE}(?=\s*\+\s*(?:taxes|tax|gst))", re.I)
+# "$10 per complete", "IDR 60,000 per visit", "150 INR per respondent"
+_PER_UNIT = re.compile(rf"{_PRICE}\s*(?:per|/)\s*(?:complete|completed interview|interview|respondent|survey|"
+                       r"visit|participant|recruit|head|session|group|id|audit)", re.I)
 _N_BEFORE = re.compile(r"\bn\s*[=:]?\s*(\d[\d,]*)\s*\)?\s*:?\s*$", re.I)
-_CUR_CODE = {"inr": "INR", "rs": "INR", "rs.": "INR", "₹": "INR", "usd": "USD", "us$": "USD", "$": "USD",
-             "eur": "EUR", "€": "EUR", "gbp": "GBP", "£": "GBP", "aud": "AUD", "sgd": "SGD", "aed": "AED"}
+_CUR_CODE = {"rs": "INR", "rs.": "INR", "₹": "INR", "us$": "USD", "$": "USD", "€": "EUR", "£": "GBP"}
 
 
 def _num(s: str) -> float:
     return float(s.replace(",", ""))
 
 
+def _cur(token: Optional[str]) -> Optional[str]:
+    t = (token or "").strip()
+    return _CUR_CODE.get(t.lower()) or (t.upper() if re.fullmatch(_CUR_CODES, t, re.I) else None)
+
+
+def _groups(m) -> Tuple[Optional[str], Optional[str]]:
+    """(currency token, number) from a match of _PRICE / _NUM alternatives."""
+    g = [x for x in m.groups() if x is not None]
+    cur = next((x for x in g if _cur(x)), None)
+    num = next((x for x in reversed(g) if re.fullmatch(_NUM, x)), None)
+    return cur, num
+
+
 def parse_quote(text: str) -> Optional[Dict[str, Any]]:
     """Our CPI quote from one of our replies, or None.
-    -> {cpi, currency|None, lines: [{n|None, cpi}], taxes_extra: bool}"""
+    -> {cpi, currency|None, lines: [{n|None, cpi}], taxes_extra: bool}
+
+    Written against how we actually quote (2026-09-28 sample of 289 replies
+    the first version missed): "Our quote for this study is INR 115+taxes",
+    "CPI for this study is INR 130 + taxes", "CPI in this case is $10",
+    "Can we execute this study for INR 130+taxes", a bare "INR 150+taxes",
+    "rate is IDR 60,000 per visit". Percentages, minutes and day counts after
+    the number are not prices; a bare number counts only after "CPI" or with
+    "+ taxes"."""
     body = text or ""
-    lines: List[Dict[str, Any]] = []
+    found: Dict[int, Dict[str, Any]] = {}
     cur = None
-    for m in _CPI_LABEL.finditer(body):
-        c1, num, c2 = m.group(1), m.group(2), m.group(3)
-        lines.append({"cpi": _num(num), "n": None, "at": m.start()})
-        cur = cur or _CUR_CODE.get((c1 or c2 or "").lower())
+
+    def add(pos: int, c: Optional[str], num: Optional[str], after: int, n: Optional[int] = None,
+            bare_ok: bool = False) -> None:
+        nonlocal cur
+        if not num or _NOT_A_PRICE.match(body[after:after + 12]):
+            return
+        if not c and not bare_ok and not _TAXES.match(body[after:after + 16]):
+            return
+        v = _num(num)
+        if not 0 < v < 1_000_000 or pos in found:
+            return
+        # "The total cost for this study is 70000+ taxes" is the whole study,
+        # not a per-complete price.
+        # ...but "(Total 320 PP)" is a sample count, not a total price.
+        is_total = bool(re.search(r"\b(total|overall|lump ?sum|entire)\b(?![\s:=]*\d)",
+                                  body[max(0, pos - 45):pos], re.I))
+        found[pos] = {"cpi": v, "n": n, "at": pos, "total": is_total}
+        cur = cur or _cur(c)
+
     for m in _PER_UNIT.finditer(body):
-        c = m.group(1) or m.group(4)
-        num = m.group(2) or m.group(3)
+        c, num = _groups(m)
         n_m = _N_BEFORE.search(body[max(0, m.start() - 40):m.start()])
-        lines.append({"cpi": _num(num), "n": int(n_m.group(1).replace(",", "")) if n_m else None,
-                      "at": m.start()})
-        cur = cur or _CUR_CODE.get((c or "").lower())
-    lines = [l for l in sorted(lines, key=lambda l: l["at"]) if 0 < l["cpi"] < 100000]
+        add(m.start(), c, num, m.end(), int(n_m.group(1).replace(",", "")) if n_m else None, bare_ok=True)
+    for m in _LABELED.finditer(body):
+        c, num = _groups(m)
+        # positioned at the price, not the label, so duplicates line up
+        pos = m.start() + max(0, m.group(0).rfind(num or "") - 6) if num else m.start()
+        add(pos, c, num, m.end(), bare_ok=m.group(1).lower() == "cpi")
+    for m in _TAXED.finditer(body):
+        c, num = _groups(m)
+        add(m.start(), c, num, m.end(), bare_ok=True)
+
+    lines = sorted(found.values(), key=lambda l: l["at"])
+    # the same price matched by two patterns a few characters apart
+    dedup: List[Dict[str, Any]] = []
+    for l in lines:
+        prev = dedup[-1] if dedup else None
+        same = (prev and l["cpi"] == prev["cpi"] and l["at"] - prev["at"] < 20
+                and not (l.get("n") and prev.get("n") and l["n"] != prev["n"]))
+        if same:
+            if l.get("n") and not prev.get("n"):
+                prev["n"] = l["n"]
+            continue
+        dedup.append(l)
+    lines = dedup
     if not lines:
         return None
-    taxes_extra = bool(re.search(r"\+\s*(taxes|tax|gst)|plus (taxes|gst)|excl(uding|\.)? (taxes|gst)", body, re.I))
-    return {"cpi": lines[0]["cpi"], "currency": cur, "taxes_extra": taxes_extra,
-            "lines": [{"n": l["n"], "cpi": l["cpi"]} for l in lines]}
+    taxes_extra = bool(re.search(r"\+\s*\(?\s*(local |applicable )?(taxes|tax|gst)|plus (taxes|gst)|"
+                                 r"excl(uding|\.)? (taxes|gst)", body, re.I))
+    per_unit = [l for l in lines if not l["total"]]
+    totals = [l for l in lines if l["total"]]
+    return {"cpi": per_unit[0]["cpi"] if per_unit else None, "currency": cur, "taxes_extra": taxes_extra,
+            "total": totals[0]["cpi"] if totals else None,
+            "lines": [{"n": l["n"], "cpi": l["cpi"]} for l in per_unit]}
 
 
 def client_currency(client, account_name: str, domain: str, country: str = "") -> Tuple[Optional[str], str]:
@@ -438,7 +503,7 @@ def apply_quotes(client, only_open: bool = False) -> Dict[str, int]:
         if quote:
             n = r.get("sample_size")
             line_value = sum(l["n"] * l["cpi"] for l in quote["lines"] if l["n"])
-            value = line_value or (quote["cpi"] * n if n else None)
+            value = quote.get("total") or line_value or (quote["cpi"] * n if n and quote["cpi"] else None)
             sets.update({"metadata.rfq.cpi": quote["cpi"], "metadata.rfq.quote_lines": quote["lines"],
                          "metadata.rfq.taxes_extra": quote["taxes_extra"],
                          "metadata.rfq.quote_email_id": str(qdoc["_id"]),

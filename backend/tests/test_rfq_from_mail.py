@@ -47,7 +47,8 @@ def test_a_proper_name_beats_a_domain_named_account_with_the_website():
 
 def test_our_quote_is_read_from_our_reply():
     q = rb.parse_quote("Hi Keya,\n\nCPI - 160 + taxes\n\nSusanta Sarkar")
-    assert q == {"cpi": 160.0, "currency": None, "taxes_extra": True, "lines": [{"n": None, "cpi": 160.0}]}
+    assert q == {"cpi": 160.0, "currency": None, "taxes_extra": True, "total": None,
+                 "lines": [{"n": None, "cpi": 160.0}]}
     q = rb.parse_quote("CPI = INR 170 + taxes")
     assert q["cpi"] == 170.0 and q["currency"] == "INR"
 
@@ -57,6 +58,49 @@ def test_per_country_lines_carry_their_sample():
                        "UK (N=30): $10 per complete  Phase 2 (60-min Online IDI): $60 per completed interview")
     assert q["currency"] == "USD" and q["cpi"] == 10.0
     assert q["lines"][:2] == [{"n": 70, "cpi": 10.0}, {"n": 30, "cpi": 10.0}]
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text,cpi,cur", [
+    ("CPI for this study is INR 130 + taxes  Susanta Sarkar", 130, "INR"),
+    ("Hi Ramiz,  Our quote for this study is INR 115+taxes.  We are fully feasible", 115, "INR"),
+    ("Hi Shruti,  Can we execute this study for INR 130+taxes. Also request", 130, "INR"),
+    ("CPI in this case is $10   Business Development", 10, "USD"),
+    ("Thank you for the RFQ. Our CPI for this study will be 140 + taxes.", 140, None),
+    ("The CPI for the Study is USD 2.4 + ( local taxes if any) Timeline 10 days", 2.4, "USD"),
+    ("INR 150+taxes  Susanta Sarkar  Director", 150, "INR"),
+    ("it was established that the rate is IDR 60,000 per visit. I would like", 60000, "IDR"),
+    ("Our quote for Option 1 (Total 320 PP) is INR 120+taxes.  Our quote for Option 2 (Total 400 PP) "
+     "is INR 115+taxes.", 120, "INR"),
+    ("Our quote for the India portion of this study is INR 115+taxes. Whereas that of Japan would be "
+     "USD 3.25+taxes", 115, "INR"),
+])
+def test_how_we_actually_quote(text, cpi, cur):
+    q = rb.parse_quote(text)
+    assert q and q["cpi"] == cpi and q["currency"] == cur
+
+
+@pytest.mark.parametrize("text", [
+    "IR: 40%. LOI 20 minutes. Timeline 10 days.",
+    "Quota Full https://prod1-survey-field-work.secure.force.com/quotafull?rId=XXXX",
+    "Our quote for Option 1 (Total 320 PP) will follow tomorrow",
+    "The cost depends on 25 respondents per centre",
+])
+def test_things_that_are_not_prices(text):
+    assert rb.parse_quote(text) is None
+
+
+def test_a_total_is_not_a_cpi():
+    q = rb.parse_quote("The total cost for this study is 70000+ taxes  We would require 10 days")
+    assert q["cpi"] is None and q["total"] == 70000 and q["lines"] == []
+
+
+def test_options_become_lines():
+    q = rb.parse_quote("Our quote for Option 1 (Total 320 PP) is INR 120+taxes.  Our quote for Option 2 "
+                       "(Total 400 PP) is INR 115+taxes.")
+    assert [l["cpi"] for l in q["lines"]] == [120, 115]
 
 
 def test_no_quote_in_a_mail_without_a_price():
