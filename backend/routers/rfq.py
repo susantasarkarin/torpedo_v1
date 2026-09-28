@@ -255,6 +255,7 @@ async def get_rfq_stats(
         "negotiating": {"count": 0, "total_value": 0},
         "won": {"count": 0, "total_value": 0},
         "lost": {"count": 0, "total_value": 0},
+        "closed": {"count": spine_stats["by_state"].get("closed", 0), "total_value": 0},
     }
     stage_to_status = {
         "new": "pending", "rfq": "pending", "qualified": "pending",
@@ -752,13 +753,26 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
 
     # --- status change goes through the spine state machine ----------------
     stage_result = None
-    if rfq_data.status is not None and rfq_data.status != current_status:
+    if rfq_data.status is not None and rfq_data.status != current_status and rfq_data.status == "closed":
+        # Closed with no outcome: not won, not lost -- the RFQ went nowhere.
+        crm_service._col("opportunities").update_one(
+            {"_id": ObjectId(opportunity_id)},
+            {"$set": {"status": "closed", "closed_at": datetime.utcnow(),
+                      "closed_reason": rfq_data.loss_reason or "closed by user -- no outcome",
+                      "updated_at": datetime.utcnow()}})
+    elif rfq_data.status is not None and rfq_data.status != current_status:
+        if current_status == "closed":
+            # Reopening a closed RFQ: back to open, then the requested stage.
+            crm_service._col("opportunities").update_one(
+                {"_id": ObjectId(opportunity_id)},
+                {"$set": {"status": "open", "updated_at": datetime.utcnow()},
+                 "$unset": {"closed_at": "", "closed_reason": "", "closed_by": ""}})
         stage = spine_rfq.legacy_status_to_stage(rfq_data.status)
         if not stage:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown status '{rfq_data.status}'. "
-                       f"Valid: pending, quoted, negotiating, won, lost",
+                       f"Valid: pending, quoted, negotiating, won, lost, closed",
             )
         try:
             stage_result = crm_service.set_opportunity_stage(

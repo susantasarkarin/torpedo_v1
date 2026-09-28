@@ -176,10 +176,20 @@ def opportunity_to_rfq(
         # No currency default: a missing currency must read as unknown, never
         # INR (2026-09-26 -- a real ~$180K IDR fieldwork quote defaulting to
         # INR is most of why the page's "Total Value" read ~INR 468 crore).
-        "extracted_value": rfq_payload.get("budget"),
+        # extracted = what the mail says: the client's budget, else our own
+        # quote (CPI x sample, read from our reply in the thread).
+        "extracted_value": rfq_payload.get("budget") or rfq_payload.get("quoted_value"),
         "extracted_currency": rfq_payload.get("currency"),
-        "manual_value": opportunity.get("amount") if opportunity.get("amount") else None,
-        "manual_currency": opportunity.get("currency"),
+        "manual_value": (opportunity.get("amount") if opportunity.get("amount")
+                         and opportunity.get("value_source") != "quote" else None),
+        # A currency someone picked by hand shows; one copied from our quote is
+        # the extracted currency, not an override.
+        "manual_currency": (opportunity.get("currency")
+                            if opportunity.get("currency") != rfq_payload.get("currency") else None),
+        "cpi": rfq_payload.get("cpi"),
+        "quote_lines": rfq_payload.get("quote_lines"),
+        "taxes_extra": rfq_payload.get("taxes_extra"),
+        "currency_source": rfq_payload.get("currency_source"),
         "final_value": amount,
         "final_currency": opportunity.get("currency") or rfq_payload.get("currency"),
         "budget": rfq_payload.get("budget"),
@@ -190,7 +200,9 @@ def opportunity_to_rfq(
         "client_name": rfq_payload.get("client_name"),
         # --- status ---
         "state": state,                                   # open | won | lost | closed
-        "status": _STAGE_TO_LEGACY_STATUS.get(stage, "pending"),
+        # Closed with no outcome is its own status, not "pending" (every
+        # historical RFQ read as pending on 2026-09-28).
+        "status": "closed" if state == "closed" else _STAGE_TO_LEGACY_STATUS.get(stage, "pending"),
         "stage": stage,
         "probability": crm_service.STAGE_PROBABILITY.get(stage),
         "loss_reason": opportunity.get("loss_reason"),
@@ -279,9 +291,12 @@ def _rfq_query(
             })
 
     if status:
-        stage = legacy_status_to_stage(status)
-        if stage:
-            conditions.append({"stage": stage})
+        if status.strip().lower() == "closed":
+            conditions.append({"status": "closed"})
+        else:
+            stage = legacy_status_to_stage(status)
+            if stage:
+                conditions.append({"stage": stage, "status": {"$nin": ["closed"]}})
 
     if direction:
         direction = direction.strip().lower()
@@ -415,8 +430,10 @@ def get_stats(direction: Optional[str] = None) -> Dict[str, Any]:
             _rfq_query(state=state, direction=direction)
         )
 
+    # Stage counts exclude closed records: a closed RFQ is not pending or
+    # quoted any more (all 1,628 closed history RFQs counted as pending).
     for stage in crm_service.OPPORTUNITY_STAGES:
-        stats["by_stage"][stage] = col.count_documents({**base, "stage": stage})
+        stats["by_stage"][stage] = col.count_documents({**base, "stage": stage, "status": {"$ne": "closed"}})
 
     def _sum(match: Dict[str, Any]) -> float:
         cursor = col.aggregate([

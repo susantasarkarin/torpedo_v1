@@ -153,6 +153,8 @@ function RFQ() {
           by_status: {
             won: data.stats?.won?.count || 0,
             pending: data.stats?.pending?.count || 0,
+            quoted: data.stats?.quoted?.count || 0,
+            closed: data.stats?.closed?.count || 0,
           },
           // total_value is a cross-currency sum -- kept only as a fallback
           // for the rare case value_by_currency is missing. Render
@@ -464,6 +466,8 @@ function RFQ() {
   // computed on the fly the same way estimate/invoice line items already do
   // (backend/routers/rfq.py:_generate_line_items_from_rfq), just surfaced here.
   const computeCPI = (rfq) => {
+    // Our own quoted CPI (read from our reply in the thread) wins.
+    if (rfq.cpi) return rfq.cpi
     const value = rfq.manual_value || rfq.extracted_value
     const n = rfq.sample_size
     if (!value || !n) return null
@@ -538,6 +542,7 @@ function RFQ() {
       negotiating: { bg: "#fce7f3", color: "#9d174d" },
       won: { bg: "#dcfce7", color: "#166534" },
       lost: { bg: "#fee2e2", color: "#991b1b" },
+      closed: { bg: "#f3f4f6", color: "#6b7280" },
       cancelled: { bg: "#f3f4f6", color: "#6b7280" }
     }
     return colors[status] || colors.pending
@@ -567,7 +572,15 @@ function RFQ() {
         </div>
         <div className="stat-card warning">
           <div className="stat-value">{stats?.by_status?.pending ?? "—"}</div>
-          <div className="stat-label">Pending</div>
+          <div className="stat-label">Pending (not quoted)</div>
+        </div>
+        <div className="stat-card primary">
+          <div className="stat-value">{stats?.by_status?.quoted ?? "—"}</div>
+          <div className="stat-label">Quoted</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{stats?.by_status?.closed ?? "—"}</div>
+          <div className="stat-label">Closed (no outcome)</div>
         </div>
         <div className="stat-card info">
           {stats?.value_by_currency?.length ? (
@@ -672,6 +685,7 @@ function RFQ() {
             <option value="negotiating">Negotiating</option>
             <option value="won">Won</option>
             <option value="lost">Lost</option>
+            <option value="closed">Closed (no outcome)</option>
           </select>
           <select
             value={filters.priority}
@@ -850,7 +864,13 @@ function RFQ() {
                           onClick={() => setEditingValue({ rfq_id: rfq.opportunity_id, value: rfq.manual_value || rfq.extracted_value || 0 })}
                           title="Click to edit value"
                         >
-                          {formatCurrency(rfq.manual_value || rfq.extracted_value, rfq.manual_currency || rfq.extracted_currency || "USD")}
+                          {rfq.manual_value || rfq.extracted_value
+                            ? formatCurrency(rfq.manual_value || rfq.extracted_value, rfq.manual_currency || rfq.extracted_currency || "USD")
+                            : rfq.cpi
+                              ? <span title="CPI from our quote; value needs the sample size">
+                                  CPI {formatCurrency(rfq.cpi, rfq.manual_currency || rfq.extracted_currency || "USD")}
+                                </span>
+                              : <span style={{ color: '#9ca3af' }}>—</span>}
                           {rfq.manual_value && <span className="override-badge">✎</span>}
                         </div>
                       )}
@@ -872,6 +892,7 @@ function RFQ() {
                         <option value="negotiating">Negotiating</option>
                         <option value="won">Won</option>
                         <option value="lost">Lost</option>
+                        <option value="closed">Closed (no outcome)</option>
                       </select>
                       {rfq.state && (
                         <span className={`rfq-state-badge state-${rfq.state}`}>
@@ -1005,17 +1026,23 @@ function RFQ() {
                     <label>CPI (per complete)</label>
                     <span>
                       {computeCPI(selectedRfq) !== null
-                        ? formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)
-                        : "— (needs value + sample size)"}
+                        ? <>
+                            {formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)}
+                            {selectedRfq.taxes_extra ? " + taxes" : ""}
+                            {selectedRfq.cpi ? <span style={{ color: '#6b7280', fontSize: '0.75rem' }}> (our quote)</span> : null}
+                          </>
+                        : "— (not quoted yet)"}
                     </span>
                   </div>
                   <div className="detail-item">
                     <label>Currency</label>
                     <select
-                      value={selectedRfq.manual_currency || selectedRfq.extracted_currency || "USD"}
+                      value={selectedRfq.manual_currency || selectedRfq.extracted_currency || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "manual_currency", e.target.value)}
+                      title={selectedRfq.currency_source || ""}
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     >
+                      <option value="">— not known</option>
                       {CURRENCIES.map(c => (
                         <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
                       ))}

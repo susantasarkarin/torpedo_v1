@@ -50,7 +50,7 @@ function Dashboard() {
     }
     const load = async () => {
       try {
-        const res = await fetch(buildApiUrl("/attention"), {
+        const res = await fetch(buildApiUrl("/api/attention"), {
           headers: { "Content-Type": "application/json", Authorization: sessionId },
         })
         if (res.status === 401) {

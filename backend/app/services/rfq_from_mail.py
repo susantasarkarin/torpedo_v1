@@ -24,7 +24,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services import mail_categorizer as mc
 
@@ -342,8 +342,124 @@ def enrich_open(client, limit: int = 2) -> Dict[str, int]:
     return stats
 
 
+# ---------------------------------------------------------------------------
+# our quote: CPI, currency, value -- read from our own reply in the thread
+# ---------------------------------------------------------------------------
+_CUR = r"(INR|Rs\.?|₹|USD|US\$|\$|EUR|€|GBP|£|AUD|SGD|AED)"
+_NUM = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+# "CPI - 160 + taxes", "CPI = INR 170 + taxes", "CPI: USD 4.5"
+_CPI_LABEL = re.compile(rf"\bcpi\b\s*(?:[-=:@]|is|of|would be|will be)?\s*{_CUR}?\s*{_NUM}\s*{_CUR}?", re.I)
+# "$10 per complete", "USD 60 per completed interview", "150 INR per respondent"
+_PER_UNIT = re.compile(rf"(?:{_CUR}\s*{_NUM}|{_NUM}\s*{_CUR})\s*(?:per|/)\s*"
+                       r"(?:complete|completed interview|interview|respondent|survey)", re.I)
+_N_BEFORE = re.compile(r"\bn\s*[=:]?\s*(\d[\d,]*)\s*\)?\s*:?\s*$", re.I)
+_CUR_CODE = {"inr": "INR", "rs": "INR", "rs.": "INR", "₹": "INR", "usd": "USD", "us$": "USD", "$": "USD",
+             "eur": "EUR", "€": "EUR", "gbp": "GBP", "£": "GBP", "aud": "AUD", "sgd": "SGD", "aed": "AED"}
+
+
+def _num(s: str) -> float:
+    return float(s.replace(",", ""))
+
+
+def parse_quote(text: str) -> Optional[Dict[str, Any]]:
+    """Our CPI quote from one of our replies, or None.
+    -> {cpi, currency|None, lines: [{n|None, cpi}], taxes_extra: bool}"""
+    body = text or ""
+    lines: List[Dict[str, Any]] = []
+    cur = None
+    for m in _CPI_LABEL.finditer(body):
+        c1, num, c2 = m.group(1), m.group(2), m.group(3)
+        lines.append({"cpi": _num(num), "n": None, "at": m.start()})
+        cur = cur or _CUR_CODE.get((c1 or c2 or "").lower())
+    for m in _PER_UNIT.finditer(body):
+        c = m.group(1) or m.group(4)
+        num = m.group(2) or m.group(3)
+        n_m = _N_BEFORE.search(body[max(0, m.start() - 40):m.start()])
+        lines.append({"cpi": _num(num), "n": int(n_m.group(1).replace(",", "")) if n_m else None,
+                      "at": m.start()})
+        cur = cur or _CUR_CODE.get((c or "").lower())
+    lines = [l for l in sorted(lines, key=lambda l: l["at"]) if 0 < l["cpi"] < 100000]
+    if not lines:
+        return None
+    taxes_extra = bool(re.search(r"\+\s*(taxes|tax|gst)|plus (taxes|gst)|excl(uding|\.)? (taxes|gst)", body, re.I))
+    return {"cpi": lines[0]["cpi"], "currency": cur, "taxes_extra": taxes_extra,
+            "lines": [{"n": l["n"], "cpi": l["cpi"]} for l in lines]}
+
+
+def client_currency(client, account_name: str, domain: str, country: str = "") -> Tuple[Optional[str], str]:
+    """(currency, how we know) for a client with no currency in its own mail."""
+    first = re.split(r"[\s|(\-]", (account_name or "").strip())[0]
+    if len(first) >= 4:
+        rows = list(client["finance_db"]["invoices"].aggregate([
+            {"$match": {"customer_name": {"$regex": "^" + re.escape(first), "$options": "i"}}},
+            {"$group": {"_id": {"$ifNull": ["$currency_code", "$currency"]}, "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}}, {"$limit": 1}]))
+        if rows and rows[0]["_id"]:
+            return rows[0]["_id"], "invoiced before in this currency"
+    if (domain or "").endswith(".in") or "india" in (country or "").lower():
+        return "INR", "Indian client"
+    return None, ""
+
+
+def apply_quotes(client, only_open: bool = False) -> Dict[str, int]:
+    """CPI, currency and value for rebuilt RFQs from our latest quote in the
+    thread; an RFQ we quoted moves to proposal ('Quoted')."""
+    from bson import ObjectId
+    em = client["torpedo_gmail"]["email_metadata"]
+    opp = client["crm_db"]["opportunities"]
+    from sales.reply_triage import strip_quoted
+    q: Dict[str, Any] = {"metadata.rfq.source": SOURCE}
+    if only_open:
+        q["status"] = "open"
+    stats = {"checked": 0, "quoted": 0, "valued": 0, "currency_set": 0}
+    for o in opp.find(q, {"stage": 1, "status": 1, "metadata.rfq": 1, "amount": 1, "value_source": 1}):
+        r = (o.get("metadata") or {}).get("rfq") or {}
+        stats["checked"] += 1
+        tids = r.get("gmail_thread_ids") or [r.get("gmail_thread_id")]
+        quote, qdoc = None, None
+        for d in em.find({"gmail_thread_id": {"$in": [t for t in tids if t]}, "direction": "outbound"},
+                         {"body_plain": 1, "timestamp": 1}).sort("timestamp", -1):
+            quote = parse_quote(strip_quoted(d.get("body_plain") or ""))
+            if quote:
+                qdoc = d
+                break
+        sets: Dict[str, Any] = {}
+        currency = (quote or {}).get("currency")
+        source = "stated in our quote" if currency else ""
+        if quote and not currency and quote["taxes_extra"]:
+            currency, source = "INR", "our quote adds taxes (GST): Indian client"
+        if not currency:
+            currency, source = client_currency(client, r.get("account_name") or "",
+                                               mc._domain(r.get("from_email") or ""), r.get("country") or "")
+        if currency:
+            sets.update({"metadata.rfq.currency": currency, "metadata.rfq.currency_source": source,
+                         "currency": currency})
+            stats["currency_set"] += 1
+        if quote:
+            n = r.get("sample_size")
+            line_value = sum(l["n"] * l["cpi"] for l in quote["lines"] if l["n"])
+            value = line_value or (quote["cpi"] * n if n else None)
+            sets.update({"metadata.rfq.cpi": quote["cpi"], "metadata.rfq.quote_lines": quote["lines"],
+                         "metadata.rfq.taxes_extra": quote["taxes_extra"],
+                         "metadata.rfq.quote_email_id": str(qdoc["_id"]),
+                         "quoted_at": qdoc.get("timestamp")})
+            if value:
+                sets.update({"metadata.rfq.quoted_value": round(value, 2)})
+                if o.get("value_source") != "manual":
+                    sets.update({"amount": round(value, 2), "value_source": "quote"})
+                stats["valued"] += 1
+            if o.get("stage") in ("rfq", "new", "qualified"):
+                sets["stage"] = "proposal"
+            stats["quoted"] += 1
+        if sets:
+            opp.update_one({"_id": o["_id"]}, {"$set": sets})
+    return stats
+
+
 def run_scheduled_cycle(client) -> Dict[str, Any]:
-    """New RFQs from the last few days' mail, then details for a couple."""
+    """New RFQs from the last few days' mail, details for a couple, and our
+    quotes on the open ones."""
     out = {"built": build(client, since=datetime.utcnow() - timedelta(days=3))}
     out["details"] = enrich_open(client, limit=int(os.getenv("RFQ_DETAILS_AI_PER_RUN", "2")))
+    out["quotes"] = apply_quotes(client, only_open=True)
     return out

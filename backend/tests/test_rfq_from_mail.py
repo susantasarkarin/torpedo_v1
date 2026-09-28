@@ -45,6 +45,24 @@ def test_a_proper_name_beats_a_domain_named_account_with_the_website():
     assert rb._account_for(None, only_site, "ramiz@hansaresearch.com")["name"] == "Hansaresearch"
 
 
+def test_our_quote_is_read_from_our_reply():
+    q = rb.parse_quote("Hi Keya,\n\nCPI - 160 + taxes\n\nSusanta Sarkar")
+    assert q == {"cpi": 160.0, "currency": None, "taxes_extra": True, "lines": [{"n": None, "cpi": 160.0}]}
+    q = rb.parse_quote("CPI = INR 170 + taxes")
+    assert q["cpi"] == 170.0 and q["currency"] == "INR"
+
+
+def test_per_country_lines_carry_their_sample():
+    q = rb.parse_quote("Phase 1 (Online Survey): North America (N=70): $10 per complete "
+                       "UK (N=30): $10 per complete  Phase 2 (60-min Online IDI): $60 per completed interview")
+    assert q["currency"] == "USD" and q["cpi"] == 10.0
+    assert q["lines"][:2] == [{"n": 70, "cpi": 10.0}, {"n": 30, "cpi": 10.0}]
+
+
+def test_no_quote_in_a_mail_without_a_price():
+    assert rb.parse_quote("Please find attached our costing. Regards") is None
+
+
 def test_invented_details_are_dropped():
     # live answer for a mail that said only "The ID ... has been captured. Please go ahead."
     out = {"methodology": "Not specified", "country": "Not specified", "target_audience": "Not specified",
