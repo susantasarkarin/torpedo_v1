@@ -195,17 +195,42 @@ def _is_cse_paused() -> bool:
     return False
 
 
-def _pause_cse_for_24h():
-    """Record a 24-hour Google CSE pause after hitting consecutive 429s."""
+def cse_resume_time(reason: str, now: Optional[datetime] = None) -> datetime:
+    """When a Google CSE stop ends -- the moment the limit that caused it resets.
+
+    Every stop used to be a flat 24 hours. Found live 2026-09-28: our own
+    hourly burst cap (50/hour) refused one query at 18:53 UTC and that shut
+    lead search off until 18:53 the next day, with 37 of the day's 100 free
+    queries unused and the Google API answering 200 the whole time.
+      - our hourly cap: the next hour
+      - our monthly budget: the 1st of next month
+      - a real 429 (Google's daily quota): Google's reset, midnight US Pacific
+        (08:00 UTC, conservatively ignoring daylight saving)
+    """
     from datetime import timedelta
-    paused_until = datetime.utcnow() + timedelta(hours=24)
+    now = now or datetime.utcnow()
+    r = (reason or "").lower()
+    if "hourly" in r:
+        return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    if "monthly" in r:
+        first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return (first + timedelta(days=32)).replace(day=1)
+    reset = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    return reset if reset > now else reset + timedelta(days=1)
+
+
+def _pause_cse_for_24h(reason: str = "429 from Google"):
+    """Record a Google CSE pause until the limit that caused it resets
+    (the name is kept for existing callers)."""
+    paused_until = cse_resume_time(reason)
     try:
         db["scheduler_state"].update_one(
             {"_id": _CSE_STATE_KEY},
-            {"$set": {"paused_until": paused_until, "paused_at": datetime.utcnow()}},
+            {"$set": {"paused_until": paused_until, "paused_at": datetime.utcnow(),
+                      "paused_reason": reason}},
             upsert=True
         )
-        logger.warning(f"[Google CSE] Paused for 24 hours until {paused_until} due to 429 quota exceeded")
+        logger.warning(f"[Google CSE] Paused until {paused_until} UTC: {reason}")
     except Exception as e:
         logger.error(f"[Google CSE] Could not save pause state: {e}")
 
@@ -273,7 +298,7 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
                     # an empty result that was never actually fetched -- the
                     # exact protection the 429 path already has, now extended
                     # to a quota stop caught before ever reaching a real 429.
-                    _pause_cse_for_24h()
+                    _pause_cse_for_24h(reason)
                     break
             except ImportError:
                 pass  # rate limiter unavailable — fail open, the 429 handling below still applies

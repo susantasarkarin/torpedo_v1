@@ -21,6 +21,34 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 
+# Where a search result came from is not where the person works. Found live
+# 2026-09-27: web-search leads were given addresses such as
+# radar.healthcare@uk.linkedin.com and nvidiahealthcare@www.nvidia.com.
+_PLATFORM_DOMAINS = (
+    "linkedin.com", "lnkd.in", "facebook.com", "fb.com", "twitter.com", "x.com", "instagram.com",
+    "youtube.com", "tiktok.com", "medium.com", "github.com", "wikipedia.org", "google.com",
+    "crunchbase.com", "zoominfo.com", "rocketreach.co", "apollo.io", "glassdoor.com",
+    "indeed.com", "naukri.com", "bloomberg.com", "slideshare.net", "researchgate.net",
+    "signalhire.com", "contactout.com", "theorg.com", "clutch.co", "goodfirms.co",
+)
+
+
+def company_email_domain(domain: str) -> str:
+    """A domain fit to build a person's work address on, or "".
+
+    Lower-cases, drops a scheme/path and a leading "www.", and refuses
+    social/directory platforms and their subdomains (uk.linkedin.com)."""
+    d = (domain or "").strip().lower()
+    d = re.sub(r"^[a-z]+://", "", d).split("/")[0].split("?")[0].strip(".")
+    if d.startswith("www."):
+        d = d[4:]
+    if not d or "." not in d:
+        return ""
+    if any(d == p or d.endswith("." + p) for p in _PLATFORM_DOMAINS):
+        return ""
+    return d
+
+
 def render_pattern_email(pattern: str, first_name: str, last_name: str, domain: str):
     """Render an email pattern, or return None when the result is unusable.
 
@@ -36,7 +64,10 @@ def render_pattern_email(pattern: str, first_name: str, last_name: str, domain: 
       - "{first}.{last}@{domain}" against a lead with no surname, which
         renders as `angela.@corp.com`
       - RFC 2606 reserved domains and unsubstituted templates
+      - a platform domain instead of the person's company (see
+        company_email_domain)
     """
+    domain = company_email_domain(domain)
     if not pattern or not domain:
         return None
 
