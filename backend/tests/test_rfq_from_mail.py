@@ -7,6 +7,36 @@ def test_title_drops_reply_and_tag_prefixes_but_keeps_case():
     assert rb.clean_title("") == "RFQ"
 
 
+def test_company_root_ignores_subdomains_and_second_level_suffixes():
+    assert rb.registrable_root("research.clearlightscope.com") == "clearlightscope"
+    assert rb.registrable_root("acme.co.uk") == "acme"
+    assert rb.registrable_root("hansaresearch.com") == "hansaresearch"
+    assert rb.root_site("research.clearlightscope.com") == "clearlightscope.com"
+
+
+class _Accounts:
+    def __init__(self, docs):
+        self.docs = docs
+
+    def find_one(self, q):
+        rx = q["website"]["$regex"]
+        import re as _re
+        return next((d for d in self.docs if d.get("website") and _re.search(rx, d["website"], _re.I)), None)
+
+    def find(self, q, proj=None):
+        import re as _re
+        rx = q["name"]["$regex"]
+        return [d for d in self.docs if _re.search(rx, d["name"], _re.I)]
+
+
+def test_a_clean_existing_account_is_reused_not_a_person_named_one():
+    accs = _Accounts([{"_id": 1, "name": "Adarsh V (Hansaresearch)"},
+                      {"_id": 2, "name": "Hansa Research Group - dooblo"},
+                      {"_id": 3, "name": "Hansa Research Group"}])
+    got = rb._account_for(None, accs, "ramiz@hansaresearch.com")
+    assert got == {"_id": "3", "name": "Hansa Research Group"}
+
+
 def test_invented_details_are_dropped():
     # live answer for a mail that said only "The ID ... has been captured. Please go ahead."
     out = {"methodology": "Not specified", "country": "Not specified", "target_audience": "Not specified",

@@ -73,17 +73,80 @@ def candidates(client, since: Optional[datetime] = None) -> List[Dict[str, Any]]
     return docs
 
 
+_SECOND_LEVEL = {"co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc"}
+_PERSONISH = re.compile(r"[(|_@]|\s-\s")
+
+
+def registrable_root(domain: str) -> str:
+    """research.clearlightscope.com -> clearlightscope; acme.co.uk -> acme."""
+    labels = [l for l in (domain or "").lower().split(".") if l]
+    if len(labels) >= 3 and labels[-2] in _SECOND_LEVEL and len(labels[-1]) == 2:
+        return labels[-3]
+    return labels[-2] if len(labels) >= 2 else (labels[0] if labels else "")
+
+
 def _account_for(crm_service, accounts_col, email: str) -> Dict[str, Any]:
+    """The company's CRM account: one already linked to its website, else an
+    existing account with a clean name matching its domain ("Hansa Research
+    Group" for hansaresearch.com -- names like "Adarsh V (Phoenixdatainnov)"
+    are people, not companies), else a new account named after the domain."""
     domain = mc._domain(email)
-    if domain and domain not in mc.WEBMAIL:
-        acc = accounts_col.find_one({"website": {"$regex": re.escape(domain) + "$", "$options": "i"}})
-        if acc:
-            return {"_id": str(acc["_id"]), "name": acc.get("name")}
-        root = domain.split(".")[0].replace("-", " ").title()
-        acc, _ = crm_service.get_or_create_account(root, {"website": domain})
+    if not domain or domain in mc.WEBMAIL:
+        acc, _ = crm_service.get_or_create_account(email, {})
         return acc
-    acc, _ = crm_service.get_or_create_account(email, {})
+    root = registrable_root(domain)
+    site = accounts_col.find_one({"website": {"$regex": re.escape(root) + r"\.[a-z.]+/?$", "$options": "i"}})
+    if site:
+        return {"_id": str(site["_id"]), "name": site.get("name")}
+    if len(root) >= 4:
+        named = [a for a in accounts_col.find({"name": {"$regex": "^" + re.escape(root[:4]), "$options": "i"}},
+                                               {"name": 1})
+                 if not _PERSONISH.search(a.get("name") or "")
+                 and root in re.sub(r"[^a-z0-9]", "", (a.get("name") or "").lower())]
+        if named:
+            best = min(named, key=lambda a: len(a["name"]))
+            return {"_id": str(best["_id"]), "name": best["name"]}
+    acc, _ = crm_service.get_or_create_account(root.replace("-", " ").title(), {"website": root_site(domain)})
     return acc
+
+
+def root_site(domain: str) -> str:
+    root = registrable_root(domain)
+    i = domain.lower().find(root)
+    return domain[i:] if i >= 0 else domain
+
+
+def relink_accounts(client, created_since: datetime) -> Dict[str, int]:
+    """Re-resolve the account of every rebuilt RFQ (after the naming rule
+    changed) and drop accounts this module created that nothing uses now."""
+    from bson import ObjectId
+    from app.services import crm_service
+    crm = client["crm_db"]
+    moved = 0
+    for o in crm["opportunities"].find({"metadata.rfq.source": SOURCE},
+                                       {"account_id": 1, "contact_id": 1, "metadata.rfq.from_email": 1}):
+        acc = _account_for(crm_service, crm["accounts"], ((o.get("metadata") or {}).get("rfq") or {}).get("from_email") or "")
+        if str(o.get("account_id")) != str(acc["_id"]):
+            crm["opportunities"].update_one({"_id": o["_id"]}, {"$set": {
+                "account_id": acc["_id"], "metadata.rfq.account_id": acc["_id"],
+                "metadata.rfq.account_name": acc.get("name")}})
+            crm["projects"].update_many({"opportunity_id": str(o["_id"])}, {"$set": {"account_id": acc["_id"]}})
+            if o.get("contact_id"):
+                try:
+                    crm["contacts"].update_one({"_id": ObjectId(str(o["contact_id"]))},
+                                               {"$set": {"account_id": acc["_id"]}})
+                except Exception:
+                    pass
+            moved += 1
+    used = {str(x) for x in crm["opportunities"].distinct("account_id")} | \
+           {str(x) for x in crm["contacts"].distinct("account_id")}
+    # Only accounts created since the rebuild began (the caller passes that
+    # moment) -- never an older account someone else made.
+    orphans = [a["_id"] for a in crm["accounts"].find({"created_at": {"$gte": created_since}}, {"_id": 1})
+               if str(a["_id"]) not in used]
+    if orphans:
+        crm["accounts"].delete_many({"_id": {"$in": orphans}})
+    return {"relinked": moved, "orphan_accounts_removed": len(orphans)}
 
 
 def build(client, since: Optional[datetime] = None, now: Optional[datetime] = None,
