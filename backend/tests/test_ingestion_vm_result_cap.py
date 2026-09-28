@@ -26,6 +26,11 @@ def ingestion_vm(monkeypatch):
     monkeypatch.setitem(sys.modules, "database", fake_db)
     sys.modules.pop("leads.ingestion_vm", None)
     from leads import ingestion_vm as mod
+    # Since e628f31 every request first reserves a slot on the shared quota
+    # counter; with Mongo stubbed that read is a MagicMock and the comparison
+    # raised TypeError (the test only passed when an earlier test had imported
+    # google_rate_limit against the real database). The cap is what's tested here.
+    monkeypatch.setattr(mod, "reserve_query_slot", lambda: (True, "OK"))
     yield mod
     sys.modules.pop("leads.ingestion_vm", None)
 

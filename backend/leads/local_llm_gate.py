@@ -122,7 +122,32 @@ def _reclaim_orphaned_slots(client: Redis, capacity: int) -> None:
         client.rpush(_GATE_KEY, f"slot-recovered-{client.incr('local_llm_gate:recovery_counter')}")
 
 
+import contextlib
+import contextvars
+
+# A caller that runs off the event loop and would rather wait than lose its
+# work can raise the queue wait for its own calls only. Lead extraction does:
+# with the default 5s it lost the slot to every 10-60s mail job and its search
+# results -- already paid for in CSE quota -- were set aside. Context-local,
+# so asyncio.to_thread carries it into the worker thread and nothing else is
+# affected.
+_queue_wait_override: contextvars.ContextVar = contextvars.ContextVar(
+    "local_llm_queue_wait", default=None)
+
+
+@contextlib.contextmanager
+def queue_wait(seconds: float):
+    token = _queue_wait_override.set(float(seconds))
+    try:
+        yield
+    finally:
+        _queue_wait_override.reset(token)
+
+
 def queue_timeout_seconds() -> float:
+    override = _queue_wait_override.get()
+    if override is not None:
+        return max(0.1, override)
     try:
         return max(0.1, float(os.getenv(_QUEUE_TIMEOUT_ENV, "5")))
     except (TypeError, ValueError):

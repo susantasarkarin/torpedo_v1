@@ -71,6 +71,25 @@ def test_extraction_does_not_freeze_the_event_loop(monkeypatch):
     assert len(ticks) == 8 and ticks[-1] - ticks[0] < 0.45  # they ran during the 0.5s call
 
 
+def test_queue_wait_override_is_scoped():
+    from leads import local_llm_gate as g
+    default = g.queue_timeout_seconds()
+    with g.queue_wait(90):
+        assert g.queue_timeout_seconds() == 90
+    assert g.queue_timeout_seconds() == default
+
+
+def test_lead_extraction_waits_longer_for_the_model_slot(monkeypatch):
+    import asyncio
+    import leads.bedrock_client as bc
+    import leads.ingestion as ing
+    from leads import local_llm_gate as g
+    seen = []
+    monkeypatch.setattr(bc, "converse_json_object", lambda **kw: seen.append(g.queue_timeout_seconds()) or {"leads": []})
+    asyncio.run(ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"))
+    assert seen == [90.0]
+
+
 def test_no_address_is_rendered_on_a_platform_domain():
     assert not render_pattern_email("{first}.{last}@{domain}", "Radar", "Healthcare", "uk.linkedin.com")
     assert render_pattern_email("{first}.{last}@{domain}", "Jane", "Doe", "www.acme.com") == "jane.doe@acme.com"

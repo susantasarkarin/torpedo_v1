@@ -611,14 +611,21 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         # coroutine it froze the web server's event loop for every extraction:
         # on 2026-09-28 the backend stopped answering entirely -- /takesurvey
         # included -- whenever the WebSearch job ran. Run it on a thread.
-        data = await asyncio.to_thread(
-            converse_json_object,
-            role="cheap",
-            system=EXTRACTION_SYSTEM_PROMPT,
-            user=extraction_prompt,
-            max_tokens=2048,
-            temperature=0.0,
-        )
+        from .local_llm_gate import queue_wait
+
+        def _extract():
+            # Wait for the shared model slot rather than give up after the
+            # default 5s: the results are already paid for in search quota.
+            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "90"))):
+                return converse_json_object(
+                    role="cheap",
+                    system=EXTRACTION_SYSTEM_PROMPT,
+                    user=extraction_prompt,
+                    max_tokens=2048,
+                    temperature=0.0,
+                )
+
+        data = await asyncio.to_thread(_extract)
         leads = parse_extracted_leads(data)
 
         if leads:
