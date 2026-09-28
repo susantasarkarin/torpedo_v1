@@ -105,6 +105,13 @@ def test_a_domain_with_vendor_evidence_is_not_silently_a_client():
     assert _in("Cint - API not working", "sheik@cint.com")["category"] == "vendor"
 
 
+def test_a_vendor_quote_is_vendor_mail_not_a_sales_rfq():
+    assert _in("RE: RFQ - US Gen Pop n=500", "rohit.tiwari@cint.com")["category"] == "vendor"
+    assert _in("Revised pricing for the Brazil study", "sheik@cint.com")["category"] == "vendor"
+    # a vendor's bill is still an invoice
+    assert _in("Invoice INV-2231 from Cint", "billing@cint.com")["category"] == "invoice"
+
+
 def test_relationship_set_by_a_person_beats_evidence():
     ctx = _ctx(client_domains={"cint.com", "hansaresearch.com"}, vendor_domains={"hansaresearch.com"},
                relationships={"cint.com": "vendor", "hansaresearch.com": "client"})

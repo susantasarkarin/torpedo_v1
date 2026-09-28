@@ -377,7 +377,12 @@ def categorize_inbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     if _RFQ.search(subject) is None and ctx.is_bulk_subject(subject):
         return out("outreach_reply", "reply to one of our bulk outreach mails")
 
-    # 7. content signals
+    # 7. a vendor's quote, PO or pricing is our purchasing, not a sales lead:
+    #    it must not land under rfq / active_deal / proposal
+    if party == "vendor":
+        return out("vendor", "sender is a vendor")
+
+    # 8. content signals
     if _RFQ.search(head):
         return out("rfq", "RFQ / request for quote language")
     if _ACTIVE_DEAL.search(subject) or _ACTIVE_DEAL.search(text[:500]):
@@ -385,12 +390,11 @@ def categorize_inbound(doc: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     if _PROPOSAL.search(head):
         return out("proposal", "proposal / quote / pricing discussion")
 
-    # 8. who it is from
+    # 9. who it is from
     if party:
-        return out(party, "sender's company has sent us RFQs / won business" if party == "client"
-                   else "sender is a Finance vendor")
+        return out(party, "sender's company buys from us (opens RFQs / won business)")
 
-    # 9. first contact
+    # 10. first contact
     if _NEW_INQUIRY.search(head):
         return out("new_inquiry", "first-contact / inquiry language")
 
