@@ -100,14 +100,25 @@ def _finance(c, now) -> List[Dict[str, Any]]:
 
 
 def _rfqs(c, now) -> List[Dict[str, Any]]:
-    q = {"stage": "rfq", "status": "open", "created_at": {"$gte": now - timedelta(days=30)}}
+    # By when the RFQ mail arrived: a bulk backfill on 2026-08-31 created
+    # hundreds of records from 2025 mail, and counting by created_at showed
+    # them all as new.
+    since = now - timedelta(days=30)
+    q = {"stage": "rfq", "status": "open", "$or": [
+        {"metadata.rfq.received_at": {"$gte": since}},
+        {"metadata.rfq.received_at": {"$exists": False}, "created_at": {"$gte": since}}]}
     opp = c["crm_db"]["opportunities"]
+    out = []
     n = opp.count_documents(q)
-    if not n:
-        return []
-    ex = [d.get("title") for d in opp.find(q, {"title": 1}).sort("created_at", -1).limit(3)]
-    return [_item("rfqs_open", "New RFQs (last 30 days)", n, "/admin/sales/rfq", "normal",
-                  "Auto-created from mail; some are not real RFQs — review and reject those", ex)]
+    if n:
+        ex = [d.get("title") for d in opp.find(q, {"title": 1}).sort("created_at", -1).limit(3)]
+        out.append(_item("rfqs_open", "RFQs received in the last 30 days", n, "/admin/sales/rfq", "high",
+                         "Quote or close them", ex))
+    pending = c["email_automation"]["rfq_review_queue"].count_documents({"status": "pending_review"})
+    if pending:
+        out.append(_item("rfq_review", "RFQs found in mail, waiting for your approval", pending,
+                         "/admin/sales/rfq", "high", "Approve to create the RFQ, or reject"))
+    return out
 
 
 def _automation(c, now) -> List[Dict[str, Any]]:
