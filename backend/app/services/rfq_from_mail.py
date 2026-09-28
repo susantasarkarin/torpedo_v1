@@ -96,16 +96,24 @@ def _account_for(crm_service, accounts_col, email: str) -> Dict[str, Any]:
         return acc
     root = registrable_root(domain)
     site = accounts_col.find_one({"website": {"$regex": re.escape(root) + r"\.[a-z.]+/?$", "$options": "i"}})
-    if site:
-        return {"_id": str(site["_id"]), "name": site.get("name")}
+    named = []
     if len(root) >= 4:
         named = [a for a in accounts_col.find({"name": {"$regex": "^" + re.escape(root[:4]), "$options": "i"}},
                                                {"name": 1})
                  if not _PERSONISH.search(a.get("name") or "")
                  and root in re.sub(r"[^a-z0-9]", "", (a.get("name") or "").lower())]
-        if named:
-            best = min(named, key=lambda a: len(a["name"]))
-            return {"_id": str(best["_id"]), "name": best["name"]}
+    # A real company name ("Hansa Research Group") beats one that is just the
+    # domain ("Hansaresearch"), even when the domain-named one carries the
+    # website -- earlier backfills created those from the email address.
+    proper = [a for a in named if re.sub(r"[^a-z0-9]", "", a["name"].lower()) != root]
+    if proper:
+        best = min(proper, key=lambda a: len(a["name"]))
+        return {"_id": str(best["_id"]), "name": best["name"]}
+    if site:
+        return {"_id": str(site["_id"]), "name": site.get("name")}
+    if named:
+        best = min(named, key=lambda a: len(a["name"]))
+        return {"_id": str(best["_id"]), "name": best["name"]}
     acc, _ = crm_service.get_or_create_account(root.replace("-", " ").title(), {"website": root_site(domain)})
     return acc
 

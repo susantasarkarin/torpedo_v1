@@ -37,6 +37,14 @@ def test_a_clean_existing_account_is_reused_not_a_person_named_one():
     assert got == {"_id": "3", "name": "Hansa Research Group"}
 
 
+def test_a_proper_name_beats_a_domain_named_account_with_the_website():
+    accs = _Accounts([{"_id": 1, "name": "Hansaresearch", "website": "hansaresearch.com"},
+                      {"_id": 3, "name": "Hansa Research Group"}])
+    assert rb._account_for(None, accs, "ramiz@hansaresearch.com")["name"] == "Hansa Research Group"
+    only_site = _Accounts([{"_id": 1, "name": "Hansaresearch", "website": "hansaresearch.com"}])
+    assert rb._account_for(None, only_site, "ramiz@hansaresearch.com")["name"] == "Hansaresearch"
+
+
 def test_invented_details_are_dropped():
     # live answer for a mail that said only "The ID ... has been captured. Please go ahead."
     out = {"methodology": "Not specified", "country": "Not specified", "target_audience": "Not specified",
