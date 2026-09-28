@@ -133,11 +133,16 @@ def _domain(addr: str) -> str:
 class Context:
     def __init__(self, client_domains: Set[str], vendor_domains: Set[str],
                  client_emails: Set[str], vendor_emails: Set[str],
-                 outreach_threads: Set[str], bulk_subjects: Optional[Set[str]] = None):
-        self.client_domains = client_domains
-        self.vendor_domains = vendor_domains - client_domains  # a domain seen as a client wins
+                 outreach_threads: Set[str], bulk_subjects: Optional[Set[str]] = None,
+                 relationships: Optional[Dict[str, str]] = None):
+        # build_context has already resolved domains that look like both.
+        self.client_domains = client_domains - vendor_domains
+        self.vendor_domains = vendor_domains
         self.client_emails = client_emails
         self.vendor_emails = vendor_emails - client_emails
+        # Set by a person (domain or address -> client/vendor); beats all evidence.
+        self.relationships = {k.lower(): v for k, v in (relationships or {}).items()
+                              if v in ("client", "vendor")}
         self.outreach_threads = outreach_threads
         # Subjects we have mailed in bulk (older campaigns predate the
         # outreach_sends_v2 log, so thread matching alone misses them).
@@ -150,6 +155,10 @@ class Context:
     def party(self, addr: str) -> Optional[str]:
         addr = (addr or "").lower()
         d = _domain(addr)
+        if addr in self.relationships:
+            return self.relationships[addr]
+        if d and d in self.relationships:
+            return self.relationships[d]
         if addr in self.client_emails:
             return "client"
         if addr in self.vendor_emails:
@@ -181,34 +190,75 @@ NOT_OUTREACH_BULK = {
 }
 
 
-RFQ_SENDER_MIN = 2
+RFQ_THREADS_MIN = 2
+# A domain Finance records as a vendor is still a client if it plainly buys
+# from us: it opened at least this many RFQ threads, 3x more than we opened.
+STRONG_CLIENT_THREADS = 10
 _RFQ_MONGO = r"(^|[^a-z])(rfq|rfp)([^a-z]|$)|request for (quote|quotation|proposal)"
+RELATIONSHIPS_COLLECTION = ("email_automation", "party_relationships")
+
+
+def rfq_thread_direction(client) -> Tuple[Dict[str, int], Dict[str, int]]:
+    """Per company domain: RFQ threads they opened with us (they buy) and RFQ
+    threads we opened with them (we buy). The word RFQ alone does not say who
+    is the client -- we send RFQs to our vendors and their replies come back
+    inbound -- the first message of the thread does."""
+    em = client["torpedo_gmail"]["email_metadata"]
+    bounce_from, bounce_subj, _ = _production_patterns()
+    asked_us: Dict[str, int] = {}
+    we_asked: Dict[str, int] = {}
+
+    def company(addr):
+        d = _domain(addr or "")
+        return d if d and d not in WEBMAIL and d not in OWN_DOMAINS else ""
+
+    for t in em.aggregate([
+            {"$match": {"subject": {"$regex": _RFQ_MONGO, "$options": "i"},
+                        "gmail_thread_id": {"$nin": [None, ""]}}},
+            {"$sort": {"timestamp": 1}},
+            {"$group": {"_id": "$gmail_thread_id", "dir": {"$first": "$direction"},
+                        "f": {"$first": "$from_email"}, "to": {"$first": "$to_emails"},
+                        "s": {"$first": "$subject"}}}], allowDiskUse=True):
+        if t.get("dir") == "inbound":
+            sender = (t.get("f") or "").lower()
+            # A bounce quoting an RFQ subject is not an RFQ from that domain.
+            if bounce_from.search(sender) or bounce_subj.search(t.get("s") or "") \
+                    or _AUTOMATED_FROM.search(sender):
+                continue
+            d = company(sender)
+            if d:
+                asked_us[d] = asked_us.get(d, 0) + 1
+        elif t.get("dir") == "outbound":
+            for d in {company(r) for r in (t.get("to") or [])} - {""}:
+                we_asked[d] = we_asked.get(d, 0) + 1
+    return asked_us, we_asked
+
+
+def load_relationships(client) -> Dict[str, str]:
+    db, name = RELATIONSHIPS_COLLECTION
+    return {r["key"]: r["relationship"] for r in client[db][name].find(
+        {"key": {"$type": "string"}, "relationship": {"$in": ["client", "vendor"]}},
+        {"key": 1, "relationship": 1})}
 
 
 def build_context(client) -> Context:
-    """Who is a client / vendor, from evidence rather than address books.
+    """Who is a client / vendor.
 
-    Measured 2026-09-28: CRM contacts were auto-created from every
-    correspondent (job applicants included), and Finance's real billed
-    customers (Hansa, Sentient, Neoteric, Bilendi, Ipsos...) are recorded by
-    NAME with no email -- the few customers that do have one are mostly
-    panelists and applicants. So a client domain is one that has sent us RFQs
-    or belongs to a contact on a won opportunity; a vendor domain comes from
-    Finance's vendor records. Webmail and our own domains never count."""
-    em = client["torpedo_gmail"]["email_metadata"]
-    rfq_senders: Dict[str, int] = {}
-    bounce_from, bounce_subj, _ = _production_patterns()
-    for row in em.aggregate([
-            {"$match": {"direction": "inbound", "subject": {"$regex": _RFQ_MONGO, "$options": "i"}}},
-            {"$group": {"_id": {"f": "$from_email", "s": "$subject"}, "n": {"$sum": 1}}}], allowDiskUse=True):
-        sender, subj = (row["_id"].get("f") or ""), (row["_id"].get("s") or "")
-        # A bounce quoting an RFQ subject is not an RFQ from that domain.
-        if bounce_from.search(sender) or bounce_subj.search(subj) or _AUTOMATED_FROM.search(sender):
-            continue
-        d = _domain(sender)
-        if d:
-            rfq_senders[d] = rfq_senders.get(d, 0) + row["n"]
-    client_domains = {d for d, n in rfq_senders.items() if n >= RFQ_SENDER_MIN}
+    1. Relationships a person set (email_automation.party_relationships) win.
+    2. Evidence: a client opened RFQ threads with us; a vendor is one we opened
+       RFQ threads with, or one Finance records as a vendor. Where both apply,
+       the vendor reading wins unless the domain plainly buys from us.
+    Measured 2026-09-28: RFQ-subject counts alone filed Cint, PureSpectrum,
+    Lucid and other sample suppliers as clients (their replies to our RFQs).
+    CRM contacts and Finance customers are not usable -- auto-created from
+    every correspondent, billed clients recorded by name without email.
+    Webmail and our own domains never count."""
+    asked_us, we_asked = rfq_thread_direction(client)
+    rfq_clients = {d for d, n in asked_us.items()
+                   if n >= RFQ_THREADS_MIN and n >= 3 * we_asked.get(d, 0)}
+    rfq_vendors = {d for d, n in we_asked.items()
+                   if n >= RFQ_THREADS_MIN and n >= 3 * asked_us.get(d, 0)}
+    client_domains = set(rfq_clients)
 
     crm = client["crm_db"]
     contact_ids = set()
@@ -247,7 +297,13 @@ def build_context(client) -> Context:
             counts[key] = counts.get(key, 0) + row["n"]
     bulk = {s for s, n in counts.items()
             if n >= BULK_SUBJECT_MIN_SENDS and not _RFQ.search(s) and s not in NOT_OUTREACH_BULK}
-    return Context(client_domains, domains(ve), ce, ve, threads, bulk)
+
+    vendor_domains = domains(ve) | {d for d in rfq_vendors if d not in WEBMAIL and d not in OWN_DOMAINS}
+    strong_clients = {d for d in client_domains if asked_us.get(d, 0) >= STRONG_CLIENT_THREADS
+                      and asked_us[d] >= 3 * we_asked.get(d, 0)}
+    vendor_domains -= strong_clients
+    return Context(client_domains, vendor_domains, ce, ve, threads, bulk,
+                   relationships=load_relationships(client))
 
 
 # ---------------------------------------------------------------------------

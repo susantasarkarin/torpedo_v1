@@ -98,9 +98,44 @@ def test_plain_bank_mail_is_banking():
     assert _in("AXIS BANK : Statement for April 2025", "statements@axisbank.com")["category"] == "banking"
 
 
-def test_domain_seen_as_client_wins_over_vendor():
-    assert _in("Overview page counts", "samplingplatforms@ipsos.com")["category"] == "client"
+def test_a_domain_with_vendor_evidence_is_not_silently_a_client():
+    # build_context removes plain buyers (strong RFQ senders) from the vendor
+    # set before this point; whatever is still in both is a vendor.
+    assert _in("Overview page counts", "samplingplatforms@ipsos.com")["category"] == "vendor"
     assert _in("Cint - API not working", "sheik@cint.com")["category"] == "vendor"
+
+
+def test_relationship_set_by_a_person_beats_evidence():
+    ctx = _ctx(client_domains={"cint.com", "hansaresearch.com"}, vendor_domains={"hansaresearch.com"},
+               relationships={"cint.com": "vendor", "hansaresearch.com": "client"})
+    assert ctx.party("rohit.tiwari@cint.com") == "vendor"
+    assert ctx.party("keya.kundu@hansaresearch.com") == "client"
+
+
+def test_relationship_for_one_address_beats_its_domain():
+    ctx = _ctx(relationships={"ipsos.com": "client", "denis.popa@ipsos.com": "vendor"})
+    assert ctx.party("denis.popa@ipsos.com") == "vendor"
+    assert ctx.party("someone@ipsos.com") == "client"
+
+
+class _Agg:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def aggregate(self, pipeline, **kw):
+        return list(self.rows)
+
+
+def test_rfq_direction_counts_who_opened_the_thread(monkeypatch):
+    monkeypatch.setattr(mc, "_production_patterns",
+                        lambda: (mc.re.compile("mailer-daemon"), mc.re.compile("undeliverable"), None))
+    rows = [
+        {"_id": "t1", "dir": "inbound", "f": "keya@hansaresearch.com", "s": "RFQ_Bev"},
+        {"_id": "t2", "dir": "outbound", "to": ["rohit@cint.com", "x@surveyfieldwork.com"], "s": "RFQ - US GP"},
+        {"_id": "t3", "dir": "inbound", "f": "mailer-daemon@google.com", "s": "RFQ x"},
+    ]
+    asked, ours = mc.rfq_thread_direction({"torpedo_gmail": {"email_metadata": _Agg(rows)}})
+    assert asked == {"hansaresearch.com": 1} and ours == {"cint.com": 1}
 
 
 def test_webmail_domain_never_makes_a_client():
