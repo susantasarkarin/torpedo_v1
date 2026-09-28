@@ -2250,6 +2250,18 @@ async def startup_event():
                               id="mail_pool_segregation", name="Mail Pool Segregation (rules + Qwen)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Mail pool segregation scheduled (every 10 minutes)")
+
+            def _zoho_mirror_job():
+                try:
+                    from app.services.zoho_mirror import run_mirror
+                    run_mirror()
+                except Exception as e:
+                    print(f"[ZohoMirror] Error: {e}")
+
+            scheduler.add_job(_zoho_mirror_job, IntervalTrigger(hours=6),
+                              id="zoho_books_mirror", name="Zoho Books read-only mirror",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Zoho Books mirror scheduled (every 6 hours; idle until connected)")
     except Exception as e:
         print(f"⚠️ Could not schedule reply triage / nurture / finance automation: {e}")
 

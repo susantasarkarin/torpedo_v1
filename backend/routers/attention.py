@@ -120,6 +120,20 @@ def _automation(c, now) -> List[Dict[str, Any]]:
                              "/admin/sales/outreach", "high", str(problem)[:200]))
     except Exception as e:
         logger.debug("attention: compliance check skipped: %s", e)
+    try:
+        from integrations import zoho_books as zb
+        if not zb.configured():
+            out.append(_item("zoho_not_connected", "Zoho Books is not connected yet", 1, "", "normal",
+                             "Add the Self Client credentials to the server (see scripts/zoho_connect.py); missing: "
+                             + ", ".join(zb.missing_settings())))
+        else:
+            st = c["finance_db"]["zoho_sync_state"].find_one({"_id": "mirror"}) or {}
+            last = st.get("last_run_at")
+            if not last or last < now - timedelta(hours=13):
+                out.append(_item("zoho_stale", "Zoho Books figures are out of date", 1, "", "normal",
+                                 f"Last mirrored: {last:%Y-%m-%d %H:%M} UTC" if last else "Never mirrored"))
+    except Exception as e:
+        logger.debug("attention: zoho check skipped: %s", e)
     t = c["torpedo"]
     ks = t["outreach_kill_switch"].find_one({}) or {}
     if ks.get("paused"):
