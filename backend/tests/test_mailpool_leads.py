@@ -106,6 +106,10 @@ def test_nurture_only_for_people_answering_outreach_or_enquiring():
     assert not ml.is_prospect({"categories": ["rfq"]})
 
 
+def test_ticketing_system_is_automated_mail():
+    assert mc._AUTOMATED_FROM.search("jira@jira.prodegehq.com")
+
+
 def test_our_own_personal_addresses_never_become_leads(monkeypatch):
     monkeypatch.setenv("MAIL_POOL_OWN_ADDRESSES", "director.personal@gmail.com, other@yahoo.com")
     monkeypatch.setattr(mc, "_production_patterns",

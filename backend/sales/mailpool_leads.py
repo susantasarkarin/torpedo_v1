@@ -21,9 +21,10 @@ Per correspondent:
 each with a mail_pool block (message counts, first/last contact, last
 subject and summary). A company that is both (Cint) gets both records.
 
-Point 4: a client contact's latest inbound message is triaged by the reply-
-triage rules; what the rules cannot decide waits for the local model (a few
-per cycle, newest first). A status a person set is never overwritten. Nurture
+Point 4: for prospects -- contacts who replied to our outreach or enquired --
+the latest inbound message is triaged by the reply-triage rules; what the
+rules cannot decide waits for the local model (a few per cycle, newest
+first). Established clients and suppliers get no positive/negative label. A status a person set is never overwritten. Nurture
 starts only for a fresh (<=14 days) positive from a prospect -- never for an
 established client or a converted lead.
 
@@ -460,7 +461,13 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
         if not last:
             continue
         mp = lead.get("mail_pool") or {}
-        undecided_before = mp.get("triage_pending") and mp.get("triaged_message_id") == str(last["mid"])
+        if not is_prospect(mp):
+            # Positive/negative is a prospect's answer to our outreach. On a
+            # client's routine mail it is noise: an Ipsos cost-sheet note ("there
+            # is no need...") read as Negative, Market Cube chasing an invoice
+            # ("Can you check") as Positive.
+            continue
+        undecided_before =mp.get("triage_pending") and mp.get("triaged_message_id") == str(last["mid"])
         if mp.get("triaged_message_id") == str(last["mid"]) and not undecided_before:
             continue
         if not _status_is_automated(lead):

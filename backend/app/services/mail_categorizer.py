@@ -68,7 +68,7 @@ _AUTO_REPLY_BODY = re.compile(r"\b(i am|i'm) (currently )?(out of (the )?office|
 # Notification platforms: always automated, whatever their body says.
 _AUTOMATED_FROM = re.compile(
     r"mailer-daemon@|no-?reply|noreply|donotreply|do-not-reply|notifications?@|alerts?@|"
-    r"security@|account-alerts@|support@github\.com|"
+    r"security@|account-alerts@|support@github\.com|^jira@|@jira\.|"
     r"@(accounts\.google\.com|notify\.cloudflare\.com|em\d*\.cloudflare\.com|"
     r"notifications\.dynata\.com|zohosocial\.in|notification\.zohoannounces\.com|"
     r"scheduler\.pipedrive\.com|hunter\.io|read\.ai|e\.read\.ai|amazonses\.com|"
