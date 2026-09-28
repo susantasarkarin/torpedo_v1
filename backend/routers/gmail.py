@@ -2021,6 +2021,13 @@ def _compute_and_persist_mail_pool_stats():
         except Exception:
             ai_category_stats = []
 
+        # Messages the rules could not place, still queued for the local model
+        try:
+            segregation_pending_ai = mail_pool_emails.count_documents(
+                {"ai_tier1_status": "pending_ai"}, maxTimeMS=3000)
+        except Exception:
+            segregation_pending_ai = 0
+
         # Pending review count
         try:
             pending_review_count = mongo_client["email_automation"]["ai_review_queue"].count_documents(
@@ -2090,6 +2097,7 @@ def _compute_and_persist_mail_pool_stats():
             "drafts_count": drafts_count,
             "segments": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
             "ai_categories": {s["_id"]: s["count"] for s in ai_category_stats if s["_id"]},
+            "segregation_pending_ai": segregation_pending_ai,
             "pending_review": pending_review_count,
             "accounts": account_stats,
         }
@@ -2211,7 +2219,8 @@ def get_mail_pool_emails(
             "mailbox_id": 1, "is_starred": 1, "is_read": 1,
             "gmail_thread_id": 1, "gmail_message_id": 1, "synced_at": 1,
             "ai_category": 1, "ai_confidence": 1, "ai_urgency": 1,
-            "ai_intent": 1, "ai_tier1_category": 1,
+            "ai_intent": 1, "ai_tier1_category": 1, "ai_tier1_reason": 1,
+            "ai_tier1_status": 1, "email_type": 1, "system_subtype": 1,
             "ai_summary": 1, "segment": 1, "segment_source": 1,
             "ai_analysis.contacts": 1, "ai_analysis.rfq": 1,
         }

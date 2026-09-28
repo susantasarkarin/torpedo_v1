@@ -20,8 +20,15 @@ const SEGMENT_COLORS = {
   others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
 }
 
-// AI Category colors (Tier 1) - Primary classification
+// AI Category colors (Tier 1) - Primary classification (ai_tier1_category,
+// filled by backend/app/services/mail_categorizer.py). Business signals first.
 const AI_CATEGORY_COLORS = {
+  rfq: { bg: "#fce7f3", text: "#9d174d", icon: "💰" },
+  active_deal: { bg: "#fed7aa", text: "#9a3412", icon: "🤝" },
+  proposal: { bg: "#e0e7ff", text: "#3730a3", icon: "📊" },
+  new_inquiry: { bg: "#d1fae5", text: "#065f46", icon: "✨" },
+  outreach_reply: { bg: "#dbeafe", text: "#1e3a8a", icon: "💬" },
+  outreach: { bg: "#eff6ff", text: "#1e40af", icon: "📤" },
   client: { bg: "#dcfce7", text: "#166534", icon: "👤" },
   vendor: { bg: "#dbeafe", text: "#1e40af", icon: "🏢" },
   internal: { bg: "#e0f2fe", text: "#0369a1", icon: "🏠" },
@@ -1293,7 +1300,15 @@ function MailPool() {
 
         {/* AI Categories */}
         <div style={styles.sidebarDivider}>
-          <span style={styles.sidebarTitle}>AI Categories</span>
+          <span style={styles.sidebarTitle}>
+            AI Categories
+            {stats.segregation_pending_ai > 0 && (
+              <span style={{ fontWeight: 400, marginLeft: 6, fontSize: "0.7rem" }}
+                    title="Messages the rules could not place; the local model sorts them in the background, newest first">
+                ({stats.segregation_pending_ai.toLocaleString()} awaiting AI)
+              </span>
+            )}
+          </span>
         </div>
         <div style={styles.sidebarSection}>
           {Object.entries(AI_CATEGORY_COLORS).map(([category, config]) => {
@@ -1320,7 +1335,7 @@ function MailPool() {
                   marginRight: "12px"
                 }}></span>
                 <span style={styles.sidebarLabel}>
-                  {config.icon} {category.charAt(0).toUpperCase() + category.slice(1)}
+                  {config.icon} {(category.charAt(0).toUpperCase() + category.slice(1)).replace("_", " ")}
                 </span>
                 {count > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>{count}</span>
@@ -1660,11 +1675,11 @@ function MailPool() {
                     {/* System Email Badge (Phase 3 - takes precedence) */}
                     {email.email_type === "system" && getSystemEmailBadge(email.email_type, email.system_subtype)}
                     {/* AI Category Badge (Tier 1) - only for non-system emails */}
-                    {email.email_type !== "system" && email.ai_category && getAICategoryBadge(email.ai_category)}
+                    {email.email_type !== "system" && (email.ai_tier1_category || email.ai_category) && getAICategoryBadge(email.ai_tier1_category || email.ai_category)}
                     {/* Urgency badge if high/critical - only for non-system emails */}
                     {email.email_type !== "system" && (email.ai_urgency === "critical" || email.ai_urgency === "high") && getUrgencyBadge(email.ai_urgency)}
                     {/* Legacy segment badge */}
-                    {email.email_type !== "system" && !email.ai_category && email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
+                    {email.email_type !== "system" && !email.ai_tier1_category && !email.ai_category && email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
                     {email.has_rfq && (
                       <span style={styles.rfqTag}>RFQ</span>
                     )}
@@ -1727,11 +1742,11 @@ function MailPool() {
                 {/* System Email Badge (Phase 3 - takes precedence) */}
                 {selectedEmail.email_type === "system" && getSystemEmailBadge(selectedEmail.email_type, selectedEmail.system_subtype)}
                 {/* AI Category Badge - only for non-system emails */}
-                {selectedEmail.email_type !== "system" && selectedEmail.ai_category && getAICategoryBadge(selectedEmail.ai_category)}
+                {selectedEmail.email_type !== "system" && (selectedEmail.ai_tier1_category || selectedEmail.ai_category) && getAICategoryBadge(selectedEmail.ai_tier1_category || selectedEmail.ai_category)}
                 {/* Urgency Badge - only for non-system emails */}
                 {selectedEmail.email_type !== "system" && selectedEmail.ai_urgency && selectedEmail.ai_urgency !== "none" && getUrgencyBadge(selectedEmail.ai_urgency)}
                 {/* Legacy segment */}
-                {selectedEmail.email_type !== "system" && !selectedEmail.ai_category && selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
+                {selectedEmail.email_type !== "system" && !selectedEmail.ai_tier1_category && !selectedEmail.ai_category && selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
                 <span style={styles.inboxLabel}>{filterFolder === "sent" ? "Sent" : "Inbox"} ×</span>
               </div>
             </div>

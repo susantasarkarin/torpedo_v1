@@ -2227,6 +2227,18 @@ async def startup_event():
                               id="finance_automation", name="Overdue invoices, reminders, reconcile, CA pack",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Daily finance automation scheduled (03:30 UTC)")
+
+            def _mail_segregation_job():
+                try:
+                    from app.services.mail_categorizer import run_scheduled_cycle
+                    run_scheduled_cycle()
+                except Exception as e:
+                    print(f"[MailSegregation] Error: {e}")
+
+            scheduler.add_job(_mail_segregation_job, IntervalTrigger(seconds=600),
+                              id="mail_pool_segregation", name="Mail Pool Segregation (rules + Qwen)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Mail pool segregation scheduled (every 10 minutes)")
     except Exception as e:
         print(f"⚠️ Could not schedule reply triage / nurture / finance automation: {e}")
 
