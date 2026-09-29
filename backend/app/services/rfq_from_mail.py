@@ -619,7 +619,8 @@ def apply_live_links(client, since: Optional[datetime] = None, ai_calls: int = 5
     em = client["torpedo_gmail"]["email_metadata"]
     opp = client["crm_db"]["opportunities"]
     match: Dict[str, Any] = {"direction": "inbound", "mail_party": "client", "live_link_ai": {"$exists": False},
-                             "body_plain": {"$regex": "live|launch", "$options": "i"}}
+                             "body_plain": {"$regex": "live|launch|go ahead|good to go|on ?board|commission|"
+                                                      "po (number|no)|purchase order|proceed", "$options": "i"}}
     if since:
         match["timestamp"] = {"$gte": since}
     stats = {"asked": 0, "live_links": 0, "won_now": 0, "won_history": 0, "no_rfq_found": 0,
@@ -637,14 +638,15 @@ def apply_live_links(client, since: Optional[datetime] = None, ai_calls: int = 5
             stats["unavailable"] += 1
             break  # retried next run; nothing recorded
         record = {"status": status, "at": now, **({k: decision.get(k) for k in
-                  ("live_link_sent", "told_to_launch", "test_link_only", "study_name", "reason", "url")}
-                  if decision else {})}
+                  ("live_link_sent", "told_to_launch", "commissioned", "test_link_only", "study_name", "reason",
+                   "url")} if decision else {})}
         em.update_one({"_id": doc["_id"]}, {"$set": {"live_link_ai": record}})
         if status == "guard_rejected":
             stats["guard_rejected"] += 1
             continue
         live, launch = bool(decision.get("live_link_sent")), bool(decision.get("told_to_launch"))
-        if not (live or launch):
+        commissioned = bool(decision.get("commissioned"))
+        if not (live or launch or commissioned):
             continue
         stats["live_links"] += 1
         o = _rfq_for_live_link(client, doc, decision.get("study_name") or "")
@@ -667,7 +669,8 @@ def apply_live_links(client, since: Optional[datetime] = None, ai_calls: int = 5
             stats["already_won"] += 1
             continue
         oid = str(o["_id"])
-        why = "client sent the live link" if live else "client told us to launch the fieldwork"
+        why = ("client sent the live link" if live else "client told us to launch the fieldwork" if launch
+               else "client commissioned the study (go-ahead / PO)")
         link = {"url": decision.get("url"), "at": doc.get("timestamp"), "email_id": str(doc["_id"]),
                 "study_name": decision.get("study_name"), "reason": why, "decided_by": "ai"}
         sets = {"metadata.rfq.live_link": link}

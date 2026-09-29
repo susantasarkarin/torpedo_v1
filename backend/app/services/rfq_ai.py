@@ -48,11 +48,12 @@ _LIVE_SCHEMA = {
     "properties": {
         "live_link_sent": {"type": "boolean"},
         "told_to_launch": {"type": "boolean"},
+        "commissioned": {"type": "boolean"},
         "test_link_only": {"type": "boolean"},
         "study_name": {"type": "string", "maxLength": 100},
         "reason": {"type": "string", "maxLength": 160},
     },
-    "required": ["live_link_sent", "told_to_launch", "test_link_only", "study_name", "reason"],
+    "required": ["live_link_sent", "told_to_launch", "commissioned", "test_link_only", "study_name", "reason"],
 }
 _LIVE_SYSTEM = (
     "You read an email a market-research client sent to their fieldwork supplier (us). "
@@ -61,9 +62,12 @@ _LIVE_SYSTEM = (
     "Asking us for links, promising to send them later, sharing only a TEST link, or sending "
     "redirect/terminate links is NOT a live link. told_to_launch = true if the client tells us to "
     "launch / start / go live with the fieldwork now (e.g. 'test ID captured, please launch'). "
-    "Saying the survey is NOT live, or asking us to pause, is false for both. test_link_only = "
-    "true if only a test link is given. study_name = the study or project name the email is "
-    "about. JSON only.")
+    "Saying the survey is NOT live, or asking us to pause, is false for both. commissioned = "
+    "true if the client confirms they are going ahead with us: awards the study, says go ahead / "
+    "good to go / on board, sends a PO number, or asks us to proceed with testing or launch. "
+    "If the sender is a SUPPLIER quoting to us or asking us for our links, everything is false. "
+    "test_link_only = true if only a test link is given. study_name = the study or project name "
+    "the email is about. JSON only.")
 
 # cheap pre-filter: only mails that could possibly carry a live link reach the model
 _MAYBE_LIVE = re.compile(r"\blive\b|\bgo[- ]live\b|\blaunch", re.I)
@@ -77,6 +81,14 @@ _NEGATED = re.compile(r"\b(not|isn'?t|never|no longer)\s+(yet\s+)?live\b|\blive 
 _LAUNCH = re.compile(r"\b(please|kindly|pls|plz|can you|go ahead and)\s+(launch|start|begin|kick ?off)\b[^.\n]{0,50}"
                      r"\b(fw|fieldwork|field work|study|survey|project|data collection|the link)\b|"
                      r"\bstart the (fw|fieldwork|field work)\b|\bmake (the )?study live\b|\bsoft launch\b", re.I)
+# the client going ahead with us: "we would like to go ahead with this project", "good to go on
+# board with you", "PO number A-17611", "proceed with testing", "we need to go live in field asap"
+_COMMISSION = re.compile(
+    r"\b(go(ing)? ahead with (this|the|you)|good to go|on ?board with you|award(ed)?\b[^.\n]{0,30}\b(you|study|project)|"
+    r"\bcommission(ed|ing)?\b|\bpo (number|no\.?|#)|purchase order|proceed with (the )?(testing|launch|fieldwork|study)|"
+    r"(need|want) to go live|launch (this|the study|the project) (asap|today|now))", re.I)
+# ...but a supplier offering us: "we are feasible", "please share our/your live links"
+_SUPPLIER_SIDE = re.compile(r"\bwe are feasible\b|\bshare (us )?the live links?\b|\bour (cpi|rates|pricing)\b", re.I)
 _TEST_ONLY = re.compile(r"\btest(ing)?\s+links?\b", re.I)
 _LIVE_OR_START = re.compile(r"\blive\s+(survey\s+)?links?\b|\bsurvey\s+links?\b|\bstart the (fw|fieldwork)\b|"
                             r"\blaunch\b|\bgo(ne)?\s+live\b", re.I)
@@ -116,7 +128,8 @@ def _guard_live(text: str) -> Optional[str]:
     return None
 
 
-_MAYBE_LAUNCH = re.compile(r"\blaunch|\bstart the (fw|fieldwork)|\bgo(ne)? live|\bstudy live", re.I)
+_MAYBE_LAUNCH = re.compile(r"\blaunch|\bstart the (fw|fieldwork)|\bgo(ne)? live|\bstudy live|\bgo ahead|"
+                           r"good to go|on ?board|commission|\bpo (number|no)|purchase order|proceed", re.I)
 
 
 def live_link(subject: str, text: str) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -136,15 +149,17 @@ def live_link(subject: str, text: str) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "unavailable"
     negated = bool(_NEGATED.search(body_only))
     test_only = bool(_TEST_ONLY.search(body_only)) and not _LIVE_OR_START.search(body_only)
+    supplier = bool(_SUPPLIER_SIDE.search(body_only))
     url = _guard_live(body_only)
-    live_ok = bool(out.get("live_link_sent")) and bool(url) and not negated and not test_only
-    launch_ok = bool(out.get("told_to_launch")) and bool(_LAUNCH.search(body_only)) and not negated
-    if (out.get("live_link_sent") and not live_ok) and not launch_ok:
-        return None, "guard_rejected"
-    if out.get("told_to_launch") and not launch_ok and not live_ok:
+    live_ok = bool(out.get("live_link_sent")) and bool(url) and not negated and not test_only and not supplier
+    launch_ok = bool(out.get("told_to_launch")) and bool(_LAUNCH.search(body_only)) and not negated and not supplier
+    commission_ok = bool(out.get("commissioned")) and bool(_COMMISSION.search(body_only)) and not supplier
+    claimed = any(out.get(k) for k in ("live_link_sent", "told_to_launch", "commissioned"))
+    if claimed and not (live_ok or launch_ok or commission_ok):
         return None, "guard_rejected"
     out["live_link_sent"] = live_ok
     out["told_to_launch"] = launch_ok
+    out["commissioned"] = commission_ok
     out["url"] = url if live_ok else None
     return out, "ai"
 

@@ -73,6 +73,24 @@ def test_a_launch_instruction_is_a_win(monkeypatch):
     assert status == "ai" and d["told_to_launch"] and not d["live_link_sent"] and d["url"] is None
 
 
+def test_a_go_ahead_with_a_po_is_commissioned(monkeypatch):
+    _model(monkeypatch, {"live_link_sent": False, "told_to_launch": False, "commissioned": True,
+                         "test_link_only": False, "study_name": "Advertising DM's", "reason": ""})
+    d, status = rfq_ai.live_link("RE: FW: RFQ - Advertising DM's // A-17611",
+                                 "Hello Rahul, Thank you for this, we would like to go ahead with this project! "
+                                 "I have also updated the subject line with our PO number – A-17611")
+    assert status == "ai" and d["commissioned"]
+
+
+def test_a_supplier_offering_us_is_not_a_win(monkeypatch):
+    _model(monkeypatch, {"live_link_sent": False, "told_to_launch": False, "commissioned": True,
+                         "test_link_only": False, "study_name": "", "reason": ""})
+    d, status = rfq_ai.live_link("RE: Coleman Research", "Hi Rahul, We are feasible for this survey request under "
+                                 "the following specifications. We look forward to your thoughts on next steps, "
+                                 "go ahead with this")
+    assert status == "guard_rejected"
+
+
 def test_model_outage_is_not_a_verdict(monkeypatch):
     _model(monkeypatch, None)
     assert rfq_ai.live_link("Re: RFQ", LIVE_MAIL) == (None, "unavailable")
