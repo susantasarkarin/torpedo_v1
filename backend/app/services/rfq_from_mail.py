@@ -157,6 +157,42 @@ def relink_accounts(client, created_since: datetime) -> Dict[str, int]:
     return {"relinked": moved, "orphan_accounts_removed": len(orphans)}
 
 
+def create_from_doc(client, doc: Dict[str, Any], now: datetime, key: Optional[str] = None,
+                    via: str = "rfq thread") -> Tuple[str, bool]:
+    """One RFQ from the client's first message of a thread -> (opportunity id,
+    created as closed history?)."""
+    from bson import ObjectId
+    from app.services import crm_service
+    em = client["torpedo_gmail"]["email_metadata"]
+    opp = client["crm_db"]["opportunities"]
+    sender = (doc.get("from_email") or "").strip().lower()
+    ts = doc.get("timestamp") or now
+    tid = doc.get("gmail_thread_id")
+    key = key or f"{mc._domain(sender)}|{mc.normalize_subject(doc.get('subject'))}"
+    account = _account_for(crm_service, client["crm_db"]["accounts"], sender)
+    contact, _ = crm_service.get_or_create_contact(sender, {"name": doc.get("from_name") or "",
+                                                            "account_id": account["_id"]})
+    summary = doc.get("mail_summary") or ""
+    res = crm_service.create_rfq({
+        "title": clean_title(doc.get("subject")), "account_id": account["_id"],
+        "contact_id": contact["_id"], "budget": 0, "currency": None,
+        "description": summary, "ai_summary": summary, "summary": summary,
+        "received_at": ts, "source_email_id": str(doc["_id"]), "source_emails": [str(doc["_id"])],
+        "gmail_thread_id": tid, "gmail_thread_ids": [tid], "mailbox_id": doc.get("mailbox_id"),
+        "from_email": sender, "from_name": doc.get("from_name"), "contact_email": sender,
+        "account_name": account.get("name"), "direction": "inbound", "source": SOURCE,
+        "created_via": via, "dedup_key": key})
+    oid = res["opportunity"]["_id"]
+    is_history = ts < now - timedelta(days=OPEN_DAYS)
+    update = {"created_at": ts}
+    if is_history:
+        update.update(status="closed", closed_at=now, closed_by="rfq_from_mail",
+                      closed_reason=f"historical RFQ (mail older than {OPEN_DAYS} days) -- outcome not recorded")
+    opp.update_one({"_id": ObjectId(oid)}, {"$set": update})
+    em.update_one({"_id": doc["_id"]}, {"$set": {"rfq_id": oid, "rfq_synced": True, "rfq_source": SOURCE}})
+    return oid, is_history
+
+
 def build(client, since: Optional[datetime] = None, now: Optional[datetime] = None,
           limit: Optional[int] = None) -> Dict[str, int]:
     """Create RFQs for candidate threads that do not have one yet. Idempotent."""
@@ -198,30 +234,8 @@ def build(client, since: Optional[datetime] = None, now: Optional[datetime] = No
             have.add(tid)
             stats["folded_duplicates"] += 1
             continue
-        account = _account_for(crm_service, accounts_col, sender)
-        contact, _ = crm_service.get_or_create_contact(sender, {"name": doc.get("from_name") or "",
-                                                                "account_id": account["_id"]})
-        summary = doc.get("mail_summary") or ""
-        res = crm_service.create_rfq({
-            "title": clean_title(doc.get("subject")), "account_id": account["_id"],
-            "contact_id": contact["_id"], "budget": 0, "currency": None,
-            "description": summary, "ai_summary": summary, "summary": summary,
-            "received_at": ts, "source_email_id": str(doc["_id"]), "source_emails": [str(doc["_id"])],
-            "gmail_thread_id": tid, "gmail_thread_ids": [tid], "mailbox_id": doc.get("mailbox_id"),
-            "from_email": sender, "from_name": doc.get("from_name"), "contact_email": sender,
-            "account_name": account.get("name"), "direction": "inbound", "source": SOURCE,
-            "dedup_key": key})
-        oid = res["opportunity"]["_id"]
-        is_history = ts < now - timedelta(days=OPEN_DAYS)
-        update = {"created_at": ts}
-        if is_history:
-            update.update(status="closed", closed_at=now, closed_by="rfq_from_mail",
-                          closed_reason=f"historical RFQ (mail older than {OPEN_DAYS} days) -- outcome not recorded")
-            stats["closed_history"] += 1
-        else:
-            stats["open"] += 1
-        opp.update_one({"_id": ObjectId(oid)}, {"$set": update})
-        em.update_one({"_id": doc["_id"]}, {"$set": {"rfq_id": oid, "rfq_synced": True, "rfq_source": SOURCE}})
+        oid, is_history = create_from_doc(client, doc, now, key)
+        stats["closed_history" if is_history else "open"] += 1
         recent.setdefault(key, []).append({"ts": ts, "id": oid})
         have.add(tid)
         stats["created"] += 1
@@ -466,32 +480,76 @@ def client_currency(client, account_name: str, domain: str, country: str = "") -
     return None, ""
 
 
-def apply_quotes(client, only_open: bool = False) -> Dict[str, int]:
-    """CPI, currency and value for rebuilt RFQs from our latest quote in the
-    thread; an RFQ we quoted moves to proposal ('Quoted')."""
-    from bson import ObjectId
-    em = client["torpedo_gmail"]["email_metadata"]
-    opp = client["crm_db"]["opportunities"]
+# ---------------------------------------------------------------------------
+# AI-first: our quote, the client's live link (won, Online), is it an RFQ
+# ---------------------------------------------------------------------------
+_PRICEISH = re.compile(rf"{_CUR}|\bcpi\b|\bquote\b|\bcost\b|\brate\b|\bprice\b|per complete|\+\s*tax", re.I)
+_STOP = {"rfq", "rfp", "survey", "study", "fieldwork", "field", "work", "project", "request", "quote", "quotation",
+         "sfw", "hrg", "the", "and", "for", "with", "from", "research", "online", "live", "link", "links",
+         "vendor", "re", "fw", "fwd", "new", "updated", "update"}
+
+
+def _tokens(s: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]{4,}", (s or "").lower()) if w not in _STOP}
+
+
+def ai_quote_for_thread(client, tids: List[str], ai_budget: Dict[str, int]) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
+    """(quote, the reply it came from, source) from our latest reply that states
+    a price -- the model decides; rules only when it is unavailable or out of
+    budget. The model's verdict per reply is kept, so a reply is asked once."""
+    from app.services import rfq_ai
     from sales.reply_triage import strip_quoted
+    em = client["torpedo_gmail"]["email_metadata"]
+    for d in em.find({"gmail_thread_id": {"$in": tids}, "direction": "outbound"},
+                     {"body_plain": 1, "timestamp": 1, "quote_ai": 1}).sort("timestamp", -1):
+        body = strip_quoted(d.get("body_plain") or "")
+        if not _PRICEISH.search(body) or not re.search(r"\d", body):
+            continue
+        cached = d.get("quote_ai")
+        if cached:
+            if cached.get("quoted"):
+                return cached, d, "ai"
+            continue
+        if ai_budget["left"] > 0:
+            ai_budget["left"] -= 1
+            ai_budget["asked"] = ai_budget.get("asked", 0) + 1
+            q, status = rfq_ai.quote(body[:2500])
+            if status == "unavailable":
+                ai_budget["left"] = 0          # stop asking this pass; rules stand in
+                ai_budget["unavailable"] = True
+            if status == "ai" and q is not None:
+                em.update_one({"_id": d["_id"]}, {"$set": {"quote_ai": q}})
+                if q.get("quoted"):
+                    return q, d, "ai"
+                continue
+            if status == "guard_rejected":
+                em.update_one({"_id": d["_id"]}, {"$set": {"quote_ai": {"quoted": False, "guard_rejected": True}}})
+        # model unavailable, out of budget, or its answer failed the check: rules
+        rq = parse_quote(body)
+        if rq:
+            return rq, d, "rules"
+    return None, None, ""
+
+
+def apply_quotes(client, only_open: bool = False, ai_calls: int = 0) -> Dict[str, int]:
+    """CPI, currency and value from our latest quote in the thread -- read by
+    the model first (up to ai_calls new questions), rules otherwise. An RFQ we
+    quoted moves to proposal ('Quoted')."""
+    opp = client["crm_db"]["opportunities"]
     q: Dict[str, Any] = {"metadata.rfq.source": SOURCE}
     if only_open:
         q["status"] = "open"
-    stats = {"checked": 0, "quoted": 0, "valued": 0, "currency_set": 0}
+    budget = {"left": ai_calls}
+    stats = {"checked": 0, "quoted": 0, "by_ai": 0, "by_rules": 0, "valued": 0, "currency_set": 0}
     for o in opp.find(q, {"stage": 1, "status": 1, "metadata.rfq": 1, "amount": 1, "value_source": 1}):
         r = (o.get("metadata") or {}).get("rfq") or {}
         stats["checked"] += 1
-        tids = r.get("gmail_thread_ids") or [r.get("gmail_thread_id")]
-        quote, qdoc = None, None
-        for d in em.find({"gmail_thread_id": {"$in": [t for t in tids if t]}, "direction": "outbound"},
-                         {"body_plain": 1, "timestamp": 1}).sort("timestamp", -1):
-            quote = parse_quote(strip_quoted(d.get("body_plain") or ""))
-            if quote:
-                qdoc = d
-                break
+        tids = [t for t in (r.get("gmail_thread_ids") or [r.get("gmail_thread_id")]) if t]
+        quote, qdoc, qsource = ai_quote_for_thread(client, tids, budget)
         sets: Dict[str, Any] = {}
         currency = (quote or {}).get("currency")
         source = "stated in our quote" if currency else ""
-        if quote and not currency and quote["taxes_extra"]:
+        if quote and not currency and quote.get("taxes_extra"):
             currency, source = "INR", "our quote adds taxes (GST): Indian client"
         if not currency:
             currency, source = client_currency(client, r.get("account_name") or "",
@@ -502,29 +560,178 @@ def apply_quotes(client, only_open: bool = False) -> Dict[str, int]:
             stats["currency_set"] += 1
         if quote:
             n = r.get("sample_size")
-            line_value = sum(l["n"] * l["cpi"] for l in quote["lines"] if l["n"])
-            value = quote.get("total") or line_value or (quote["cpi"] * n if n and quote["cpi"] else None)
-            sets.update({"metadata.rfq.cpi": quote["cpi"], "metadata.rfq.quote_lines": quote["lines"],
-                         "metadata.rfq.taxes_extra": quote["taxes_extra"],
-                         "metadata.rfq.quote_email_id": str(qdoc["_id"]),
+            lines = quote.get("lines") or ([{"n": None, "cpi": quote["cpi"]}] if quote.get("cpi") else [])
+            line_value = sum(l["n"] * l["cpi"] for l in lines if l.get("n"))
+            value = quote.get("total") or line_value or (quote["cpi"] * n if n and quote.get("cpi") else None)
+            sets.update({"metadata.rfq.cpi": quote.get("cpi"), "metadata.rfq.quote_lines": lines,
+                         "metadata.rfq.taxes_extra": bool(quote.get("taxes_extra")),
+                         "metadata.rfq.quote_email_id": str(qdoc["_id"]), "metadata.rfq.quote_source": qsource,
                          "quoted_at": qdoc.get("timestamp")})
             if value:
-                sets.update({"metadata.rfq.quoted_value": round(value, 2)})
+                sets["metadata.rfq.quoted_value"] = round(value, 2)
                 if o.get("value_source") != "manual":
                     sets.update({"amount": round(value, 2), "value_source": "quote"})
                 stats["valued"] += 1
             if o.get("stage") in ("rfq", "new", "qualified"):
                 sets["stage"] = "proposal"
             stats["quoted"] += 1
+            stats["by_ai" if qsource == "ai" else "by_rules"] += 1
         if sets:
             opp.update_one({"_id": o["_id"]}, {"$set": sets})
+    stats["ai_asked"] = budget.get("asked", 0)
+    stats["ai_unavailable"] = bool(budget.get("unavailable"))
+    return stats
+
+
+def _rfq_for_live_link(client, doc: Dict[str, Any], study_name: str) -> Optional[Dict[str, Any]]:
+    """The RFQ a live-link mail belongs to: same thread, else the latest RFQ
+    from the same company in the 120 days before whose title shares a
+    distinctive word with the mail (or that company's only one then)."""
+    opp = client["crm_db"]["opportunities"]
+    hit = opp.find_one({"metadata.rfq.source": SOURCE, "metadata.rfq.gmail_thread_ids": doc.get("gmail_thread_id")})
+    if hit:
+        return hit
+    root = registrable_root(mc._domain((doc.get("from_email") or "").lower()))
+    ts = doc.get("timestamp") or datetime.utcnow()
+    cands = [o for o in opp.find({"metadata.rfq.source": SOURCE,
+                                  "metadata.rfq.received_at": {"$gte": ts - timedelta(days=120), "$lte": ts},
+                                  "metadata.rfq.from_email": {"$regex": re.escape(root) + r"\.", "$options": "i"}},
+                                 {"title": 1, "stage": 1, "status": 1, "metadata.rfq.received_at": 1})]
+    if not cands:
+        return None
+    words = _tokens(f"{study_name} {doc.get('subject') or ''}")
+    scored = sorted(((len(words & _tokens(o.get("title"))), o["metadata"]["rfq"]["received_at"], o) for o in cands),
+                    key=lambda x: (x[0], x[1]), reverse=True)
+    if scored[0][0] >= 1:
+        return scored[0][2]
+    return cands[0] if len(cands) == 1 else None
+
+
+def apply_live_links(client, since: Optional[datetime] = None, ai_calls: int = 50,
+                     now: Optional[datetime] = None) -> Dict[str, int]:
+    """Owner rule: the client sent us the live link -> the study is won and its
+    methodology is online. The model decides whether a mail really gives us the
+    live link; the guard wants a link of theirs in the mail."""
+    from bson import ObjectId
+    from app.services import crm_service, rfq_ai
+    from sales.reply_triage import strip_quoted
+    now = now or datetime.utcnow()
+    em = client["torpedo_gmail"]["email_metadata"]
+    opp = client["crm_db"]["opportunities"]
+    match: Dict[str, Any] = {"direction": "inbound", "mail_party": "client", "live_link_ai": {"$exists": False},
+                             "body_plain": {"$regex": "live|launch", "$options": "i"}}
+    if since:
+        match["timestamp"] = {"$gte": since}
+    stats = {"asked": 0, "live_links": 0, "won_now": 0, "won_history": 0, "no_rfq_found": 0,
+             "already_won": 0, "unavailable": 0, "guard_rejected": 0}
+    for doc in em.find(match, {"subject": 1, "body_plain": 1, "timestamp": 1, "from_email": 1,
+                               "gmail_thread_id": 1}).sort("timestamp", 1):
+        text = strip_quoted(doc.get("body_plain") or "")
+        if stats["asked"] >= ai_calls:
+            break
+        decision, status = rfq_ai.live_link(doc.get("subject") or "", text[:3000])
+        if status == "not_candidate":
+            continue
+        stats["asked"] += 1
+        if status == "unavailable":
+            stats["unavailable"] += 1
+            break  # retried next run; nothing recorded
+        record = {"status": status, "at": now, **({k: decision.get(k) for k in
+                  ("live_link_sent", "told_to_launch", "test_link_only", "study_name", "reason", "url")}
+                  if decision else {})}
+        em.update_one({"_id": doc["_id"]}, {"$set": {"live_link_ai": record}})
+        if status == "guard_rejected":
+            stats["guard_rejected"] += 1
+            continue
+        live, launch = bool(decision.get("live_link_sent")), bool(decision.get("told_to_launch"))
+        if not (live or launch):
+            continue
+        stats["live_links"] += 1
+        o = _rfq_for_live_link(client, doc, decision.get("study_name") or "")
+        if not o:
+            # A project the client started in its own thread ("NR14338_CG")
+            # that never read as an RFQ: the study happened, so it gets its
+            # record, from the thread's first message if the client opened it.
+            first = em.find_one({"gmail_thread_id": doc.get("gmail_thread_id")},
+                                {"subject": 1, "from_email": 1, "from_name": 1, "timestamp": 1, "direction": 1,
+                                 "gmail_thread_id": 1, "mail_summary": 1, "mailbox_id": 1},
+                                sort=[("timestamp", 1)])
+            if not first or first.get("direction") != "inbound" or \
+                    mc._domain((first.get("from_email") or "").lower()) in mc.OWN_DOMAINS:
+                stats["no_rfq_found"] += 1
+                continue
+            new_id, _ = create_from_doc(client, first, now, via="client live link / launch")
+            o = opp.find_one({"_id": ObjectId(new_id)}, {"title": 1, "stage": 1, "status": 1})
+            stats["created_for_live_link"] = stats.get("created_for_live_link", 0) + 1
+        if o.get("stage") == "won":
+            stats["already_won"] += 1
+            continue
+        oid = str(o["_id"])
+        why = "client sent the live link" if live else "client told us to launch the fieldwork"
+        link = {"url": decision.get("url"), "at": doc.get("timestamp"), "email_id": str(doc["_id"]),
+                "study_name": decision.get("study_name"), "reason": why, "decided_by": "ai"}
+        sets = {"metadata.rfq.live_link": link}
+        if live:  # owner rule: a live link from the client means an online study
+            sets.update({"metadata.rfq.methodology": "Online",
+                         "metadata.rfq.methodology_source": "client sent the live link"})
+        opp.update_one({"_id": o["_id"]}, {"$set": sets})
+        if o.get("status") == "open":
+            # the live flow: Finance customer, work order, contract, Ops project
+            crm_service.mark_opportunity_won(oid)
+            opp.update_one({"_id": o["_id"]}, {"$set": {"won_via": why, "won_at": doc.get("timestamp")}})
+            stats["won_now"] += 1
+        else:
+            # history: won, dated by the live link; no Finance/Ops records for
+            # a study that ran long ago
+            opp.update_one({"_id": o["_id"]}, {"$set": {
+                "stage": "won", "status": "won", "won_at": doc.get("timestamp"), "closed_at": doc.get("timestamp"),
+                "won_via": f"{why} (historical: no Finance/Ops setup)"},
+                "$unset": {"closed_reason": "", "closed_by": ""}})
+            stats["won_history"] += 1
+    return stats
+
+
+def ai_check_new_rfqs(client, limit: int = 3) -> Dict[str, int]:
+    """For RFQs the rules created from recent mail: the model confirms the mail
+    asks us for a quote; if it says no, the RFQ is closed (not deleted) with
+    its reason."""
+    from bson import ObjectId
+    from app.services import rfq_ai
+    from sales.reply_triage import strip_quoted
+    opp = client["crm_db"]["opportunities"]
+    em = client["torpedo_gmail"]["email_metadata"]
+    stats = {"checked": 0, "confirmed": 0, "not_rfq": 0, "unavailable": 0}
+    for o in opp.find({"metadata.rfq.source": SOURCE, "metadata.rfq.ai_is_rfq": {"$exists": False}},
+                      {"status": 1, "metadata.rfq.source_email_id": 1}).sort("metadata.rfq.received_at", -1).limit(limit):
+        try:
+            d = em.find_one({"_id": ObjectId(o["metadata"]["rfq"]["source_email_id"])}, {"subject": 1, "body_plain": 1})
+        except Exception:
+            d = None
+        verdict, reason = rfq_ai.is_rfq((d or {}).get("subject") or "", strip_quoted((d or {}).get("body_plain") or "")[:2500])
+        if verdict is None:
+            stats["unavailable"] += 1
+            break
+        stats["checked"] += 1
+        sets = {"metadata.rfq.ai_is_rfq": verdict, "metadata.rfq.ai_is_rfq_reason": reason}
+        if verdict:
+            stats["confirmed"] += 1
+        else:
+            stats["not_rfq"] += 1
+            if o.get("status") == "open":
+                sets.update(status="closed", closed_at=datetime.utcnow(), closed_by="rfq_ai",
+                            closed_reason=f"AI: not a request for our quote -- {reason}")
+        opp.update_one({"_id": o["_id"]}, {"$set": sets})
     return stats
 
 
 def run_scheduled_cycle(client) -> Dict[str, Any]:
-    """New RFQs from the last few days' mail, details for a couple, and our
-    quotes on the open ones."""
-    out = {"built": build(client, since=datetime.utcnow() - timedelta(days=3))}
+    """New RFQs from recent mail; then, AI first: confirm new RFQs, our quotes
+    on open ones, live links (won, Online) in recent mail, study details."""
+    now = datetime.utcnow()
+    out = {"built": build(client, since=now - timedelta(days=3))}
+    out["ai_is_rfq"] = ai_check_new_rfqs(client, limit=int(os.getenv("RFQ_AI_CHECK_PER_RUN", "2")))
+    out["quotes"] = apply_quotes(client, only_open=True, ai_calls=int(os.getenv("RFQ_QUOTE_AI_PER_RUN", "2")))
+    out["live_links"] = apply_live_links(client, since=now - timedelta(days=3),
+                                         ai_calls=int(os.getenv("RFQ_LIVE_AI_PER_RUN", "2")))
     out["details"] = enrich_open(client, limit=int(os.getenv("RFQ_DETAILS_AI_PER_RUN", "2")))
-    out["quotes"] = apply_quotes(client, only_open=True)
     return out
