@@ -83,20 +83,32 @@ def structure_of(email: str, first: str, last: str) -> Tuple[str, Optional[str]]
     return "unknown", None
 
 
+OWN_COMPANIES = {"cogentixresearch": "Cogentix Research", "surveyfieldwork": "Survey Fieldwork",
+                 "bimwavesolutions": "BIMwave Solutions"}
+_MESSY_NAME = re.compile(r"[(|_@]|\s-\s|\bvia\b", re.I)
+
+
 def _company_names(client) -> Dict[str, str]:
-    """registrable domain -> company name, from CRM accounts' websites and
-    Finance customers' emails (read-only)."""
+    """company root -> company name, from CRM accounts and Finance customers
+    (read-only). Names that are really people or variants ('Hansa Research
+    Group - dooblo', 'Adarsh V (Phoenixdatainnov)') are skipped; of the rest
+    the one used most wins, the shorter on a tie."""
     from app.services.rfq_from_mail import registrable_root
-    out: Dict[str, str] = {}
-    for a in client["crm_db"]["accounts"].find({"website": {"$nin": [None, ""]}}, {"name": 1, "website": 1}):
+    cands: Dict[str, Counter] = defaultdict(Counter)
+    for a in client["crm_db"]["accounts"].find({}, {"name": 1, "website": 1}):
+        nm = (a.get("name") or "").strip()
+        if not nm or _MESSY_NAME.search(nm):
+            continue
         d = re.sub(r"^(https?://)?(www\.)?", "", (a.get("website") or "").lower()).split("/")[0]
-        if d and a.get("name") and not re.search(r"[(|_]", a["name"]):
-            out.setdefault(registrable_root(d), a["name"])
+        if d:
+            cands[registrable_root(d)][nm] += 2
     for c in client["finance_db"]["customers"].find({"email": {"$regex": "@"}}, {"company_name": 1, "name": 1, "email": 1}):
         nm = (c.get("company_name") or c.get("name") or "").strip()
         d = mc._domain(c["email"].lower())
-        if nm and d and d not in mc.WEBMAIL and not re.search(r"[(|]", nm):
-            out.setdefault(registrable_root(d), nm)
+        if nm and d and d not in mc.WEBMAIL and not _MESSY_NAME.search(nm):
+            cands[registrable_root(d)][nm] += 1
+    out = {root: sorted(names.items(), key=lambda kv: (-kv[1], len(kv[0])))[0][0] for root, names in cands.items()}
+    out.update(OWN_COMPANIES)
     return out
 
 
@@ -116,7 +128,7 @@ def _known_names(client) -> Dict[str, str]:
 def backfill(client, since: Optional[datetime] = None, write_patterns: bool = True) -> Dict[str, int]:
     """Every address in the mail pool (or those seen since `since`)."""
     from pymongo import UpdateOne
-    from app.services.rfq_from_mail import registrable_root
+    from app.services.rfq_from_mail import registrable_root, root_site
     em = client["torpedo_gmail"]["email_metadata"]
     ea = client["email_automation"]
     now = datetime.utcnow()
@@ -162,7 +174,7 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
             by_domain[dom][form] += 1
         company = companies.get(root) or ("" if dom in mc.WEBMAIL else root.replace("-", " ").title())
         ops.append(UpdateOne({"_id": a}, {"$set": {
-            "email": a, "local_part": a.split("@")[0], "domain": dom, "company_domain": root,
+            "email": a, "local_part": a.split("@")[0], "domain": dom, "company_domain": root_site(dom),
             "company_name": company, "name": display, "first_name": first, "last_name": last,
             "structure": f"{label}@{dom}" if not label.startswith("role:") else f"{a.split('@')[0]}@{dom}",
             "structure_kind": "role" if label.startswith("role:") else label,

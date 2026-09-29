@@ -13,6 +13,25 @@ def test_common_structures():
     assert es.structure_of("xyz123@acme.com", "jane", "roe") == ("unknown", None)
 
 
+def test_company_names_skip_variants_and_people(monkeypatch):
+    class _Col:
+        def __init__(self, docs):
+            self.docs = docs
+
+        def find(self, q, proj=None):
+            return self.docs
+
+    client = {"crm_db": {"accounts": _Col([
+        {"name": "Hansa Research Group", "website": "https://hansaresearch.com"},
+        {"name": "Hansa Research Group - dooblo", "website": "hansaresearch.com"},
+        {"name": "Adarsh V (Phoenixdatainnov)", "website": "phoenixdatainnov.com"}])},
+        "finance_db": {"customers": _Col([{"name": "Cogentix Researach", "email": "a@cogentixresearch.com"}])}}
+    names = es._company_names(client)
+    assert names["hansaresearch"] == "Hansa Research Group"
+    assert "phoenixdatainnov" not in names
+    assert names["cogentixresearch"] == "Cogentix Research"
+
+
 def test_display_names_are_cleaned():
     assert es.split_name("Keya Kundu | Hansa Research Group (Hansaresearch)") == ("keya", "kundu")
     assert es.split_name("Chin, Alfred (Rakuten)") == ("alfred", "chin")
