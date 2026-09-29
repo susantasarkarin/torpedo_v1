@@ -688,8 +688,12 @@ def apply_live_links(client, since: Optional[datetime] = None, ai_calls: int = 5
             # a study that ran long ago
             opp.update_one({"_id": o["_id"]}, {"$set": {
                 "stage": "won", "status": "won", "won_at": doc.get("timestamp"), "closed_at": doc.get("timestamp"),
-                "won_via": f"{why} (historical: no Finance/Ops setup)"},
+                "won_via": f"{why} (historical)"},
                 "$unset": {"closed_reason": "", "closed_by": ""}})
+            # every win gets its work order, contract and project (owner,
+            # 2026-09-29) -- a study that ran long ago is recorded as completed
+            from app.services.won_handoff import handoff_won_opportunity
+            handoff_won_opportunity(opp.find_one({"_id": o["_id"]}), historical=True)
             stats["won_history"] += 1
     return stats
 

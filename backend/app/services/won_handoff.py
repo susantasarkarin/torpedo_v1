@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from bson import ObjectId
 
@@ -124,37 +124,90 @@ def _open_task(title: str, opportunity_id: str, due: datetime, description: str 
 
 
 def handoff_won_opportunity(opportunity: Dict[str, Any],
-                            crm_project: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                            crm_project: Optional[Dict[str, Any]] = None, *,
+                            historical: bool = False,
+                            invoice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create the Finance customer, work order, contract and Operations project
-    for a won opportunity. Idempotent per opportunity; never raises."""
+    for a won opportunity. Idempotent per opportunity; never raises.
+
+    historical: a study won and run long ago -- the project and work order are
+    recorded as completed and no tasks are opened.
+    invoice: the Finance invoice this win was billed on -- its customer, value,
+    currency and PO carry over and it is linked, never duplicated."""
     try:
-        return _handoff(opportunity, crm_project)
+        return _handoff(opportunity, crm_project, historical=historical, invoice=invoice)
     except Exception as e:
         logger.exception("won handoff failed for opportunity %s", opportunity.get("_id"))
         return {"error": str(e)}
 
 
-def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def financial_year(d: datetime) -> Tuple[datetime, datetime]:
+    """Indian financial year (Apr-Mar) containing d."""
+    start_year = d.year if d.month >= 4 else d.year - 1
+    return datetime(start_year, 4, 1), datetime(start_year + 1, 3, 31, 23, 59, 59)
+
+
+def _contract_for(fin, customer: Dict[str, Any], opp_id: str, when: datetime, base: Dict[str, Any],
+                  historical: bool) -> Tuple[str, str, bool]:
+    """-> (contract id, number, created). A client on a yearly contract
+    (customer.contract_type == 'yearly') gets one contract per financial year
+    that covers all its projects; everyone else a contract per project."""
+    contracts = fin["contracts"]
+    if (customer.get("contract_type") or "").lower() == "yearly":
+        fy_start, fy_end = financial_year(when)
+        existing = contracts.find_one({"customer_id": base["customer_id"], "contract_type": "yearly",
+                                       "start_date": {"$lte": when}, "end_date": {"$gte": when}})
+        if existing:
+            contracts.update_one({"_id": existing["_id"]}, {"$addToSet": {"opportunity_ids": opp_id}})
+            return str(existing["_id"]), existing.get("contract_number"), False
+        doc = {**base, "contract_type": "yearly", "start_date": fy_start, "end_date": fy_end,
+               "opportunity_ids": [opp_id], "opportunity_id": None, "work_order_id": None, "project_id": None,
+               "value": None}
+    else:
+        doc = {**base, "contract_type": "project", "opportunity_ids": [opp_id]}
+    doc["contract_number"] = _next_number(contracts, "contract_number", "CON")
+    if historical:
+        doc["status"] = "completed"
+    res = contracts.insert_one(doc)
+    return str(res.inserted_id), doc["contract_number"], True
+
+
+def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]], *,
+             historical: bool = False, invoice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     client = _mongo()
     fin, ops, crm = client["finance_db"], client["email_automation"], client["crm_db"]
     opp_id = str(opportunity["_id"])
     now = datetime.utcnow()
+    won_at = opportunity.get("won_at") or opportunity.get("closed_at") or now
 
     existing = fin["work_orders"].find_one({"opportunity_id": opp_id})
     if existing:
+        if invoice and invoice.get("_id"):
+            fin["work_orders"].update_one({"_id": existing["_id"]}, {"$addToSet": {"invoice_ids": str(invoice["_id"])}})
         return {"skipped": "already handed off", "work_order_id": str(existing["_id"])}
 
     rfq = (opportunity.get("metadata") or {}).get("rfq") or {}
     account = crm["accounts"].find_one({"_id": _oid(opportunity.get("account_id") or rfq.get("account_id"))}) or {}
     contact = crm["contacts"].find_one({"_id": _oid(opportunity.get("contact_id") or rfq.get("contact_id"))}) or {}
 
-    customer = _find_or_create_customer(fin, account, contact, opportunity, now)
+    customer = None
+    if invoice and invoice.get("customer_id"):
+        customer = fin["customers"].find_one({"_id": _oid(invoice["customer_id"])})
+        if customer:
+            customer = {**customer, "_created": False}
+    if not customer:
+        customer = _find_or_create_customer(fin, account, contact, opportunity, now)
     customer_id = str(customer["_id"])
     amount = float(opportunity.get("amount") or rfq.get("budget") or 0) or 0.0
-    currency = opportunity.get("currency") or rfq.get("currency") or customer.get("currency") or ""
+    if not amount and invoice:
+        amount = float(invoice.get("total_amount") or invoice.get("total") or 0)
+    currency = (opportunity.get("currency") or rfq.get("currency") or (invoice or {}).get("currency_code")
+                or customer.get("currency") or "")
     terms = _payment_terms_days(opportunity) if opportunity.get("payment_terms") else \
         int(customer.get("payment_terms") or DEFAULT_PAYMENT_TERMS_DAYS)
     title = opportunity.get("title") or rfq.get("title") or "Project"
+    po = (opportunity.get("po_number") or rfq.get("po_number") or (invoice or {}).get("po_reference") or "")
+    invoice_ids = [str(invoice["_id"])] if invoice and invoice.get("_id") else []
 
     # Operations project -- what the Operations page and close_project work on.
     ops_project = {
@@ -164,8 +217,10 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         "finance_customer_id": customer_id,
         "projectValue": amount,
         "currency": currency,
-        "projectStatus": "live",
-        "status": "active",
+        "projectStatus": "close" if historical else "live",
+        "status": "completed" if historical else "active",
+        "invoice_ids": invoice_ids,
+        "won_at": won_at,
         "rfqId": opp_id,
         "opportunity_id": opp_id,
         "crm_project_id": str(crm_project["_id"]) if crm_project and crm_project.get("_id") else None,
@@ -190,16 +245,19 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         "amount": amount,
         "currency": currency,
         "payment_terms": terms,
-        "status": "draft",
-        "client_po_number": "",
+        "status": "completed" if historical else "draft",
+        # The client's PO can come before or just after fieldwork; whenever it
+        # arrives it goes here and on the invoice (owner, 2026-09-29).
+        "client_po_number": po,
+        "invoice_ids": invoice_ids,
+        "won_at": won_at,
         "created_at": now,
         "updated_at": now,
-        "source": "rfq_won",
+        "source": "invoice" if invoice else "rfq_won",
     }
     wo_res = fin["work_orders"].insert_one(work_order)
 
-    contract = {
-        "contract_number": _next_number(fin["contracts"], "contract_number", "CON"),
+    contract_base = {
         "opportunity_id": opp_id,
         "customer_id": customer_id,
         "customer_name": customer.get("name"),
@@ -208,7 +266,7 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         "value": amount,
         "currency": currency,
         "payment_terms": terms,
-        "start_date": now,
+        "start_date": won_at,
         "end_date": None,
         "status": "draft",
         "signed_at": None,
@@ -216,7 +274,15 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         "updated_at": now,
         "source": "rfq_won",
     }
-    con_res = fin["contracts"].insert_one(contract)
+    contract_id, contract_number, contract_created = _contract_for(
+        fin, customer, opp_id, won_at, contract_base, historical)
+    fin["work_orders"].update_one({"_id": wo_res.inserted_id}, {"$set": {"contract_id": contract_id}})
+    if invoice_ids:
+        fin["invoices"].update_many({"_id": {"$in": [_oid(i) for i in invoice_ids]}}, {"$set": {
+            "work_order_id": str(wo_res.inserted_id), "opportunity_id": opp_id, "ops_project_id": ops_project_id}})
+        if po:
+            fin["invoices"].update_many({"_id": {"$in": [_oid(i) for i in invoice_ids]},
+                                         "po_reference": {"$in": [None, ""]}}, {"$set": {"po_reference": po}})
 
     handoff = {
         "finance_customer_id": customer_id,
@@ -224,9 +290,11 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         "customer_created": customer["_created"],
         "work_order_id": str(wo_res.inserted_id),
         "work_order_number": work_order["work_order_number"],
-        "contract_id": str(con_res.inserted_id),
-        "contract_number": contract["contract_number"],
+        "contract_id": contract_id,
+        "contract_number": contract_number,
+        "contract_created": contract_created,
         "ops_project_id": ops_project_id,
+        "historical": historical,
         "handed_off_at": now,
     }
     crm["opportunities"].update_one({"_id": _oid(opp_id)}, {"$set": {"metadata.handoff": handoff}})
@@ -234,12 +302,18 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]])
         crm["projects"].update_one({"_id": _oid(crm_project["_id"])}, {"$set": {
             "finance_customer_id": customer_id, "ops_project_id": ops_project_id}})
 
+    if historical:  # a study that ran long ago needs no follow-up tasks
+        logger.info("won handoff (historical) %s: %s", opp_id, handoff)
+        return handoff
     due = now + timedelta(days=2)
     if customer["_created"]:
         _open_task(f"Complete billing details for {customer.get('name')} ({customer.get('customer_number')}): GSTIN, PAN, address",
                    opp_id, due)
-    _open_task(f"Confirm work order {work_order['work_order_number']} / client PO for {title}", opp_id, due)
-    _open_task(f"Finalise and send contract {contract['contract_number']} for signature", opp_id, due)
+    if not po:
+        _open_task(f"Get the client PO for {title} (work order {work_order['work_order_number']}) -- "
+                   f"needed on the invoice", opp_id, due)
+    if contract_created:
+        _open_task(f"Finalise and send contract {contract_number} for signature", opp_id, due)
 
     logger.info("won handoff %s: %s", opp_id, handoff)
     return handoff
