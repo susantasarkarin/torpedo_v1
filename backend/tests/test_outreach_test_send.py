@@ -32,6 +32,7 @@ CAMPAIGN = {"campaign_id": "c1", "business": "sfw", "steps": [
 @pytest.fixture
 def wired(monkeypatch):
     monkeypatch.setenv("TRACKING_BASE_URL", "https://crm.example.com")
+    monkeypatch.setenv("OUTREACH_SHOW_UNSUBSCRIBE_LINK", "true")
     import services.outreach_unsubscribe as unsub
     importlib.reload(unsub)
     monkeypatch.setattr(cor, "get_db", lambda: {"outreach_campaigns_v2": _Col(CAMPAIGN)})

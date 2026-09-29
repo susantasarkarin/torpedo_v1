@@ -127,6 +127,42 @@ def one_click_url(email: str) -> str:
             f"{quote(make_token(email))}/one-click")
 
 
+def show_optout_link() -> bool:
+    """The visible unsubscribe footer is off by default (owner, 2026-09-29:
+    "these are all known people and I don't want them to see it"). Opt-outs
+    still work: a reply asking to be removed suppresses the address
+    (record_optout, called from reply triage). Set
+    OUTREACH_SHOW_UNSUBSCRIBE_LINK=true to show the link again. Note: US
+    CAN-SPAM and Gmail's bulk-sender rules expect a visible opt-out in
+    commercial mail -- the owner's call, see RUNBOOK.md."""
+    return os.getenv("OUTREACH_SHOW_UNSUBSCRIBE_LINK", "false").strip().lower() == "true"
+
+
+def record_optout(email: str, source: str) -> bool:
+    """Suppress an address everywhere and close its outreach rows -- from the
+    link, the one-click POST, or a reply asking to be removed."""
+    try:
+        from messaging import suppression as _suppression
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import suppression as _suppression
+    normalized = _suppression.normalize(email)
+    if not normalized:
+        return False
+    _suppression.suppress(normalized, reason="unsubscribed", source=source)
+    try:
+        from datetime import datetime
+        from pymongo import MongoClient
+        db = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
+                         serverSelectionTimeoutMS=5000)[os.getenv("MONGO_DB_NAME", "torpedo")]
+        now = datetime.utcnow()
+        db["outreach_leads_v2"].update_many({"email": normalized}, {"$set": {
+            "unsubscribed": True, "unsubscribed_at": now, "sendable": False,
+            "workflow_status": "suppressed", "updated_at": now}})
+    except Exception as exc:  # the suppression write is the one that stops mail
+        logger.error("[outreach-unsub] lead rows not updated for %s: %s", normalized, exc)
+    return True
+
+
 def compliance_footer(email: str, business_label: str = "") -> str:
     """
     The HTML footer appended to every cold-outreach message.
@@ -137,7 +173,7 @@ def compliance_footer(email: str, business_label: str = "") -> str:
     honour is worse than one that never left. The postal line is included only
     when an address is configured.
     """
-    if not PUBLIC_BASE_URL:
+    if not PUBLIC_BASE_URL or not show_optout_link():
         return ""
     who = _html.escape(business_label) if business_label else "us"
     address = f'<br>{_html.escape(SENDER_POSTAL_ADDRESS)}' if SENDER_POSTAL_ADDRESS else ""
@@ -154,7 +190,10 @@ def compliance_footer(email: str, business_label: str = "") -> str:
 
 
 def footer_blocker() -> Optional[str]:
-    """Why a compliant footer cannot be built, or None if it can."""
+    """Why a compliant footer cannot be built, or None if it can (or if the
+    visible link is switched off -- then there is nothing to build)."""
+    if not show_optout_link():
+        return None
     if not PUBLIC_BASE_URL:
         return ("neither OUTREACH_PUBLIC_BASE_URL nor TRACKING_BASE_URL is set "
                 "— cannot build a reachable unsubscribe link")

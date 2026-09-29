@@ -183,7 +183,11 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]],
     existing = fin["work_orders"].find_one({"opportunity_id": opp_id})
     if existing:
         if invoice and invoice.get("_id"):
+            # a second invoice on the same project: link it both ways
             fin["work_orders"].update_one({"_id": existing["_id"]}, {"$addToSet": {"invoice_ids": str(invoice["_id"])}})
+            fin["invoices"].update_one({"_id": invoice["_id"]}, {"$set": {
+                "work_order_id": str(existing["_id"]), "opportunity_id": opp_id,
+                "ops_project_id": existing.get("project_id")}})
         return {"skipped": "already handed off", "work_order_id": str(existing["_id"])}
 
     rfq = (opportunity.get("metadata") or {}).get("rfq") or {}

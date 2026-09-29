@@ -14,6 +14,30 @@ import importlib
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _visible_link(monkeypatch):
+    # these tests are about the visible footer; it is off by default
+    monkeypatch.setenv("OUTREACH_SHOW_UNSUBSCRIBE_LINK", "true")
+
+
+def test_footer_is_hidden_by_default(monkeypatch):
+    monkeypatch.setenv("TRACKING_BASE_URL", "https://mail.example.com")
+    monkeypatch.delenv("OUTREACH_SHOW_UNSUBSCRIBE_LINK", raising=False)
+    import services.outreach_unsubscribe as mod
+    mod = importlib.reload(mod)
+    assert mod.compliance_footer("person@example.com") == "" and mod.footer_blocker() is None
+
+
+def test_a_reply_asking_to_be_removed_suppresses_the_address(monkeypatch):
+    from sales import reply_triage as rt
+    import services.outreach_unsubscribe as mod
+    calls = []
+    monkeypatch.setattr(mod, "record_optout", lambda email, source: calls.append((email, source)) or True)
+    t = rt.triage_reply("Please remove me from your mailing list.", "Re: fieldwork", use_model=False)
+    assert rt.honour_removal_request("x@acme.com", t) and calls == [("x@acme.com", "reply_asked_removal")]
+    assert not rt.honour_removal_request("y@acme.com", rt.triage_reply("Not interested, thanks.", "", use_model=False))
+
+
 @pytest.fixture
 def unsub(monkeypatch):
     monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_SECRET", "test-secret")

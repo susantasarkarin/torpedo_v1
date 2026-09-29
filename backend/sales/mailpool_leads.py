@@ -496,6 +496,8 @@ def run_triage_pass(client, ctx, use_model: bool = False, model_limit: int = 0,
                 continue
             stats["ruled"] += 1
         verdict = triage["verdict"]
+        from sales.reply_triage import honour_removal_request
+        honour_removal_request(email, triage)
         col.update_one({"_id": lead["_id"]}, {"$set": {
             "lead_status": LEAD_STATUS_FOR_VERDICT[verdict], "lead_status_source": TRIAGE_SOURCE,
             "needs_human_review": verdict == "needs_human",

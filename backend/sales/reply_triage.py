@@ -364,6 +364,20 @@ def apply_verdict(enriched_col, promoted: Dict[str, Any], triage: Dict[str, Any]
     return out
 
 
+def honour_removal_request(email: str, triage: Dict[str, Any]) -> bool:
+    """A reply asking to be removed is an opt-out: with the visible unsubscribe
+    link switched off (owner, 2026-09-29) it is the only one, so it must stop
+    all future mail -- not just label the lead Negative."""
+    if triage.get("verdict") != "negative" or not str(triage.get("reason") or "").startswith("asked to be removed"):
+        return False
+    try:
+        from services.outreach_unsubscribe import record_optout
+        return record_optout(email, source="reply_asked_removal")
+    except Exception as e:
+        logger.warning("removal request for %s not recorded: %s", email, e)
+        return False
+
+
 def run_reply_triage_batch(limit: int = 20, use_model: bool = True) -> Dict[str, int]:
     """Triage replies the scanner promoted that have no verdict yet, or that
     got a newer reply since the last verdict. Starts nurture for fresh
@@ -394,6 +408,7 @@ def run_reply_triage_batch(limit: int = 20, use_model: bool = True) -> Dict[str,
         subject = (reply_doc or {}).get("subject") or promoted.get("reply_subject") or ""
 
         triage = triage_reply(body, subject, use_model=use_model)
+        honour_removal_request(email, triage)
         enriched = apply_verdict(enriched_col, promoted, triage, reply_doc, now)
         promoted_col.update_one({"_id": promoted["_id"]}, {"$set": {
             "reply_triaged_at": now, "reply_sentiment": triage["verdict"]}})
