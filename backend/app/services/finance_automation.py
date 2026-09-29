@@ -12,10 +12,15 @@ Daily job (run_daily_finance_automation):
                     open invoice number is applied to it via the same rules as
                     POST /finance/payments/reconcile. Anything fuzzier (amount
                     look-alikes) is left for a person.
-  4. CA pack        early each month: last month's invoices, payments received,
-                    bills and expenses as CSVs in a DRAFT to CA_EMAIL.
+  4. CA pack        on the 5th (CA_PACK_DAY): last month's invoices, payments
+                    received, bills and expenses as CSVs, SENT to CA_EMAIL
+                    (owner, 2026-09-29; CA_PACK_SEND=false makes it a draft).
+  5. Statements     once a month, per client: every pending invoice in one
+                    statement to the client's billing address -- drafts until
+                    FINANCE_STATEMENTS_SEND=true (statuses come from an unsynced
+                    Zoho export, so a person checks the first ones).
 
-Nothing here sends mail by itself: every email is a draft a person sends.
+Reminders are drafts a person sends; the CA pack is sent.
 Mailbox: INVOICE_REMINDER_FROM (default info@surveyfieldwork.com).
 """
 import csv
@@ -81,6 +86,18 @@ def _draft(to: List[str], subject: str, body: str,
     sender = _from_mailbox()
     return svc.create_draft(from_email=sender, to=to, subject=subject, body_plain=body,
                             signature_html=svc.get_signature(sender), attachments=attachments)
+
+
+def _send(to: List[str], subject: str, body_html: str, body_plain: str,
+          attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Send (not draft) from the finance mailbox. Attachments: content as bytes."""
+    from app.services.gmail_workspace_service import GmailWorkspaceService
+    svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
+                                db_name="torpedo_gmail")
+    svc.load_service_account()
+    sender = _from_mailbox()
+    return svc.send_email(from_email=sender, to=to, subject=subject, body_html=body_html, body_plain=body_plain,
+                          signature_html=svc.get_signature(sender), attachments=attachments)
 
 
 def _crm(kind: str, doc: Dict[str, Any]) -> None:
@@ -270,13 +287,16 @@ def build_ca_pack(start: datetime, end: datetime) -> Dict[str, Any]:
     def rows(col, date_field):
         return list(fin[col].find({date_field: {"$gte": start, "$lt": end}, "is_deleted": {"$ne": True}}))
     invoices = rows("invoices", "invoice_date")
+    for inv in invoices:  # the CA needs the client, not an internal id
+        inv["customer_name"] = _customer_name(fin, inv.get("customer_id"))
     payments = rows("payments_received", "payment_date")
     bills = rows("bills", "bill_date")
     expenses = rows("expenses", "expense_date")
     files = {
-        "invoices.csv": _csv(invoices, ["invoice_number", "invoice_date", "due_date", "customer_id",
-                                        "currency", "subtotal", "tax_amount", "tds_amount",
-                                        "total_amount", "amount_paid", "balance_due", "status", "gstin"]),
+        "invoices.csv": _csv(invoices, ["invoice_number", "invoice_date", "due_date", "customer_name",
+                                        "currency_code", "subtotal", "tax_amount", "tds_amount",
+                                        "total_amount", "amount_paid", "balance_due", "status", "gstin",
+                                        "po_reference"]),
         "payments_received.csv": _csv(payments, ["payment_number", "payment_date", "customer_id",
                                                  "amount", "method", "reference", "invoice_ids"]),
         "bills.csv": _csv(bills, ["bill_number", "bill_date", "due_date", "vendor_id", "currency",
@@ -294,17 +314,33 @@ def build_ca_pack(start: datetime, end: datetime) -> Dict[str, Any]:
     return {"files": files, "summary": summary}
 
 
+CA_PACK_DAY = int(os.getenv("CA_PACK_DAY", "5"))
+
+
+def _customer_name(fin, customer_id) -> str:
+    try:
+        c = fin["customers"].find_one({"_id": ObjectId(str(customer_id))}, {"name": 1, "company_name": 1})
+    except Exception:
+        c = None
+    return ((c or {}).get("company_name") or (c or {}).get("name") or "").strip()
+
+
 def run_monthly_ca_pack(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """On the 5th (owner, 2026-09-29): last month's invoices -- and payments,
+    bills, expenses -- SENT to the CA as CSVs. Runs on the first daily run on or
+    after CA_PACK_DAY, once per month."""
     now = now or datetime.utcnow()
     end = datetime(now.year, now.month, 1)
     start = datetime(end.year - 1, 12, 1) if end.month == 1 else datetime(end.year, end.month - 1, 1)
     period = start.strftime("%Y-%m")
+    if now.day < CA_PACK_DAY:
+        return {"skipped": f"the {period} pack goes on day {CA_PACK_DAY}"}
     fin = _fin()
     ca_email = (os.getenv("CA_EMAIL") or "").strip()
     existing = fin["ca_packs"].find_one({"period": period})
-    # Done once drafted; without a CA email, noted once and retried only after
+    # Done once sent; without a CA email, noted once and retried only after
     # CA_EMAIL is configured (no daily task spam).
-    if existing and (existing.get("draft_id") or not ca_email):
+    if existing and (existing.get("message_id") or existing.get("draft_id") or not ca_email):
         return {"skipped": f"pack for {period} already handled"}
     pack = build_ca_pack(start, end)
     record: Dict[str, Any] = {"period": period, "created_at": now, "summary": pack["summary"],
@@ -317,21 +353,138 @@ def run_monthly_ca_pack(now: Optional[datetime] = None) -> Dict[str, Any]:
                 f"- Payments received: {s['payments']} (total {s['received_total']:,.2f})\n"
                 f"- Bills: {s['bills']}\n- Expenses: {s['expenses']}\n\n"
                 f"Please let us know if you need any supporting documents.\n\nBest regards,\nAccounts")
+        files = [{"filename": f"{period}-{n}", "content": c.encode("utf-8"), "mime_type": "text/csv"}
+                 for n, c in pack["files"].items()]
+        subject = f"Accounts pack for tax filing — {start.strftime('%B %Y')}"
         try:
-            out = _draft([ca_email], f"Accounts pack for tax filing — {start.strftime('%B %Y')}", body,
-                         attachments=[{"filename": f"{period}-{n}", "content": c, "mime_type": "text/csv"}
-                                      for n, c in pack["files"].items()])
+            if os.getenv("CA_PACK_SEND", "true").strip().lower() == "true":
+                out = _send([ca_email], subject, body.replace("\n", "<br>"), body, attachments=files)
+                record.update(message_id=out.get("message_id"), sent_at=now if out.get("success") else None)
+            else:
+                out = _draft([ca_email], subject, body, attachments=files)
+                record.update(draft_id=out.get("draft_id"))
         except Exception as e:
             out = {"success": False, "error": str(e)}
-        record.update(draft_id=out.get("draft_id"), error=out.get("error"))
+        record["error"] = out.get("error")
     else:
-        record["error"] = "CA_EMAIL not set -- pack built but not drafted"
+        record["error"] = "CA_EMAIL not set -- pack built but not sent"
     fin["ca_packs"].update_one({"period": period}, {"$set": record}, upsert=True)
-    _crm("tasks", {"title": f"Send {start.strftime('%B %Y')} accounts pack to CA",
-                   "description": ("Draft with CSVs is ready in " + _from_mailbox()) if record.get("draft_id")
-                   else record.get("error") or "", "status": "open", "source": "ca_pack",
-                   "due_date": now + timedelta(days=3)})
+    if record.get("error") or not record.get("sent_at"):
+        _crm("tasks", {"title": f"{start.strftime('%B %Y')} accounts pack for the CA",
+                       "description": ("Draft with CSVs is ready in " + _from_mailbox()) if record.get("draft_id")
+                       else record.get("error") or "", "status": "open", "source": "ca_pack",
+                       "due_date": now + timedelta(days=3)})
     return {k: v for k, v in record.items() if k != "_id"}
+
+
+# ---------------------------------------------------------------------------
+# 5. monthly statement of pending invoices, per client
+# ---------------------------------------------------------------------------
+STATEMENT_DAY = int(os.getenv("FINANCE_STATEMENT_DAY", "1"))
+_BILLING_HINT = re.compile(r"account|finance|billing|payable|invoice", re.I)
+
+
+def statement_recipient(fin, customer: Dict[str, Any]) -> Optional[str]:
+    """The client's billing address: its own email, else an accounts/finance
+    address recorded on another customer entry for the same company (Finance
+    holds one entry per contact, e.g. 'Accounts Payable | Hansa Research Group')."""
+    email = (customer.get("email") or "").strip().lower()
+    if email and "@" in email and not email.endswith(("surveyfieldwork.com", "cogentixresearch.com")):
+        return email
+    first = re.split(r"[\s|(\-]", (customer.get("company_name") or customer.get("name") or "").strip())[0]
+    if len(first) < 4:
+        return None
+    best = None
+    for c in fin["customers"].find({"name": {"$regex": re.escape(first), "$options": "i"},
+                                    "email": {"$regex": "@"}}, {"name": 1, "email": 1}):
+        e = c["email"].strip().lower()
+        if e.endswith(("surveyfieldwork.com", "cogentixresearch.com", "gmail.com")):
+            continue
+        if _BILLING_HINT.search(c.get("name") or "") or _BILLING_HINT.search(e.split("@")[0]):
+            return e
+        best = best or e
+    return best
+
+
+def statement_html(customer_name: str, invoices: List[Dict[str, Any]], now: datetime) -> Dict[str, str]:
+    rows, totals = [], {}
+    for inv in sorted(invoices, key=lambda i: _as_dt(i.get("invoice_date")) or now):
+        cur = inv.get("currency_code") or inv.get("currency") or ""
+        bal = _balance(inv)
+        totals[cur] = totals.get(cur, 0.0) + bal
+        due = _as_dt(inv.get("due_date"))
+        overdue = (now - due).days if due and due < now else 0
+        rows.append((inv.get("invoice_number") or "", (_as_dt(inv.get("invoice_date")) or now).strftime("%d %b %Y"),
+                     due.strftime("%d %b %Y") if due else "", cur,
+                     float(inv.get("total_amount") or inv.get("total") or 0), bal, overdue,
+                     inv.get("po_reference") or ""))
+    th = "".join(f"<th style='text-align:left;padding:4px 8px;border-bottom:1px solid #ccc'>{h}</th>" for h in
+                 ("Invoice", "Date", "Due", "Currency", "Amount", "Balance", "Days overdue", "PO"))
+    tr = "".join("<tr>" + "".join(f"<td style='padding:4px 8px'>{v:,.2f}</td>" if isinstance(v, float)
+                                  else f"<td style='padding:4px 8px'>{v}</td>" for v in r) + "</tr>" for r in rows)
+    tot = ", ".join(f"{c} {v:,.2f}" for c, v in totals.items())
+    html = (f"<p>Dear {customer_name},</p><p>Please find below the statement of invoices pending as on "
+            f"{now.strftime('%d %B %Y')}.</p><table style='border-collapse:collapse;font-size:13px'>"
+            f"<tr>{th}</tr>{tr}</table><p><b>Total outstanding: {tot}</b></p><p>If any of these has been "
+            f"paid, please share the remittance details so we can reconcile it.</p><p>Best regards,<br>Accounts</p>")
+    plain = (f"Dear {customer_name},\n\nStatement of invoices pending as on {now.strftime('%d %B %Y')}:\n\n" +
+             "\n".join(f"{r[0]}  {r[1]}  due {r[2]}  {r[3]} {r[5]:,.2f} outstanding" for r in rows) +
+             f"\n\nTotal outstanding: {tot}\n\nIf any of these has been paid, please share the remittance "
+             f"details so we can reconcile it.\n\nBest regards,\nAccounts")
+    return {"subject": f"Statement of pending invoices — {customer_name} — {now.strftime('%B %Y')}",
+            "html": html, "plain": plain, "total": tot}
+
+
+def run_client_statements(now: Optional[datetime] = None) -> Dict[str, int]:
+    """Owner, 2026-09-29: a consolidated report of all pending invoices sent to
+    each client individually. Once a month, on or after FINANCE_STATEMENT_DAY.
+    Drafts unless FINANCE_STATEMENTS_SEND=true -- invoice statuses come from a
+    Zoho export that is not synced yet, so a person checks the first ones."""
+    now = now or datetime.utcnow()
+    period = now.strftime("%Y-%m")
+    stats = {"clients": 0, "drafted": 0, "sent": 0, "no_email": 0, "errors": 0, "already_done": 0}
+    if now.day < STATEMENT_DAY:
+        return stats
+    fin = _fin()
+    send = os.getenv("FINANCE_STATEMENTS_SEND", "false").strip().lower() == "true"
+    by_customer: Dict[str, List[Dict[str, Any]]] = {}
+    for inv in fin["invoices"].find({"status": {"$in": list(OPEN_STATUSES)}, "is_deleted": {"$ne": True}}):
+        if _balance(inv) > 0 and inv.get("customer_id"):
+            by_customer.setdefault(str(inv["customer_id"]), []).append(inv)
+    for cid, invs in by_customer.items():
+        stats["clients"] += 1
+        if fin["statements"].find_one({"customer_id": cid, "period": period}):
+            stats["already_done"] += 1
+            continue
+        try:
+            customer = fin["customers"].find_one({"_id": ObjectId(cid)}) or {}
+        except Exception:
+            customer = {}
+        name = customer.get("company_name") or customer.get("name") or "Client"
+        st = statement_html(name, invs, now)
+        to = statement_recipient(fin, customer)
+        record = {"customer_id": cid, "customer_name": name, "period": period, "created_at": now,
+                  "invoice_ids": [str(i["_id"]) for i in invs], "total": st["total"], "to": to}
+        if not to:
+            stats["no_email"] += 1
+            record["error"] = "no billing email on file"
+            _crm("tasks", {"title": f"Statement of pending invoices for {name}: no billing email on file",
+                           "description": st["plain"], "status": "open", "source": "finance_statement",
+                           "due_date": now + timedelta(days=2)})
+        else:
+            try:
+                out = (_send([to], st["subject"], st["html"], st["plain"]) if send
+                       else _draft([to], st["subject"], st["plain"]))
+            except Exception as e:
+                out = {"success": False, "error": str(e)}
+            if out.get("success"):
+                stats["sent" if send else "drafted"] += 1
+            else:
+                stats["errors"] += 1
+            record.update(mode="sent" if send else "draft", message_id=out.get("message_id"),
+                          draft_id=out.get("draft_id"), error=out.get("error"))
+        fin["statements"].update_one({"customer_id": cid, "period": period}, {"$set": record}, upsert=True)
+    return stats
 
 
 DRAFT_NUDGE_AFTER_DAYS = 3
@@ -372,7 +525,7 @@ def run_daily_finance_automation() -> Dict[str, Any]:
     out["unsent_drafts_flagged"] = flag_unsent_drafts(now)
     out["reminders"] = run_invoice_reminders(now)
     out["reconcile"] = auto_reconcile_payments(now)
-    if now.day <= 5:
-        out["ca_pack"] = run_monthly_ca_pack(now)
+    out["ca_pack"] = run_monthly_ca_pack(now)          # sends on/after the 5th, once a month
+    out["statements"] = run_client_statements(now)     # once a month per client
     logger.info("[FinanceAutomation] %s", out)
     return out

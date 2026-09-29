@@ -276,7 +276,7 @@ def test_already_applied_payment_is_not_reconsidered(monkeypatch):
 # ---- CA pack -------------------------------------------------------------------
 
 def test_ca_pack_without_ca_email_is_built_but_not_sent(monkeypatch):
-    now = datetime(2026, 2, 3)
+    now = datetime(2026, 2, 5)   # the pack goes on the 5th (owner, 2026-09-29)
     inv = {"invoice_number": "SF/25-26/001", "invoice_date": datetime(2026, 1, 15),
           "total_amount": 5000, "is_deleted": False}
     client = _client(invoices=[inv])
