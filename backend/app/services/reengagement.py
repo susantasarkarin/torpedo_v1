@@ -144,6 +144,12 @@ def check_text(body: str, first: str, allowed_numbers: str) -> Optional[str]:
         return f"{words} words"
     if re.search(r"https?://|www\.|[\[\]{}<>]|your (company|name)|company name", body, re.I):
         return "link or placeholder"
+    # our own labels, or writing about the reader instead of to them
+    # ("We had a previous positive interaction with Trackopinion. We noticed
+    # they asked for ..." -- a real draft)
+    if re.search(r"\b(positive (interaction|response|reply|lead)|interaction with|we noticed|our records|"
+                 r"the lead|this lead|re-?engage\w*|dormant|they asked|they replied|their reply)\b", body, re.I):
+        return "internal wording"
     for num in re.findall(r"\d[\d,.]*", body):
         if num.strip(".,") not in allowed_numbers:
             return f"invented number {num}"

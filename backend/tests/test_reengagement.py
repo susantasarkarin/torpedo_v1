@@ -112,3 +112,9 @@ def test_quote_draft_keeps_the_threads_subject():
                                                     "thread_subject": "RE: Fitted Homes - costs"})
     assert out["subject"] == "Re: Fitted Homes - costs" and "Fitted Homes Study" in out["body"]
     assert "HRG" not in out["body"]
+
+
+def test_draft_that_talks_about_the_reader_is_refused():
+    body = ("Hi Vaishali, We had a previous positive interaction with Trackopinion. We noticed they asked for "
+            "the requested information in their reply. Let us re-open the conversation and arrange a brief call.")
+    assert re_.check_text(body, "Vaishali", "") == "internal wording"
