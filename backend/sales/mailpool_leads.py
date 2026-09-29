@@ -620,6 +620,11 @@ def run_scheduled_cycle() -> Dict[str, Any]:
                                   model_limit=int(os.getenv("MAIL_POOL_TRIAGE_AI_PER_RUN", "3"))),
         "summaries": run_summary_pass(client, limit=int(os.getenv("MAIL_POOL_SUMMARY_AI_PER_RUN", "3"))),
     }
+    try:  # email address structures for addresses seen in the last day
+        from app.services import email_structure
+        out["address_structures"] = email_structure.backfill(client, since=now - timedelta(days=1))
+    except Exception as e:
+        logger.warning("[MailPoolLeads] address structures failed: %s", e)
     try:  # RFQs from client-opened RFQ threads (app/services/rfq_from_mail.py)
         from app.services import rfq_from_mail
         out["rfqs"] = rfq_from_mail.run_scheduled_cycle(client)
