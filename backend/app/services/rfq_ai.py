@@ -128,6 +128,24 @@ def _guard_live(text: str) -> Optional[str]:
     return None
 
 
+_SIGN_OFF = re.compile(r"^\s*(regards|best regards|kind regards|warm regards|thanks\s*(&|and)\s*regards|"
+                       r"many thanks|thanks|thank you|cheers|sincerely|best|br|rgds)\s*[,!.]?\s*$|"
+                       r"^\s*(©|copyright|confidential|disclaimer|this (e-?mail|message) (and|is|may))", re.I)
+
+
+def main_text(body: str) -> str:
+    """The message itself: everything above the sign-off, so a signature link
+    or a legal footer ('...commissioned...') cannot decide anything. Found
+    live: Ipsos MENA's 'we shall contact you when the opportunity arises' was
+    read as commissioned because of the disclaimer under it."""
+    out = []
+    for i, line in enumerate((body or "").splitlines()):
+        if i > 0 and _SIGN_OFF.search(line):
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
 _MAYBE_LAUNCH = re.compile(r"\blaunch|\bstart the (fw|fieldwork)|\bgo(ne)? live|\bstudy live|\bgo ahead|"
                            r"good to go|on ?board|commission|\bpo (number|no)|purchase order|proceed", re.I)
 
@@ -141,7 +159,7 @@ def live_link(subject: str, text: str) -> Tuple[Optional[Dict[str, Any]], str]:
                     promise or a negation, and not a test-links-only mail
       launch     -> the body instructs us to launch/start, not negated
     """
-    body_only = text or ""
+    body_only = main_text(text or "")
     if not (live_link_candidate(body_only) or _MAYBE_LAUNCH.search(body_only)):
         return None, "not_candidate"
     out = _ask(_LIVE_SYSTEM, f"SUBJECT: {subject}\n\n{body_only}", _LIVE_SCHEMA)

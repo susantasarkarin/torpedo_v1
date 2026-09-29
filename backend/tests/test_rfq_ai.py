@@ -91,6 +91,21 @@ def test_a_supplier_offering_us_is_not_a_win(monkeypatch):
     assert status == "guard_rejected"
 
 
+def test_a_polite_no_with_a_legal_footer_is_not_commissioned(monkeypatch):
+    # live, 2026-09-29: read as commissioned because of the disclaimer under it
+    _model(monkeypatch, {"live_link_sent": False, "told_to_launch": False, "commissioned": True,
+                         "test_link_only": False, "study_name": "Partner update", "reason": ""})
+    text = ("Hi Rahul,\n\nThank you for the follow up,\nNow that we have a clear look on your capabilities we shall "
+            "contact you when the opportunity arises.\n\nHave a nice day ahead!\n\nRegards,\nJustine Slim | Quotation "
+            "Executive\n© Ipsos [2017] – All rights reserved.\nThe contents of this proposal ... research commissioned "
+            "by clients ... purchase order ...")
+    assert rfq_ai.live_link("RE: IIS Ipsos MENA - Partner update", text)[1] in ("not_candidate", "guard_rejected")
+
+
+def test_main_text_stops_at_the_sign_off():
+    assert rfq_ai.main_text("Hi,\nPlease launch.\nRegards,\nX\nhttps://x.com/logo") == "Hi,\nPlease launch."
+
+
 def test_model_outage_is_not_a_verdict(monkeypatch):
     _model(monkeypatch, None)
     assert rfq_ai.live_link("Re: RFQ", LIVE_MAIL) == (None, "unavailable")
