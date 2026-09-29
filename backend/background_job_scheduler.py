@@ -156,7 +156,23 @@ async def attempt_job_resume(job_id: str, current_status: str):
         current_day = datetime.utcnow().date().isoformat()
         job_day = job.get("day_started")
         
-        if current_day != job_day:
+        # A job idling through a Google 429 pause resumes itself when the pause
+        # lifts (the pause ends at the quota reset, US Pacific midnight -- not
+        # UTC midnight). If the process died meanwhile (a restart), nothing
+        # would restart it until the next UTC day: ~16 hours lost. So once the
+        # pause is over and the job has stopped heart-beating, restart it.
+        try:
+            from leads.ingestion import _is_cse_paused
+            cse_paused = _is_cse_paused()
+        except Exception:
+            cse_paused = True
+        last_beat = job.get("last_update")
+        orphaned = (not cse_paused and isinstance(last_beat, datetime)
+                    and last_beat < datetime.utcnow() - timedelta(minutes=10))
+        if orphaned and current_day == job_day:
+            await _restart_job_execution("cse_pause_over_after_restart")
+            logger.info(f"[{job_id}] ✅ Resumed: CSE pause over and the job's process had died")
+        elif current_day != job_day:
             # New day - reset daily limit and resume
             logger.info(f"[{job_id}] New day detected, resetting daily limit")
             web_search_jobs_collection.update_one(

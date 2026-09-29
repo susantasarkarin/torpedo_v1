@@ -836,6 +836,7 @@ async def run_web_search_job(job_id: str):
                 job = get_job(job_id)
                 if not job or job["status"] == JobStatus.STOPPED:
                     return
+                update_job(job_id, {"idle_heartbeat": datetime.utcnow()})
                 await asyncio.sleep(min(60, wait_seconds))
                 wait_seconds -= 60
             
@@ -861,6 +862,9 @@ async def run_web_search_job(job_id: str):
                     job = get_job(job_id)
                     if not job or job["status"] == JobStatus.STOPPED:
                         return
+                    # heartbeat: tells the resume check this job is alive and
+                    # idling, so it must not start a second copy
+                    update_job(job_id, {"idle_heartbeat": datetime.utcnow()})
                     await asyncio.sleep(60)
                 update_job(job_id, {"status": JobStatus.RUNNING})
                 continue
@@ -1023,6 +1027,7 @@ async def run_web_search_job(job_id: str):
                         if control.get("paused"):
                             update_job(job_id, {"status": JobStatus.PAUSED})
                             return
+                        update_job(job_id, {"idle_heartbeat": datetime.utcnow()})
                         await asyncio.sleep(min(60, wait_seconds))
                         wait_seconds -= 60
                     
