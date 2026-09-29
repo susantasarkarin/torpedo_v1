@@ -22,9 +22,11 @@ def test_company_names_skip_variants_and_people(monkeypatch):
             return self.docs
 
     client = {"crm_db": {"accounts": _Col([
-        {"name": "Hansa Research Group", "website": "https://hansaresearch.com"},
+        {"name": "Hansaresearch", "website": "hansaresearch.com"},
         {"name": "Hansa Research Group - dooblo", "website": "hansaresearch.com"},
-        {"name": "Adarsh V (Phoenixdatainnov)", "website": "phoenixdatainnov.com"}])},
+        {"name": "Adarsh V (Phoenixdatainnov)", "website": "phoenixdatainnov.com"}]),
+        "opportunities": _Col([{"metadata": {"rfq": {"account_name": "Hansa Research Group",
+                                                      "from_email": "keya@hansaresearch.com"}}}])},
         "finance_db": {"customers": _Col([{"name": "Cogentix Researach", "email": "a@cogentixresearch.com"}])}}
     names = es._company_names(client)
     assert names["hansaresearch"] == "Hansa Research Group"

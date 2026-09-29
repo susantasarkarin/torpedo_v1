@@ -107,7 +107,22 @@ def _company_names(client) -> Dict[str, str]:
         d = mc._domain(c["email"].lower())
         if nm and d and d not in mc.WEBMAIL and not _MESSY_NAME.search(nm):
             cands[registrable_root(d)][nm] += 1
-    out = {root: sorted(names.items(), key=lambda kv: (-kv[1], len(kv[0])))[0][0] for root, names in cands.items()}
+    # the rebuilt RFQs carry the cleanest names ('Hansa Research Group',
+    # 'Rakuten Insight'), resolved per sender domain
+    for o in client["crm_db"]["opportunities"].find({"metadata.rfq.account_name": {"$nin": [None, ""]}},
+                                                    {"metadata.rfq.account_name": 1, "metadata.rfq.from_email": 1}):
+        r = o["metadata"]["rfq"]
+        nm, d = r["account_name"].strip(), mc._domain((r.get("from_email") or "").lower())
+        if d and d not in mc.WEBMAIL and not _MESSY_NAME.search(nm):
+            cands[registrable_root(d)][nm] += 3
+
+    def best(root, names):
+        # a name that is just the domain ('Hansaresearch') only if nothing better
+        proper = {n: c for n, c in names.items() if re.sub(r"[^a-z0-9]", "", n.lower()) != root}
+        pool = proper or names
+        return sorted(pool.items(), key=lambda kv: (-kv[1], len(kv[0])))[0][0]
+
+    out = {root: best(root, names) for root, names in cands.items()}
     out.update(OWN_COMPANIES)
     return out
 
