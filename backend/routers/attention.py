@@ -56,6 +56,17 @@ def _leads(c, now) -> List[Dict[str, Any]]:
     if n:
         out.append(_item("nurture_drafts", "Follow-up drafts waiting in Gmail", n, "/admin/sales/leads",
                          "normal", "Review and send the drafts in the sender's mailbox"))
+    try:
+        from app.services.reengagement import summary
+        s = summary(c, now)
+        if s["drafts_this_week"]:
+            kinds = {"quote_no_reply": "quotes with no reply", "positive_quiet": "positive leads gone quiet",
+                     "dormant_client": "past clients gone quiet"}
+            detail = ", ".join(f"{n} {kinds[k]}" for k, n in s["by_kind"].items() if k in kinds)
+            out.append(_item("reengagement_drafts", "Check-in drafts for people we forgot", s["drafts_this_week"],
+                             "/admin/crm/tasks", "high", f"Review and send in Gmail — {detail}"))
+    except Exception as e:
+        logger.debug("attention: reengagement summary skipped: %s", e)
     q = {"nurture.status": "paused_new_reply"}
     n = le.count_documents(q)
     if n:
@@ -67,7 +78,8 @@ def _leads(c, now) -> List[Dict[str, Any]]:
 def _tasks(c) -> List[Dict[str, Any]]:
     labels = {"finance_automation": "Finance follow-ups", "project_close": "Projects closed with no value",
               "nurture": "Calls to book (nurture)", "won_handoff": "Won-deal setup tasks",
-              "invoice_reminder": "Payment reminders to send"}
+              "invoice_reminder": "Payment reminders to send",
+              "reengagement": "Clients and leads gone quiet"}
     out = []
     for row in c["crm_db"]["tasks"].aggregate([
             {"$match": {"status": "open"}},

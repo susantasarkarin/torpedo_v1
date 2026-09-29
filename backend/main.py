@@ -2232,6 +2232,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Daily finance automation scheduled (03:30 UTC)")
 
+            def _reengagement_job():
+                try:
+                    from app.services.reengagement import run
+                    run()
+                except Exception as e:
+                    print(f"[Reengagement] Error: {e}")
+
+            scheduler.add_job(_reengagement_job, CronTrigger(hour=4, minute=0),  # 09:30 IST
+                              id="reengagement", name="Clients and leads gone quiet: tasks + check-in drafts",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Daily gone-quiet sweep scheduled (04:00 UTC)")
+
             def _mail_segregation_job():
                 try:
                     from app.services.mail_categorizer import run_scheduled_cycle
