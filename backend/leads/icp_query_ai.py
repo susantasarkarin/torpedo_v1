@@ -1,11 +1,11 @@
 """
-AI-GENERATED ICP SEARCH QUERIES (Bedrock)
-=========================================
+AI-GENERATED ICP SEARCH QUERIES (local SLM)
+===========================================
 
 Replaces the template mix-and-match query builder with model-generated Google
 queries, per ICP. The template builder in `scheduler.generate_search_queries`
-is kept as an automatic fallback and is used whenever the Bedrock call fails or
-returns output that will not parse.
+is kept as an automatic fallback and is used whenever the local model is
+unavailable or writes nothing on-topic (leads/query_variants_ai.py).
 
 Two hard limits protect search credits:
 
@@ -24,69 +24,8 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Queries longer than this are almost always model rambling, not a search.
-MAX_QUERY_CHARS = 300
 # Never ask the model for more than this in one shot, whatever the caller says.
 MAX_QUERIES_PER_CALL = 25
-
-
-SYSTEM_PROMPT = (
-    "You are a B2B lead-generation search strategist. You write Google search "
-    "queries that surface LinkedIn profiles of specific decision-makers. "
-    "You return only valid JSON."
-)
-
-USER_PROMPT = """Generate exactly {count} diverse Google search queries that will surface LinkedIn profiles of people matching this Ideal Customer Profile.
-
-ICP: {name}
-{description}
-
-Job titles to target: {designations}
-Industries: {industries}
-Countries / regions: {countries}
-Seniority levels: {seniorities}
-
-Requirements for the queries:
-- Do not add a site: filter. The pipeline strips any site: clause before the
-  query reaches Google and searches the open web instead -- LinkedIn-profile
-  filtering happens afterward, on the results. A site: filter in your query
-  text would be discarded, so spend the space on better search terms instead.
-- Vary the approach across the set: exact-title quotes, boolean OR groups of
-  title synonyms, industry-qualified searches, and country-qualified searches.
-- Use title synonyms and adjacent titles a real person might actually have,
-  not only the literal titles listed above.
-- Stay strictly inside the industries and countries listed. Do not introduce
-  unrelated industries.
-- Each query must be a single line, under 200 characters, ready to paste into
-  Google.
-- No duplicates, no numbering, no commentary.
-
-Return JSON in exactly this shape:
-{{"queries": ["query one", "query two"]}}"""
-
-
-def _fmt(values: Optional[List[str]], fallback: str = "any") -> str:
-    if not values:
-        return fallback
-    return ", ".join(str(v) for v in values if v)
-
-
-def _clean_queries(raw: List[str], count: int) -> List[str]:
-    """Deduplicate (case-insensitively), drop junk, and cap at `count`."""
-    seen = set()
-    cleaned = []
-    for query in raw:
-        q = " ".join(str(query).split())
-        if not q or len(q) > MAX_QUERY_CHARS:
-            continue
-        marker = q.lower()
-        if marker in seen:
-            continue
-        seen.add(marker)
-        cleaned.append(q)
-        if len(cleaned) >= count:
-            break
-    return cleaned
 
 
 def remaining_daily_budget(icp: Dict[str, Any],
@@ -108,16 +47,18 @@ def remaining_daily_budget(icp: Dict[str, Any],
 
 def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
                          leads_per_icp: Optional[Dict[str, int]] = None,
-                         allow_fallback: bool = True) -> List[str]:
+                         allow_fallback: bool = True,
+                         used: Optional[List[str]] = None) -> List[str]:
     """
-    Generate search queries for one ICP via Bedrock, falling back to the
-    template builder on any failure.
+    Generate search queries for one ICP via the local SLM, falling back to the
+    template builder when it is unavailable or writes nothing usable.
 
     Args:
         icp: ICP config dict from icp_config.py
         count: how many queries to return
         leads_per_icp: scheduler's per-ICP daily counters, for budget enforcement
         allow_fallback: set False to disable the template fallback (tests)
+        used: searches already run, which the model is told not to repeat
 
     Returns:
         List of query strings. May be empty if the ICP is over budget.
@@ -132,43 +73,20 @@ def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
 
     count = max(1, min(count, remaining, MAX_QUERIES_PER_CALL))
 
-    # --- Bedrock path ----------------------------------------------------
+    # --- Local SLM path (Qwen; Bedrock is not used) ---------------------
     if os.getenv("DISABLE_AI_CALLS", "false").lower() != "true":
-        from leads.bedrock_client import BedrockError, JSONParseError, converse_string_list
-
-        prompt = USER_PROMPT.format(
-            count=count,
-            name=icp.get("name", slug),
-            description=icp.get("description", ""),
-            designations=_fmt(icp.get("designations")),
-            industries=_fmt(icp.get("industries")),
-            countries=_fmt(icp.get("countries"), "global"),
-            seniorities=_fmt(icp.get("seniority_levels")),
-        )
-
+        from leads.query_variants_ai import fresh_batch
         try:
-            raw = converse_string_list(
-                role="cheap",
-                system=SYSTEM_PROMPT,
-                user=prompt,
-                key="queries",
-                max_tokens=1024,
-                temperature=0.7,  # variety is the point for query planning
-            )
-            if raw:
-                queries = _clean_queries(raw, count)
-                if queries:
-                    logger.info(
-                        "icp=%s query generation path=bedrock generated=%d requested=%d",
-                        slug, len(queries), count)
-                    return queries
-                logger.warning("icp=%s bedrock returned no usable queries", slug)
-            else:
-                logger.warning("icp=%s bedrock output did not parse", slug)
-        except (BedrockError, JSONParseError) as e:
-            logger.warning("icp=%s bedrock call failed: %s", slug, e)
+            queries = fresh_batch(icp, used or [], count=count)
         except Exception as e:  # never let query generation take down the loop
-            logger.warning("icp=%s bedrock path errored: %s", slug, e)
+            logger.warning("icp=%s slm path errored: %s", slug, e)
+            queries = None
+        if queries:
+            logger.info("icp=%s query generation path=slm generated=%d requested=%d",
+                        slug, len(queries), count)
+            return queries
+        logger.warning("icp=%s slm %s", slug,
+                       "unavailable" if queries is None else "returned no usable queries")
     else:
         logger.info("icp=%s AI disabled by DISABLE_AI_CALLS", slug)
 

@@ -1,132 +1,89 @@
 """
-ICP QUERY GENERATION VIA BEDROCK (Task 2)
-=========================================
-
-Covers the Bedrock path, the automatic fallback to the bug-fixed template
-builder, and per-ICP daily budget enforcement.
-
-The Bedrock seam (`bedrock_client.converse`) is patched; no AWS calls.
-
-Run with: pytest backend/tests/test_icp_query_ai.py -v
+ICP query generation via the local SLM, the template fallback, and per-ICP
+daily budget enforcement. The model seam (query_variants_ai._ask) is patched.
 """
 
 import os
 import sys
 from unittest.mock import patch
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from leads import bedrock_client
+from leads import query_variants_ai as qv
 from leads.icp_config import DEFAULT_ICPS
 from leads.icp_query_ai import generate_icp_queries, remaining_daily_budget
 
 BIM = next(i for i in DEFAULT_ICPS if i["slug"] == "bimwave")
 
 
-# ============================================
-# BEDROCK PATH
-# ============================================
-
-def test_uses_bedrock_output_when_valid():
-    payload = '{"queries": ["site:linkedin.com/in/ \\"BIM Manager\\" India"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+def test_uses_slm_output_when_on_topic():
+    with patch.object(qv, "_ask", return_value=['"BIM Manager" Pune', "Revit coordinator Mumbai"]):
         out = generate_icp_queries(BIM, count=5, leads_per_icp={})
-    assert out == ['site:linkedin.com/in/ "BIM Manager" India']
-
-
-def test_uses_cheap_role():
-    """Query generation is a cheap-model task."""
-    payload = '{"queries": ["a"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
-        generate_icp_queries(BIM, count=2, leads_per_icp={})
-    role = mock.call_args.kwargs.get("role") or mock.call_args.args[0]
-    assert role == "cheap"
-
-
-def test_handles_fenced_json():
-    payload = '```json\n{"queries": ["fenced query"]}\n```'
-    with patch.object(bedrock_client, "converse", return_value=payload):
-        assert generate_icp_queries(BIM, count=3, leads_per_icp={}) == ["fenced query"]
+    assert out == ['"BIM Manager" Pune', "Revit coordinator Mumbai"]
 
 
 def test_deduplicates_and_caps_at_count():
-    payload = '{"queries": ["dup", "DUP", " dup ", "unique", "third"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    raw = ["BIM Manager India", "bim manager  india", "BIM coordinator Pune", "Head of BIM Delhi"]
+    with patch.object(qv, "_ask", return_value=raw):
         out = generate_icp_queries(BIM, count=2, leads_per_icp={})
-    assert out == ["dup", "unique"]
+    assert out == ["BIM Manager India", "BIM coordinator Pune"]
 
 
-def test_overlong_queries_dropped():
-    payload = '{"queries": ["%s", "ok"]}' % ("x" * 400)
-    with patch.object(bedrock_client, "converse", return_value=payload):
-        assert generate_icp_queries(BIM, count=5, leads_per_icp={}) == ["ok"]
+def test_overlong_and_off_topic_queries_dropped():
+    raw = ["BIM " + "x" * 400, "crypto trader Dubai", "BIM Manager Chennai"]
+    with patch.object(qv, "_ask", return_value=raw):
+        assert generate_icp_queries(BIM, count=5, leads_per_icp={}) == ["BIM Manager Chennai"]
 
 
-# ============================================
-# FALLBACK
-# ============================================
+def test_already_used_searches_are_not_returned():
+    with patch.object(qv, "_ask", return_value=["BIM Manager India", "BIM Lead Kolkata"]):
+        out = generate_icp_queries(BIM, count=5, leads_per_icp={}, used=["bim manager india"])
+    assert out == ["BIM Lead Kolkata"]
 
-def test_falls_back_to_template_on_bedrock_failure():
-    with patch.object(bedrock_client, "converse", side_effect=RuntimeError("503")):
+
+def test_falls_back_to_template_when_model_unavailable():
+    with patch.object(qv, "_ask", return_value=None):
         out = generate_icp_queries(BIM, count=5, leads_per_icp={})
     assert out, "template fallback produced nothing"
-    # Fallback still honours the Task 1 ICP-scoping fix.
     for query in out:
-        assert "crypto" not in query.lower()
         assert any(d.lower() in query.lower() for d in BIM["designations"])
 
 
-def test_falls_back_on_unparseable_output():
-    """converse_json retries once, then the fallback takes over."""
-    with patch.object(bedrock_client, "converse", return_value="I cannot help"):
-        out = generate_icp_queries(BIM, count=5, leads_per_icp={})
-    assert out
-
-
-def test_falls_back_on_empty_query_list():
-    with patch.object(bedrock_client, "converse", return_value='{"queries": []}'):
+def test_falls_back_on_nothing_usable_or_error():
+    with patch.object(qv, "_ask", return_value=[]):
+        assert generate_icp_queries(BIM, count=5, leads_per_icp={})
+    with patch.object(qv, "_ask", side_effect=RuntimeError("boom")):
         assert generate_icp_queries(BIM, count=5, leads_per_icp={})
 
 
 def test_fallback_can_be_disabled():
-    with patch.object(bedrock_client, "converse", side_effect=RuntimeError("503")):
-        out = generate_icp_queries(BIM, count=5, leads_per_icp={},
-                                   allow_fallback=False)
-    assert out == []
+    with patch.object(qv, "_ask", return_value=None):
+        assert generate_icp_queries(BIM, count=5, leads_per_icp={}, allow_fallback=False) == []
 
 
 def test_path_is_logged(caplog):
-    payload = '{"queries": ["a"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with patch.object(qv, "_ask", return_value=["BIM Manager Pune"]):
         with caplog.at_level("INFO", logger="leads.icp_query_ai"):
             generate_icp_queries(BIM, count=2, leads_per_icp={})
-    assert "path=bedrock" in caplog.text
-
+    assert "path=slm" in caplog.text
     caplog.clear()
-    with patch.object(bedrock_client, "converse", side_effect=RuntimeError("x")):
+    with patch.object(qv, "_ask", return_value=None):
         with caplog.at_level("INFO", logger="leads.icp_query_ai"):
             generate_icp_queries(BIM, count=2, leads_per_icp={})
     assert "path=template" in caplog.text
 
 
-# ============================================
-# DAILY BUDGET
-# ============================================
-
 def test_exhausted_budget_makes_no_ai_call():
     used = {BIM["slug"]: BIM["daily_budget"]}
-    with patch.object(bedrock_client, "converse") as mock:
-        out = generate_icp_queries(BIM, count=5, leads_per_icp=used)
-    assert out == []
+    with patch.object(qv, "_ask") as mock:
+        assert generate_icp_queries(BIM, count=5, leads_per_icp=used) == []
     mock.assert_not_called()
 
 
 def test_request_clamped_to_remaining_budget():
     used = {BIM["slug"]: BIM["daily_budget"] - 2}
-    payload = '{"queries": ["a", "b", "c", "d", "e"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    raw = ["BIM Manager Pune", "BIM Lead Delhi", "BIM Engineer Noida", "CAD Manager Mumbai"]
+    with patch.object(qv, "_ask", return_value=raw):
         assert len(generate_icp_queries(BIM, count=10, leads_per_icp=used)) == 2
 
 
@@ -136,9 +93,23 @@ def test_remaining_budget_arithmetic():
     assert remaining_daily_budget(BIM, {}) == BIM["daily_budget"]
 
 
-def test_ai_disabled_flag_skips_bedrock(monkeypatch):
+def test_ai_disabled_flag_skips_the_model(monkeypatch):
     monkeypatch.setenv("DISABLE_AI_CALLS", "true")
-    with patch.object(bedrock_client, "converse") as mock:
+    with patch.object(qv, "_ask") as mock:
         out = generate_icp_queries(BIM, count=3, leads_per_icp={})
     mock.assert_not_called()
     assert out, "should still fall back to the template builder"
+
+
+def test_variations_of_a_tapped_out_query():
+    q = '"BIM Manager" India'
+    with patch.object(qv, "_ask", return_value=[q, '"BIM Manager" Hyderabad', "Revit MEP lead Pune", "sales"]):
+        assert qv.variations(q, BIM, already=[]) == ['"BIM Manager" Hyderabad', "Revit MEP lead Pune"]
+    with patch.object(qv, "_ask", return_value=None):
+        assert qv.variations(q, BIM) is None
+
+
+def test_keyword_soup_and_punctuation_repeats_dropped():
+    raw = ["Head of BIM BIM Lead BIM Engineer CAD Manager Project Architect India", "BIM Manager, India",
+           "BIM Coordinator India"]
+    assert qv.clean(raw, BIM, ['"BIM Manager" India'], 5) == ["BIM Coordinator India"]

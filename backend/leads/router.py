@@ -503,6 +503,33 @@ def check_and_reset_daily_limit(job_id: str) -> bool:
 
 # ============== QUERY GENERATOR ==============
 
+def _merge_job_filters(icp: dict, config: dict) -> dict:
+    """The ICP, narrowed by the filters this job was actually started with."""
+    icp_for_job = dict(icp)
+    for job_field, icp_field in (
+        ("designations", "designations"),
+        ("countries", "countries"),
+        ("seniorities", "seniority_levels"),
+        ("industries", "industries"),
+    ):
+        if config.get(job_field):
+            icp_for_job[icp_field] = config[job_field]
+    return icp_for_job
+
+
+def _job_icp_profile(icp_id: Optional[str], config: dict) -> Optional[dict]:
+    """What the SLM is told about the people a job is after; None when the
+    job has no ICP (its searches then deepen by city/modifier only)."""
+    if not icp_id:
+        return None
+    try:
+        from .icp_config import get_icp_by_slug
+        icp = get_icp_by_slug(icp_id)
+    except Exception:
+        return None
+    return _merge_job_filters(icp, config) if icp else None
+
+
 def generate_job_queries(icp_id: Optional[str], config: dict) -> List[str]:
     """
     Build the initial query list for a WebSearch job.
@@ -532,16 +559,7 @@ def generate_job_queries(icp_id: Optional[str], config: dict) -> List[str]:
 
             icp = get_icp_by_slug(icp_id)
             if icp:
-                icp_for_job = dict(icp)
-                for job_field, icp_field in (
-                    ("designations", "designations"),
-                    ("countries", "countries"),
-                    ("seniorities", "seniority_levels"),
-                    ("industries", "industries"),
-                ):
-                    if config.get(job_field):
-                        icp_for_job[icp_field] = config[job_field]
-
+                icp_for_job = _merge_job_filters(icp, config)
                 queries = generate_icp_queries(icp_for_job, count=25)
                 if queries:
                     print(f"[WebSearch] Generated {len(queries)} queries via Qwen for ICP '{icp_id}'")
@@ -661,23 +679,7 @@ def generate_query_combinations(designations: List[str], countries: List[str],
 # query, so a country-level query dead-ends once its top-100 is imported.
 # Re-scoping the same query to individual cities gives each city its own ~100
 # pool — the single biggest lever for surfacing genuinely new leads.
-CITY_EXPANSIONS = {
-    "India": ["Mumbai", "Delhi", "Bangalore", "Bengaluru", "Hyderabad", "Chennai",
-              "Pune", "Kolkata", "Ahmedabad", "Gurgaon", "Gurugram", "Noida",
-              "Jaipur", "Chandigarh", "Kochi", "Coimbatore", "Indore"],
-    "United States": ["New York", "San Francisco", "Chicago", "Los Angeles",
-                      "Boston", "Austin", "Seattle", "Atlanta", "Dallas",
-                      "Denver", "Miami", "Washington DC"],
-    "United Kingdom": ["London", "Manchester", "Birmingham", "Leeds", "Glasgow",
-                       "Edinburgh", "Bristol", "Liverpool", "Cambridge"],
-    "Canada": ["Toronto", "Vancouver", "Montreal", "Calgary", "Ottawa"],
-    "Australia": ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"],
-    "Germany": ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne"],
-    "France": ["Paris", "Lyon", "Marseille", "Toulouse", "Lille"],
-    "Singapore": ["Singapore"],
-    "UAE": ["Dubai", "Abu Dhabi", "Sharjah"],
-    "South Africa": ["Johannesburg", "Cape Town", "Durban", "Pretoria"],
-}
+from .geo import CITY_EXPANSIONS  # noqa: E402  (moved so query_variants_ai can share it)
 
 # Result-window shifters: profile-common words to REQUIRE and noise to EXCLUDE.
 # Requiring/excluding different tokens makes Google re-rank and return a
@@ -767,8 +769,11 @@ async def run_web_search_job(job_id: str):
     # Generate queries if not already stored
     query_combinations = job.get("query_combinations", [])
     if not query_combinations:
-        query_combinations = generate_job_queries(icp_id, config)
+        # on a thread: it asks the local model, which would freeze the web server
+        query_combinations = await asyncio.to_thread(generate_job_queries, icp_id, config)
         update_job(job_id, {"query_combinations": query_combinations})
+    icp_profile = await asyncio.to_thread(_job_icp_profile, icp_id, config)
+    skipped_in_row = 0  # tapped-out queries passed over since the last live one
     
     seen_urls = set(job.get("seen_urls", []))
     batch_size = 10
@@ -881,6 +886,24 @@ async def run_web_search_job(job_id: str):
         # base — this is what keeps new leads flowing past the per-query cap.
         ledger = get_query_ledger(query)
         if ledger.get("exhausted") or ledger.get("dupe_streak", 0) >= EXHAUSTED_THRESHOLD:
+            skipped_in_row += 1
+            # The SLM writes new variations first (other titles, sub-sectors,
+            # cities, skills) -- once per tapped-out query. A model outage is
+            # not recorded, so the query is offered to it again next time.
+            if icp_profile and not ledger.get("ai_varied"):
+                from .query_variants_ai import variations
+                variants = await asyncio.to_thread(variations, query, icp_profile, all_queries_set)
+                if variants is not None:
+                    save_query_ledger(query, ai_varied=True, exhausted=True)
+                    if variants:
+                        query_combinations.extend(variants)
+                        all_queries_set.update(variants)
+                        update_job(job_id, {"query_combinations": query_combinations})
+                        skipped_in_row = 0
+                        print(f"[WebSearch:{job_id}] SLM wrote {len(variants)} new searches for "
+                              f"tapped-out '{query[:50]}': {variants[:3]}")
+                    await asyncio.sleep(0.2)
+                    continue
             wave = ledger.get("wave", 0)
             if wave < MAX_EXPANSION_WAVES:
                 variants = [q for q in _expand_query(query, wave, search_countries)
@@ -890,10 +913,30 @@ async def run_web_search_job(job_id: str):
                     query_combinations.extend(variants)
                     all_queries_set.update(variants)
                     update_job(job_id, {"query_combinations": query_combinations})
+                    skipped_in_row = 0
                     print(f"[WebSearch:{job_id}] Deepened tapped-out query into "
                           f"{len(variants)} new variants (wave {wave + 1}): '{query[:50]}'")
+            # Everything in the list is spent: ask the SLM for a fresh batch,
+            # or wait before cycling again rather than spin.
+            if skipped_in_row >= len(query_combinations):
+                skipped_in_row = 0
+                fresh = None
+                if icp_profile:
+                    from .query_variants_ai import fresh_batch
+                    fresh = await asyncio.to_thread(fresh_batch, icp_profile, list(all_queries_set))
+                if fresh:
+                    query_combinations.extend(fresh)
+                    all_queries_set.update(fresh)
+                    update_job(job_id, {"query_combinations": query_combinations})
+                    print(f"[WebSearch:{job_id}] All searches spent -- SLM wrote a fresh batch of {len(fresh)}")
+                else:
+                    print(f"[WebSearch:{job_id}] All searches spent, no new ones -- waiting 30 min")
+                    await asyncio.sleep(1800)
+                continue
             await asyncio.sleep(0.2)
             continue
+
+        skipped_in_row = 0
 
         update_job(job_id, {"current_query": query[:100]})
 

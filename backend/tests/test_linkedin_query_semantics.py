@@ -36,47 +36,27 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from leads import bedrock_client
 from leads.icp_config import DEFAULT_ICPS
-from leads.icp_query_ai import USER_PROMPT, generate_icp_queries
+from leads import query_variants_ai as qv
+from leads.icp_query_ai import generate_icp_queries
 
 BIM = next(i for i in DEFAULT_ICPS if i["slug"] == "bimwave")
 
 
 # ============================================
-# THE PROMPT ITSELF
+# THE PROMPT ITSELF, AND A SITE:-FREE QUERY PASSES THROUGH
 # ============================================
 
-def test_prompt_no_longer_instructs_qwen_to_add_a_site_filter():
-    rendered = USER_PROMPT.format(
-        count=5, name="Test", description="", designations="CEO",
-        industries="Tech", countries="India", seniorities="Manager",
-    )
-    assert "site:linkedin.com" not in rendered.lower()
+def test_prompts_tell_the_model_not_to_add_a_site_filter():
+    for tpl in (qv._VARIATIONS, qv._FRESH):
+        assert "no site: filters" in tpl.lower()
 
 
-def test_prompt_explains_why_no_site_filter_is_needed():
-    """The instruction should be a positive statement of intent, not just a
-    silent omission -- so a future edit doesn't accidentally reintroduce it
-    without noticing why it was removed."""
-    rendered = USER_PROMPT.format(
-        count=5, name="Test", description="", designations="CEO",
-        industries="Tech", countries="India", seniorities="Manager",
-    )
-    assert "do not add a site: filter" in rendered.lower()
-
-
-# ============================================
-# A SITE:-FREE QUERY STILL PASSES THROUGH UNCHANGED
-# ============================================
-
-def test_a_query_with_no_site_filter_is_not_rejected_or_altered():
-    """_clean_queries never required a site: filter -- confirm removing the
-    prompt instruction doesn't accidentally need a corresponding code change."""
-    payload = '{"queries": ["\\"BIM Manager\\" India Building Information Modelling"]}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+def test_a_site_filter_the_model_adds_anyway_is_stripped():
+    raw = ['site:linkedin.com/in/ "BIM Manager" India', '"BIM Manager" India Building Information Modelling']
+    with patch.object(qv, "_ask", return_value=raw):
         out = generate_icp_queries(BIM, count=5, leads_per_icp={})
-    assert out == ['"BIM Manager" India Building Information Modelling']
+    assert out == ['"BIM Manager" India', '"BIM Manager" India Building Information Modelling']
 
 
 # ============================================
