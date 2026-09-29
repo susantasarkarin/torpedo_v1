@@ -142,7 +142,7 @@ def check_text(body: str, first: str, allowed_numbers: str) -> Optional[str]:
     words = len(body.split())
     if words < 20 or words > 150:
         return f"{words} words"
-    if re.search(r"https?://|www\.|[\[\]{}<>]", body):
+    if re.search(r"https?://|www\.|[\[\]{}<>]|your (company|name)|company name", body, re.I):
         return "link or placeholder"
     for num in re.findall(r"\d[\d,.]*", body):
         if num.strip(".,") not in allowed_numbers:
@@ -152,12 +152,37 @@ def check_text(body: str, first: str, allowed_numbers: str) -> Optional[str]:
     return None
 
 
+_SIGN_OFF = re.compile(r"^\s*(best|best regards|kind regards|warm regards|regards|thanks|thank you|many thanks|"
+                       r"sincerely|cheers|looking forward[^.]*)\s*[,!.]?\s*$", re.I)
+
+
 def _trim_sign_off(body: str) -> str:
+    """Cut at the model's own sign-off (and whatever name or placeholder it put
+    under it); ours is added after."""
     lines = body.rstrip().splitlines()
-    while lines and re.match(r"^\s*(best|best regards|kind regards|regards|thanks|thank you|sincerely|cheers)?[,!.]?"
-                             r"\s*(\[?your name\]?|\w+)?\s*$", lines[-1], re.I) and len(lines[-1].split()) <= 3:
-        lines.pop()
+    for i, line in enumerate(lines):
+        if i >= 1 and _SIGN_OFF.match(line):
+            lines = lines[:i]
+            break
     return "\n".join(lines).rstrip()
+
+
+def study_name(title: str) -> str:
+    """'RFQ_Fitted Homes Study_HRG_SFW' -> 'Fitted Homes Study' (our RFQ codes
+    are not for the client's eyes)."""
+    t = re.sub(r"^\s*rfq\s*[_:\-]*\s*", "", title or "", flags=re.I)
+    parts = [p for p in re.split(r"_+", t) if p.strip()]
+    while len(parts) > 1 and re.fullmatch(r"[A-Z0-9]{2,5}", parts[-1].strip()):
+        parts.pop()
+    return " ".join(" ".join(parts).split()) or (title or "")
+
+
+def company_display(name: str) -> str:
+    """'hdfclife.com' reads badly in a letter; fall back to 'your team'."""
+    n = (name or "").strip()
+    if not n or "." in n or (n.islower() and " " not in n):
+        return "your team"
+    return n
 
 
 def _reply_subject(original: Optional[str]) -> str:
@@ -168,7 +193,8 @@ def _reply_subject(original: Optional[str]) -> str:
 def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
     """{'subject', 'body', 'source': 'ai'|'template', 'refused'?}."""
     first = ctx.get("first") or "there"
-    fill = {"first": first, "company": ctx.get("company") or "your team", "what": ctx.get("what") or "the study",
+    fill = {"first": first, "company": company_display(ctx.get("company")),
+            "what": study_name(ctx.get("what") or "") or "the study",
             "days": ctx.get("days") or "", "context": (ctx.get("context") or "")[:300],
             "reply_subject": _reply_subject(ctx.get("what"))}
     refused = ""
@@ -176,7 +202,7 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
         from leads.local_llm_gate import queue_wait
         from leads.local_slm_client import LocalSLMError, chat_json
         try:
-            with queue_wait(60):
+            with queue_wait(300):  # a daily job; the one model slot is often busy
                 got = chat_json(system=_SYSTEM, user=_ASK[kind].format(**fill) +
                                 f" Greet them as \"Hi {first},\". No sign-off, no placeholders, under 90 words.",
                                 max_tokens=320, json_schema=_SCHEMA, timeout=120)
@@ -189,7 +215,7 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
                 # quote and reply stay in their own thread; a model subject can
                 # leak our labels ("Positive response from ...")
                 if kind == "quote_no_reply":
-                    subject = f"Re: {fill['what']}"
+                    subject = _quote_subject(ctx, fill)
                 elif kind == "positive_quiet":
                     subject = _reply_subject(ctx.get("what"))
                 elif re.search(r"\b(positive|leads?|rfq|dormant|re-?engage\w*|follow[- ]?up email)\b", subject, re.I):
@@ -200,7 +226,13 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
         except Exception as e:  # queue timeout, redis down
             refused = f"model call failed: {e}"
     subj, body = _TEMPLATES.get(kind, ("Checking in", "Hi {first},\n\nChecking in."))
-    return {"subject": subj.format(**fill), "body": body.format(**fill), "source": "template", "refused": refused}
+    subject = _quote_subject(ctx, fill) if kind == "quote_no_reply" else subj.format(**fill)
+    return {"subject": subject, "body": body.format(**fill), "source": "template", "refused": refused}
+
+
+def _quote_subject(ctx: Dict[str, Any], fill: Dict[str, Any]) -> str:
+    """The quote thread's own subject, so the draft stays in that thread."""
+    return _reply_subject(ctx.get("thread_subject")) if ctx.get("thread_subject") else f"Re: {fill['what']}"
 
 
 # ---------------------------------------------------------------------------
@@ -289,10 +321,13 @@ def find_candidates(client, now: Optional[datetime] = None) -> List[Dict[str, An
             continue  # no quote mail on record -- its date would only be a guess
         threads = [t for t in [r.get("gmail_thread_id")] + list(r.get("gmail_thread_ids") or []) if t]
         if quote_is_silent(quoted_at, _reply_on_thread(em, threads, quoted_at), now):
+            last_msg = em.find_one({"gmail_thread_id": {"$in": threads}}, {"subject": 1},
+                                   sort=[("timestamp", -1)]) if threads else None
             out.append({"kind": "quote_no_reply", "key": str(o["_id"]), "email": email,
                         "name": r.get("from_name") or "", "company": r.get("account_name") or "",
                         "what": o.get("title") or "", "mailbox_id": r.get("mailbox_id"),
                         "thread_id": r.get("gmail_thread_id"), "since": quoted_at,
+                        "thread_subject": (last_msg or {}).get("subject") or "",
                         "days": (now - quoted_at).days, "linked": ("opportunity", str(o["_id"]))})
 
     for o in opp.find({"stage": "rfq", "status": "open"}):
@@ -444,7 +479,8 @@ def run(client=None, now: Optional[datetime] = None, dry_run: bool = False,
         if wants_mail:
             box = _mailbox(client, c.get("mailbox_id"))
             text = write_check_in(c["kind"], {"first": first, "company": c.get("company"), "what": c.get("what"),
-                                              "days": c.get("days"), "context": c.get("context")})
+                                              "days": c.get("days"), "context": c.get("context"),
+                                              "thread_subject": c.get("thread_subject")})
             stats[text["source"]] += 1
             signer = (box.get("display_name") or "").split("@")[0].split(" ")[0].capitalize()
             body = text["body"] + (f"\n\nBest,\n{signer}" if signer else "")

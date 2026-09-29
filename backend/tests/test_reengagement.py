@@ -90,3 +90,25 @@ def test_model_subject_never_leaks_our_labels():
     with patch.object(local_slm_client, "chat_json", return_value={"subject": "Positive response from Lucy", "body": body}):
         out = re_.write_check_in("positive_quiet", {"first": "Lucy", "what": "RE: fieldwork support"})
     assert out["subject"] == "Re: fieldwork support"
+
+
+def test_model_sign_off_and_placeholder_company_cut():
+    body = "Hi Ramiz,\n\nWe sent you a quote a few weeks ago.\n\nBest regards,\nYour Company Name"
+    assert re_._trim_sign_off(body) == "Hi Ramiz,\n\nWe sent you a quote a few weeks ago."
+    assert re_.check_text("Hi Ramiz, " + "word " * 25 + "from Your Company", "Ramiz", "") == "link or placeholder"
+
+
+def test_our_rfq_codes_and_domains_stay_out_of_the_letter():
+    assert re_.study_name("RFQ_Fitted Homes Study_HRG_SFW") == "Fitted Homes Study"
+    assert re_.study_name("RFQ SG B2B (SF-134859)") == "SG B2B (SF-134859)"
+    assert re_.company_display("hdfclife.com") == "your team"
+    assert re_.company_display("Hansa Research Group") == "Hansa Research Group"
+
+
+def test_quote_draft_keeps_the_threads_subject():
+    from leads import local_slm_client
+    with patch.object(local_slm_client, "chat_json", side_effect=local_slm_client.LocalSLMUnavailable("down")):
+        out = re_.write_check_in("quote_no_reply", {"first": "Ramiz", "what": "RFQ_Fitted Homes Study_HRG_SFW",
+                                                    "thread_subject": "RE: Fitted Homes - costs"})
+    assert out["subject"] == "Re: Fitted Homes - costs" and "Fitted Homes Study" in out["body"]
+    assert "HRG" not in out["body"]
