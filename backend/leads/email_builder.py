@@ -83,9 +83,62 @@ def company_domain_for(client, lead: Dict[str, Any]) -> str:
         return ""
     hits = list(client["email_automation"]["email_domain_structures"].find(
         {"company_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}, {"people": 1}).limit(5))
-    if not hits:
-        return ""
-    return company_email_domain(max(hits, key=lambda h: h.get("people") or 0)["_id"])
+    if hits:
+        return company_email_domain(max(hits, key=lambda h: h.get("people") or 0)["_id"])
+    return ai_company_domain(client, name)
+
+
+_DOMAIN_SCHEMA = {"type": "object", "additionalProperties": False,
+                  "properties": {"email_domain": {"type": "string", "maxLength": 60}},
+                  "required": ["email_domain"]}
+
+
+def _has_mx(domain: str) -> bool:
+    try:
+        import dns.resolver
+        return bool(dns.resolver.resolve(domain, "MX", lifetime=8))
+    except Exception:
+        return False
+
+
+def domain_matches_name(domain: str, company: str) -> bool:
+    """'nike.com' for 'Nike'; 'barclays.co.uk' for 'Barclays UK' -- the model
+    may not hand a company someone else's domain."""
+    from app.services.rfq_from_mail import registrable_root
+    root = re.sub(r"[^a-z0-9]", "", registrable_root(domain))
+    squashed = re.sub(r"[^a-z0-9]", "", _ascii(company).lower())
+    first = re.sub(r"[^a-z0-9]", "", _ascii(company).lower().split()[0]) if company.split() else ""
+    return len(root) >= 3 and (root in squashed or squashed in root or (len(first) >= 4 and first in root))
+
+
+def ai_company_domain(client, company: str) -> str:
+    """The company's email domain from the local model, kept only if it matches
+    the name and actually receives mail (MX). Cached per company name."""
+    from leads.email_pattern_system import company_email_domain
+    key = " ".join(company.lower().split())
+    cache = client["email_automation"]["company_domains"]
+    hit = cache.find_one({"_id": key})
+    if hit:
+        return hit.get("domain") or ""
+    from leads.local_llm_gate import queue_wait
+    from leads.local_slm_client import LocalSLMError, chat_json
+    try:
+        with queue_wait(120):
+            got = chat_json(system="You know companies' email domains. Reply only with JSON.",
+                            user=f"Company: {company}\nWhat domain do this company's employees use for email? "
+                                 f"If it is not one specific company (a description, a list of employers, "
+                                 f"an alumni group), answer an empty email_domain.",
+                            max_tokens=60, json_schema=_DOMAIN_SCHEMA, timeout=60)
+    except (LocalSLMError, Exception):
+        return ""  # an outage is not an answer; asked again next time
+    domain = company_email_domain(str(got.get("email_domain") or ""))
+    # the model's own yes/no contradicted its answer (known_company false,
+    # domain canva.com); the name match and a live mail server decide
+    ok = bool(domain) and domain_matches_name(domain, company) and _has_mx(domain)
+    cache.update_one({"_id": key}, {"$set": {"domain": domain if ok else "", "proposed": domain,
+                                             "source": "ai+mx" if ok else "rejected",
+                                             "at": datetime.utcnow()}}, upsert=True)
+    return domain if ok else ""
 
 
 def lead_names(lead: Dict[str, Any]) -> Tuple[str, str]:

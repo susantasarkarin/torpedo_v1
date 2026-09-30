@@ -134,3 +134,11 @@ def test_linkedin_host_replaced_by_the_company_domain_our_mail_knows():
     with patch.object(_Col, "find", lambda self, q=None, p=None: _Cur(self.docs)):
         assert eb.company_domain_for(client, {"company_domain": "in.linkedin.com", "company_name": "Ipsos"}) == "ipsos.com"
     assert eb.company_domain_for(client, {"company_domain": "kantar.com"}) == "kantar.com"
+
+
+def test_model_domain_must_match_the_company_name():
+    assert eb.domain_matches_name("nike.com", "Nike")
+    assert eb.domain_matches_name("barclays.co.uk", "Barclays UK")
+    assert eb.domain_matches_name("trainline.com", "Trainline")
+    assert not eb.domain_matches_name("adidas.com", "Nike")
+    assert not eb.domain_matches_name("gmail.com", "B2B SaaS")
