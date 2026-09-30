@@ -67,6 +67,13 @@ def _leads(c, now) -> List[Dict[str, Any]]:
                              "/admin/crm/tasks", "high", f"Review and send in Gmail — {detail}"))
     except Exception as e:
         logger.debug("attention: reengagement summary skipped: %s", e)
+    q = {"email_build.status": {"$in": ["ai_doubt", "domain_doubt"]}}
+    n = le.count_documents(q)
+    if n:
+        ex = [f"{d.get('name')} ({d.get('company_name') or ''}): {(d.get('email_build') or {}).get('candidate')}"
+              for d in le.find(q, {"name": 1, "company_name": 1, "email_build.candidate": 1}).limit(3)]
+        out.append(_item("lead_email_doubt", "Lead emails the AI doubted", n, "/admin/sales/leads", "normal",
+                         "Built from the company's pattern, but the check was not sure -- confirm or fix", ex))
     q = {"nurture.status": "paused_new_reply"}
     n = le.count_documents(q)
     if n:

@@ -2244,6 +2244,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Daily gone-quiet sweep scheduled (04:00 UTC)")
 
+            def _email_builder_job():
+                try:
+                    from leads.email_builder import run as build_emails
+                    build_emails(limit=15)
+                except Exception as e:
+                    print(f"[EmailBuilder] Error: {e}")
+
+            scheduler.add_job(_email_builder_job, IntervalTrigger(seconds=1200),
+                              id="lead_email_builder", name="Lead emails from bounce-free structures + AI check",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Lead email builder scheduled (20 min)")
+
             def _mail_segregation_job():
                 try:
                     from app.services.mail_categorizer import run_scheduled_cycle

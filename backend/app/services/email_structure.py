@@ -140,8 +140,28 @@ def _known_names(client) -> Dict[str, str]:
     return names
 
 
+def bounced_addresses(client) -> set:
+    """Every address that ever bounced: the suppression list (bounce,
+    gmail_bounce) and outreach rows marked bounced. A structure learned from
+    one of these may be the very guess that bounced."""
+    out = set()
+    for d in client["email_automation"]["suppression_list"].find(
+            {"reason": {"$in": ["bounce", "gmail_bounce", "bounced", "hard_bounce"]}}, {"email": 1}):
+        if d.get("email"):
+            out.add(d["email"].strip().lower())
+    for d in client["torpedo"]["outreach_leads_v2"].find(
+            {"$or": [{"bounced": True}, {"workflow_status": "bounced"}]}, {"email": 1}):
+        if d.get("email"):
+            out.add(d["email"].strip().lower())
+    return out
+
+
 def backfill(client, since: Optional[datetime] = None, write_patterns: bool = True) -> Dict[str, int]:
-    """Every address in the mail pool (or those seen since `since`)."""
+    """Every address in the mail pool (or those seen since `since`).
+
+    Only addresses that never bounced teach a domain its structure; one that
+    has written to us is proven real and weighs double (owner, 2026-09-30:
+    "use email structure of those mails which has no bounce")."""
     from pymongo import UpdateOne
     from app.services.rfq_from_mail import registrable_root, root_site
     em = client["torpedo_gmail"]["email_metadata"]
@@ -156,16 +176,18 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
         ts = d.get("timestamp")
         addrs = []
         if d.get("from_email"):
-            addrs.append((d["from_email"], d.get("from_name") or ""))
+            addrs.append((d["from_email"], d.get("from_name") or "", True))
         for r in (d.get("to_emails") or []) + (d.get("cc_emails") or []):
             if isinstance(r, str):
-                addrs.append((r, ""))
-        for addr, nm in addrs:
+                addrs.append((r, "", False))
+        for addr, nm, sender in addrs:
             a = addr.strip().lower()
             if not mc._domain(a):
                 continue
-            row = seen.setdefault(a, {"n": 0, "first": ts, "last": ts, "names": Counter()})
+            row = seen.setdefault(a, {"n": 0, "from_n": 0, "first": ts, "last": ts, "names": Counter()})
             row["n"] += 1
+            if sender:
+                row["from_n"] += 1
             if ts:
                 row["first"] = min(row["first"] or ts, ts)
                 row["last"] = max(row["last"] or ts, ts)
@@ -173,8 +195,9 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
                 row["names"][nm.strip()] += 1
     known = _known_names(client)
     companies = _company_names(client)
-    ops, by_domain = [], defaultdict(Counter)
-    stats = {"addresses": 0, "with_structure": 0, "role": 0, "unknown": 0}
+    bounced = bounced_addresses(client)
+    ops, touched = [], set()
+    stats = {"addresses": 0, "with_structure": 0, "role": 0, "unknown": 0, "bounced": 0, "wrote_to_us": 0}
     for a, row in seen.items():
         if not mc._domain(a) or "@" not in a:
             continue
@@ -185,8 +208,11 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
         label, form = structure_of(a, first, last)
         stats["addresses"] += 1
         stats["role" if label.startswith("role:") else "unknown" if label == "unknown" else "with_structure"] += 1
-        if form and dom not in mc.WEBMAIL:
-            by_domain[dom][form] += 1
+        is_bounced = a in bounced
+        stats["bounced"] += is_bounced
+        stats["wrote_to_us"] += row["from_n"] > 0
+        if dom not in mc.WEBMAIL:
+            touched.add(dom)
         company = companies.get(root) or ("" if dom in mc.WEBMAIL else root.replace("-", " ").title())
         ops.append(UpdateOne({"_id": a}, {"$set": {
             "email": a, "local_part": a.split("@")[0], "domain": dom, "company_domain": root_site(dom),
@@ -194,6 +220,7 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
             "structure": f"{label}@{dom}" if not label.startswith("role:") else f"{a.split('@')[0]}@{dom}",
             "structure_kind": "role" if label.startswith("role:") else label,
             "times_seen": row["n"], "first_seen": row["first"], "last_seen": row["last"],
+            "wrote_to_us": row["from_n"], "bounced": is_bounced, "pattern_form": form,
             "webmail": dom in mc.WEBMAIL, "updated_at": now}}, upsert=True))
         if len(ops) >= 2000:
             ea["email_address_structures"].bulk_write(ops, ordered=False)
@@ -201,28 +228,50 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
     if ops:
         ea["email_address_structures"].bulk_write(ops, ordered=False)
 
-    # per domain, and the lead-gen pattern store
+    # per domain, from EVERY stored address there (a daily run sees one day
+    # of mail; counting only that overwrote the full picture), bounce-free
+    # only, an address that wrote to us counting double
+    by_domain = domain_evidence(ea["email_address_structures"], touched)
     dops = []
     stats["domains"] = len(by_domain)
     stats["patterns_added"] = 0
     patterns = ea["email_patterns"]
+    confirmed = set()
     for dom, counts in by_domain.items():
         form, n = counts.most_common(1)[0]
         total = sum(counts.values())
         dops.append(UpdateOne({"_id": dom}, {"$set": {
             "domain": dom, "company_name": companies.get(registrable_root(dom), ""),
             "structures": {k.replace(".", "·"): v for k, v in counts.items()},
-            "dominant": f"{form}@{dom}", "people": total, "share": round(n / total, 2), "updated_at": now}},
+            "dominant": f"{form}@{dom}", "people": total, "share": round(n / total, 2),
+            "bounce_free": True, "updated_at": now}},
             upsert=True))
         if write_patterns and n >= 2 and n / total >= 0.6:
+            confirmed.add(dom)
             conf = min(0.9, 0.55 + 0.1 * n)
             existing = patterns.find_one({"domain": dom}, {"source": 1, "confidence": 1})
-            if not existing or existing.get("source") in ("guess", "analysis", "mail_pool") or \
-                    float(existing.get("confidence") or 0) < conf:
+            if not existing or existing.get("source") in ("guess", "analysis", "mail_pool") or                     float(existing.get("confidence") or 0) < conf:
                 patterns.update_one({"domain": dom}, {"$set": {
                     "domain": dom, "pattern": f"{form}@{{domain}}", "confidence": conf, "source": "mail_pool",
                     "samples_analyzed": total, "last_verified": now, "discovered_at": now}}, upsert=True)
                 stats["patterns_added"] += 1
     if dops:
         ea["email_domain_structures"].bulk_write(dops, ordered=False)
+    # a mail-pool pattern whose evidence was only bounced addresses no longer stands
+    if write_patterns and touched:
+        stale = [d for d in touched if d not in confirmed]
+        stats["patterns_retired"] = patterns.delete_many(
+            {"domain": {"$in": stale}, "source": "mail_pool"}).deleted_count if stale else 0
     return stats
+
+
+def domain_evidence(col, domains) -> Dict[str, Counter]:
+    """domain -> {pattern form: weight} from bounce-free stored addresses."""
+    out: Dict[str, Counter] = defaultdict(Counter)
+    domains = list(domains)
+    for i in range(0, len(domains), 500):
+        for d in col.find({"domain": {"$in": domains[i:i + 500]}, "bounced": {"$ne": True},
+                           "pattern_form": {"$nin": [None, ""]}},
+                          {"domain": 1, "pattern_form": 1, "wrote_to_us": 1}):
+            out[d["domain"]][d["pattern_form"]] += 2 if d.get("wrote_to_us") else 1
+    return out
