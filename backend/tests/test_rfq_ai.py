@@ -159,3 +159,19 @@ def test_live_link_mail_is_matched_to_the_rfq_by_company_and_study_words():
     assert rb._rfq_for_live_link(client, mail, "FinPulse")["_id"] == 1
     same_thread = {"gmail_thread_id": "t2", "from_email": "x@y.com", "timestamp": datetime(2026, 9, 20), "subject": ""}
     assert rb._rfq_for_live_link(client, same_thread, "")["_id"] == 2
+
+
+def test_an_oversized_message_is_retried_shorter_not_treated_as_an_outage():
+    from unittest.mock import patch
+    from leads import local_slm_client
+    from app.services import rfq_ai
+    sizes = []
+
+    def fake(**kw):
+        sizes.append(len(kw["user"]))
+        if len(kw["user"]) > 1600:
+            raise local_slm_client.LocalSLMUnavailable("request (2686 tokens) exceeds the available context size")
+        return {"ok": True}
+    with patch.object(local_slm_client, "chat_json", side_effect=fake):
+        assert rfq_ai._ask("s", "x" * 5000, {}) == {"ok": True}
+    assert sizes == [3500, 1600]

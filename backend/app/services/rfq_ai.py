@@ -31,13 +31,21 @@ def _ask(system: str, user: str, schema: Dict[str, Any], max_tokens: int = 200) 
     """One model decision; None when the model is unavailable."""
     from leads.local_llm_gate import queue_wait
     from leads.local_slm_client import LocalSLMError, chat_json
-    try:
-        with queue_wait(QUEUE_WAIT_SECONDS):
-            return chat_json(system=system, user=user[:3500], max_tokens=max_tokens, json_schema=schema,
-                             timeout=120)
-    except LocalSLMError as e:
-        logger.warning("rfq_ai: model unavailable: %s", e)
-        return None
+    # 3,500 characters is ~900 tokens of English, but some mail (Arabic, CJK,
+    # long tracking URLs) runs past the 2,048-token window; that is the
+    # message's size, not an outage -- and treated as one, the same message
+    # was retried every 2 minutes for hours (2026-09-30). Retry shorter.
+    for limit in (3500, 1600, 700):
+        try:
+            with queue_wait(QUEUE_WAIT_SECONDS):
+                return chat_json(system=system, user=user[:limit], max_tokens=max_tokens, json_schema=schema,
+                                 timeout=120)
+        except LocalSLMError as e:
+            if "exceeds the available context" in str(e) and limit != 700:
+                continue
+            logger.warning("rfq_ai: model unavailable: %s", e)
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
