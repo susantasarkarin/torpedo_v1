@@ -2256,6 +2256,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Lead email builder scheduled (20 min)")
 
+            def _backlog_drain_job():
+                try:
+                    from leads.backlog_drain import drain
+                    drain(limit=10)
+                except Exception as e:
+                    print(f"[BacklogDrain] Error: {e}")
+
+            scheduler.add_job(_backlog_drain_job, IntervalTrigger(seconds=1800),
+                              id="lead_backlog_drain", name="Search results the model never reached -> leads",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Search-result backlog drain scheduled (30 min)")
+
             def _mail_segregation_job():
                 try:
                     from app.services.mail_categorizer import run_scheduled_cycle
