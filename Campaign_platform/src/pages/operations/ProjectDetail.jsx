@@ -221,11 +221,11 @@ function ProjectDetail() {
 
       {/* ── Stats strip (8 cards in one row) ── */}
       <div className="pd-stats-strip">
-        <StatCard label="Required" value={project.totalCompletesRequired || "—"} icon={Target} color="#6366f1" />
+        <StatCard label="Required" value={project.totalCompletesRequired || "—"} icon={Target} color="#e8890b" />
         <StatCard label="LOI (min)" value={project.loi || "—"} icon={Clock} color="#8b5cf6" />
-        <StatCard label="Client IR" value={project.clientIR ? `${project.clientIR}%` : "—"} icon={Percent} color="#0ea5e9" />
+        <StatCard label="Client IR" value={project.clientIR ? `${project.clientIR}%` : "—"} icon={Percent} color="#e8890b" />
         <StatCard label="CPI" value={project.cpi ? `$${project.cpi}` : "—"} icon={DollarSign} color="#10b981" />
-        <StatCard label="Actual Completes" value={projectStats?.completes ?? project.totalCompletes ?? "—"} icon={CheckCircle} color="#6366f1" />
+        <StatCard label="Actual Completes" value={projectStats?.completes ?? project.totalCompletes ?? "—"} icon={CheckCircle} color="#e8890b" />
         <StatCard label="Respondents" value={projectStats?.total_started ?? project.totalRespondents ?? "—"} icon={Users} color="#8b5cf6" />
         <StatCard label="Actual Median LOI" value={projectStats?.median_loi != null ? `${projectStats.median_loi} min` : "—"} icon={Award} color="#10b981" />
         <StatCard label="Actual Median IR" value={projectStats?.incidence_rate != null ? `${projectStats.incidence_rate}%` : (actualIR ? `${actualIR}%` : "—")} icon={TrendingUp} color={irColor} sub={clientIR > 0 ? `Target: ${clientIR}%` : undefined} />
@@ -239,7 +239,7 @@ function ProjectDetail() {
             <span className="pd-progress-pct">{progressPct}%</span>
           </div>
           <div className="pd-progress-bar">
-            <div className="pd-progress-fill" style={{ width: `${progressPct}%`, backgroundColor: progressPct >= 100 ? "#16a34a" : progressPct >= 50 ? "#6366f1" : "#d97706" }} />
+            <div className="pd-progress-fill" style={{ width: `${progressPct}%`, backgroundColor: progressPct >= 100 ? "#16a34a" : progressPct >= 50 ? "#e8890b" : "#d97706" }} />
           </div>
         </div>
       )}

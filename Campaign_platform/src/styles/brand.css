@@ -1,0 +1,161 @@
+/*
+ * Cogentix Research brand -- the single source for the admin app's look
+ * (Brand Guidelines v1.0, 2026). Colours, type, radii and motion come from
+ * here; pages use the --cx-* tokens instead of their own hex values.
+ *
+ * Tailwind: only its theme + utilities are loaded, in cascade layers and
+ * WITHOUT its preflight reset, so the app's hand-written CSS (unlayered)
+ * always wins and existing pages do not shift. Until 2026-10-01 Tailwind was
+ * installed but never compiled, so the shared UI kit (components/ui) and the
+ * pages written with utility classes rendered unstyled.
+ * The panelist/respondent pages (src/panel, survey pages) keep their own
+ * branding and are not scanned.
+ */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../components";
+@source "../pages";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* brand orange (guidelines: Primary #e8890b, Primary Dark #c47209,
+     Primary Light #f59e0b, Accent #fb9f1a, Accent Soft #fff7ed) */
+  --color-cogentix-orange: #e8890b;
+  --color-cogentix-orange-50: #fff7ed;
+  --color-cogentix-orange-100: #fffbeb;
+  --color-cogentix-orange-200: #fde68a;
+  --color-cogentix-orange-300: #fbbf5a;
+  --color-cogentix-orange-400: #fb9f1a;
+  --color-cogentix-orange-500: #e8890b;
+  --color-cogentix-orange-600: #c47209;
+  --color-cogentix-orange-700: #a25e07;
+  --color-cogentix-orange-800: #7f4a06;
+  --color-cogentix-orange-900: #5c3604;
+  --color-cogentix-orange-950: #3a2203;
+
+  /* the old "navy" now means the brand's near-black neutrals */
+  --color-cogentix-navy: #1a1a1a;
+  --color-cogentix-navy-50: #f7f7f7;
+  --color-cogentix-navy-100: #ececec;
+  --color-cogentix-navy-200: #d6d6d6;
+  --color-cogentix-navy-300: #b3b3b3;
+  --color-cogentix-navy-400: #8a8a8a;
+  --color-cogentix-navy-500: #6b6b6b;
+  --color-cogentix-navy-600: #4b5563;
+  --color-cogentix-navy-700: #4a4a4a;
+  --color-cogentix-navy-800: #2b2b2b;
+  --color-cogentix-navy-900: #1a1a1a;
+  --color-cogentix-navy-950: #0f0f0f;
+
+  /* success stays green -- status colours carry meaning */
+  --color-cogentix-green: #10b981;
+  --color-cogentix-green-50: #ecfdf5;
+  --color-cogentix-green-100: #d1fae5;
+  --color-cogentix-green-200: #a7f3d0;
+  --color-cogentix-green-500: #10b981;
+  --color-cogentix-green-600: #059669;
+  --color-cogentix-green-700: #047857;
+
+  /* cards: soft orange-tinted shadow (guidelines §6) */
+  --shadow-card: 0 1px 3px 0 rgb(232 137 11 / 0.08), 0 1px 2px -1px rgb(26 26 26 / 0.06);
+  --shadow-card-hover: 0 10px 15px -3px rgb(232 137 11 / 0.12), 0 4px 6px -4px rgb(26 26 26 / 0.08);
+  --shadow-button: 0 1px 2px 0 rgb(26 26 26 / 0.06);
+  --shadow-button-hover: 0 4px 10px -2px rgb(232 137 11 / 0.30);
+
+  --radius-lg: 8px;   /* buttons */
+  --radius-xl: 12px;  /* cards */
+}
+
+:root {
+  /* colour */
+  --cx-primary: #e8890b;
+  --cx-primary-dark: #c47209;
+  --cx-primary-light: #f59e0b;
+  --cx-accent: #fb9f1a;
+  --cx-accent-soft: #fff7ed;
+  --cx-cream: #fffbeb;
+  --cx-cream-dark: #fde68a;
+  --cx-black: #1a1a1a;
+  --cx-text: #4a4a4a;       /* body copy */
+  --cx-gray: #4b5563;       /* secondary text */
+  --cx-white: #ffffff;
+  --cx-border: #ececec;
+  --cx-surface-muted: #fafafa;
+  --cx-success: #10b981;
+  --cx-danger: #dc2626;
+  --cx-warning: #d97706;
+
+  /* type (guidelines §4) */
+  --cx-font: "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --cx-h1: clamp(1.75rem, 1.4rem + 1vw, 2.75rem);
+  --cx-h2: clamp(1.6rem, 1.3rem + 0.8vw, 2.4rem);
+  --cx-h3: 1.35rem;
+  --cx-body: 1rem;
+  --cx-lead: 1.15rem;
+  --cx-button: 0.95rem;
+  --cx-small: 0.95rem;
+  --cx-badge: 0.8rem;
+
+  /* shape and motion (guidelines §6) */
+  --cx-radius-card: 12px;
+  --cx-radius-button: 8px;
+  --cx-shadow-card: 0 1px 3px rgba(232, 137, 11, 0.08), 0 1px 2px rgba(26, 26, 26, 0.06);
+  --cx-shadow-card-hover: 0 10px 20px -6px rgba(232, 137, 11, 0.18);
+  --cx-transition: 0.3s ease;
+  --cx-container: 1200px;
+
+  /* names the older page stylesheets use, pointed at the brand */
+  --primary: var(--cx-primary);
+  --primary-hover: var(--cx-primary-dark);
+  --primary-color: var(--cx-primary);
+  --text: var(--cx-black);
+  --text-muted: var(--cx-gray);
+}
+
+/* ---- base ---------------------------------------------------------------- */
+body {
+  font-family: var(--cx-font);
+  color: var(--cx-text);
+  background: var(--cx-white);
+  line-height: 1.6;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--cx-font);
+  color: var(--cx-black);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+a { color: var(--cx-primary); }
+a:hover { color: var(--cx-primary-dark); }
+
+:focus-visible { outline: 2px solid var(--cx-primary); outline-offset: 2px; }
+
+/* ---- top bar: near black, white logo in proportion (guidelines §2) --------- */
+.top-navbar { background: var(--cx-black); padding: 0.75rem 1.5rem; }
+.logo-image { width: auto !important; height: 36px !important; min-width: 120px; object-fit: contain; }
+.logo-dropdown-item:hover { color: var(--cx-primary); background: var(--cx-accent-soft); }
+.dropdown-arrow:hover { color: var(--cx-primary); }
+
+/* ---- buttons (guidelines §6): primary orange, dark, outline; 8px, 600 ----- */
+.btn-primary, .crm-btn--primary {
+  background: var(--cx-primary);
+  border-color: var(--cx-primary);
+  color: #fff;
+  border-radius: var(--cx-radius-button);
+  font-weight: 600;
+  transition: background var(--cx-transition), box-shadow var(--cx-transition);
+}
+.btn-primary:hover:not(:disabled), .crm-btn--primary:hover:not(:disabled) {
+  background: var(--cx-primary-dark);
+  border-color: var(--cx-primary-dark);
+  color: #fff;
+}
+.btn-dark { background: var(--cx-black); color: #fff; border: 1px solid var(--cx-black);
+  border-radius: var(--cx-radius-button); font-weight: 600; }
+.btn-outline { background: transparent; color: var(--cx-primary); border: 2px solid var(--cx-primary);
+  border-radius: var(--cx-radius-button); font-weight: 600; }
+.btn-outline:hover { background: var(--cx-accent-soft); }

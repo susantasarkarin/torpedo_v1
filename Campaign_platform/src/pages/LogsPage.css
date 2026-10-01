@@ -19,12 +19,12 @@
   margin: 0;
   font-size: 1.875rem;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .logs-subtitle {
   margin: 0.25rem 0 0 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -47,7 +47,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .lines-input {
@@ -83,12 +83,12 @@
 }
 
 .refresh-btn {
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #2563eb;
+  background: #e8890b;
 }
 
 .refresh-btn:disabled {
@@ -97,7 +97,7 @@
 }
 
 .clear-btn {
-  background: #6b7280;
+  background: #4b5563;
   color: white;
 }
 
@@ -124,11 +124,11 @@
 
 .info-label {
   font-weight: 500;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .info-value {
-  color: #111827;
+  color: #1a1a1a;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   word-break: break-all;
 }
@@ -147,8 +147,8 @@
 
 .logs-container {
   flex: 1;
-  background: #1e293b;
-  border: 1px solid #334155;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
   border-radius: 0.5rem;
   overflow: auto;
   min-height: 400px;
@@ -170,8 +170,8 @@
 .spinner {
   width: 2rem;
   height: 2rem;
-  border: 3px solid #334155;
-  border-top-color: #3b82f6;
+  border: 3px solid #4a4a4a;
+  border-top-color: #e8890b;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
@@ -200,7 +200,7 @@
 }
 
 .log-line-number {
-  color: #64748b;
+  color: #4b5563;
   min-width: 60px;
   text-align: right;
   user-select: none;
@@ -235,7 +235,7 @@
 }
 
 .logs-container::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #1a1a1a;
 }
 
 .logs-container::-webkit-scrollbar-thumb {
@@ -244,7 +244,7 @@
 }
 
 .logs-container::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #4b5563;
 }
 
 /* Responsive */

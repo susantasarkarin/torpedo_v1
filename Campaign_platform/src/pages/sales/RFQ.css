@@ -29,12 +29,12 @@
 }
 
 .stat-card.info {
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid #e8890b;
 }
 
 .stat-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   font-weight: 500;
 }
@@ -42,7 +42,7 @@
 .stat-value {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 /* Message */
@@ -98,8 +98,8 @@
 
 .rfq-search:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
 }
 
 .rfq-filter-select {
@@ -118,14 +118,14 @@
   justify-content: center;
   gap: 0.75rem;
   padding: 3rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .rfq-loading .spinner {
   width: 24px;
   height: 24px;
   border: 3px solid #e5e7eb;
-  border-top-color: #3b82f6;
+  border-top-color: #e8890b;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -137,7 +137,7 @@
 .rfq-empty {
   text-align: center;
   padding: 3rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Table */
@@ -170,7 +170,7 @@
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
   font-size: 0.9375rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .rfq-table tbody tr {
@@ -192,7 +192,7 @@
 
 .rfq-title {
   font-weight: 600;
-  color: #1f2937;
+  color: #1a1a1a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -200,7 +200,7 @@
 
 .rfq-subtitle {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -214,7 +214,7 @@
 }
 
 .lead-link {
-  color: #3b82f6;
+  color: #e8890b;
   text-decoration: none;
   font-weight: 500;
 }
@@ -225,7 +225,7 @@
 
 .rfq-company {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Value Cell */
@@ -309,13 +309,13 @@
 
 .status-select:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.2);
 }
 
 /* Date */
 .rfq-date {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
   white-space: nowrap;
 }
 
@@ -375,7 +375,7 @@
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .modal-close {
@@ -408,7 +408,7 @@
 .detail-section h3 {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.75rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #f3f4f6;
@@ -429,7 +429,7 @@
 .detail-item label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -438,7 +438,7 @@
 .detail-item input, 
 .detail-item select {
   font-size: 0.9rem;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .modal-footer {
@@ -451,7 +451,7 @@
 }
 
 .btn-primary {
-  background-color: #3b82f6;
+  background-color: #e8890b;
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -465,12 +465,12 @@
 }
 
 .btn-primary:hover {
-  background-color: #2563eb;
+  background-color: #e8890b;
 }
 
 .btn-secondary {
   background-color: white;
-  color: #374151;
+  color: #4a4a4a;
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid #d1d5db;
@@ -489,7 +489,7 @@
 }
 
 .currency-select:hover {
-  border-color: #3b82f6;
+  border-color: #e8890b;
 }
 
 /* Responsive */
@@ -539,4 +539,4 @@
 .rfq-state-badge.state-open   { background: #e8f0fe; color: #1a56b8; }
 .rfq-state-badge.state-won    { background: #e6f6ec; color: #17703b; }
 .rfq-state-badge.state-lost   { background: #fdecec; color: #b3261e; }
-.rfq-state-badge.state-closed { background: #eef0f4; color: #6b7280; }
+.rfq-state-badge.state-closed { background: #eef0f4; color: #4b5563; }

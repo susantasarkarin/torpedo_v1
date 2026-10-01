@@ -75,7 +75,7 @@ export default function SurveyRevenue() {
               {ranked.map((s, i) => (
                 <tr key={s.survey_id || i} className={i === 0 ? "top-row" : ""}>
                   <td className="crm-muted">{i + 1}</td>
-                  <td style={{ fontWeight: 600, color: "#111827" }}>{s.name || s.survey_id}</td>
+                  <td style={{ fontWeight: 600, color: "#1a1a1a" }}>{s.name || s.survey_id}</td>
                   <td className="num">{fmtMoney(s.cpi)}</td>
                   <td className="num">{s.p_complete != null ? `${Math.round(s.p_complete * 100)}%` : "—"}</td>
                   <td className="crm-muted">{BASIS_LABEL[s.basis] || s.basis || "—"}</td>

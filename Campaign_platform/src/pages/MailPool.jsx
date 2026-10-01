@@ -9,15 +9,15 @@ import "./Settings.css"
 // Segment colors for labels - DEPRECATED: Now using AI categories
 const SEGMENT_COLORS = {
   promotional: { bg: "#fef3c7", text: "#92400e", icon: "📢" },
-  outreach: { bg: "#dbeafe", text: "#1e40af", icon: "📤" },
+  outreach: { bg: "#fff7ed", text: "#c47209", icon: "📤" },
   discovery: { bg: "#d1fae5", text: "#065f46", icon: "🔍" },
-  presentation: { bg: "#e0e7ff", text: "#3730a3", icon: "📊" },
+  presentation: { bg: "#fff7ed", text: "#c47209", icon: "📊" },
   rfq_pricing: { bg: "#fce7f3", text: "#9d174d", icon: "💰" },
   negotiation: { bg: "#fed7aa", text: "#9a3412", icon: "🤝" },
   invoice: { bg: "#ccfbf1", text: "#0f766e", icon: "📄" },
   banking: { bg: "#f3e8ff", text: "#6b21a8", icon: "🏦" },
-  internal: { bg: "#e0f2fe", text: "#0369a1", icon: "🏠" },
-  others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
+  internal: { bg: "#fff7ed", text: "#c47209", icon: "🏠" },
+  others: { bg: "#f3f4f6", text: "#4a4a4a", icon: "📧" },
 }
 
 // AI Category colors (Tier 1) - Primary classification (ai_tier1_category,
@@ -25,19 +25,19 @@ const SEGMENT_COLORS = {
 const AI_CATEGORY_COLORS = {
   rfq: { bg: "#fce7f3", text: "#9d174d", icon: "💰" },
   active_deal: { bg: "#fed7aa", text: "#9a3412", icon: "🤝" },
-  proposal: { bg: "#e0e7ff", text: "#3730a3", icon: "📊" },
+  proposal: { bg: "#fff7ed", text: "#c47209", icon: "📊" },
   new_inquiry: { bg: "#d1fae5", text: "#065f46", icon: "✨" },
-  outreach_reply: { bg: "#dbeafe", text: "#1e3a8a", icon: "💬" },
-  outreach: { bg: "#eff6ff", text: "#1e40af", icon: "📤" },
+  outreach_reply: { bg: "#fff7ed", text: "#c47209", icon: "💬" },
+  outreach: { bg: "#fff7ed", text: "#c47209", icon: "📤" },
   client: { bg: "#dcfce7", text: "#166534", icon: "👤" },
-  vendor: { bg: "#dbeafe", text: "#1e40af", icon: "🏢" },
-  internal: { bg: "#e0f2fe", text: "#0369a1", icon: "🏠" },
+  vendor: { bg: "#fff7ed", text: "#c47209", icon: "🏢" },
+  internal: { bg: "#fff7ed", text: "#c47209", icon: "🏠" },
   promotional: { bg: "#fef3c7", text: "#92400e", icon: "📢" },
   invoice: { bg: "#ccfbf1", text: "#0f766e", icon: "📄" },
   banking: { bg: "#f3e8ff", text: "#6b21a8", icon: "🏦" },
-  automated: { bg: "#e5e7eb", text: "#6b7280", icon: "🤖" },
+  automated: { bg: "#e5e7eb", text: "#4b5563", icon: "🤖" },
   spam: { bg: "#fee2e2", text: "#dc2626", icon: "🚫" },
-  others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
+  others: { bg: "#f3f4f6", text: "#4a4a4a", icon: "📧" },
 }
 
 // Review status colors
@@ -45,19 +45,19 @@ const REVIEW_STATUS_COLORS = {
   pending: { bg: "#fef3c7", text: "#92400e", icon: "⏳" },
   approved: { bg: "#dcfce7", text: "#166534", icon: "✅" },
   rejected: { bg: "#fee2e2", text: "#dc2626", icon: "❌" },
-  modified: { bg: "#dbeafe", text: "#1e40af", icon: "✏️" },
+  modified: { bg: "#fff7ed", text: "#c47209", icon: "✏️" },
 }
 
 // System email type colors (Phase 3 - UX hardening)
 const SYSTEM_EMAIL_COLORS = {
   bounce: { bg: "#fee2e2", text: "#dc2626", icon: "🚫", label: "Bounce" },
-  out_of_office: { bg: "#e0e7ff", text: "#4338ca", icon: "🏖️", label: "Out of Office" },
-  auto_reply: { bg: "#e5e7eb", text: "#6b7280", icon: "🤖", label: "Auto-Reply" },
+  out_of_office: { bg: "#fff7ed", text: "#c47209", icon: "🏖️", label: "Out of Office" },
+  auto_reply: { bg: "#e5e7eb", text: "#4b5563", icon: "🤖", label: "Auto-Reply" },
   unsubscribe_confirmation: { bg: "#fef3c7", text: "#92400e", icon: "📭", label: "Unsubscribe" },
   delivery_notification: { bg: "#ccfbf1", text: "#0f766e", icon: "📬", label: "Delivery" },
-  read_receipt: { bg: "#dbeafe", text: "#1e40af", icon: "👁️", label: "Read Receipt" },
+  read_receipt: { bg: "#fff7ed", text: "#c47209", icon: "👁️", label: "Read Receipt" },
   calendar_response: { bg: "#f3e8ff", text: "#6b21a8", icon: "📅", label: "Calendar" },
-  unknown: { bg: "#f3f4f6", text: "#374151", icon: "⚙️", label: "System" },
+  unknown: { bg: "#f3f4f6", text: "#4a4a4a", icon: "⚙️", label: "System" },
 }
 
 // Preview source indicators (Phase 3 - UX hardening)
@@ -73,7 +73,7 @@ const URGENCY_COLORS = {
   critical: { bg: "#fee2e2", text: "#dc2626" },
   high: { bg: "#fed7aa", text: "#c2410c" },
   medium: { bg: "#fef3c7", text: "#92400e" },
-  low: { bg: "#e5e7eb", text: "#6b7280" },
+  low: { bg: "#e5e7eb", text: "#4b5563" },
   none: { bg: "transparent", text: "#9ca3af" },
 }
 
@@ -184,8 +184,8 @@ const formatEmailBody = (body) => {
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*([^*]+)\*/g, '<strong>$1</strong>')
         .replace(/^(From:|To:|Cc:|Sent:|Subject:|Date:)\s*/i, '<span style="color: #5f6368; font-size: 0.85em; font-weight: 600;">$1</span> ')
-        .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #1a73e8;">$1</a>')
-        .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
+        .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #e8890b;">$1</a>')
+        .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #e8890b;">$1</a>')
       
       if (processedLine.match(/^(Director|Manager|CEO|MD|Managing Director|President|Regards|Best|Thanks|Sincerely)/i)) {
         processedLine = `<span style="color: #5f6368;">${processedLine}</span>`
@@ -244,8 +244,8 @@ const formatEmailThread = (body) => {
           .replace(/>/g, '&gt;')
           .replace(/\n/g, '<br>')
           .replace(/^(From:|To:|Cc:|Sent:|Subject:|Date:)\s*/gim, '<span style="color: #5f6368; font-size: 0.85em; font-weight: 600;">$1</span> ')
-          .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #1a73e8;">$1</a>')
-          .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
+          .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #e8890b;">$1</a>')
+          .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #e8890b;">$1</a>')
         
         html.push(`
           <div style="margin: ${messageIndex > 0 ? '16px 0' : '0'}; padding: 16px; background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px;">
@@ -266,8 +266,8 @@ const formatEmailThread = (body) => {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\n/g, '<br>')
-    .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #1a73e8;">$1</a>')
-    .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
+    .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #e8890b;">$1</a>')
+    .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #e8890b;">$1</a>')
 }
 
 // Get initials from name/email
@@ -302,7 +302,7 @@ const getAvatarColor = (name) => {
   }
   
   const colors = [
-    "#1a73e8", "#ea4335", "#34a853", "#fbbc04", "#673ab7",
+    "#e8890b", "#ea4335", "#34a853", "#fbbc04", "#673ab7",
     "#e91e63", "#00bcd4", "#ff5722", "#795548", "#607d8b"
   ]
   const hash = key.split("").reduce((a, b) => a + b.charCodeAt(0), 0)
@@ -1338,7 +1338,7 @@ function MailPool() {
                   {config.icon} {(category.charAt(0).toUpperCase() + category.slice(1)).replace("_", " ")}
                 </span>
                 {count > 0 && (
-                  <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>{count}</span>
+                  <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#4b5563" }}>{count}</span>
                 )}
               </div>
             );
@@ -1392,7 +1392,7 @@ function MailPool() {
             <div style={styles.toolbar}>
               <div style={styles.toolbarLeft}>
                 <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: "600" }}>📋 Review Queue</h2>
-                <span style={{ marginLeft: "12px", color: "#6b7280", fontSize: "0.85rem" }}>
+                <span style={{ marginLeft: "12px", color: "#4b5563", fontSize: "0.85rem" }}>
                   {reviewQueue.length} items pending review
                 </span>
               </div>
@@ -1415,11 +1415,11 @@ function MailPool() {
             </div>
 
             {reviewLoading ? (
-              <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+              <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
                 Loading review queue...
               </div>
             ) : reviewQueue.length === 0 ? (
-              <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+              <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
                 <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>✅</div>
                 <div>All caught up! No emails pending review.</div>
               </div>
@@ -1452,17 +1452,17 @@ function MailPool() {
                           <div style={{ fontWeight: "600", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {emailSummary.from || "Unknown sender"}
                           </div>
-                          <div style={{ fontSize: "0.85rem", color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div style={{ fontSize: "0.85rem", color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {emailSummary.subject || "(no subject)"}
                           </div>
                         </div>
-                        <div style={{ fontSize: "0.75rem", color: "#6b7280", flexShrink: 0 }}>
+                        <div style={{ fontSize: "0.75rem", color: "#4b5563", flexShrink: 0 }}>
                           {formatDate(emailSummary.received_at)}
                         </div>
                       </div>
 
                       {/* Snippet - uses resolved_preview (Phase 3) */}
-                      <div style={{ fontSize: "0.8rem", color: "#6b7280", lineHeight: "1.4" }}>
+                      <div style={{ fontSize: "0.8rem", color: "#4b5563", lineHeight: "1.4" }}>
                         {(emailSummary.resolved_preview || emailSummary.snippet)?.slice(0, 150)}...
                       </div>
 
@@ -1478,7 +1478,7 @@ function MailPool() {
                         }}>
                           {categoryConfig.icon} {classification.category?.toUpperCase() || "UNKNOWN"}
                         </span>
-                        <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                        <span style={{ fontSize: "0.75rem", color: "#4b5563" }}>
                           Confidence: {Math.round((classification.confidence || 0) * 100)}%
                         </span>
                         {item.escalated && (
@@ -1487,7 +1487,7 @@ function MailPool() {
                           </span>
                         )}
                         {item.used_fallback && (
-                          <span style={{ fontSize: "0.7rem", backgroundColor: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px" }}>
+                          <span style={{ fontSize: "0.7rem", backgroundColor: "#fff7ed", color: "#c47209", padding: "2px 6px", borderRadius: "4px" }}>
                             AI Fallback
                           </span>
                         )}
@@ -1526,8 +1526,8 @@ function MailPool() {
                           }}
                           style={{
                             padding: "6px 16px",
-                            backgroundColor: "#dbeafe",
-                            color: "#1e40af",
+                            backgroundColor: "#fff7ed",
+                            color: "#c47209",
                             border: "none",
                             borderRadius: "6px",
                             cursor: "pointer",
@@ -1570,7 +1570,7 @@ function MailPool() {
                 <input type="checkbox" style={styles.checkbox} />
                 <button style={styles.toolbarBtn} title="Refresh" onClick={() => fetchEmails(pagination.page)}>🔄</button>
                 <button 
-                  style={{...styles.toolbarBtn, backgroundColor: "#e8f0fe", color: "#1a73e8", fontWeight: "500", padding: "4px 12px", borderRadius: "16px"}}
+                  style={{...styles.toolbarBtn, backgroundColor: "#e8f0fe", color: "#e8890b", fontWeight: "500", padding: "4px 12px", borderRadius: "16px"}}
                   title="AI Classify Emails" 
                   onClick={() => handleAIClassify(true)}
                   disabled={classifying}
@@ -1591,7 +1591,7 @@ function MailPool() {
                   </span>
                 )}
                 {classifyStatus && classifyStatus.status === "running" && (
-                  <span style={{fontSize: "0.75rem", color: "#6b7280", marginLeft: "8px"}}>
+                  <span style={{fontSize: "0.75rem", color: "#4b5563", marginLeft: "8px"}}>
                     Processing {classifyStatus.processed}/{classifyStatus.total}...
                   </span>
                 )}
@@ -1616,7 +1616,7 @@ function MailPool() {
             {/* Email Rows */}
             <div style={styles.emailList}>
               {emailsLoading ? (
-                <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+                <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
                   <div style={{ fontSize: "1.5rem", marginBottom: "8px" }}>📧</div>
                   Loading emails...
                 </div>
@@ -1663,7 +1663,7 @@ function MailPool() {
                     ...styles.emailSender,
                     fontWeight: email.is_read === false ? "700" : "600"
                   }}>
-                    {email.is_read === false && <span style={{color: "#1a73e8", marginRight: "4px"}}>●</span>}
+                    {email.is_read === false && <span style={{color: "#e8890b", marginRight: "4px"}}>●</span>}
                     {email.name || email.email?.split("@")[0] || "Unknown"}
                     {email.thread_count > 1 && (
                       <span style={styles.threadCount}>{email.thread_count}</span>
@@ -1755,7 +1755,7 @@ function MailPool() {
             {selectedEmail.email_type !== "system" && (selectedEmail.mail_summary || selectedEmail.mail_party) && (
               <div style={{
                 margin: "12px 0", padding: "10px 14px", backgroundColor: "#f9fafb",
-                border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.8rem", color: "#374151",
+                border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.8rem", color: "#4a4a4a",
               }}>
                 {selectedEmail.mail_party && (
                   <div style={{ marginBottom: "4px" }}>
@@ -1764,7 +1764,7 @@ function MailPool() {
                   </div>
                 )}
                 {selectedEmail.cc_emails?.length > 0 && (
-                  <div style={{ marginBottom: "4px", color: "#6b7280" }}>CC: {selectedEmail.cc_emails.join(", ")}</div>
+                  <div style={{ marginBottom: "4px", color: "#4b5563" }}>CC: {selectedEmail.cc_emails.join(", ")}</div>
                 )}
                 {selectedEmail.mail_summary && <div>{selectedEmail.mail_summary}</div>}
               </div>
@@ -1793,7 +1793,7 @@ function MailPool() {
                   }}>
                     {(SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).label} Email
                   </div>
-                  <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>
                     This is an automated system email that does not require AI classification.
                   </div>
                 </div>
@@ -1811,9 +1811,9 @@ function MailPool() {
               }}>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: "12px" }}>
                   <span style={{ fontSize: "1.2rem", marginRight: "8px" }}>🤖</span>
-                  <span style={{ fontWeight: "600", color: "#1a73e8" }}>AI Analysis</span>
+                  <span style={{ fontWeight: "600", color: "#e8890b" }}>AI Analysis</span>
                   {selectedEmail.ai_confidence && (
-                    <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>
+                    <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#4b5563" }}>
                       {Math.round(selectedEmail.ai_confidence * 100)}% confident
                     </span>
                   )}
@@ -1823,8 +1823,8 @@ function MailPool() {
                   {/* Intent */}
                   {selectedEmail.ai_intent && (
                     <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
-                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>INTENT</div>
-                      <div style={{ fontWeight: "500", color: "#374151", textTransform: "capitalize" }}>
+                      <div style={{ fontSize: "0.7rem", color: "#4b5563", marginBottom: "4px" }}>INTENT</div>
+                      <div style={{ fontWeight: "500", color: "#4a4a4a", textTransform: "capitalize" }}>
                         {selectedEmail.ai_intent.replace(/_/g, " ")}
                       </div>
                     </div>
@@ -1833,8 +1833,8 @@ function MailPool() {
                   {/* Sentiment */}
                   {selectedEmail.ai_sentiment && (
                     <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
-                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>SENTIMENT</div>
-                      <div style={{ fontWeight: "500", color: selectedEmail.ai_sentiment === "positive" ? "#059669" : selectedEmail.ai_sentiment === "negative" ? "#dc2626" : "#6b7280", textTransform: "capitalize" }}>
+                      <div style={{ fontSize: "0.7rem", color: "#4b5563", marginBottom: "4px" }}>SENTIMENT</div>
+                      <div style={{ fontWeight: "500", color: selectedEmail.ai_sentiment === "positive" ? "#059669" : selectedEmail.ai_sentiment === "negative" ? "#dc2626" : "#4b5563", textTransform: "capitalize" }}>
                         {selectedEmail.ai_sentiment === "positive" ? "😊" : selectedEmail.ai_sentiment === "negative" ? "😟" : "😐"} {selectedEmail.ai_sentiment}
                       </div>
                     </div>
@@ -1843,7 +1843,7 @@ function MailPool() {
                   {/* Reply Expected */}
                   {selectedEmail.ai_reply_expected !== undefined && (
                     <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
-                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>REPLY EXPECTED</div>
+                      <div style={{ fontSize: "0.7rem", color: "#4b5563", marginBottom: "4px" }}>REPLY EXPECTED</div>
                       <div style={{ fontWeight: "500", color: selectedEmail.ai_reply_expected ? "#dc2626" : "#059669" }}>
                         {selectedEmail.ai_reply_expected ? "✅ Yes" : "❌ No"}
                       </div>
@@ -1854,8 +1854,8 @@ function MailPool() {
                 {/* Key Points */}
                 {selectedEmail.ai_key_points && selectedEmail.ai_key_points.length > 0 && (
                   <div style={{ marginTop: "12px", padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
-                    <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "6px" }}>KEY POINTS</div>
-                    <ul style={{ margin: "0", paddingLeft: "20px", color: "#374151", fontSize: "0.9rem" }}>
+                    <div style={{ fontSize: "0.7rem", color: "#4b5563", marginBottom: "6px" }}>KEY POINTS</div>
+                    <ul style={{ margin: "0", paddingLeft: "20px", color: "#4a4a4a", fontSize: "0.9rem" }}>
                       {selectedEmail.ai_key_points.map((point, i) => (
                         <li key={i} style={{ marginBottom: "4px" }}>{point}</li>
                       ))}
@@ -1897,7 +1897,7 @@ function MailPool() {
                     <span style={{ 
                       marginLeft: "auto", 
                       fontSize: "0.65rem", 
-                      color: "#6b7280",
+                      color: "#4b5563",
                       backgroundColor: "#f3f4f6",
                       padding: "2px 6px",
                       borderRadius: "4px"
@@ -1983,7 +1983,7 @@ function MailPool() {
                             <span style={styles.attachmentSize}>
                               {att.size ? `(${Math.round(att.size / 1024)}KB)` : ""}
                             </span>
-                            {att.data && <span style={{marginLeft: '8px', color: '#1a73e8'}}>⬇️</span>}
+                            {att.data && <span style={{marginLeft: '8px', color: '#e8890b'}}>⬇️</span>}
                           </div>
                         ))}
                       </div>
@@ -2058,7 +2058,7 @@ function MailPool() {
                 {contactInfo.linkedin && (
                   <div style={styles.contactField}>
                     <label>LinkedIn</label>
-                    <a href={contactInfo.linkedin} target="_blank" rel="noreferrer" style={{ color: "#1a73e8" }}>{contactInfo.linkedin}</a>
+                    <a href={contactInfo.linkedin} target="_blank" rel="noreferrer" style={{ color: "#e8890b" }}>{contactInfo.linkedin}</a>
                   </div>
                 )}
                 {contactInfo.location && (
@@ -2076,7 +2076,7 @@ function MailPool() {
                 {contactInfo.company_website && (
                   <div style={styles.contactField}>
                     <label>Company Website</label>
-                    <a href={contactInfo.company_website} target="_blank" rel="noreferrer" style={{ color: "#1a73e8" }}>{contactInfo.company_website}</a>
+                    <a href={contactInfo.company_website} target="_blank" rel="noreferrer" style={{ color: "#e8890b" }}>{contactInfo.company_website}</a>
                   </div>
                 )}
                 {contactInfo.added_on && (
@@ -2300,7 +2300,7 @@ const styles = {
     borderRadius: "4px",
     backgroundColor: "#fff",
     cursor: "pointer",
-    color: "#1a73e8",
+    color: "#e8890b",
     transition: "all 0.2s"
   },
   mainContent: {
@@ -2499,7 +2499,7 @@ const styles = {
   },
   rfqTag: {
     backgroundColor: "#e8f0fe",
-    color: "#1a73e8",
+    color: "#e8890b",
     padding: "2px 6px",
     borderRadius: "4px",
     fontSize: "0.7rem",
@@ -2596,7 +2596,7 @@ const styles = {
   aiSummaryTitle: {
     fontSize: "0.8rem",
     fontWeight: "600",
-    color: "#1a73e8",
+    color: "#e8890b",
     textTransform: "uppercase",
     letterSpacing: "0.5px"
   },
@@ -2662,7 +2662,7 @@ const styles = {
     lineHeight: "1.6",
     color: "#202124",
     backgroundColor: "white",
-    fontFamily: "Arial, sans-serif",
+    fontFamily: "var(--cx-font)",
     wordBreak: "break-word",
     overflowWrap: "break-word"
   },

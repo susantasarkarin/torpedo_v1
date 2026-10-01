@@ -56,7 +56,7 @@
 .stat-value {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .success-banner {
@@ -114,15 +114,15 @@
 }
 
 .strategy-card:hover {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.1);
   transform: translateY(-2px);
 }
 
 .strategy-card.active {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  border-color: #e8890b;
+  background: #fff7ed;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.2);
 }
 
 .strategy-icon {
@@ -144,7 +144,7 @@
 
 .timeline-info {
   font-size: 0.85rem;
-  color: #3b82f6;
+  color: #e8890b;
   font-weight: 500;
   padding: 0.75rem;
   background: white;
@@ -198,8 +198,8 @@
 
 .phase-input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 /* Sender Configuration */
@@ -231,7 +231,7 @@
 }
 
 .toggle-input:checked {
-  accent-color: #3b82f6;
+  accent-color: #e8890b;
 }
 
 .sender-toggle label {
@@ -269,7 +269,7 @@
 }
 
 .filter-toggle:hover {
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .filters-panel {
@@ -397,11 +397,11 @@
 }
 
 .leads-table tbody tr.selected {
-  background: #eff6ff;
+  background: #fff7ed;
 }
 
 .leads-table tbody tr.selected td {
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .leads-table input[type="checkbox"] {
@@ -484,7 +484,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 2rem;
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 8px;
@@ -496,8 +496,8 @@
 }
 
 .btn-create-campaign:hover:not(:disabled) {
-  background: #2563eb;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  background: #e8890b;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.3);
   transform: translateY(-2px);
 }
 

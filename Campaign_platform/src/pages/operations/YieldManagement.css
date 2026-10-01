@@ -24,12 +24,12 @@
 .yield-header h1 {
   margin: 0 0 4px 0;
   font-size: 22px;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .yield-header p {
   margin: 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 13px;
 }
 
@@ -101,8 +101,8 @@
 
 .filter-input:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.15);
 }
 
 .filter-select {
@@ -144,7 +144,7 @@
   padding: 10px 12px;
   text-align: left;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   border-bottom: 1px solid #e5e7eb;
   white-space: nowrap;
 }
@@ -152,7 +152,7 @@
 .yield-table td {
   padding: 9px 12px;
   border-bottom: 1px solid #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   vertical-align: middle;
 }
 
@@ -193,7 +193,7 @@
 .status-active   { background: #d1fae5; color: #065f46; }
 .status-testing  { background: #fef3c7; color: #92400e; }
 .status-inactive { background: #fee2e2; color: #991b1b; }
-.status-excluded { background: #f3f4f6; color: #6b7280; }
+.status-excluded { background: #f3f4f6; color: #4b5563; }
 
 .pool-badge {
   display: inline-block;
@@ -203,7 +203,7 @@
   font-size: 9px;
   font-weight: 700;
   background: #e5e7eb;
-  color: #374151;
+  color: #4a4a4a;
   white-space: nowrap;
 }
 
@@ -244,7 +244,7 @@
 /* Generic buttons */
 .btn-primary {
   padding: 8px 16px;
-  background: #6366f1;
+  background: #e8890b;
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -253,13 +253,13 @@
   cursor: pointer;
   transition: background 0.15s;
 }
-.btn-primary:hover:not(:disabled) { background: #4f46e5; }
+.btn-primary:hover:not(:disabled) { background: #e8890b; }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
 
 .btn-secondary {
   padding: 8px 16px;
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 13px;
@@ -282,7 +282,7 @@
   margin: 0 0 14px 0;
   font-size: 16px;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .buyer-grid {
@@ -301,7 +301,7 @@
 .buyer-name {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -311,7 +311,7 @@
 .buyer-conv {
   font-size: 22px;
   font-weight: 700;
-  color: #6366f1;
+  color: #e8890b;
   line-height: 1;
 }
 
@@ -344,19 +344,19 @@
 .modal-box h2 {
   margin: 0 0 6px 0;
   font-size: 18px;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .modal-subtitle {
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   margin: 0 0 20px 0;
 }
 
 .threshold-group h3 {
   font-size: 13px;
   font-weight: 700;
-  color: #374151;
+  color: #4a4a4a;
   margin: 0 0 12px 0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -366,7 +366,7 @@
   display: flex;
   flex-direction: column;
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 14px;
   gap: 5px;
 }
@@ -381,7 +381,7 @@
 
 .threshold-group input[type="number"]:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #e8890b;
 }
 
 .hint {

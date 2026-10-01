@@ -24,13 +24,13 @@ const STATUS_COLORS = {
   planning: 'bg-gray-100 text-gray-800',
   active: 'bg-green-100 text-green-800',
   on_hold: 'bg-yellow-100 text-yellow-800',
-  completed: 'bg-blue-100 text-blue-800',
+  completed: 'bg-cogentix-orange-100 text-cogentix-orange-800',
   cancelled: 'bg-red-100 text-red-800'
 };
 
 const PRIORITY_COLORS = {
   low: 'bg-gray-100 text-gray-600',
-  medium: 'bg-blue-100 text-blue-700',
+  medium: 'bg-cogentix-orange-100 text-cogentix-orange-700',
   high: 'bg-orange-100 text-orange-700',
   critical: 'bg-red-100 text-red-700'
 };
@@ -237,7 +237,7 @@ export default function Projects() {
               <p className="text-sm text-gray-500">Total Projects</p>
               <p className="text-2xl font-bold">{stats.total_projects}</p>
             </div>
-            <FolderKanban className="w-8 h-8 text-blue-500" />
+            <FolderKanban className="w-8 h-8 text-cogentix-orange-500" />
           </div>
         </Card>
         
@@ -257,7 +257,7 @@ export default function Projects() {
               <p className="text-sm text-gray-500">Completed Tasks</p>
               <p className="text-2xl font-bold">{stats.completed_tasks} / {stats.total_tasks}</p>
             </div>
-            <CheckCircle2 className="w-8 h-8 text-blue-500" />
+            <CheckCircle2 className="w-8 h-8 text-cogentix-orange-500" />
           </div>
         </Card>
         
@@ -305,7 +305,7 @@ export default function Projects() {
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div 
-            className="bg-blue-600 h-2 rounded-full transition-all"
+            className="bg-cogentix-orange-600 h-2 rounded-full transition-all"
             style={{ width: `${project.progress_percent || 0}%` }}
           />
         </div>
@@ -333,7 +333,7 @@ export default function Projects() {
             {project.team_members.slice(0, 3).map((member, idx) => (
               <div 
                 key={idx}
-                className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center border-2 border-white"
+                className="w-6 h-6 rounded-full bg-cogentix-orange-500 text-white text-xs flex items-center justify-center border-2 border-white"
                 title={member.user_name}
               >
                 {member.user_name?.[0] || '?'}

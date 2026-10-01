@@ -39,7 +39,7 @@ function CopyField({ label, value, hint }) {
 
   return (
     <div style={{ marginTop: "0.75rem" }}>
-      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.03em" }}>
         {label}
       </div>
       <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
@@ -49,21 +49,21 @@ function CopyField({ label, value, hint }) {
           onFocus={(e) => e.target.select()}
           style={{
             flex: 1, padding: "0.5rem 0.65rem", border: "1px solid #e5e7eb", borderRadius: "6px",
-            fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.78rem", background: "#f9fafb", color: "#111827",
+            fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.78rem", background: "#f9fafb", color: "#1a1a1a",
           }}
         />
         <button
           onClick={copy}
           style={{
             padding: "0.5rem 0.9rem", borderRadius: "6px", border: "1px solid #d1d5db",
-            background: copied ? "#059669" : "#fff", color: copied ? "#fff" : "#374151",
+            background: copied ? "#059669" : "#fff", color: copied ? "#fff" : "#4a4a4a",
             fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", whiteSpace: "nowrap",
           }}
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      {hint && <p style={{ fontSize: "0.75rem", color: "#6b7280", margin: "0.3rem 0 0" }}>{hint}</p>}
+      {hint && <p style={{ fontSize: "0.75rem", color: "#4b5563", margin: "0.3rem 0 0" }}>{hint}</p>}
     </div>
   )
 }
@@ -84,8 +84,8 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
 
   return (
     <div>
-      <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151" }}>Per-country rates</div>
-      <p style={{ fontSize: "0.72rem", color: "#6b7280", margin: "0.2rem 0 0.5rem" }}>
+      <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#4a4a4a" }}>Per-country rates</div>
+      <p style={{ fontSize: "0.72rem", color: "#4b5563", margin: "0.2rem 0 0.5rem" }}>
         Optional. Any country without a row here is paid at the default rate
         {fallbackRate ? ` (₹${fallbackRate})` : ""}. The rate that applies to a conversion is
         frozen when it converts, so changing a rate later never re-prices what you have already been invoiced for.
@@ -97,13 +97,13 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
             placeholder="IN" maxLength={2} value={r.country}
             onChange={(e) => set(i, { country: e.target.value.toUpperCase().replace(/[^A-Z]/g, "") })}
           />
-          <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>₹</span>
+          <span style={{ color: "#4b5563", fontSize: "0.85rem" }}>₹</span>
           <input
             style={{ ...cell, width: "7rem" }} type="number" step="0.01" min="0"
             placeholder="25.00" value={r.rate}
             onChange={(e) => set(i, { rate: e.target.value })}
           />
-          <span style={{ color: "#6b7280", fontSize: "0.78rem" }}>per profile-complete</span>
+          <span style={{ color: "#4b5563", fontSize: "0.78rem" }}>per profile-complete</span>
           <button type="button" onClick={() => remove(i)} style={{
             marginLeft: "auto", border: "none", background: "none", color: "#dc2626",
             cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
@@ -113,7 +113,7 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
       <button type="button" onClick={add} style={{
         marginTop: "0.25rem", padding: "0.4rem 0.8rem", border: "1px dashed #d1d5db",
         borderRadius: "6px", background: "#fff", fontSize: "0.8rem", fontWeight: 600,
-        color: "#374151", cursor: "pointer",
+        color: "#4a4a4a", cursor: "pointer",
       }}>+ Add country rate</button>
     </div>
   )
@@ -226,14 +226,14 @@ export default function TrafficSuppliers() {
     width: "100%", padding: "0.55rem 0.7rem", border: "1px solid #d1d5db",
     borderRadius: "6px", fontSize: "0.9rem", marginTop: "0.25rem",
   }
-  const label = { fontSize: "0.8rem", fontWeight: 600, color: "#374151" }
+  const label = { fontSize: "0.8rem", fontWeight: 600, color: "#4a4a4a" }
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: "1000px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#111827", margin: 0 }}>Traffic Suppliers</h2>
-          <p style={{ color: "#6b7280", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>
+          <p style={{ color: "#4b5563", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
             Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
             A signup counts as <strong>payable once the panelist completes their profile</strong> — the point they can be routed to a survey.
           </p>
@@ -266,7 +266,7 @@ export default function TrafficSuppliers() {
               <input style={input} required value={form.slug} placeholder="quora"
                 pattern="[a-z0-9][a-z0-9_-]{1,40}"
                 onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase() })} />
-              <p style={{ fontSize: "0.72rem", color: "#6b7280", margin: "0.25rem 0 0" }}>
+              <p style={{ fontSize: "0.72rem", color: "#4b5563", margin: "0.25rem 0 0" }}>
                 Appears in the link. Lowercase, no spaces. Cannot be changed later.
               </p>
             </div>
@@ -275,7 +275,7 @@ export default function TrafficSuppliers() {
               <input style={input} type="number" step="0.01" min="0" value={form.payoutPerConversionPaise}
                 placeholder="25.00"
                 onChange={(e) => setForm({ ...form, payoutPerConversionPaise: e.target.value })} />
-              <p style={{ fontSize: "0.72rem", color: "#6b7280", margin: "0.25rem 0 0" }}>
+              <p style={{ fontSize: "0.72rem", color: "#4b5563", margin: "0.25rem 0 0" }}>
                 Used for any country without its own rate below.
               </p>
             </div>
@@ -311,11 +311,11 @@ export default function TrafficSuppliers() {
       )}
 
       {loading ? (
-        <p style={{ color: "#6b7280" }}>Loading…</p>
+        <p style={{ color: "#4b5563" }}>Loading…</p>
       ) : suppliers.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "2.5rem 1.25rem" }}>
-          <p style={{ fontWeight: 700, color: "#111827", margin: 0 }}>No suppliers yet</p>
-          <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
+          <p style={{ fontWeight: 700, color: "#1a1a1a", margin: 0 }}>No suppliers yet</p>
+          <p style={{ color: "#4b5563", fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
             Add one for each traffic source — Facebook, Google, Quora, or a panel vendor — and send them their tracked signup link.
             Signups that arrive without a link are recorded as organic.
           </p>
@@ -327,14 +327,14 @@ export default function TrafficSuppliers() {
             <div key={s.slug} style={card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
                 <div>
-                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "#111827" }}>{s.name}</span>
+                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "#1a1a1a" }}>{s.name}</span>
                   <span style={{
                     marginLeft: "0.6rem", fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.5rem",
                     borderRadius: "99px", textTransform: "uppercase",
                     background: s.status === "active" ? "#dcfce7" : "#fef3c7",
                     color: s.status === "active" ? "#166534" : "#92400e",
                   }}>{s.status}</span>
-                  <div style={{ color: "#6b7280", fontSize: "0.8rem", marginTop: "0.2rem" }}>
+                  <div style={{ color: "#4b5563", fontSize: "0.8rem", marginTop: "0.2rem" }}>
                     <code>{s.slug}</code>
                     {s.postbackEnabled && " · postback on"}
                   </div>
@@ -373,8 +373,8 @@ export default function TrafficSuppliers() {
                   ["Accrued", `₹${toRupees(s.accruedPaise)}`],
                 ].map(([k, v]) => (
                   <div key={k}>
-                    <div style={{ fontSize: "0.72rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>{k}</div>
-                    <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#111827" }}>{v}</div>
+                    <div style={{ fontSize: "0.72rem", color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.03em" }}>{k}</div>
+                    <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#1a1a1a" }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -384,7 +384,7 @@ export default function TrafficSuppliers() {
                   {s.countryRates.map((r) => (
                     <span key={r.country} style={{
                       fontSize: "0.75rem", fontWeight: 600, padding: "0.2rem 0.55rem",
-                      borderRadius: "99px", background: "#f3f4f6", color: "#374151",
+                      borderRadius: "99px", background: "#f3f4f6", color: "#4a4a4a",
                     }}>{r.country} ₹{toRupees(r.payoutPerConversionPaise)}</span>
                   ))}
                   <span style={{

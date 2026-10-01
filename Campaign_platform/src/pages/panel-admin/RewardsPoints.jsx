@@ -49,11 +49,11 @@ function RewardsPoints() {
   const tabStyle = (tab) => ({
     padding: "0.75rem 1.5rem",
     border: "none",
-    borderBottom: activeTab === tab ? "3px solid #3b82f6" : "3px solid transparent",
+    borderBottom: activeTab === tab ? "3px solid #e8890b" : "3px solid transparent",
     background: "none",
     cursor: "pointer",
     fontWeight: activeTab === tab ? "600" : "400",
-    color: activeTab === tab ? "#3b82f6" : "#6b7280",
+    color: activeTab === tab ? "#e8890b" : "#4b5563",
     fontSize: "0.95rem",
   })
 
@@ -75,7 +75,7 @@ function RewardsPoints() {
           </div>
           <div className="card">
             <h3 className="card-title">Total Redeemed</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#3b82f6" }}>
+            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#e8890b" }}>
               {loading ? "..." : stats.totalRedeemed}
             </p>
           </div>
@@ -101,9 +101,9 @@ function RewardsPoints() {
         {activeTab === "transactions" && (
           <div>
             {loading ? (
-              <p style={{ color: "#6b7280" }}>Loading transactions...</p>
+              <p style={{ color: "#4b5563" }}>Loading transactions...</p>
             ) : transactions.length === 0 ? (
-              <p style={{ color: "#6b7280" }}>No transactions found.</p>
+              <p style={{ color: "#4b5563" }}>No transactions found.</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -124,8 +124,8 @@ function RewardsPoints() {
                         <td style={tdStyle}>
                           <span style={{
                             fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                            backgroundColor: tx.type === "earned" ? "#d1fae5" : "#dbeafe",
-                            color: tx.type === "earned" ? "#065f46" : "#1e40af",
+                            backgroundColor: tx.type === "earned" ? "#d1fae5" : "#fff7ed",
+                            color: tx.type === "earned" ? "#065f46" : "#c47209",
                           }}>
                             {tx.type || "-"}
                           </span>
@@ -149,9 +149,9 @@ function RewardsPoints() {
         {activeTab === "redemptions" && (
           <div>
             {loading ? (
-              <p style={{ color: "#6b7280" }}>Loading redemption requests...</p>
+              <p style={{ color: "#4b5563" }}>Loading redemption requests...</p>
             ) : redemptions.length === 0 ? (
-              <p style={{ color: "#6b7280" }}>No redemption requests found.</p>
+              <p style={{ color: "#4b5563" }}>No redemption requests found.</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -197,7 +197,7 @@ function RewardsPoints() {
   )
 }
 
-const thStyle = { textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", color: "#6b7280" }
+const thStyle = { textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", color: "#4b5563" }
 const tdStyle = { padding: "0.75rem", fontSize: "0.875rem" }
 
 export default RewardsPoints

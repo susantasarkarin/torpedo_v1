@@ -255,7 +255,7 @@ function ContactsImport() {
           <div key={s.num} className="flex items-center">
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                step >= s.num ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"
+                step >= s.num ? "bg-cogentix-orange-600 text-white" : "bg-gray-200 text-gray-600"
               }`}
             >
               {step > s.num ? (
@@ -269,7 +269,7 @@ function ContactsImport() {
             <span className={`ml-2 text-sm ${step >= s.num ? "text-gray-900 font-medium" : "text-gray-500"}`}>
               {s.label}
             </span>
-            {idx < 2 && <div className={`w-16 h-0.5 mx-4 ${step > s.num ? "bg-blue-600" : "bg-gray-200"}`} />}
+            {idx < 2 && <div className={`w-16 h-0.5 mx-4 ${step > s.num ? "bg-cogentix-orange-600" : "bg-gray-200"}`} />}
           </div>
         ))}
       </div>
@@ -293,8 +293,8 @@ function ContactsImport() {
       {step === 1 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 bg-cogentix-orange-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-cogentix-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -310,7 +310,7 @@ function ContactsImport() {
           {/* Drop Zone */}
           <div
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+            className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-cogentix-orange-400 hover:bg-cogentix-orange-50 transition-colors"
           >
             <input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
             <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -322,7 +322,7 @@ function ContactsImport() {
               />
             </svg>
             <p className="text-gray-600 mb-2">
-              <span className="text-blue-600 font-medium">Click to upload</span> or drag and drop
+              <span className="text-cogentix-orange-600 font-medium">Click to upload</span> or drag and drop
             </p>
             <p className="text-sm text-gray-500">CSV files only</p>
           </div>
@@ -335,7 +335,7 @@ function ContactsImport() {
             </div>
             <button
               onClick={handleDownloadTemplate}
-              className="px-4 py-2 text-blue-600 hover:text-blue-700 font-medium flex items-center gap-2"
+              className="px-4 py-2 text-cogentix-orange-600 hover:text-cogentix-orange-700 font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -391,7 +391,7 @@ function ContactsImport() {
             <select
               value={selectedList}
               onChange={(e) => setSelectedList(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cogentix-orange-500 focus:border-cogentix-orange-500"
             >
               <option value="">-- Select a list --</option>
               {lists.map((list) => (
@@ -432,7 +432,7 @@ function ContactsImport() {
                     <select
                       value={getMappedValue(field.key)}
                       onChange={(e) => handleMappingChange(field.key, e.target.value)}
-                      className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-cogentix-orange-500 focus:border-cogentix-orange-500 ${
                         getMappedValue(field.key) ? "border-green-300 bg-green-50" : "border-gray-300"
                       }`}
                     >
@@ -514,7 +514,7 @@ function ContactsImport() {
             <button
               onClick={handleImport}
               disabled={importing || !columnMapping.email || !selectedList}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2 bg-cogentix-orange-600 text-white rounded-lg hover:bg-cogentix-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {importing ? (
                 <>
@@ -577,7 +577,7 @@ function ContactsImport() {
             </button>
             <button
               onClick={() => navigate("/admin/sales/contacts")}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-6 py-2 bg-cogentix-orange-600 text-white rounded-lg hover:bg-cogentix-orange-700"
             >
               View Contacts
             </button>

@@ -30,7 +30,7 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 28px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
   padding: 24px;
   border-radius: 12px;
   color: white;
@@ -175,14 +175,14 @@
 
 .view-all {
   font-size: 14px;
-  color: #667eea;
+  color: #e8890b;
   text-decoration: none;
   font-weight: 600;
   transition: color 0.2s;
 }
 
 .view-all:hover {
-  color: #764ba2;
+  color: #c47209;
 }
 
 /* Activities */
@@ -273,7 +273,7 @@
 }
 
 .status-badge.sent {
-  background: #cfe2ff;
+  background: #fff7ed;
   color: #084298;
 }
 
@@ -312,7 +312,7 @@
 .customer-rank {
   font-size: 20px;
   font-weight: 700;
-  color: #667eea;
+  color: #e8890b;
   width: 40px;
   text-align: center;
 }
@@ -375,7 +375,7 @@
 .action-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
 }
 
 .action-card:hover .action-label {
@@ -418,7 +418,7 @@
   display: flex;
   justify-content: space-between;
   padding: 14px;
-  border-left: 4px solid #667eea;
+  border-left: 4px solid #e8890b;
   background: #f8f9fa;
   border-radius: 4px;
 }
@@ -474,7 +474,7 @@
   width: 50px;
   height: 50px;
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #667eea;
+  border-top: 4px solid #e8890b;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -498,13 +498,13 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
   color: white;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.4);
 }
 
 .btn-secondary {

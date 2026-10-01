@@ -338,7 +338,7 @@ export default function AgentSettings() {
                       <div className="font-medium text-gray-900 flex items-center gap-2">
                         {config.name}
                         {config.is_default && (
-                          <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                          <span className="text-xs bg-cogentix-orange-100 text-cogentix-orange-700 px-1.5 py-0.5 rounded">
                             Preset
                           </span>
                         )}

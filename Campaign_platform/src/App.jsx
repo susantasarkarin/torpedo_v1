@@ -150,6 +150,7 @@ const CrmReports = lazy(() => import("./pages/crm/CrmReports"))
 
 // Surveys
 const SurveyRevenue = lazy(() => import("./pages/surveys/SurveyRevenue"))
+const NotFound = lazy(() => import("./pages/NotFound"))
 
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
@@ -268,6 +269,7 @@ function App() {
         <Route path="finance/payments" element={<LazyPage><PaymentsPage /></LazyPage>} />
         <Route path="finance/payments/import" element={<LazyPage><PaymentsImport /></LazyPage>} />
         <Route path="finance/reports" element={<LazyPage><ReportsPage /></LazyPage>} />
+        <Route path="finance/reports/:reportId" element={<LazyPage><ReportsPage /></LazyPage>} />
         <Route path="finance/items" element={<LazyPage><FinanceItems /></LazyPage>} />
         <Route path="finance/estimates" element={<LazyPage><EstimatesPage /></LazyPage>} />
         <Route path="finance/estimates/import" element={<LazyPage><EstimatesImport /></LazyPage>} />
@@ -344,6 +346,9 @@ function App() {
 
         {/* Surveys - revenue intelligence */}
         <Route path="surveys/revenue" element={<LazyPage><SurveyRevenue /></LazyPage>} />
+
+        {/* Unknown admin pages stay inside the app instead of bouncing to login */}
+        <Route path="*" element={<LazyPage><NotFound /></LazyPage>} />
       </Route>
 
       {/* Catch all */}

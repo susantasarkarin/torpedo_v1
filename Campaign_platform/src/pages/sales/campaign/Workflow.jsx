@@ -172,7 +172,7 @@ export default function Workflow() {
               marginBottom: "1.5rem",
             }}
           >
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1.5rem", color: "#111827" }}>
+            <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1.5rem", color: "#1a1a1a" }}>
               Pipeline Funnel
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -185,11 +185,11 @@ export default function Workflow() {
                 return (
                   <div key={stage.id}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", fontSize: "0.875rem" }}>
-                      <span style={{ fontWeight: 600, color: "#374151" }}>
+                      <span style={{ fontWeight: 600, color: "#4a4a4a" }}>
                         {STAGE_ICONS[stage.id]} {stage.label}
                       </span>
-                      <span style={{ color: "#6b7280" }}>
-                        <strong style={{ color: "#111827" }}>{stage.count.toLocaleString()}</strong>
+                      <span style={{ color: "#4b5563" }}>
+                        <strong style={{ color: "#1a1a1a" }}>{stage.count.toLocaleString()}</strong>
                         {convPct !== null && (
                           <span style={{ marginLeft: "0.5rem", fontSize: "0.8rem", color: convPct >= 50 ? "#16a34a" : "#dc2626" }}>
                             ({convPct}% of prev)
@@ -239,7 +239,7 @@ export default function Workflow() {
               padding: "1.5rem 2rem",
             }}
           >
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem", color: "#111827" }}>
+            <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem", color: "#1a1a1a" }}>
               Pipeline Flow
             </h2>
             <div style={{ display: "flex", alignItems: "center", gap: "0", overflowX: "auto", paddingBottom: "0.5rem" }}>
@@ -257,7 +257,7 @@ export default function Workflow() {
                     }}
                   >
                     <div style={{ fontSize: "1.4rem" }}>{STAGE_ICONS[stage.id]}</div>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#374151", marginTop: "0.25rem" }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#4a4a4a", marginTop: "0.25rem" }}>
                       {stage.label}
                     </div>
                     <div style={{ fontSize: "1.1rem", fontWeight: 700, color: stage.color }}>
@@ -277,7 +277,7 @@ export default function Workflow() {
       )}
 
       {loading && (
-        <div style={{ textAlign: "center", padding: "3rem", color: "#6b7280" }}>
+        <div style={{ textAlign: "center", padding: "3rem", color: "#4b5563" }}>
           ⏳ Loading pipeline data…
         </div>
       )}

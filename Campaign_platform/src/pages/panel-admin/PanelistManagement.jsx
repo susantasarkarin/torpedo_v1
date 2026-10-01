@@ -251,17 +251,17 @@ function PanelistManagement() {
 
   // Helper to get email status badge styling
   const getEmailStatusBadge = (status) => {
-    if (!status) return { bg: "#f3f4f6", text: "#6b7280", label: "Not sent" }
+    if (!status) return { bg: "#f3f4f6", text: "#4b5563", label: "Not sent" }
     const statusMap = {
-      sent: { bg: "#dbeafe", text: "#1e40af", label: "Sent" },
+      sent: { bg: "#fff7ed", text: "#c47209", label: "Sent" },
       bounced: { bg: "#fee2e2", text: "#991b1b", label: "Bounced" },
       complained: { bg: "#fecaca", text: "#7c2d12", label: "Complained" },
       confirmed: { bg: "#d1fae5", text: "#065f46", label: "Confirmed" },
-      clicked: { bg: "#c7d2fe", text: "#312e81", label: "Clicked" },
+      clicked: { bg: "#fde68a", text: "#c47209", label: "Clicked" },
       soft_bounced: { bg: "#fef3c7", text: "#92400e", label: "Soft Bounce" },
-      failed: { bg: "#f3f4f6", text: "#6b7280", label: "Failed" },
+      failed: { bg: "#f3f4f6", text: "#4b5563", label: "Failed" },
     }
-    return statusMap[status] || { bg: "#f3f4f6", text: "#6b7280", label: status }
+    return statusMap[status] || { bg: "#f3f4f6", text: "#4b5563", label: status }
   }
 
   // CSV Upload handlers
@@ -445,11 +445,11 @@ function PanelistManagement() {
   const tabStyle = (tab) => ({
     padding: "0.75rem 1.5rem",
     border: "none",
-    borderBottom: activeTab === tab ? "3px solid #3b82f6" : "3px solid transparent",
+    borderBottom: activeTab === tab ? "3px solid #e8890b" : "3px solid transparent",
     background: "none",
     cursor: "pointer",
     fontWeight: activeTab === tab ? "600" : "400",
-    color: activeTab === tab ? "#3b82f6" : "#6b7280",
+    color: activeTab === tab ? "#e8890b" : "#4b5563",
     fontSize: "0.95rem",
   })
 
@@ -532,7 +532,7 @@ function PanelistManagement() {
         {showUpload && (
           <div className="card" style={{ marginBottom: "1.5rem", backgroundColor: "#f9fafb" }}>
             <h3 className="card-title">Upload Panelists CSV</h3>
-            <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "1rem" }}>
+            <p style={{ fontSize: "0.875rem", color: "#4b5563", marginBottom: "1rem" }}>
               CSV should have columns: first_name, last_name, email, country, language (optional)
             </p>
             <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
@@ -565,7 +565,7 @@ function PanelistManagement() {
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
                       {Object.keys(csvData[0]).map((col) => (
-                        <th key={col} style={{ textAlign: "left", padding: "0.5rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                        <th key={col} style={{ textAlign: "left", padding: "0.5rem", color: "#4b5563", whiteSpace: "nowrap" }}>
                           {col}
                         </th>
                       ))}
@@ -582,7 +582,7 @@ function PanelistManagement() {
                   </tbody>
                 </table>
                 {csvData.length > 5 && (
-                  <p style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "0.5rem" }}>
+                  <p style={{ fontSize: "0.75rem", color: "#4b5563", marginTop: "0.5rem" }}>
                     Showing first 5 of {csvData.length} rows
                   </p>
                 )}
@@ -604,7 +604,7 @@ function PanelistManagement() {
 
             <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid #e5e7eb" }}>
               <h3 className="card-title" style={{ marginBottom: "0.5rem" }}>Import from Link (CSV/JSON)</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+              <p style={{ fontSize: "0.875rem", color: "#4b5563", marginBottom: "0.75rem" }}>
                 Paste an API/export URL from sfw_panel or any system. Supported: CSV or JSON array payloads.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "2fr 120px 1fr auto", gap: "0.75rem", alignItems: "center" }}>
@@ -670,7 +670,7 @@ function PanelistManagement() {
               SFW Panelists
             </button>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", color: "#6b7280", paddingBottom: "0.5rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", color: "#4b5563", paddingBottom: "0.5rem" }}>
             Rows per batch
             <select
               value={pageSize}
@@ -761,17 +761,17 @@ function PanelistManagement() {
             </div>
 
             {leadLoading ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading panelist leads...</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading panelist leads...</p>
             ) : panelLeads.length === 0 ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No parsing-page mail IDs found.</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>No parsing-page mail IDs found.</p>
             ) : (
               <>
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "220px" }}>Email</th>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "120px" }}>Country</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "220px" }}>Email</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "120px" }}>Country</th>
                         <th style={thStyle}>Respondent ID</th>
                         <th style={thStyle}>Vendor ID</th>
                         <th style={thStyle}>Status</th>
@@ -781,12 +781,12 @@ function PanelistManagement() {
                     <tbody>
                       {panelLeads.map((lead, index) => (
                         <tr key={lead._id || lead.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{lead.email || "-"}</td>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{lead.email || "-"}</td>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>
                             {lead.countryCode ? (
                               <span style={{
                                 display: "inline-flex", alignItems: "center", gap: "0.25rem",
-                                background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
+                                background: "#fff7ed", color: "#c47209", padding: "0.2rem 0.6rem",
                                 borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
                               }}>
                                 {lead.countryCode}
@@ -799,7 +799,7 @@ function PanelistManagement() {
                             <span style={{
                               fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                               backgroundColor: lead.status === "COMPLETE" ? "#d1fae5" : lead.status === "INCOMPLETE" ? "#fef3c7" : "#e5e7eb",
-                              color: lead.status === "COMPLETE" ? "#065f46" : lead.status === "INCOMPLETE" ? "#92400e" : "#374151",
+                              color: lead.status === "COMPLETE" ? "#065f46" : lead.status === "INCOMPLETE" ? "#92400e" : "#4a4a4a",
                             }}>
                               {lead.status || "-"}
                             </span>
@@ -814,7 +814,7 @@ function PanelistManagement() {
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
-                  <span style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+                  <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                     Total: {leadTotal} unique mail IDs | Page {leadPage} of {totalLeadPages}
                   </span>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -873,17 +873,17 @@ function PanelistManagement() {
             </div>
 
             {panelistLoading ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading approved panelists...</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading approved panelists...</p>
             ) : panelists.length === 0 ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No approved panelists found.</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>No approved panelists found.</p>
             ) : (
               <>
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "220px" }}>Email</th>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "120px" }}>Country</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "220px" }}>Email</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "120px" }}>Country</th>
                         <th style={thStyle}>Name</th>
                         <th style={thStyle}>Status</th>
                         <th style={thStyle}>Verified</th>
@@ -898,12 +898,12 @@ function PanelistManagement() {
                         const emailStatusBadge = getEmailStatusBadge(panelist.email_status)
                         return (
                           <tr key={panelist._id || panelist.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{panelist.email || "-"}</td>
-                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
+                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{panelist.email || "-"}</td>
+                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>
                               {panelist.country ? (
                                 <span style={{
                                   display: "inline-flex", alignItems: "center", gap: "0.25rem",
-                                  background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
+                                  background: "#fff7ed", color: "#c47209", padding: "0.2rem 0.6rem",
                                   borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
                                 }}>
                                   {panelist.country}
@@ -924,7 +924,7 @@ function PanelistManagement() {
                               <span style={{
                                 fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                                 backgroundColor: panelist.email_verified ? "#d1fae5" : "#f3f4f6",
-                                color: panelist.email_verified ? "#065f46" : "#6b7280",
+                                color: panelist.email_verified ? "#065f46" : "#4b5563",
                               }}>
                                 {panelist.email_verified ? "Verified" : "Unverified"}
                               </span>
@@ -974,7 +974,7 @@ function PanelistManagement() {
 
                 {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
-                  <span style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+                  <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                     Total: {panelistTotal} approved panelists | Page {panelistPage} of {totalPanelistPages}
                   </span>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -1022,9 +1022,9 @@ function PanelistManagement() {
 
             {/* Table */}
             {sfwLoading ? (
-              <p style={{ color: "#6b7280", padding: "2rem 0", textAlign: "center" }}>Loading…</p>
+              <p style={{ color: "#4b5563", padding: "2rem 0", textAlign: "center" }}>Loading…</p>
             ) : sfwPanelists.length === 0 ? (
-              <p style={{ color: "#6b7280", padding: "2rem 0", textAlign: "center" }}>No panelists found</p>
+              <p style={{ color: "#4b5563", padding: "2rem 0", textAlign: "center" }}>No panelists found</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
@@ -1046,7 +1046,7 @@ function PanelistManagement() {
                       ].map(({ label, field }) => (
                         <th key={label} onClick={field ? () => sfwSort(field) : undefined}
                           style={{ ...thStyle, cursor: field ? "pointer" : "default", whiteSpace: "nowrap", userSelect: "none",
-                            color: sfwSortBy === field ? "#f97316" : "#6b7280" }}>
+                            color: sfwSortBy === field ? "#f97316" : "#4b5563" }}>
                           {label}
                         </th>
                       ))}
@@ -1064,20 +1064,20 @@ function PanelistManagement() {
                           onMouseEnter={(e) => e.currentTarget.style.background = "#fff7ed"}
                           onMouseLeave={(e) => e.currentTarget.style.background = ""}>
                           <td style={tdStyle}>
-                            <p style={{ fontWeight: "600", color: "#111827" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#9ca3af" }}>unnamed</span>}</p>
+                            <p style={{ fontWeight: "600", color: "#1a1a1a" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#9ca3af" }}>unnamed</span>}</p>
                             <p style={{ color: "#9ca3af", fontSize: "0.75rem" }}>{p.email}</p>
                             <p style={{ color: "#d1d5db", fontFamily: "monospace", fontSize: "0.7rem" }}>{p.panelistId || "—"}</p>
                           </td>
                           <td style={tdStyle}>{cname(p.country)}</td>
-                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6b7280" }}>{fmtDate(p.createdAt)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#4b5563" }}>{fmtDate(p.createdAt)}</td>
                           <td style={{ ...tdStyle, textAlign: "center", fontWeight: "600" }}>{sv.total || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#059669", fontWeight: "600" }}>{sv.complete || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#dc2626" }}>{sv.terminate || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#d97706" }}>{sv.quotafull || 0}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", color: "#6b7280" }}>{rate}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#111827" }}>{rupees(p.totalEarnedPaise)}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", color: "#4b5563" }}>{rate}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a" }}>{rupees(p.totalEarnedPaise)}</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{rupees(p.balancePaise)}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#6b7280" }}>{rupees(redeemed > 0 ? redeemed : 0)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#4b5563" }}>{rupees(redeemed > 0 ? redeemed : 0)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#9ca3af" }}>{fmtDate(p.lastActiveAt)}</td>
                         </tr>
                       )
@@ -1089,7 +1089,7 @@ function PanelistManagement() {
 
             {/* Pagination */}
             {sfwPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", fontSize: "0.875rem", color: "#6b7280" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", fontSize: "0.875rem", color: "#4b5563" }}>
                 <span>Page {sfwPage} of {sfwPages} · {sfwTotal} panelists</span>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button disabled={sfwPage <= 1} onClick={() => { const p = sfwPage - 1; setSfwPage(p); fetchSfwPanelists({ page: p }) }}
@@ -1109,12 +1109,12 @@ function PanelistManagement() {
               <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
                 <div style={{ background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "600px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
                   <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ fontWeight: "700", color: "#111827", margin: 0 }}>Panelist Detail</h3>
+                    <h3 style={{ fontWeight: "700", color: "#1a1a1a", margin: 0 }}>Panelist Detail</h3>
                     <button onClick={() => setSfwDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", color: "#9ca3af" }}>✕</button>
                   </div>
                   <div style={{ overflowY: "auto", padding: "1.5rem", flex: 1 }}>
                     {sfwDetailLoading ? (
-                      <p style={{ textAlign: "center", color: "#6b7280" }}>Loading…</p>
+                      <p style={{ textAlign: "center", color: "#4b5563" }}>Loading…</p>
                     ) : sfwDetail && (
                       <>
                         <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginBottom: "1.5rem" }}>
@@ -1122,11 +1122,11 @@ function PanelistManagement() {
                             {(sfwDetail.user?.firstName?.[0] || sfwDetail.user?.email?.[0] || "?").toUpperCase()}
                           </div>
                           <div>
-                            <p style={{ fontWeight: "700", color: "#111827", fontSize: "1rem" }}>{[sfwDetail.user?.firstName, sfwDetail.user?.lastName].filter(Boolean).join(" ") || "—"}</p>
-                            <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>{sfwDetail.user?.email}</p>
+                            <p style={{ fontWeight: "700", color: "#1a1a1a", fontSize: "1rem" }}>{[sfwDetail.user?.firstName, sfwDetail.user?.lastName].filter(Boolean).join(" ") || "—"}</p>
+                            <p style={{ color: "#4b5563", fontSize: "0.875rem" }}>{sfwDetail.user?.email}</p>
                             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
                               <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#f3f4f6", borderRadius: "99px", fontFamily: "monospace" }}>{sfwDetail.user?.panelistId || "no-id"}</span>
-                              {sfwDetail.user?.country && <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#e0f2fe", color: "#0369a1", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
+                              {sfwDetail.user?.country && <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#fff7ed", color: "#c47209", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
                               <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#fef3c7", color: "#92400e", borderRadius: "99px", textTransform: "capitalize" }}>{sfwDetail.user?.level || "bronze"}</span>
                             </div>
                           </div>
@@ -1143,15 +1143,15 @@ function PanelistManagement() {
                           ].map(({ label, value }) => (
                             <div key={label} style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem" }}>
                               <p style={{ fontSize: "0.7rem", color: "#9ca3af", marginBottom: "0.25rem" }}>{label}</p>
-                              <p style={{ fontWeight: "600", color: "#111827", fontSize: "0.875rem" }}>{value}</p>
+                              <p style={{ fontWeight: "600", color: "#1a1a1a", fontSize: "0.875rem" }}>{value}</p>
                             </div>
                           ))}
                         </div>
 
-                        <p style={{ fontWeight: "700", color: "#374151", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Survey Stats</p>
+                        <p style={{ fontWeight: "700", color: "#4a4a4a", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Survey Stats</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "0.75rem" }}>
                           {[
-                            { label: "Total", value: sfwDetail.survey_stats?.total || 0, color: "#111827" },
+                            { label: "Total", value: sfwDetail.survey_stats?.total || 0, color: "#1a1a1a" },
                             { label: "Complete", value: sfwDetail.survey_stats?.complete || 0, color: "#059669" },
                             { label: "Terminate", value: sfwDetail.survey_stats?.terminate || 0, color: "#dc2626" },
                             { label: "Quota", value: sfwDetail.survey_stats?.quotafull || 0, color: "#d97706" },
@@ -1168,7 +1168,7 @@ function PanelistManagement() {
 
                         {sfwDetail.recent_surveys?.length > 0 && (
                           <>
-                            <p style={{ fontWeight: "700", color: "#374151", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Recent Survey Activity</p>
+                            <p style={{ fontWeight: "700", color: "#4a4a4a", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Recent Survey Activity</p>
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
                               <thead>
                                 <tr style={{ background: "#f9fafb" }}>
@@ -1180,7 +1180,7 @@ function PanelistManagement() {
                               <tbody>
                                 {sfwDetail.recent_surveys.map((s, i) => (
                                   <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.7rem", color: "#6b7280", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
+                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.7rem", color: "#4b5563", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
                                     <td style={{ ...tdStyle, padding: "0.5rem 0.75rem" }}>
                                       <span style={{ padding: "0.15rem 0.5rem", borderRadius: "99px", fontSize: "0.7rem", fontWeight: "600",
                                         background: s.status === "complete" ? "#d1fae5" : s.status === "terminate" ? "#fee2e2" : "#fef3c7",
@@ -1188,7 +1188,7 @@ function PanelistManagement() {
                                         {s.status}
                                       </span>
                                     </td>
-                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#111827" }}>{s.pointsEarned > 0 ? rupees(s.pointsEarned) : "—"}</td>
+                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#1a1a1a" }}>{s.pointsEarned > 0 ? rupees(s.pointsEarned) : "—"}</td>
                                     <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
                                   </tr>
                                 ))}
@@ -1224,15 +1224,15 @@ function PanelistManagement() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#111827" }}>
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#1a1a1a" }}>
               Send Test Invitation Email
             </h3>
-            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1.25rem", lineHeight: "1.5" }}>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginBottom: "1.25rem", lineHeight: "1.5" }}>
               Preview the invite email by sending it to any address. Sent from <strong>panel@surveyfieldwork.com</strong> via SES.
             </p>
 
             <div style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#374151", marginBottom: "0.4rem" }}>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#4a4a4a", marginBottom: "0.4rem" }}>
                 Recipient Email <span style={{ color: "#ef4444" }}>*</span>
               </label>
               <input
@@ -1248,7 +1248,7 @@ function PanelistManagement() {
             </div>
 
             <div style={{ marginBottom: "1.5rem" }}>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#374151", marginBottom: "0.4rem" }}>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#4a4a4a", marginBottom: "0.4rem" }}>
                 First Name (optional)
               </label>
               <input
@@ -1312,13 +1312,13 @@ function PanelistManagement() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#111827" }}>
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#1a1a1a" }}>
               Send Invitation Emails
             </h3>
 
             {!inviteResult ? (
               <>
-                <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "1rem", lineHeight: "1.5" }}>
+                <p style={{ color: "#4b5563", fontSize: "0.9rem", marginBottom: "1rem", lineHeight: "1.5" }}>
                   {countryFilter
                     ? `Send invitation emails to ${inviteCount} eligible panelists in ${countryFilter}.`
                     : `Send invitation emails to ${inviteCount} eligible panelists across all countries.`}
@@ -1371,7 +1371,7 @@ function PanelistManagement() {
   )
 }
 
-const thStyle = { textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", color: "#6b7280" }
+const thStyle = { textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", color: "#4b5563" }
 const tdStyle = { padding: "0.75rem", fontSize: "0.875rem" }
 
 export default PanelistManagement

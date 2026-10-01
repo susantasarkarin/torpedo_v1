@@ -184,7 +184,7 @@ export function StatsCard({
   const colorClasses = {
     orange: 'border-orange-200 bg-orange-50',
     green: 'border-green-200 bg-green-50',
-    blue: 'border-blue-200 bg-blue-50',
+    blue: 'border-cogentix-orange-200 bg-cogentix-orange-50',
     purple: 'border-purple-200 bg-purple-50',
     red: 'border-red-200 bg-red-50',
     gray: 'border-gray-200 bg-gray-50',
@@ -193,7 +193,7 @@ export function StatsCard({
   const valueColorClasses = {
     orange: 'text-orange-600',
     green: 'text-green-600',
-    blue: 'text-blue-600',
+    blue: 'text-cogentix-orange-600',
     purple: 'text-purple-600',
     red: 'text-red-600',
     gray: 'text-gray-600',

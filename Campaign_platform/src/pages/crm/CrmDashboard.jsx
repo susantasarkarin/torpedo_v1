@@ -116,13 +116,13 @@ export default function CrmDashboard() {
               <p className="crm-muted" style={{ padding: "0.8rem" }}>No matches.</p>
             ) : Object.entries(results).map(([kind, items]) => items.length > 0 && (
               <div key={kind}>
-                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.7rem", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", background: "#f9fafb" }}>
+                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.7rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", background: "#f9fafb" }}>
                   {kind}
                 </div>
                 {items.map((it) => (
                   <Link key={it._id} to={RESULT_LINKS[kind]?.(it) || "/admin/crm"}
                     onClick={() => setQuery("")}
-                    style={{ display: "block", padding: "0.45rem 0.8rem", fontSize: "0.84rem", color: "#111827", textDecoration: "none" }}>
+                    style={{ display: "block", padding: "0.45rem 0.8rem", fontSize: "0.84rem", color: "#1a1a1a", textDecoration: "none" }}>
                     {it.name || it.title || it.email}
                     <span className="crm-muted" style={{ fontSize: "0.72rem", marginLeft: "0.4rem" }}>
                       {it.email && (it.name || it.title) ? it.email : it.company || it.stage || ""}

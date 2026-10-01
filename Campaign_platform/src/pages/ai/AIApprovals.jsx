@@ -57,7 +57,7 @@ function PendingQueue() {
       {items.map((item) => (
         <div key={item._id} className="crm-queue-item">
           <div className="crm-queue-item__head">
-            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#6366f1" }} /> {item.agent_name}</span>
+            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#e8890b" }} /> {item.agent_name}</span>
             <code className="crm-mono">{item.action_type}</code>
             <span className={`crm-badge risk-${item.risk}`}>{item.risk || "—"}</span>
             <span className="crm-badge">{item.autonomy_mode}</span>
@@ -111,7 +111,7 @@ function DecisionLog() {
         <tbody>
           {decisions.map((d) => (
             <tr key={d._id}>
-              <td style={{ fontWeight: 600, color: "#111827" }}>{d.agent_name}</td>
+              <td style={{ fontWeight: 600, color: "#1a1a1a" }}>{d.agent_name}</td>
               <td>{d.decision}{d.reason && <span className="crm-muted" style={{ display: "block", fontSize: "0.72rem" }}>{d.reason}</span>}</td>
               <td><span className={`crm-badge ${d.autonomy_mode}`}>{d.autonomy_mode}</span></td>
               <td>{d.confidence != null ? `${Math.round(d.confidence * 100)}%` : "—"}</td>
@@ -135,7 +135,7 @@ export default function AIApprovals() {
   return (
     <div className="crm-page">
       <div className="crm-head__titles" style={{ marginBottom: "1.25rem" }}>
-        <ShieldAlert size={28} style={{ color: "#4f46e5" }} />
+        <ShieldAlert size={28} style={{ color: "#e8890b" }} />
         <div>
           <h1 className="crm-title">AI Approvals</h1>
           <p className="crm-subtitle">Review and approve AI-proposed actions. Nothing here has run yet.</p>

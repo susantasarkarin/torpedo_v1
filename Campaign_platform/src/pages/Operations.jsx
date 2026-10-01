@@ -271,7 +271,7 @@ function Operations() {
       return (
         <div className="loading-container">
           <div className="loading-spinner"></div>
-          <p style={{ marginTop: "1rem", color: "#6b7280" }}>Loading dashboard...</p>
+          <p style={{ marginTop: "1rem", color: "#4b5563" }}>Loading dashboard...</p>
         </div>
       );
     }
@@ -674,9 +674,9 @@ function Operations() {
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">In Progress</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#3b82f6' }}>🔄</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#e8890b' }}>🔄</div>
             </div>
-            <div className="kpi-value" style={{ color: '#3b82f6' }}>{rfqStats.inProgress}</div>
+            <div className="kpi-value" style={{ color: '#e8890b' }}>{rfqStats.inProgress}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">
@@ -688,7 +688,7 @@ function Operations() {
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">Total RFQs</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}>📋</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}>📋</div>
             </div>
             <div className="kpi-value">{rfqs.length}</div>
           </div>
@@ -913,7 +913,7 @@ function Operations() {
                           <span style={{ fontWeight: 500 }}>{acc.name}</span>
                         </div>
                       </td>
-                      <td style={{ color: '#6b7280' }}>{acc.email || '—'}</td>
+                      <td style={{ color: '#4b5563' }}>{acc.email || '—'}</td>
                       <td>
                         <span className={`status-badge ${acc.account_type || 'client'}`}>
                           {acc.account_type || 'client'}

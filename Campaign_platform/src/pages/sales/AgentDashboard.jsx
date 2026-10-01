@@ -23,7 +23,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 const StatusBadge = ({ status }) => {
   const statusConfig = {
     pending: { color: 'bg-gray-100 text-gray-700', icon: Clock },
-    running: { color: 'bg-blue-100 text-blue-700', icon: Play },
+    running: { color: 'bg-cogentix-orange-100 text-cogentix-orange-700', icon: Play },
     completed: { color: 'bg-green-100 text-green-700', icon: CheckCircle },
     failed: { color: 'bg-red-100 text-red-700', icon: XCircle },
   };
@@ -172,8 +172,8 @@ export default function AgentDashboard() {
                   <p className="text-sm text-gray-500">Active Jobs</p>
                   <p className="text-2xl font-bold text-gray-900">{stats.activeJobs}</p>
                 </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <Zap className="w-6 h-6 text-blue-600" />
+                <div className="p-3 bg-cogentix-orange-100 rounded-full">
+                  <Zap className="w-6 h-6 text-cogentix-orange-600" />
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-4">
@@ -224,14 +224,14 @@ export default function AgentDashboard() {
           <Card className="mb-8">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-blue-600" />
+                <Zap className="w-5 h-5 text-cogentix-orange-600" />
                 Active Jobs
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {jobs.filter(j => j.status === 'running').map((job) => (
-                  <div key={job.job_id} className="p-4 bg-blue-50 rounded-lg">
+                  <div key={job.job_id} className="p-4 bg-cogentix-orange-50 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div>
                         <span className="font-medium text-gray-900">{job.agent_name}</span>

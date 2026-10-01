@@ -17,7 +17,7 @@ import api from '../../utils/api';
 
 const PIPELINE_STAGES = [
   { id: 'qualification', label: 'Qualification', color: 'bg-gray-100 border-gray-300' },
-  { id: 'discovery', label: 'Discovery', color: 'bg-blue-50 border-blue-300' },
+  { id: 'discovery', label: 'Discovery', color: 'bg-cogentix-orange-50 border-cogentix-orange-300' },
   { id: 'proposal', label: 'Proposal', color: 'bg-yellow-50 border-yellow-300' },
   { id: 'negotiation', label: 'Negotiation', color: 'bg-orange-50 border-orange-300' },
   { id: 'closed_won', label: 'Closed Won', color: 'bg-green-50 border-green-300' },
@@ -26,7 +26,7 @@ const PIPELINE_STAGES = [
 
 const STAGE_COLORS = {
   qualification: 'bg-gray-100 text-gray-700',
-  discovery: 'bg-blue-100 text-blue-700',
+  discovery: 'bg-cogentix-orange-100 text-cogentix-orange-700',
   proposal: 'bg-yellow-100 text-yellow-700',
   negotiation: 'bg-orange-100 text-orange-700',
   closed_won: 'bg-green-100 text-green-700',
@@ -199,13 +199,13 @@ export default function DealPipeline({
         className={`
           bg-white border rounded-lg p-3 mb-2 cursor-grab active:cursor-grabbing
           hover:shadow-md transition-all
-          ${isDragging ? 'opacity-50 ring-2 ring-blue-400' : ''}
+          ${isDragging ? 'opacity-50 ring-2 ring-cogentix-orange-400' : ''}
         `}
       >
         {/* Header */}
         <div className="flex justify-between items-start mb-2">
           <h4 
-            className="font-medium text-sm cursor-pointer hover:text-blue-600"
+            className="font-medium text-sm cursor-pointer hover:text-cogentix-orange-600"
             onClick={() => onDealClick ? onDealClick(deal) : setSelectedDeal(deal)}
           >
             {deal.name}
@@ -275,7 +275,7 @@ export default function DealPipeline({
             </div>
             <div className="w-full bg-gray-200 rounded-full h-1">
               <div 
-                className="bg-blue-500 h-1 rounded-full"
+                className="bg-cogentix-orange-500 h-1 rounded-full"
                 style={{ width: `${deal.probability}%` }}
               />
             </div>
@@ -297,7 +297,7 @@ export default function DealPipeline({
         className={`
           flex-shrink-0 w-72 rounded-lg border-2 
           ${stage.color}
-          ${isDropTarget ? 'ring-2 ring-blue-400 border-blue-400' : ''}
+          ${isDropTarget ? 'ring-2 ring-cogentix-orange-400 border-cogentix-orange-400' : ''}
         `}
         onDragOver={(e) => handleDragOver(e, stage.id)}
         onDragLeave={handleDragLeave}

@@ -11,22 +11,22 @@ import "./campaign/AILeads.css"
 const BASKET_COLORS = {
   A: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
   B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-  C: { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+  C: { bg: "#fff7ed", color: "#c47209", border: "#fde68a" },
   D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-  E: { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
+  E: { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db" },
 }
 
 const TIER_STYLE = {
   1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
   2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
-  3: { bg: "#f0f9ff", color: "#0369a1", border: "#7dd3fc", icon: "❄️" },
+  3: { bg: "#fff7ed", color: "#c47209", border: "#7dd3fc", icon: "❄️" },
 }
 
 const LEAD_STATUS_STYLE = {
   Positive: { bg: "#dcfce7", color: "#15803d", border: "#86efac", icon: "✅" },
   "Needs Human": { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", icon: "🙋" },
   Negative: { bg: "#fee2e2", color: "#b91c1c", border: "#fca5a5", icon: "🚫" },
-  Neutral:  { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db", icon: "⬜" },
+  Neutral:  { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db", icon: "⬜" },
 }
 
 const STATUS_OPTIONS = ["Positive", "Needs Human", "Neutral", "Negative"]
@@ -50,23 +50,23 @@ function ReplyCell({ lead }) {
   return (
     <div style={{ fontSize: "0.75rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
       {t?.reply_text && (
-        <div style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           “{t.reply_text.replace(/\s+/g, " ").slice(0, 70)}”
         </div>
       )}
       {!t && m && (
         <>
-          <div style={{ color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {mailSummary.replace(/\s+/g, " ").slice(0, 70) || m.last_subject}
           </div>
-          <div style={{ color: "#6b7280" }}>
+          <div style={{ color: "#4b5563" }}>
             Mail: {m.messages_in} in / {m.messages_out} out
             {m.last_contact_at ? ` · last ${String(m.last_contact_at).slice(0, 10)}` : ""}
           </div>
         </>
       )}
       {n?.status && (
-        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#2563eb", fontWeight: 600 }}>
+        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#e8890b", fontWeight: 600 }}>
           {NURTURE_LABEL[n.status] || n.status}
           {n.status === "active" ? ` · step ${n.step || 0}/4` : ""}
         </div>
@@ -338,7 +338,7 @@ function Leads() {
             <span>Loading leads…</span>
           </div>
         ) : leads.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 64, color: "#6b7280" }}>
+          <div style={{ textAlign: "center", padding: 64, color: "#4b5563" }}>
             <p>No leads found matching your filters.</p>
           </div>
         ) : (
@@ -435,7 +435,7 @@ function Leads() {
             onClick={() => setPage(p => p - 1)}
             style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.5 : 1, background: "#fff" }}
           >←</button>
-          <span style={{ fontSize: "0.9rem", color: "#374151" }}>Page {page} of {totalPages}</span>
+          <span style={{ fontSize: "0.9rem", color: "#4a4a4a" }}>Page {page} of {totalPages}</span>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage(p => p + 1)}

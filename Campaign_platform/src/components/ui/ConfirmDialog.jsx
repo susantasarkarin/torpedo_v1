@@ -31,8 +31,8 @@ const dialogVariants = {
     ),
   },
   info: {
-    iconBg: 'bg-blue-100',
-    iconColor: 'text-blue-600',
+    iconBg: 'bg-cogentix-orange-100',
+    iconColor: 'text-cogentix-orange-600',
     buttonVariant: 'primary',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

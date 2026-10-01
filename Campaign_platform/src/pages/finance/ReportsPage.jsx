@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useParams } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { BarChart3, Download, TrendingUp, TrendingDown, DollarSign, Clock, Calculator, Scale } from "lucide-react"
 import { PageHeader } from "../../components/ui/PageHeader"
@@ -10,8 +11,15 @@ import { Badge } from "../../components/ui/Badge"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 
+// sidebar names -> this page's report ids (/admin/finance/reports/gst opens GST)
+const REPORT_FROM_URL = { gst: "gst-report", aging: "aging/receivables" }
+
 function ReportsPage() {
-  const [activeReport, setActiveReport] = useState("profit-loss")
+  const { reportId } = useParams()
+  const [activeReport, setActiveReport] = useState(REPORT_FROM_URL[reportId] || reportId || "profit-loss")
+  useEffect(() => {
+    if (reportId) setActiveReport(REPORT_FROM_URL[reportId] || reportId)
+  }, [reportId])
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState({
@@ -39,12 +47,12 @@ function ReportsPage() {
     },
     subtitle: {
       fontSize: "0.95rem",
-      color: "#6b7280",
+      color: "#4b5563",
       margin: "0",
     },
     btnPrimary: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#0d6efd",
+      backgroundColor: "#e8890b",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -82,7 +90,7 @@ function ReportsPage() {
     },
     button: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#6b7280",
+      backgroundColor: "#4b5563",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -200,7 +208,7 @@ function ReportsPage() {
           </CardContent>
         </Card>
 
-        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #0a58ca, #f3f4f6)" }}>
+        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #c47209, #f3f4f6)" }}>
           <CardContent style={styles.cardContent}>
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
@@ -348,11 +356,11 @@ function ReportsPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card style={styles.card}>
           <CardContent style={styles.cardContent}>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <TrendingUp className="w-6 h-6 text-blue-600" />
+            <div className="w-12 h-12 bg-cogentix-orange-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-6 h-6 text-cogentix-orange-600" />
             </div>
             <h4 className="text-sm text-slate-500 mb-2">GST Collected (Output Tax)</h4>
-            <p className="text-2xl font-bold text-blue-600">{formatCurrency(reportData.output_gst)}</p>
+            <p className="text-2xl font-bold text-cogentix-orange-600">{formatCurrency(reportData.output_gst)}</p>
           </CardContent>
         </Card>
         <Card style={styles.card}>
@@ -364,7 +372,7 @@ function ReportsPage() {
             <p className="text-2xl font-bold text-orange-600">{formatCurrency(reportData.input_gst)}</p>
           </CardContent>
         </Card>
-        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #0a58ca, #f3f4f6)" }}>
+        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #c47209, #f3f4f6)" }}>
           <CardContent style={styles.cardContent}>
             <div className="w-12 h-12 bg-cogentix-navy-100 rounded-lg flex items-center justify-center mx-auto mb-4">
               <Calculator className="w-6 h-6 text-cogentix-navy-600" />
@@ -475,7 +483,7 @@ function ReportsPage() {
                   key={report.id}
                   style={{
                     ...styles.tabButton,
-                    backgroundColor: activeReport === report.id ? "#0a58ca" : "#6b7280",
+                    backgroundColor: activeReport === report.id ? "#c47209" : "#4b5563",
                     color: activeReport === report.id ? "white" : "#f3f4f6",
                   }}
                   onClick={() => setActiveReport(report.id)}

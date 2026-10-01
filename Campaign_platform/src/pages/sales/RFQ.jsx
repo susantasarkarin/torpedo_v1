@@ -536,22 +536,22 @@ function RFQ() {
 
   const getStatusColor = (status) => {
     const colors = {
-      detected: { bg: "#dbeafe", color: "#1e40af" },
+      detected: { bg: "#fff7ed", color: "#c47209" },
       pending: { bg: "#fef3c7", color: "#92400e" },
-      quoted: { bg: "#e0e7ff", color: "#3730a3" },
+      quoted: { bg: "#fff7ed", color: "#c47209" },
       negotiating: { bg: "#fce7f3", color: "#9d174d" },
       won: { bg: "#dcfce7", color: "#166534" },
       lost: { bg: "#fee2e2", color: "#991b1b" },
-      closed: { bg: "#f3f4f6", color: "#6b7280" },
-      cancelled: { bg: "#f3f4f6", color: "#6b7280" }
+      closed: { bg: "#f3f4f6", color: "#4b5563" },
+      cancelled: { bg: "#f3f4f6", color: "#4b5563" }
     }
     return colors[status] || colors.pending
   }
 
   const getPriorityColor = (priority) => {
     const colors = {
-      low: { bg: "#f3f4f6", color: "#6b7280" },
-      medium: { bg: "#dbeafe", color: "#1e40af" },
+      low: { bg: "#f3f4f6", color: "#4b5563" },
+      medium: { bg: "#fff7ed", color: "#c47209" },
       high: { bg: "#fef3c7", color: "#92400e" },
       urgent: { bg: "#fee2e2", color: "#991b1b" }
     }
@@ -638,9 +638,9 @@ function RFQ() {
               style={{
                 padding: '10px 16px',
                 border: 'none',
-                borderBottom: direction === tab.value ? '2px solid #2563eb' : '2px solid transparent',
+                borderBottom: direction === tab.value ? '2px solid #e8890b' : '2px solid transparent',
                 background: 'transparent',
-                color: direction === tab.value ? '#2563eb' : '#6b7280',
+                color: direction === tab.value ? '#e8890b' : '#4b5563',
                 fontWeight: direction === tab.value ? 600 : 500,
                 cursor: 'pointer',
                 fontSize: '0.9rem'
@@ -758,7 +758,7 @@ function RFQ() {
                     className={`rfq-row state-${rfq.state || 'open'}`}
                     style={{
                       backgroundColor: selectedIds.includes(rfq.opportunity_id)
-                        ? '#eff6ff'
+                        ? '#fff7ed'
                         : rfq.state === 'won' ? '#f0fdf4'
                         : rfq.state === 'lost' ? '#fef2f2'
                         : 'transparent',
@@ -782,7 +782,7 @@ function RFQ() {
                         </div>
                       )}
                       {rfq.methodology && (
-                        <div className="rfq-subtitle" style={{ color: '#6b7280', fontSize: '0.75rem' }}>
+                        <div className="rfq-subtitle" style={{ color: '#4b5563', fontSize: '0.75rem' }}>
                           {rfq.methodology} {rfq.study_type && `• ${rfq.study_type}`}
                         </div>
                       )}
@@ -815,7 +815,7 @@ function RFQ() {
                     </td>
                     <td>
                       {rfq.loi ? (
-                        <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: '500' }}>{rfq.loi} min</span>
+                        <span style={{ fontSize: '0.85rem', color: '#e8890b', fontWeight: '500' }}>{rfq.loi} min</span>
                       ) : (
                         <span style={{ color: '#9ca3af' }}>—</span>
                       )}
@@ -1004,8 +1004,8 @@ function RFQ() {
                     <label>Direction</label>
                     <span style={{
                       padding: '4px 12px', borderRadius: '12px', fontWeight: 600,
-                      backgroundColor: selectedRfq.direction === 'outbound' ? '#f3e8ff' : '#dbeafe',
-                      color: selectedRfq.direction === 'outbound' ? '#7c3aed' : '#1e40af'
+                      backgroundColor: selectedRfq.direction === 'outbound' ? '#f3e8ff' : '#fff7ed',
+                      color: selectedRfq.direction === 'outbound' ? '#7c3aed' : '#c47209'
                     }}>
                       {selectedRfq.direction === 'outbound' ? '↗ Outbound (to vendor)' : '↙ Inbound (from client)'}
                     </span>
@@ -1029,7 +1029,7 @@ function RFQ() {
                         ? <>
                             {formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)}
                             {selectedRfq.taxes_extra ? " + taxes" : ""}
-                            {selectedRfq.cpi ? <span style={{ color: '#6b7280', fontSize: '0.75rem' }}> (our quote)</span> : null}
+                            {selectedRfq.cpi ? <span style={{ color: '#4b5563', fontSize: '0.75rem' }}> (our quote)</span> : null}
                           </>
                         : "— (not quoted yet)"}
                     </span>
@@ -1159,7 +1159,7 @@ function RFQ() {
                 </div>
                 {/* Target Audience - Full width */}
                 <div style={{ marginTop: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>Target Audience</label>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '4px' }}>Target Audience</label>
                   <textarea
                     value={selectedRfq.target_audience || ""}
                     onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "target_audience", e.target.value)}
@@ -1219,10 +1219,10 @@ function RFQ() {
                 <div className="detail-section">
                   <h3>📋 AI Summary</h3>
                   <div style={{ 
-                    backgroundColor: '#eff6ff', 
+                    backgroundColor: '#fff7ed', 
                     padding: '16px', 
                     borderRadius: '8px', 
-                    border: '1px solid #bfdbfe',
+                    border: '1px solid #fde68a',
                     fontSize: '0.9rem',
                     lineHeight: '1.6'
                   }}>
@@ -1239,7 +1239,7 @@ function RFQ() {
                     {selectedRfq.estimate_number && (
                       <div className="detail-item">
                         <label>Estimate</label>
-                        <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>
+                        <span style={{ color: '#e8890b', fontWeight: 'bold' }}>
                           {selectedRfq.estimate_number}
                         </span>
                       </div>
@@ -1276,7 +1276,7 @@ function RFQ() {
                   {!selectedRfq.estimate_number && selectedRfq.status !== 'won' && (
                     <button 
                       className="btn"
-                      style={{ backgroundColor: '#3b82f6', color: 'white' }}
+                      style={{ backgroundColor: '#e8890b', color: 'white' }}
                       onClick={() => openConvertModal("estimate")}
                     >
                       📋 Create Estimate
@@ -1472,7 +1472,7 @@ function RFQ() {
               <button 
                 className="btn"
                 style={{ 
-                  backgroundColor: convertType === "estimate" ? '#3b82f6' : '#10b981', 
+                  backgroundColor: convertType === "estimate" ? '#e8890b' : '#10b981', 
                   color: 'white' 
                 }}
                 onClick={handleConversion}

@@ -108,7 +108,7 @@ export default function CrmReports() {
                     <div style={{
                       width: `${Math.round((s.value / maxStageValue) * 100)}%`,
                       minWidth: s.count ? 4 : 0, height: "100%",
-                      background: s.stage === "won" ? "#059669" : s.stage === "lost" ? "#dc2626" : "#3b82f6",
+                      background: s.stage === "won" ? "#059669" : s.stage === "lost" ? "#dc2626" : "#e8890b",
                     }} />
                   </div>
                   <span style={{ width: 150, textAlign: "right", fontSize: "0.8rem" }}>

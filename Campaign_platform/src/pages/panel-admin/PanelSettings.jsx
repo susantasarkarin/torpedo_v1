@@ -17,11 +17,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("signup")}
             style={{
               cursor: "pointer",
-              border: activeSection === "signup" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+              border: activeSection === "signup" ? "2px solid #e8890b" : "1px solid #e5e7eb",
             }}
           >
             <h3 className="card-title">Signup Configuration</h3>
-            <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
               Control signup form fields, validation rules, and default values.
             </p>
           </div>
@@ -31,11 +31,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("email")}
             style={{
               cursor: "pointer",
-              border: activeSection === "email" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+              border: activeSection === "email" ? "2px solid #e8890b" : "1px solid #e5e7eb",
             }}
           >
             <h3 className="card-title">Email Templates</h3>
-            <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
               Customize welcome emails, reward notifications, and reminders.
             </p>
           </div>
@@ -45,11 +45,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("branding")}
             style={{
               cursor: "pointer",
-              border: activeSection === "branding" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+              border: activeSection === "branding" ? "2px solid #e8890b" : "1px solid #e5e7eb",
             }}
           >
             <h3 className="card-title">Panel Branding</h3>
-            <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
               Logo, colors, and panel landing page customization.
             </p>
           </div>
@@ -123,7 +123,7 @@ function PanelSettings() {
                 >
                   <div>
                     <p style={{ fontWeight: "500" }}>{template.name}</p>
-                    <p style={{ fontSize: "0.75rem", color: "#6b7280" }}>{template.desc}</p>
+                    <p style={{ fontSize: "0.75rem", color: "#4b5563" }}>{template.desc}</p>
                   </div>
                   <button className="btn btn-outline">Edit</button>
                 </div>
@@ -152,7 +152,7 @@ function PanelSettings() {
                 <label style={{ display: "block", fontWeight: "500", marginBottom: "0.5rem" }}>
                   Primary Color
                 </label>
-                <input type="color" defaultValue="#3b82f6" style={{ width: "60px", height: "40px", cursor: "pointer" }} />
+                <input type="color" defaultValue="#e8890b" style={{ width: "60px", height: "40px", cursor: "pointer" }} />
               </div>
 
               <div style={{ marginBottom: "1.5rem" }}>

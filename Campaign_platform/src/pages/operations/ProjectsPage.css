@@ -29,7 +29,7 @@
 }
 
 .pp-title-icon {
-  color: #4f46e5;
+  color: #e8890b;
   flex-shrink: 0;
 }
 
@@ -75,7 +75,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 1rem;
-  background: #4f46e5;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 8px;
@@ -87,7 +87,7 @@
 }
 
 .pp-btn-primary:hover {
-  background: #4338ca;
+  background: #c47209;
 }
 
 /* ---- Toolbar ---- */
@@ -126,8 +126,8 @@
 }
 
 .pp-search:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .pp-per-page {
@@ -171,7 +171,7 @@
   text-align: left;
   font-size: 0.72rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 2px solid #e5e7eb;
@@ -187,7 +187,7 @@
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .pp-table tbody tr:hover {
@@ -196,7 +196,7 @@
 
 /* Project name link */
 .pp-project-name {
-  color: #4f46e5;
+  color: #e8890b;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -213,7 +213,7 @@
   background: #f3f4f6;
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 /* Column helpers */
@@ -226,7 +226,7 @@
 
 .pp-td-date {
   white-space: nowrap;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.82rem;
 }
 
@@ -258,7 +258,7 @@
 
 .pp-status-close {
   background: #f3f4f6;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Action buttons */
@@ -279,13 +279,13 @@
   background: white;
   cursor: pointer;
   transition: all 0.15s ease;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .pp-act-view:hover {
-  background: #eff6ff;
-  border-color: #3b82f6;
-  color: #2563eb;
+  background: #fff7ed;
+  border-color: #e8890b;
+  color: #e8890b;
 }
 
 .pp-act-edit:hover {
@@ -333,12 +333,12 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .pp-page-btn:hover:not(:disabled) {
-  border-color: #4f46e5;
-  color: #4f46e5;
+  border-color: #e8890b;
+  color: #e8890b;
 }
 
 .pp-page-btn:disabled {
@@ -348,7 +348,7 @@
 
 .pp-page-info {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
   min-width: 60px;
   text-align: center;
 }
@@ -404,13 +404,13 @@
   background: transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: #6b7280;
+  color: #4b5563;
   transition: background 0.15s ease;
 }
 
 .pp-modal-close:hover {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 /* Modal body */
@@ -434,7 +434,7 @@
 .pp-fieldset legend {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0 0.5rem;
@@ -462,7 +462,7 @@
 .pp-field label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .pp-field input,
@@ -473,7 +473,7 @@
   border-radius: 6px;
   font-size: 0.875rem;
   background: white;
-  color: #1f2937;
+  color: #1a1a1a;
   outline: none;
   transition: border-color 0.15s ease;
   width: 100%;
@@ -483,8 +483,8 @@
 .pp-field input:focus,
 .pp-field select:focus,
 .pp-field textarea:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .pp-req {
@@ -494,7 +494,7 @@
 
 .pp-readonly {
   background: #f9fafb !important;
-  color: #6b7280 !important;
+  color: #4b5563 !important;
   cursor: default;
 }
 
@@ -527,13 +527,13 @@
 
 .pp-vendor-url-label {
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   min-width: 90px;
   flex-shrink: 0;
 }
 
 .pp-vendor-url-val {
-  color: #374151;
+  color: #4a4a4a;
   word-break: break-all;
 }
 
@@ -554,7 +554,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 400;
   cursor: pointer;
 }
@@ -578,7 +578,7 @@
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  color: #374151;
+  color: #4a4a4a;
   transition: all 0.2s ease;
 }
 
@@ -591,7 +591,7 @@
   padding: 0.5rem 1.25rem;
   border: none;
   border-radius: 8px;
-  background: #4f46e5;
+  background: #e8890b;
   color: white;
   font-size: 0.875rem;
   font-weight: 600;
@@ -600,7 +600,7 @@
 }
 
 .pp-btn-save:hover:not(:disabled) {
-  background: #4338ca;
+  background: #c47209;
 }
 
 .pp-btn-save:disabled {

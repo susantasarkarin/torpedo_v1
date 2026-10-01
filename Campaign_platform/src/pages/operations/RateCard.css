@@ -18,12 +18,12 @@
 .page-header h1 {
   margin: 0 0 4px 0;
   font-size: 22px;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .page-header p {
   margin: 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 13px;
 }
 
@@ -35,7 +35,7 @@
 
 .refresh-button {
   border: none;
-  background: #2563eb;
+  background: #e8890b;
   color: #ffffff;
   padding: 8px 14px;
   border-radius: 6px;
@@ -69,7 +69,7 @@
 .filter-group label {
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .filter-group select {
@@ -84,15 +84,15 @@
 
 .filter-group select:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.15);
 }
 
 .markup-control {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #1f2937;
+  color: #1a1a1a;
   font-weight: 600;
   font-size: 13px;
 }
@@ -107,13 +107,13 @@
 
 .markup-control input:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.15);
 }
 
 .count-pill {
-  background: #e0e7ff;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 12px;
@@ -143,22 +143,22 @@
 }
 
 .matrix-table thead th {
-  background: #1e3a8a;
+  background: #c47209;
   color: #ffffff;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .matrix-table .corner-cell {
-  background: #1e40af;
+  background: #c47209;
   color: #ffffff;
   font-weight: 700;
   text-align: center;
 }
 
 .matrix-table .row-header {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
   font-weight: 600;
   text-align: right;
   white-space: nowrap;
@@ -167,7 +167,7 @@
 
 .rate-cell {
   font-weight: 500;
-  color: #1f2937;
+  color: #1a1a1a;
   min-width: 70px;
 }
 
@@ -177,8 +177,8 @@
 }
 
 .rate-cell.from-previous {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
 }
 
 .rate-cell.estimated {
@@ -201,7 +201,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .legend-dot {
@@ -216,8 +216,8 @@
 }
 
 .legend-dot.from-previous {
-  background: #dbeafe;
-  border: 1px solid #1e40af;
+  background: #fff7ed;
+  border: 1px solid #c47209;
 }
 
 .legend-dot.estimated {

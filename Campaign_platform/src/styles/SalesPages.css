@@ -8,13 +8,13 @@
   --sales-bg: #f8fafc;
   --sales-card: #ffffff;
   --sales-border: #e5e7eb;
-  --sales-text: #1f2937;
-  --sales-text-muted: #6b7280;
-  --sales-primary: #2563eb;
-  --sales-primary-hover: #1d4ed8;
+  --sales-text: #1a1a1a;
+  --sales-text-muted: #4b5563;
+  --sales-primary: #e8890b;
+  --sales-primary-hover: #c47209;
   --sales-success: #10b981;
   --sales-warning: #f59e0b;
-  --sales-info: #3b82f6;
+  --sales-info: #e8890b;
   --sales-danger: #ef4444;
 }
 
@@ -227,7 +227,7 @@
 }
 
 .sales-page .data-table tr.selected {
-  background: #eff6ff;
+  background: #fff7ed;
 }
 
 .sales-page .checkbox-col {
@@ -259,8 +259,8 @@
 }
 
 .sales-page .badge-blue {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
 }
 
 .sales-page .badge-green {
@@ -280,7 +280,7 @@
 
 .sales-page .badge-gray {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 /* Status Badge */
@@ -306,7 +306,7 @@
 
 .sales-page .status-badge.unknown {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .sales-page .status-badge.active {

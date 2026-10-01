@@ -799,7 +799,7 @@ export default function SurveyPool() {
                 </a>
               </div>
               <p className="sync-info">
-                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#667eea' }}>Settings</a>.
+                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#e8890b' }}>Settings</a>.
                 {poolStats?.last_sync && (
                   <span className="last-sync">
                     Last sync: {new Date(poolStats.last_sync).toLocaleString()}
@@ -874,7 +874,7 @@ export default function SurveyPool() {
                       <span 
                         className="survey-link" 
                         onClick={() => handleSurveyClick(survey)}
-                        style={{ cursor: 'pointer', color: '#667eea', textDecoration: 'underline' }}
+                        style={{ cursor: 'pointer', color: '#e8890b', textDecoration: 'underline' }}
                       >
                         {getSurveyName(survey)}
                       </span>
@@ -884,8 +884,8 @@ export default function SurveyPool() {
                         padding: '2px 8px', 
                         borderRadius: '4px', 
                         fontSize: '0.8rem',
-                        background: surveySource === 'CPX' ? '#e0e7ff' : '#d1fae5',
-                        color: surveySource === 'CPX' ? '#667eea' : '#10b981',
+                        background: surveySource === 'CPX' ? '#fff7ed' : '#d1fae5',
+                        color: surveySource === 'CPX' ? '#e8890b' : '#10b981',
                         fontWeight: 'bold'
                       }}>
                         {surveySource}
@@ -1014,7 +1014,7 @@ export default function SurveyPool() {
                 <div className="detail-item">
                   <span className="detail-label">Source</span>
                   <span className="detail-value" style={{ 
-                    color: selectedSurvey.account_name ? '#10b981' : '#667eea',
+                    color: selectedSurvey.account_name ? '#10b981' : '#e8890b',
                     fontWeight: 'bold'
                   }}>
                     {selectedSurvey.account_name ? '🎯 CINT Research' : '📊 CPX Research'}

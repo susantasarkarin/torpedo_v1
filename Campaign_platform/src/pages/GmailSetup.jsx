@@ -452,8 +452,8 @@ function GmailSetup() {
         {message && (
           <div style={{
             ...styles.message,
-            backgroundColor: message.type === "success" ? "#d1fae5" : message.type === "info" ? "#dbeafe" : "#fee2e2",
-            color: message.type === "success" ? "#065f46" : message.type === "info" ? "#1e40af" : "#991b1b"
+            backgroundColor: message.type === "success" ? "#d1fae5" : message.type === "info" ? "#fff7ed" : "#fee2e2",
+            color: message.type === "success" ? "#065f46" : message.type === "info" ? "#c47209" : "#991b1b"
           }}>
             {message.text}
             <button 
@@ -659,7 +659,7 @@ function GmailSetup() {
                               ...styles.progressBarInner,
                               width: `${progress.percent}%`,
                               backgroundColor: progress.status === "error" ? "#ef4444" : 
-                                             progress.status === "complete" ? "#22c55e" : "#3b82f6"
+                                             progress.status === "complete" ? "#22c55e" : "#e8890b"
                             }}
                           />
                         </div>
@@ -720,7 +720,7 @@ function GmailSetup() {
           </button>
           <button
             style={styles.navBtnSecondary}
-            onClick={() => navigate("/admin/my-profile")}
+            onClick={() => navigate("/admin/profile")}
           >
             👤 Back to Profile
           </button>
@@ -794,11 +794,11 @@ const styles = {
   title: {
     margin: 0,
     fontSize: "1.75rem",
-    color: "#1f2937"
+    color: "#1a1a1a"
   },
   subtitle: {
     margin: "0.5rem 0 0",
-    color: "#6b7280"
+    color: "#4b5563"
   },
   message: {
     padding: "1rem",
@@ -845,21 +845,21 @@ const styles = {
     fontWeight: "500"
   },
   configInfo: {
-    color: "#374151",
+    color: "#4a4a4a",
     fontSize: "0.875rem"
   },
   reconfigureBtn: {
     marginTop: "1rem",
     padding: "0.5rem 1rem",
     backgroundColor: "white",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "6px",
     cursor: "pointer",
     fontSize: "0.875rem"
   },
   configSetup: {
-    color: "#374151"
+    color: "#4a4a4a"
   },
   configInstructions: {
     marginBottom: "0.5rem"
@@ -867,13 +867,13 @@ const styles = {
   setupSteps: {
     margin: "0 0 1rem",
     paddingLeft: "1.5rem",
-    color: "#6b7280",
+    color: "#4b5563",
     fontSize: "0.875rem",
     lineHeight: "1.75"
   },
   uploadBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -905,7 +905,7 @@ const styles = {
   formTitle: {
     margin: "0 0 1rem",
     fontSize: "1rem",
-    color: "#374151"
+    color: "#4a4a4a"
   },
   formGroup: {
     marginBottom: "1rem"
@@ -914,7 +914,7 @@ const styles = {
     display: "block",
     marginBottom: "0.375rem",
     fontSize: "0.875rem",
-    color: "#374151",
+    color: "#4a4a4a",
     fontWeight: "500"
   },
   input: {
@@ -931,7 +931,7 @@ const styles = {
   },
   submitBtn: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -942,7 +942,7 @@ const styles = {
   cancelBtn: {
     padding: "0.625rem 1.25rem",
     backgroundColor: "white",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "6px",
     cursor: "pointer",
@@ -953,13 +953,13 @@ const styles = {
   },
   sectionTitle: {
     fontSize: "1.125rem",
-    color: "#374151",
+    color: "#4a4a4a",
     marginBottom: "1rem"
   },
   loading: {
     textAlign: "center",
     padding: "2rem",
-    color: "#6b7280"
+    color: "#4b5563"
   },
   empty: {
     textAlign: "center",
@@ -968,7 +968,7 @@ const styles = {
     borderRadius: "8px"
   },
   emptyHint: {
-    color: "#6b7280",
+    color: "#4b5563",
     fontSize: "0.875rem"
   },
   mailboxList: {
@@ -994,11 +994,11 @@ const styles = {
     gap: "0.5rem",
     fontSize: "1rem",
     fontWeight: "500",
-    color: "#1f2937",
+    color: "#1a1a1a",
     marginBottom: "0.5rem"
   },
   displayName: {
-    color: "#6b7280",
+    color: "#4b5563",
     fontWeight: "400"
   },
   emailIcon: {
@@ -1012,7 +1012,7 @@ const styles = {
   },
   metaItem: {
     fontSize: "0.875rem",
-    color: "#6b7280"
+    color: "#4b5563"
   },
   statusBadge: {
     padding: "0.125rem 0.5rem",
@@ -1033,8 +1033,8 @@ const styles = {
   },
   testBtn: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#eff6ff",
-    color: "#1e40af",
+    backgroundColor: "#fff7ed",
+    color: "#c47209",
     border: "none",
     borderRadius: "6px",
     cursor: "pointer",
@@ -1042,7 +1042,7 @@ const styles = {
   },
   syncBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -1060,13 +1060,13 @@ const styles = {
   },
   helpSection: {
     padding: "1.5rem",
-    backgroundColor: "#eff6ff",
+    backgroundColor: "#fff7ed",
     borderRadius: "8px",
     marginBottom: "2rem"
   },
   helpTitle: {
     margin: "0 0 1rem",
-    color: "#1e40af",
+    color: "#c47209",
     fontSize: "1rem"
   },
   helpList: {
@@ -1076,7 +1076,7 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "0.75rem",
-    color: "#374151",
+    color: "#4a4a4a",
     fontSize: "0.875rem"
   },
   navSection: {
@@ -1086,7 +1086,7 @@ const styles = {
   },
   navBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -1096,7 +1096,7 @@ const styles = {
   navBtnSecondary: {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #e5e7eb",
     borderRadius: "8px",
     fontSize: "1rem",
@@ -1126,10 +1126,10 @@ const styles = {
   modalTitle: {
     margin: "0 0 0.5rem",
     fontSize: "1.25rem",
-    color: "#1f2937"
+    color: "#1a1a1a"
   },
   modalText: {
-    color: "#6b7280",
+    color: "#4b5563",
     marginBottom: "1.5rem"
   },
   fileUpload: {
@@ -1145,7 +1145,7 @@ const styles = {
   },
   fileName: {
     marginTop: "0.5rem",
-    color: "#374151",
+    color: "#4a4a4a",
     fontSize: "0.875rem"
   },
   modalActions: {
@@ -1155,7 +1155,7 @@ const styles = {
   },
   uploadConfirmBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -1166,7 +1166,7 @@ const styles = {
   modalCancelBtn: {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "8px",
     cursor: "pointer",
@@ -1187,7 +1187,7 @@ const styles = {
   },
   syncAllBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -1218,11 +1218,11 @@ const styles = {
   },
   progressMessage: {
     fontSize: "0.813rem",
-    color: "#374151"
+    color: "#4a4a4a"
   },
   progressStats: {
     fontSize: "0.813rem",
-    color: "#6b7280",
+    color: "#4b5563",
     fontWeight: "500"
   },
   progressBarOuter: {

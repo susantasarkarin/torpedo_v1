@@ -15,12 +15,12 @@
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .page-header p {
   margin: 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 14px;
 }
 
@@ -46,8 +46,8 @@
 
 .search-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .filter-select {
@@ -62,7 +62,7 @@
 .loading {
   text-align: center;
   padding: 40px;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .accounts-table-container {
@@ -84,7 +84,7 @@
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  color: #6b7280;
+  color: #4b5563;
   border-bottom: 1px solid #e5e7eb;
 }
 
@@ -105,7 +105,7 @@
 }
 
 .account-name strong {
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .account-number {
@@ -122,8 +122,8 @@
 }
 
 .type-badge.client {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
 }
 
 .type-badge.customer {
@@ -137,8 +137,8 @@
 }
 
 .type-badge.both {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: #fff7ed;
+  color: #c47209;
 }
 
 .status-badge {
@@ -175,7 +175,7 @@
 
 .metric {
   font-weight: 500;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .metric.warning {
@@ -203,7 +203,7 @@
 .empty-state {
   text-align: center;
   padding: 40px !important;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Modal Styles */
@@ -248,7 +248,7 @@
   border: none;
   font-size: 24px;
   cursor: pointer;
-  color: #6b7280;
+  color: #4b5563;
   padding: 0;
   width: 32px;
   height: 32px;
@@ -282,7 +282,7 @@
 .form-group label {
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .form-group input,
@@ -298,8 +298,8 @@
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .form-group textarea {
@@ -327,18 +327,18 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
   color: white;
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.3);
 }
 
 .btn-secondary {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #d1d5db;
 }
 

@@ -218,9 +218,9 @@ export default function CompanyUpload() {
           />
         </div>
 
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-          <h4 className="font-medium text-blue-800 mb-2">CSV Format Example</h4>
-          <code className="text-sm text-blue-700 block">
+        <div className="mt-6 p-4 bg-cogentix-orange-50 rounded-lg">
+          <h4 className="font-medium text-cogentix-orange-800 mb-2">CSV Format Example</h4>
+          <code className="text-sm text-cogentix-orange-700 block">
             company_name,domain,industry,size,location<br/>
             Acme Corp,acme.com,Technology,100-500,San Francisco<br/>
             Beta Inc,beta.io,SaaS,50-100,New York
@@ -344,13 +344,13 @@ export default function CompanyUpload() {
           {runAgentsAfter && (
             <>
               {/* Quota info */}
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg flex items-center gap-4">
-                <Users className="w-6 h-6 text-blue-600" />
+              <div className="mb-6 p-4 bg-cogentix-orange-50 rounded-lg flex items-center gap-4">
+                <Users className="w-6 h-6 text-cogentix-orange-600" />
                 <div>
-                  <p className="font-medium text-blue-800">
+                  <p className="font-medium text-cogentix-orange-800">
                     Daily Quota: {quota.leads_today} / {quota.limit}
                   </p>
-                  <p className="text-sm text-blue-600">
+                  <p className="text-sm text-cogentix-orange-600">
                     {quota.remaining} leads remaining today
                   </p>
                 </div>
@@ -404,7 +404,7 @@ export default function CompanyUpload() {
                       <div>
                         <span className="font-medium">{config.name}</span>
                         {config.is_default && (
-                          <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                          <span className="ml-2 text-xs bg-cogentix-orange-100 text-cogentix-orange-700 px-2 py-0.5 rounded">
                             Preset
                           </span>
                         )}
@@ -451,11 +451,11 @@ export default function CompanyUpload() {
             </div>
 
             {runAgentsAfter && (
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-blue-800">
+              <div className="p-4 bg-cogentix-orange-50 rounded-lg">
+                <p className="text-cogentix-orange-800">
                   <strong>AI Agents are now running!</strong> Finding contacts and enriching data...
                 </p>
-                <p className="text-sm text-blue-600 mt-1">
+                <p className="text-sm text-cogentix-orange-600 mt-1">
                   Check the Agent Dashboard for real-time progress.
                 </p>
               </div>

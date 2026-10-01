@@ -21,7 +21,7 @@ import { Table } from '../components/ui/Table';
 import api from '../utils/api';
 
 const STATUS_COLORS = {
-  open: 'bg-blue-100 text-blue-800',
+  open: 'bg-cogentix-orange-100 text-cogentix-orange-800',
   in_progress: 'bg-yellow-100 text-yellow-800',
   waiting_on_customer: 'bg-purple-100 text-purple-800',
   waiting_on_third_party: 'bg-gray-100 text-gray-800',
@@ -32,7 +32,7 @@ const STATUS_COLORS = {
 
 const PRIORITY_COLORS = {
   low: 'bg-gray-100 text-gray-600',
-  medium: 'bg-blue-100 text-blue-700',
+  medium: 'bg-cogentix-orange-100 text-cogentix-orange-700',
   high: 'bg-orange-100 text-orange-700',
   urgent: 'bg-red-100 text-red-700',
   critical: 'bg-red-200 text-red-800'
@@ -320,9 +320,9 @@ export default function Support() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Open</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.open_tickets}</p>
+              <p className="text-2xl font-bold text-cogentix-orange-600">{stats.open_tickets}</p>
             </div>
-            <Ticket className="w-8 h-8 text-blue-500" />
+            <Ticket className="w-8 h-8 text-cogentix-orange-500" />
           </div>
         </Card>
         
@@ -719,7 +719,7 @@ export default function Support() {
                     </div>
                   )}
                   {selectedTicket.contact_email && (
-                    <a href={`mailto:${selectedTicket.contact_email}`} className="text-blue-600 hover:underline">
+                    <a href={`mailto:${selectedTicket.contact_email}`} className="text-cogentix-orange-600 hover:underline">
                       {selectedTicket.contact_email}
                     </a>
                   )}

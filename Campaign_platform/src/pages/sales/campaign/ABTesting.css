@@ -111,8 +111,8 @@
 }
 
 .variant-card:hover {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.1);
 }
 
 .variant-header {
@@ -163,8 +163,8 @@
 
 .variant-textarea:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .variant-textarea:disabled {
@@ -188,7 +188,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #e8890b;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   transition: all 0.2s;
@@ -197,14 +197,14 @@
 .ratio-slider::-webkit-slider-thumb:hover {
   width: 24px;
   height: 24px;
-  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 8px rgba(232, 137, 11, 0.3);
 }
 
 .ratio-slider::-moz-range-thumb {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #e8890b;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   border: none;
@@ -222,7 +222,7 @@
   border-radius: 6px;
   text-align: center;
   font-weight: 600;
-  color: #3b82f6;
+  color: #e8890b;
   font-size: 0.9rem;
 }
 
@@ -248,7 +248,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 2rem;
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 8px;
@@ -259,8 +259,8 @@
 }
 
 .btn-setup-test:hover:not(:disabled) {
-  background: #2563eb;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  background: #e8890b;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.3);
   transform: translateY(-2px);
 }
 
@@ -341,7 +341,7 @@
 }
 
 .results-table tbody tr.winner-row {
-  background: #eff6ff;
+  background: #fff7ed;
   border-left: 3px solid #22c55e;
 }
 
@@ -353,8 +353,8 @@
 }
 
 .variant-label {
-  background: #e0e7ff;
-  color: #3b82f6;
+  background: #fff7ed;
+  color: #e8890b;
   padding: 0.25rem 0.75rem;
   border-radius: 4px;
   font-weight: 600;
@@ -372,7 +372,7 @@
 
 .results-table td.percentage {
   font-weight: 600;
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .significance-badge {
@@ -457,7 +457,7 @@
 }
 
 .bar-fill {
-  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  background: linear-gradient(90deg, #e8890b, #e8890b);
   height: 100%;
   transition: width 0.3s ease;
   display: flex;
@@ -592,8 +592,8 @@
 }
 
 .practice-card:hover {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.1);
 }
 
 .practice-icon {

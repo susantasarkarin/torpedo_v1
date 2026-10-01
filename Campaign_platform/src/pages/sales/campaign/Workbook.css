@@ -8,8 +8,8 @@
   flex-direction: column;
   height: 100vh;
   background: #f9fafb;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #1f2937;
+  font-family: var(--cx-font);
+  color: #1a1a1a;
 }
 
 .workbook-header {
@@ -38,8 +38,8 @@
 .workbook-status {
   display: inline-block;
   padding: 0.25rem 0.75rem;
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
   border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -64,12 +64,12 @@
 .stat-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .stat-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   margin-top: 0.25rem;
 }
@@ -92,7 +92,7 @@
   font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .columns-list {
@@ -128,7 +128,7 @@
 }
 
 .column-name small {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.75rem;
 }
 
@@ -217,7 +217,7 @@
   gap: 0.25rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .control-buttons {
@@ -233,7 +233,7 @@
   cursor: pointer;
   border: 1px solid #d1d5db;
   background: white;
-  color: #374151;
+  color: #4a4a4a;
   transition: all 0.2s;
 }
 
@@ -243,14 +243,14 @@
 }
 
 .btn-primary.btn-sm {
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
-  border-color: #3b82f6;
+  border-color: #e8890b;
 }
 
 .btn-primary.btn-sm:hover:not(:disabled) {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: #e8890b;
+  border-color: #e8890b;
 }
 
 .btn-warning.btn-sm {
@@ -321,15 +321,15 @@
 
 .row-index {
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.25rem;
 }
 
 .row-status {
   display: inline-block;
   padding: 0.125rem 0.375rem;
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fff7ed;
+  color: #c47209;
   border-radius: 3px;
   font-size: 0.625rem;
   font-weight: 500;
@@ -389,7 +389,7 @@
 
 .cell-value {
   flex: 1;
-  color: #1f2937;
+  color: #1a1a1a;
   overflow-wrap: break-word;
 }
 
@@ -438,10 +438,10 @@
 .cell-input {
   width: 100%;
   padding: 0.5rem;
-  border: 1px solid #3b82f6;
+  border: 1px solid #e8890b;
   border-radius: 4px;
   font-size: 0.875rem;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
 }
 
 .cell-state-indicator {
@@ -507,13 +507,13 @@
   border: none;
   font-size: 1.5rem;
   cursor: pointer;
-  color: #6b7280;
+  color: #4b5563;
   padding: 0;
   line-height: 1;
 }
 
 .close-btn:hover {
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .details-content {
@@ -539,14 +539,14 @@
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 0.5rem;
 }
 
 .detail-group span,
 .detail-value {
   font-size: 0.875rem;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .detail-value {
@@ -597,14 +597,14 @@
   justify-content: center;
   height: 100%;
   gap: 1rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .loading-spinner {
   width: 48px;
   height: 48px;
   border: 3px solid #e5e7eb;
-  border-top-color: #3b82f6;
+  border-top-color: #e8890b;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -624,7 +624,7 @@
   justify-content: center;
   height: 100%;
   gap: 1rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .empty-icon {
@@ -633,7 +633,7 @@
 
 .empty-state h2 {
   margin: 0;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 /* Responsive */

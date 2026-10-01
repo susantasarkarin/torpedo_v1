@@ -2063,7 +2063,7 @@ function Settings() {
                       <button className="save-button-small" onClick={createBuConfig} disabled={!newBuSlug.trim()}>Create</button>
                       <button className="refresh-button" onClick={() => setShowBuNewForm(false)}>Cancel</button>
                     </div>
-                    <small style={{ color: "#6b7280", marginTop: "4px" }}>A template will be pre-filled — edit and save to activate.</small>
+                    <small style={{ color: "#4b5563", marginTop: "4px" }}>A template will be pre-filled — edit and save to activate.</small>
                   </div>
                 </div>
               )}
@@ -2082,13 +2082,13 @@ function Settings() {
                         width: "100%",
                         padding: "0.75rem 1rem",
                         textAlign: "left",
-                        background: buSelected === unit.slug ? "#eff6ff" : "transparent",
-                        borderLeft: `3px solid ${buSelected === unit.slug ? "#4f46e5" : "transparent"}`,
+                        background: buSelected === unit.slug ? "#fff7ed" : "transparent",
+                        borderLeft: `3px solid ${buSelected === unit.slug ? "#e8890b" : "transparent"}`,
                         border: "none",
                         borderBottom: "1px solid #f3f4f6",
                         cursor: "pointer",
                         fontSize: "0.875rem",
-                        color: buSelected === unit.slug ? "#3730a3" : "#374151",
+                        color: buSelected === unit.slug ? "#c47209" : "#4a4a4a",
                         fontWeight: buSelected === unit.slug ? "600" : "400",
                         transition: "all 0.15s",
                       }}
@@ -2105,10 +2105,10 @@ function Settings() {
                       {/* Toolbar */}
                       <div style={{ padding: "0.625rem 1rem", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#f9fafb" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                          <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#111827" }}>
+                          <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#1a1a1a" }}>
                             {buUnits.find(u => u.slug === buSelected)?.name || buSelected}
                           </span>
-                          <span style={{ fontFamily: "monospace", fontSize: "0.75rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#6b7280" }}>
+                          <span style={{ fontFamily: "monospace", fontSize: "0.75rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#4b5563" }}>
                             {buSelected}.txt
                           </span>
                           {buDirty && (
@@ -2146,7 +2146,7 @@ function Settings() {
                           fontFamily: "monospace",
                           fontSize: "0.875rem",
                           lineHeight: "1.7",
-                          color: "#111827",
+                          color: "#1a1a1a",
                           backgroundColor: "white",
                         }}
                       />

@@ -63,7 +63,7 @@
   border: none;
   outline: none;
   font-size: 1.1rem;
-  color: #374151;
+  color: #4a4a4a;
   background: transparent;
 }
 
@@ -113,7 +113,7 @@
   border-radius: 20px;
   cursor: pointer;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
   transition: all 0.2s;
 }
 
@@ -138,7 +138,7 @@
 .source-title {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 1rem;
 }
 
@@ -174,7 +174,7 @@
 }
 
 .source-people { background: linear-gradient(135deg, #ef4444, #dc2626); }
-.source-companies { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.source-companies { background: linear-gradient(135deg, #e8890b, #e8890b); }
 .source-local { background: linear-gradient(135deg, #ec4899, #db2777); }
 .source-csv { background: linear-gradient(135deg, #10b981, #059669); }
 .source-gmail { background: linear-gradient(135deg, #ea4335, #c5221f); }
@@ -200,9 +200,9 @@
 }
 
 .ai-message.info {
-  background: #dbeafe;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: #fff7ed;
+  color: #c47209;
+  border: 1px solid #fde68a;
 }
 
 /* Tabs */
@@ -220,17 +220,17 @@
   border-bottom: 2px solid transparent;
   cursor: pointer;
   font-size: 0.9rem;
-  color: #6b7280;
+  color: #4b5563;
   transition: all 0.2s;
 }
 
 .tab-btn:hover {
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .tab-btn.active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+  color: #e8890b;
+  border-bottom-color: #e8890b;
   font-weight: 500;
 }
 
@@ -276,11 +276,11 @@
 
 .search-input:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: #e8890b;
 }
 
 .new-btn {
-  background: #2563eb;
+  background: #e8890b;
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -292,7 +292,7 @@
 }
 
 .new-btn:hover {
-  background: #1d4ed8;
+  background: #c47209;
 }
 
 /* Filters */
@@ -310,7 +310,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .filter-select {
@@ -331,7 +331,7 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.8rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Files Table */
@@ -349,7 +349,7 @@
   padding: 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid #e5e7eb;
@@ -358,7 +358,7 @@
 .files-table td {
   padding: 0.75rem;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
   border-bottom: 1px solid #f3f4f6;
 }
 
@@ -387,7 +387,7 @@
 }
 
 .date-cell {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.8rem;
 }
 
@@ -433,7 +433,7 @@
 }
 
 .more-btn:hover {
-  color: #374151;
+  color: #4a4a4a;
 }
 
 /* Loading & Empty States */
@@ -448,7 +448,7 @@
   width: 32px;
   height: 32px;
   border: 3px solid #e5e7eb;
-  border-top-color: #2563eb;
+  border-top-color: #e8890b;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 1rem;
@@ -516,7 +516,7 @@
 }
 
 .modal-close:hover {
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .modal-body {
@@ -531,7 +531,7 @@
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.5rem;
 }
 
@@ -545,8 +545,8 @@
 
 .form-group input:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .modal-footer {
@@ -566,7 +566,7 @@
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .btn-secondary:hover {
@@ -575,7 +575,7 @@
 
 .btn-primary {
   padding: 0.625rem 1.25rem;
-  background: #2563eb;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 6px;
@@ -585,7 +585,7 @@
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #c47209;
 }
 
 .btn-primary:disabled {
@@ -604,16 +604,16 @@
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.95rem;
-  color: #374151;
+  color: #4a4a4a;
   transition: all 0.2s;
   width: 100%;
   justify-content: center;
 }
 
 .upload-btn:hover {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #2563eb;
+  border-color: #e8890b;
+  background: #fff7ed;
+  color: #e8890b;
 }
 
 .csv-file-info {
@@ -636,7 +636,7 @@
 .mapping-section h4 {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 1rem;
 }
 
@@ -669,7 +669,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
   background: white;
 }
 
@@ -695,8 +695,8 @@
 }
 
 .gmail-account-item:hover {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: #e8890b;
+  background: #fff7ed;
 }
 
 .gmail-account-item input[type="checkbox"] {
@@ -719,7 +719,7 @@
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  background: linear-gradient(90deg, #e8890b, #e8890b);
   border-radius: 4px;
   transition: width 0.3s ease;
 }
@@ -753,7 +753,7 @@
   border: none;
   font-size: 0.95rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -765,13 +765,13 @@
 
 .import-tab:hover {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .import-tab.active {
   background: #ffffff;
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+  color: #e8890b;
+  border-bottom-color: #e8890b;
 }
 
 .import-panel {
@@ -784,7 +784,7 @@
 }
 
 .panel-description {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
   line-height: 1.5;
@@ -854,7 +854,7 @@
 .form-group label {
   display: block;
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
@@ -866,7 +866,7 @@
   border: 1px solid #d1d5db;
   border-radius: 8px;
   font-size: 0.95rem;
-  color: #374151;
+  color: #4a4a4a;
   background: #fff;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -874,8 +874,8 @@
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .form-hint {
@@ -903,7 +903,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.9rem;
-  color: #374151;
+  color: #4a4a4a;
   cursor: pointer;
 }
 
@@ -915,7 +915,7 @@
 
 .selected-count {
   display: block;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.8rem;
   margin-top: 0.5rem;
 }
@@ -935,7 +935,7 @@
   background: #f3f4f6;
   border: 1px solid #d1d5db;
   border-radius: 8px;
-  color: #374151;
+  color: #4a4a4a;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -948,7 +948,7 @@
 
 .btn-import {
   padding: 0.65rem 1.5rem;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  background: linear-gradient(135deg, #e8890b, #e8890b);
   border: none;
   border-radius: 8px;
   color: white;
@@ -963,7 +963,7 @@
 
 .btn-import:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.3);
 }
 
 .btn-import:disabled {
@@ -992,7 +992,7 @@
 }
 
 .upload-dropzone:hover {
-  border-color: #2563eb;
+  border-color: #e8890b;
   background: #f0f4ff;
 }
 
@@ -1003,7 +1003,7 @@
 
 .upload-text {
   font-size: 1rem;
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 500;
 }
 
@@ -1016,7 +1016,7 @@
 /* CSV Mapping */
 .csv-mapping h4 {
   margin: 0 0 1rem 0;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .mapping-grid {
@@ -1034,7 +1034,7 @@
 
 .mapping-row label {
   font-size: 0.85rem;
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 500;
 }
 
@@ -1053,7 +1053,7 @@
 /* CSV Preview */
 .csv-preview h4 {
   margin: 0 0 1rem 0;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .preview-table-wrapper {
@@ -1079,13 +1079,13 @@
 .preview-table th {
   background: #f9fafb;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   position: sticky;
   top: 0;
 }
 
 .preview-table td {
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Gmail Accounts List */
@@ -1096,7 +1096,7 @@
 .gmail-accounts-list label {
   display: block;
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.75rem;
 }
 
@@ -1104,7 +1104,7 @@
 .empty-state {
   text-align: center;
   padding: 3rem 2rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .empty-state span {
@@ -1122,7 +1122,7 @@
   background: #f3f4f6;
   border: 1px solid #d1d5db;
   border-radius: 8px;
-  color: #374151;
+  color: #4a4a4a;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -1157,9 +1157,9 @@
 }
 
 .search-progress-bar.searching {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
+  background: #fff7ed;
+  border: 1px solid #fde68a;
+  color: #c47209;
 }
 
 .search-progress-bar.complete {

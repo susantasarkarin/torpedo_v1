@@ -168,9 +168,9 @@ function PurchaseOrdersPage() {
     const badgeStyles = {
       approved: { backgroundColor: "#d1fae5", color: "#065f46" },
       pending: { backgroundColor: "#fef3c7", color: "#92400e" },
-      received: { backgroundColor: "#dbeafe", color: "#1e40af" },
+      received: { backgroundColor: "#fff7ed", color: "#c47209" },
       cancelled: { backgroundColor: "#fee2e2", color: "#991b1b" },
-      draft: { backgroundColor: "#e5e7eb", color: "#6b7280" },
+      draft: { backgroundColor: "#e5e7eb", color: "#4b5563" },
     }
 
     return (
@@ -372,10 +372,10 @@ function PurchaseOrdersPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading purchase orders...</p>
+            <p style={{ color: "#4b5563" }}>Loading purchase orders...</p>
           </div>
         </div>
       ) : (
@@ -628,11 +628,11 @@ function PurchaseOrdersPage() {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                  <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>Subtotal:</span>
+                  <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>Subtotal:</span>
                   <span style={{ fontSize: "0.9rem", fontWeight: "600" }}>{formatCurrency(calculateSubtotal())}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                  <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>Tax:</span>
+                  <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>Tax:</span>
                   <span style={{ fontSize: "0.9rem", fontWeight: "600" }}>{formatCurrency(calculateTax())}</span>
                 </div>
                 <div
@@ -644,7 +644,7 @@ function PurchaseOrdersPage() {
                   }}
                 >
                   <span style={{ fontSize: "1.125rem", fontWeight: "600" }}>Grand Total:</span>
-                  <span style={{ fontSize: "1.125rem", fontWeight: "600", color: "#0d6efd" }}>
+                  <span style={{ fontSize: "1.125rem", fontWeight: "600", color: "#e8890b" }}>
                     {formatCurrency(calculateSubtotal() + calculateTax())}
                   </span>
                 </div>
@@ -695,13 +695,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -764,7 +764,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -786,7 +786,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -795,7 +795,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   statusBadge: {
     display: "inline-block",
@@ -811,7 +811,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -849,7 +849,7 @@ const styles = {
   },
   paginationBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -865,7 +865,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
     minWidth: "150px",
     textAlign: "center",
   },
@@ -938,7 +938,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -964,7 +964,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -974,7 +974,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

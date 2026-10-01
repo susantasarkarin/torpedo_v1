@@ -38,7 +38,7 @@ if (typeof document !== "undefined" && !document.getElementById("spin-kf")) {
 const BUSINESSES = [
   { key: "sfw",      label: "Survey Fieldwork",  basket: "A", color: "#065f46", bg: "#d1fae5", border: "#6ee7b7", icon: "📊" },
   { key: "cogentix", label: "Cogentix Research",  basket: "B", color: "#5b21b6", bg: "#ede9fe", border: "#c4b5fd", icon: "🔍" },
-  { key: "bimwave",  label: "BIMwave",            basket: "C", color: "#1e40af", bg: "#dbeafe", border: "#93c5fd", icon: "🏗️" },
+  { key: "bimwave",  label: "BIMwave",            basket: "C", color: "#c47209", bg: "#fff7ed", border: "#fde68a", icon: "🏗️" },
   { key: "dual_fit", label: "Dual Fit",           basket: "D", color: "#0e7490", bg: "#cffafe", border: "#67e8f9", icon: "⚡" },
 ]
 
@@ -353,7 +353,7 @@ function Outreach() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 20 }}>{biz.icon}</span>
-                  <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#111827" }}>{biz.label}</span>
+                  <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#1a1a1a" }}>{biz.label}</span>
                 </div>
                 <span style={{
                   padding: "2px 8px", borderRadius: 9999, fontSize: "0.7rem", fontWeight: 700,
@@ -364,10 +364,10 @@ function Outreach() {
               </div>
 
               {biz.key === "dual_fit" ? (
-                <div style={{ color: "#6b7280", fontSize: "0.85rem" }}>
+                <div style={{ color: "#4b5563", fontSize: "0.85rem" }}>
                   <div>Enrolled in all 3 sequences</div>
                   <div style={{ marginTop: 4 }}>Score-ordered · 21d gap</div>
-                  <div style={{ marginTop: 8, fontWeight: 600, color: "#111827", fontSize: "0.95rem" }}>{basketTotal.toLocaleString()} <span style={{ fontSize: "0.75rem", color: "#6b7280", fontWeight: 400 }}>leads</span></div>
+                  <div style={{ marginTop: 8, fontWeight: 600, color: "#1a1a1a", fontSize: "0.95rem" }}>{basketTotal.toLocaleString()} <span style={{ fontSize: "0.75rem", color: "#4b5563", fontWeight: 400 }}>leads</span></div>
                   <button
                     style={{ marginTop: 12, width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#0e7490", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
                     onClick={(e) => { e.stopPropagation(); enrollDualFit() }}
@@ -388,14 +388,14 @@ function Outreach() {
                     <span style={{
                       padding: "2px 8px", borderRadius: 9999, fontSize: "0.72rem", fontWeight: 600,
                       background: campaign ? (isActive ? "#dcfce7" : "#fef9c3") : "#f3f4f6",
-                      color: campaign ? (isActive ? "#15803d" : "#854d0e") : "#6b7280",
+                      color: campaign ? (isActive ? "#15803d" : "#854d0e") : "#4b5563",
                     }}>
                       {campaign ? (isActive ? "● Active" : "⏸ Paused") : "○ Not created"}
                     </span>
 
                     {!campaign ? (
                       <button
-                        style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer" }}
+                        style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: "#e8890b", color: "#fff", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer" }}
                         onClick={(e) => { e.stopPropagation(); createCampaign(biz.key) }}
                       >+ Create</button>
                     ) : isActive ? (
@@ -419,15 +419,15 @@ function Outreach() {
 
       {/* ── Basket breakdown summary ─────────────────────────────────────── */}
       {totalLeads > 0 && (
-        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", fontSize: "0.8rem", color: "#6b7280" }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", fontSize: "0.8rem", color: "#4b5563" }}>
           {basketCounts["E"] > 0 && (
             <span style={{ background: "#f3f4f6", padding: "4px 10px", borderRadius: 6 }}>
-              Basket E (Nurture): <strong style={{ color: "#374151" }}>{basketCounts["E"].toLocaleString()}</strong>
+              Basket E (Nurture): <strong style={{ color: "#4a4a4a" }}>{basketCounts["E"].toLocaleString()}</strong>
             </span>
           )}
           {BUSINESSES.map(b => (
             <span key={b.basket} style={{ background: "#f3f4f6", padding: "4px 10px", borderRadius: 6 }}>
-              {b.basket}: <strong style={{ color: "#374151" }}>{(basketCounts[b.basket] || 0).toLocaleString()}</strong>
+              {b.basket}: <strong style={{ color: "#4a4a4a" }}>{(basketCounts[b.basket] || 0).toLocaleString()}</strong>
             </span>
           ))}
         </div>
@@ -451,8 +451,8 @@ function Outreach() {
                 onClick={() => setActiveTab(t.key)}
                 style={{
                   padding: "12px 20px", border: "none", background: "transparent",
-                  borderBottom: activeTab === t.key ? "2px solid #2563eb" : "2px solid transparent",
-                  color: activeTab === t.key ? "#2563eb" : "#6b7280",
+                  borderBottom: activeTab === t.key ? "2px solid #e8890b" : "2px solid transparent",
+                  color: activeTab === t.key ? "#e8890b" : "#4b5563",
                   fontWeight: activeTab === t.key ? 600 : 400,
                   cursor: "pointer", fontSize: "0.9rem",
                 }}
@@ -465,12 +465,12 @@ function Outreach() {
             {activeTab === "templates" && (
               <div>
                 {!selectedCampaign ? (
-                  <div style={{ textAlign: "center", color: "#6b7280", padding: 40 }}>
+                  <div style={{ textAlign: "center", color: "#4b5563", padding: 40 }}>
                     <p>No campaign yet. Click <strong>"+ Create"</strong> on the card above to initialise.</p>
                   </div>
                 ) : (
                   <div>
-                    <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: 20 }}>
+                    <p style={{ color: "#4b5563", fontSize: "0.9rem", marginBottom: 20 }}>
                       Click <strong>✨ Generate with AI</strong> to let Claude write the full email using your business context,
                       or paste your own copy. Tokens replaced per recipient at send time:&nbsp;
                       <code>{"{{first_name}}"}</code> <code>{"{{company}}"}</code> <code>{"{{title}}"}</code> <code>{"{{industry}}"}</code>
@@ -482,19 +482,19 @@ function Outreach() {
                         return (
                           <div key={stepNum} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 20 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                              <span style={{ background: "#2563eb", color: "#fff", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.85rem" }}>
+                              <span style={{ background: "#e8890b", color: "#fff", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.85rem" }}>
                                 {stepNum}
                               </span>
-                              <span style={{ fontWeight: 600, color: "#111827" }}>Step {stepNum} — Day {STEP_DAYS[stepNum - 1]}</span>
+                              <span style={{ fontWeight: 600, color: "#1a1a1a" }}>Step {stepNum} — Day {STEP_DAYS[stepNum - 1]}</span>
                             </div>
-                            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>SUBJECT</label>
+                            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>SUBJECT</label>
                             <input
                               value={data.subject}
                               onChange={e => setStepEdit(selectedCampaign.campaign_id, stepNum, "subject", e.target.value)}
                               placeholder={`Email ${stepNum} subject line…`}
                               style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.9rem", boxSizing: "border-box" }}
                             />
-                            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>BODY (HTML or plain text)</label>
+                            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>BODY (HTML or plain text)</label>
                             <textarea
                               value={data.body_html}
                               onChange={e => setStepEdit(selectedCampaign.campaign_id, stepNum, "body_html", e.target.value)}
@@ -515,13 +515,13 @@ function Outreach() {
                               <button
                                 disabled={savingStep === stepKey}
                                 onClick={() => saveStep(selectedCampaign.campaign_id, stepNum)}
-                                style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: savingStep === stepKey ? 0.6 : 1 }}
+                                style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#e8890b", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: savingStep === stepKey ? 0.6 : 1 }}
                               >
                                 {savingStep === stepKey ? "Saving…" : "💾 Save Step"}
                               </button>
                               <button
                                 onClick={() => setShowTestInput(prev => ({ ...prev, [stepKey]: !prev[stepKey] }))}
-                                style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontWeight: 500, cursor: "pointer", fontSize: "0.85rem" }}
+                                style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#4a4a4a", fontWeight: 500, cursor: "pointer", fontSize: "0.85rem" }}
                               >
                                 📧 Send Test
                               </button>
@@ -578,23 +578,23 @@ function Outreach() {
             {activeTab === "mailboxes" && (
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <p style={{ color: "#6b7280", fontSize: "0.9rem", margin: 0 }}>
+                  <p style={{ color: "#4b5563", fontSize: "0.9rem", margin: 0 }}>
                     Mailboxes for <strong>{BUSINESSES.find(b => b.key === selectedBiz)?.label}</strong>.
                     Need 5 mailboxes at 400/day to hit 2000/day.
                   </p>
                   <button
                     onClick={() => setShowAddMailbox(v => !v)}
-                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#e8890b", color: "#fff", fontWeight: 600, cursor: "pointer" }}
                   >+ Add Mailbox</button>
                 </div>
 
                 {showAddMailbox && (
                   <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 20 }}>
-                    <h4 style={{ margin: "0 0 16px", color: "#111827" }}>Add Mailbox</h4>
+                    <h4 style={{ margin: "0 0 16px", color: "#1a1a1a" }}>Add Mailbox</h4>
 
                     {/* Provider selector */}
                     <div style={{ marginBottom: 16 }}>
-                      <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>SENDING PROVIDER</label>
+                      <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>SENDING PROVIDER</label>
                       <select
                         value={mailboxForm.provider}
                         onChange={e => setMailboxForm(f => ({ ...f, provider: e.target.value }))}
@@ -612,7 +612,7 @@ function Outreach() {
                         ["Display name", "display_name", "text", "First Last"],
                       ].map(([label, field, type, ph]) => (
                         <div key={field}>
-                          <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
+                          <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>{label.toUpperCase()}</label>
                           <input
                             type={type} placeholder={ph} value={mailboxForm[field]}
                             onChange={e => setMailboxForm(f => ({ ...f, [field]: e.target.value }))}
@@ -628,7 +628,7 @@ function Outreach() {
                         ["Secret access key (blank = use IAM role)", "aws_secret_access_key", "password", ""],
                       ].map(([label, field, type, ph]) => (
                         <div key={field}>
-                          <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
+                          <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>{label.toUpperCase()}</label>
                           <input
                             type={type} placeholder={ph} value={mailboxForm[field]}
                             onChange={e => setMailboxForm(f => ({ ...f, [field]: e.target.value }))}
@@ -645,7 +645,7 @@ function Outreach() {
                         ["SMTP password / app password", "smtp_password", "password", ""],
                       ].map(([label, field, type, ph]) => (
                         <div key={field}>
-                          <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
+                          <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>{label.toUpperCase()}</label>
                           <input
                             type={type} placeholder={ph}
                             value={mailboxForm[field]}
@@ -656,7 +656,7 @@ function Outreach() {
                       ))}
 
                       <div>
-                        <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>BUSINESS</label>
+                        <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>BUSINESS</label>
                         <select
                           value={mailboxForm.business}
                           onChange={e => setMailboxForm(f => ({ ...f, business: e.target.value }))}
@@ -668,7 +668,7 @@ function Outreach() {
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>DAILY LIMIT</label>
+                        <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>DAILY LIMIT</label>
                         <input
                           type="number" value={mailboxForm.daily_limit}
                           onChange={e => setMailboxForm(f => ({ ...f, daily_limit: Number(e.target.value) }))}
@@ -711,13 +711,13 @@ function Outreach() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🚫</span>
             <div>
-              <h3 style={{ margin: 0, color: "#111827" }}>Global Bounce Suppression</h3>
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>
+              <h3 style={{ margin: 0, color: "#1a1a1a" }}>Global Bounce Suppression</h3>
+              <p style={{ margin: 0, color: "#4b5563", fontSize: "0.9rem" }}>
                 {suppStats.total_suppressed.toLocaleString()} addresses permanently blocked from all businesses
               </p>
             </div>
           </div>
-          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+          <p style={{ color: "#4b5563", fontSize: "0.875rem" }}>
             Select a business card above to manage its campaigns, mailboxes, and templates.
           </p>
         </div>
@@ -733,8 +733,8 @@ function Outreach() {
 function Stat({ label, value }) {
   return (
     <div style={{ textAlign: "center" }}>
-      <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#111827" }}>{value ?? "—"}</div>
-      <div style={{ fontSize: "0.72rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+      <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a" }}>{value ?? "—"}</div>
+      <div style={{ fontSize: "0.72rem", color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
     </div>
   )
 }
@@ -752,9 +752,9 @@ function StatsPanel({ campaignId, campaign }) {
       .finally(() => setLoading(false))
   }, [campaignId])
 
-  if (!campaignId) return <p style={{ color: "#6b7280" }}>Create a campaign first.</p>
+  if (!campaignId) return <p style={{ color: "#4b5563" }}>Create a campaign first.</p>
   if (loading) return <div className="loading-container"><div className="loading-spinner" /></div>
-  if (!stats) return <p style={{ color: "#6b7280" }}>No stats yet.</p>
+  if (!stats) return <p style={{ color: "#4b5563" }}>No stats yet.</p>
 
   const o = stats.overall
   return (
@@ -768,13 +768,13 @@ function StatsPanel({ campaignId, campaign }) {
           ["Bounce Rate", `${o.bounce_rate}%`],
         ].map(([label, val]) => (
           <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: 16, textAlign: "center" }}>
-            <div style={{ fontWeight: 700, fontSize: "1.3rem", color: "#111827" }}>{val ?? "—"}</div>
-            <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4 }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: "1.3rem", color: "#1a1a1a" }}>{val ?? "—"}</div>
+            <div style={{ fontSize: "0.75rem", color: "#4b5563", marginTop: 4 }}>{label}</div>
           </div>
         ))}
       </div>
 
-      <h4 style={{ color: "#111827", marginBottom: 12 }}>Per-step breakdown</h4>
+      <h4 style={{ color: "#1a1a1a", marginBottom: 12 }}>Per-step breakdown</h4>
       <table className="data-table" style={{ width: "100%" }}>
         <thead>
           <tr>
@@ -806,7 +806,7 @@ function StatsPanel({ campaignId, campaign }) {
 function MailboxTable({ mailboxes, filterBiz, onRemove }) {
   const filtered = filterBiz ? mailboxes.filter(m => m.business === filterBiz) : mailboxes
   if (filtered.length === 0)
-    return <p style={{ color: "#6b7280" }}>No mailboxes configured yet. Add one above.</p>
+    return <p style={{ color: "#4b5563" }}>No mailboxes configured yet. Add one above.</p>
 
   return (
     <table className="data-table" style={{ width: "100%" }}>
@@ -861,14 +861,14 @@ function LeadsByStatusPanel({ campaignId }) {
       .finally(() => setLoading(false))
   }, [campaignId, statusFilter, page])
 
-  if (!campaignId) return <p style={{ color: "#6b7280" }}>Create a campaign first.</p>
+  if (!campaignId) return <p style={{ color: "#4b5563" }}>Create a campaign first.</p>
 
   const STATUS_TABS = [
-    { key: "all",        label: "All",        count: summary.total_sent,  color: "#6b7280", bg: "#f3f4f6" },
+    { key: "all",        label: "All",        count: summary.total_sent,  color: "#4b5563", bg: "#f3f4f6" },
     { key: "opened",     label: "Opened",     count: summary.opened,     color: "#059669", bg: "#d1fae5" },
     { key: "not_opened", label: "Not Opened", count: summary.not_opened, color: "#d97706", bg: "#fef3c7" },
     { key: "bounced",    label: "Bounced",    count: summary.bounced,    color: "#dc2626", bg: "#fee2e2" },
-    { key: "replied",    label: "Replied",    count: summary.replied,    color: "#2563eb", bg: "#dbeafe" },
+    { key: "replied",    label: "Replied",    count: summary.replied,    color: "#e8890b", bg: "#fff7ed" },
   ]
 
   return (
@@ -883,7 +883,7 @@ function LeadsByStatusPanel({ campaignId }) {
               padding: "6px 14px", borderRadius: 9999, border: "none", cursor: "pointer",
               fontSize: "0.8rem", fontWeight: statusFilter === t.key ? 700 : 500,
               background: statusFilter === t.key ? t.bg : "#f9fafb",
-              color: statusFilter === t.key ? t.color : "#6b7280",
+              color: statusFilter === t.key ? t.color : "#4b5563",
               outline: statusFilter === t.key ? `2px solid ${t.color}` : "1px solid #e5e7eb",
             }}
           >
@@ -917,8 +917,8 @@ function LeadsByStatusPanel({ campaignId }) {
                 const isBounce = s.status === "bounced"
                 const isReply = s.reply_received
                 const statusLabel = isBounce ? "Bounced" : isReply ? "Replied" : isOpen ? "Opened" : "Not Opened"
-                const statusColor = isBounce ? "#dc2626" : isReply ? "#2563eb" : isOpen ? "#059669" : "#d97706"
-                const statusBg = isBounce ? "#fee2e2" : isReply ? "#dbeafe" : isOpen ? "#d1fae5" : "#fef3c7"
+                const statusColor = isBounce ? "#dc2626" : isReply ? "#e8890b" : isOpen ? "#059669" : "#d97706"
+                const statusBg = isBounce ? "#fee2e2" : isReply ? "#fff7ed" : isOpen ? "#d1fae5" : "#fef3c7"
                 return (
                   <tr key={s._id}>
                     <td style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{s.email}</td>
@@ -931,8 +931,8 @@ function LeadsByStatusPanel({ campaignId }) {
                     </td>
                     <td>{s.open_count || 0}</td>
                     <td>{s.click_count || 0}</td>
-                    <td>{isReply ? <span style={{ color: "#2563eb" }}>✓ {s.reply_snippet ? s.reply_snippet.slice(0, 60) + "…" : "Yes"}</span> : "—"}</td>
-                    <td style={{ fontSize: "0.8rem", color: "#6b7280" }}>{s.created_at ? new Date(s.created_at).toLocaleString() : "—"}</td>
+                    <td>{isReply ? <span style={{ color: "#e8890b" }}>✓ {s.reply_snippet ? s.reply_snippet.slice(0, 60) + "…" : "Yes"}</span> : "—"}</td>
+                    <td style={{ fontSize: "0.8rem", color: "#4b5563" }}>{s.created_at ? new Date(s.created_at).toLocaleString() : "—"}</td>
                   </tr>
                 )
               })}
@@ -943,7 +943,7 @@ function LeadsByStatusPanel({ campaignId }) {
           {totalPages > 1 && (
             <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16, alignItems: "center" }}>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.5 : 1, background: "#fff" }}>←</button>
-              <span style={{ fontSize: "0.85rem", color: "#374151" }}>Page {page} of {totalPages} ({total} total)</span>
+              <span style={{ fontSize: "0.85rem", color: "#4a4a4a" }}>Page {page} of {totalPages} ({total} total)</span>
               <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page >= totalPages ? "not-allowed" : "pointer", opacity: page >= totalPages ? 0.5 : 1, background: "#fff" }}>→</button>
             </div>
           )}
@@ -954,7 +954,7 @@ function LeadsByStatusPanel({ campaignId }) {
 }
 
 function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
-  if (!campaign) return <p style={{ color: "#6b7280" }}>Create a campaign first.</p>
+  if (!campaign) return <p style={{ color: "#4b5563" }}>Create a campaign first.</p>
 
   const TONE_OPTIONS = ["professional", "friendly", "direct", "conversational"]
 
@@ -966,9 +966,9 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
 
   return (
     <div>
-      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 16, marginBottom: 24 }}>
-        <strong style={{ color: "#1e40af" }}>🤖 AI uses this context</strong>
-        <p style={{ margin: "6px 0 0", color: "#374151", fontSize: "0.875rem" }}>
+      <div style={{ background: "#fff7ed", border: "1px solid #fde68a", borderRadius: 10, padding: 16, marginBottom: 24 }}>
+        <strong style={{ color: "#c47209" }}>🤖 AI uses this context</strong>
+        <p style={{ margin: "6px 0 0", color: "#4a4a4a", fontSize: "0.875rem" }}>
           When generating icebreakers or personalising email copy, the AI will draw on this information
           to write in the right voice, reference the right value, and speak to the right buyer.
           Fill in as much as you can — more detail = better emails.
@@ -978,7 +978,7 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         {fields.map(({ key, label, rows, ph }) => (
           <div key={key}>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 6 }}>
               {label.toUpperCase()}
             </label>
             <textarea
@@ -993,7 +993,7 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
           <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER NAME</label>
+            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER NAME</label>
             <input
               value={draft.sender_name || ""}
               onChange={e => onChange("sender_name", e.target.value)}
@@ -1002,7 +1002,7 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER TITLE</label>
+            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER TITLE</label>
             <input
               value={draft.sender_title || ""}
               onChange={e => onChange("sender_title", e.target.value)}
@@ -1011,7 +1011,7 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>EMAIL TONE</label>
+            <label style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 6 }}>EMAIL TONE</label>
             <select
               value={draft.tone || "professional"}
               onChange={e => onChange("tone", e.target.value)}
@@ -1026,7 +1026,7 @@ function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
           <button
             onClick={onSave}
             disabled={saving}
-            style={{ padding: "10px 28px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: saving ? 0.6 : 1 }}
+            style={{ padding: "10px 28px", borderRadius: 8, border: "none", background: "#e8890b", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: saving ? 0.6 : 1 }}
           >
             {saving ? "Saving…" : "💾 Save Context"}
           </button>
@@ -1041,7 +1041,7 @@ function SuppressionPanel({ suppList, suppTotal, suppSearch, setSuppSearch, manu
     <div>
       <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: 16, marginBottom: 20 }}>
         <strong style={{ color: "#dc2626" }}>🚫 {totalSuppressed.toLocaleString()} addresses</strong>
-        <span style={{ color: "#6b7280", marginLeft: 8, fontSize: "0.9rem" }}>permanently blocked from ALL businesses. These will never receive email again.</span>
+        <span style={{ color: "#4b5563", marginLeft: 8, fontSize: "0.9rem" }}>permanently blocked from ALL businesses. These will never receive email again.</span>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
@@ -1060,7 +1060,7 @@ function SuppressionPanel({ suppList, suppTotal, suppSearch, setSuppSearch, manu
         </button>
       </div>
 
-      <p style={{ color: "#6b7280", fontSize: "0.85rem", marginBottom: 12 }}>
+      <p style={{ color: "#4b5563", fontSize: "0.85rem", marginBottom: 12 }}>
         Showing {suppList.length} of {suppTotal} · {suppSearch ? "filtered" : "latest first"}
       </p>
 
@@ -1072,7 +1072,7 @@ function SuppressionPanel({ suppList, suppTotal, suppSearch, setSuppSearch, manu
               <td style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{s.email}</td>
               <td style={{ fontSize: "0.85rem" }}>{s.bounced_at ? new Date(s.bounced_at).toLocaleDateString() : "—"}</td>
               <td><span style={{ padding: "2px 6px", background: "#fee2e2", color: "#dc2626", borderRadius: 4, fontSize: "0.75rem" }}>{s.reason || "bounce"}</span></td>
-              <td><button onClick={() => onRemove(s.email)} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: "0.8rem" }}>Undo</button></td>
+              <td><button onClick={() => onRemove(s.email)} style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: "0.8rem" }}>Undo</button></td>
             </tr>
           ))}
           {suppList.length === 0 && (

@@ -106,10 +106,10 @@ function VendorsPage() {
 
   const getTypeBadge = (type) => {
     const styles = {
-      panel: { backgroundColor: "#dbeafe", color: "#1e40af" },
+      panel: { backgroundColor: "#fff7ed", color: "#c47209" },
       billing: { backgroundColor: "#fef3c7", color: "#92400e" }
     }
-    return styles[type] || { backgroundColor: "#f3f4f6", color: "#374151" }
+    return styles[type] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
   const getStatusBadge = (status) => {
@@ -117,7 +117,7 @@ function VendorsPage() {
       active: { backgroundColor: "#dcfce7", color: "#166534" },
       inactive: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#374151" }
+    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
   const openCreate = () => {

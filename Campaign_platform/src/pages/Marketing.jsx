@@ -18,7 +18,7 @@ function Marketing() {
       description: "Manage your websites, pages, and content",
       icon: Globe,
       link: "/admin/marketing/websites",
-      color: "#3b82f6"
+      color: "#e8890b"
     },
     { 
       title: "Blog Management", 
@@ -88,11 +88,11 @@ function Marketing() {
           })}
         </div>
 
-        <div className="card bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+        <div className="card bg-gradient-to-r from-cogentix-orange-50 to-cogentix-orange-50 border-cogentix-orange-200">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="card-title text-blue-900">Get Started with Website CMS</h3>
-              <p className="card-description text-blue-700">
+              <h3 className="card-title text-cogentix-orange-900">Get Started with Website CMS</h3>
+              <p className="card-description text-cogentix-orange-700">
                 Create and manage your websites directly from the CRM. 
                 Control content, track performance, and publish updates.
               </p>

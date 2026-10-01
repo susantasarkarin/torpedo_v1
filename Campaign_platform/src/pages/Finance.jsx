@@ -106,13 +106,13 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       subtitle: `${displayKpis.revenue.total_invoices} invoices`,
       trend: "+12% vs last month",
       trendDirection: "up",
-      color: "#0d6efd",
+      color: "#e8890b",
     },
     {
       title: "Total Expenses",
       value: formatCurrency(displayKpis.expenses.total),
       subtitle: "Purchases + Operating",
-      color: "#6b7280",
+      color: "#4b5563",
     },
     {
       title: "Net Profit",
@@ -144,14 +144,14 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
   ]
 
   const quickActions = [
-    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#0d6efd" },
+    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#e8890b" },
     { href: "/admin/finance/vendors", icon: "🏢", label: "Vendors", color: "#8b5cf6" },
     { href: "/admin/finance/estimates", icon: "📝", label: "Estimates", color: "#f59e0b" },
     { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#10b981" },
     { href: "/admin/finance/bills", icon: "🧾", label: "Bills", color: "#ef4444" },
     { href: "/admin/finance/expenses", icon: "💸", label: "Expenses", color: "#ec4899" },
-    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#6366f1" },
-    { href: "/admin/finance/settings", icon: "⚙️", label: "Settings", color: "#6b7280" },
+    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#e8890b" },
+    { href: "/admin/finance/settings", icon: "⚙️", label: "Settings", color: "#4b5563" },
   ]
 
   return (
@@ -223,9 +223,6 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
               <h3 style={styles.cardTitle}>Recent Activities</h3>
               <p style={styles.cardSubtitle}>Latest financial transactions</p>
             </div>
-            <Link to="/admin/finance/activities" style={styles.viewAllLink}>
-              View All →
-            </Link>
           </div>
           <div style={styles.cardContent}>
             {activities.length === 0 ? (
@@ -245,7 +242,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
                     </div>
                     <div style={styles.activityAmount}>
                       <p
-                        style={{ ...styles.activityValue, color: activity.type === "payment" ? "#10b981" : "#374151" }}
+                        style={{ ...styles.activityValue, color: activity.type === "payment" ? "#10b981" : "#4a4a4a" }}
                       >
                         {formatCurrency(activity.amount)}
                       </p>
@@ -361,7 +358,7 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
@@ -372,7 +369,7 @@ const styles = {
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -384,7 +381,7 @@ const styles = {
   btnSecondary: {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
@@ -403,13 +400,13 @@ const styles = {
     width: "2rem",
     height: "2rem",
     border: "3px solid #e5e7eb",
-    borderTop: "3px solid #0d6efd",
+    borderTop: "3px solid #e8890b",
     borderRadius: "50%",
     animation: "spin 1s linear infinite",
     marginBottom: "1rem",
   },
   loadingText: {
-    color: "#6b7280",
+    color: "#4b5563",
     fontSize: "0.95rem",
   },
   notificationBanner: {
@@ -471,7 +468,7 @@ const styles = {
   kpiTitle: {
     fontSize: "0.75rem",
     fontWeight: "600",
-    color: "#6b7280",
+    color: "#4b5563",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
   },
@@ -492,7 +489,7 @@ const styles = {
   },
   kpiSubtitle: {
     fontSize: "0.875rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   kpiTrend: {
     fontSize: "0.75rem",
@@ -526,12 +523,12 @@ const styles = {
   },
   cardSubtitle: {
     fontSize: "0.875rem",
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
   },
   viewAllLink: {
     fontSize: "0.875rem",
-    color: "#0d6efd",
+    color: "#e8890b",
     textDecoration: "none",
     fontWeight: "500",
   },
@@ -587,7 +584,7 @@ const styles = {
   },
   activityDescription: {
     fontSize: "0.75rem",
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0 0 0.25rem 0",
   },
   activityTime: {
@@ -641,7 +638,7 @@ const styles = {
     width: "2rem",
     height: "2rem",
     borderRadius: "50%",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     display: "flex",
     alignItems: "center",
@@ -662,7 +659,7 @@ const styles = {
   },
   customerInvoices: {
     fontSize: "0.75rem",
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
   },
   customerRevenue: {
@@ -700,7 +697,7 @@ const styles = {
   quickActionLabel: {
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
     textAlign: "center",
     margin: "0",
   },

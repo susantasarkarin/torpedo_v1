@@ -306,11 +306,11 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                       <td><StatusBadge status={s.status} /></td>
                       <td>
                         {isMS ? (
-                          <span style={{ fontSize: "0.78rem", color: "#6b7280" }}>
+                          <span style={{ fontSize: "0.78rem", color: "#4b5563" }}>
                             {s._ms_count} {s._ms_count === 1 ? "response" : "responses"}
                           </span>
                         ) : (
-                          <code style={{ fontSize: "0.72rem", color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
+                          <code style={{ fontSize: "0.72rem", color: "#4b5563", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
                             {s.id ? s.id.slice(0, 8) : "—"}
                           </code>
                         )}
@@ -320,7 +320,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                         {isMS && msScore?.pct !== null && msScore?.pct !== undefined
                           ? (() => {
                               const pct = msScore.pct;
-                              const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#2563eb" : pct >= 60 ? "#f59e0b" : "#dc2626";
+                              const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#e8890b" : pct >= 60 ? "#f59e0b" : "#dc2626";
                               return <span style={{ color, fontWeight: 700, fontSize: "0.8rem" }}>{pct}%</span>;
                             })()
                           : <span style={{ color: "#d1d5db" }}>—</span>}
@@ -640,7 +640,7 @@ function OverviewTab({ studyId }) {
               <div className="qre-quota-grid">
                 {group.cells.map((q) => {
                   const fillPct = q.limit > 0 ? Math.min(100, Math.round((q.current / q.limit) * 100)) : 0;
-                  const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#667eea";
+                  const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#e8890b";
                   return (
                     <div key={q.quota_key} className="qre-quota-card">
                       <div className="qre-quota-header">
@@ -815,7 +815,7 @@ function QuotasTab({ studyId }) {
                     const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
                     return (
                       <tr key={q.quota_key} style={{ background: q.is_full ? "#fff1f2" : undefined }}>
-                        <td style={{ color: "#6b7280", fontSize: "0.78rem" }}>
+                        <td style={{ color: "#4b5563", fontSize: "0.78rem" }}>
                           {i === 0 ? group.groupLabel : ""}
                         </td>
                         <td>
@@ -1123,7 +1123,7 @@ export default function QREPage() {
               ← All Studies
             </button>
             <div className="qre-page-title-row">
-              <BarChart2 size={20} color="#667eea" />
+              <BarChart2 size={20} color="#e8890b" />
               <h1 className="qre-page-title">{selectedStudy.name}</h1>
               <StatusBadge status={selectedStudy.status} />
             </div>
@@ -1152,7 +1152,7 @@ export default function QREPage() {
       <div className="qre-page-header">
         <div>
           <div className="qre-page-title-row">
-            <BarChart2 size={20} color="#667eea" />
+            <BarChart2 size={20} color="#e8890b" />
             <h1 className="qre-page-title">QRE Platform</h1>
           </div>
           <p className="qre-page-subtitle">

@@ -65,7 +65,7 @@
 /* Updated active state styling for modern look */
 .nav-item.active {
   background: rgba(244, 124, 32, 0.2);
-  color: #f47c20;
+  color: #e8890b;
   border-right: none;
   padding-right: 16px;
 }
@@ -147,7 +147,7 @@
 }
 
 .nav-subitem.active {
-  color: #f47c20;
+  color: #e8890b;
   background: rgba(244, 124, 32, 0.15);
 }
 

@@ -108,12 +108,12 @@ function VendorBillingPage() {
 
   const getStatusBadge = (status) => {
     const styles = {
-      draft: { backgroundColor: "#f3f4f6", color: "#374151" },
+      draft: { backgroundColor: "#f3f4f6", color: "#4a4a4a" },
       pending: { backgroundColor: "#fef3c7", color: "#92400e" },
       paid: { backgroundColor: "#dcfce7", color: "#166534" },
       overdue: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#374151" }
+    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
   const formatCurrency = (amount) => {

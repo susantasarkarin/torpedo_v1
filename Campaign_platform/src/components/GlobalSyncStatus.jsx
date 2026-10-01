@@ -64,9 +64,9 @@ const AlertIcon = () => (
 // Status badge colors
 const statusColors = {
   pending: 'bg-gray-500',
-  connecting: 'bg-blue-500',
-  counting: 'bg-blue-500',
-  downloading: 'bg-indigo-500',
+  connecting: 'bg-cogentix-orange-500',
+  counting: 'bg-cogentix-orange-500',
+  downloading: 'bg-cogentix-orange-500',
   processing: 'bg-purple-500',
   completed: 'bg-green-500',
   error: 'bg-red-500',
@@ -145,7 +145,7 @@ function SyncItem({ mailboxId, syncData, onCancel }) {
               status === 'completed' ? 'bg-green-500' :
               status === 'error' ? 'bg-red-500' :
               status === 'cancelled' ? 'bg-yellow-500' :
-              'bg-indigo-500'
+              'bg-cogentix-orange-500'
             }`}
             style={{ width: `${Math.min(progressValue, 100)}%` }}
           />

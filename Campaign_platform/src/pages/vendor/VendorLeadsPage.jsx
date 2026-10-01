@@ -130,12 +130,12 @@ function VendorLeadsPage() {
 
   const getStatusBadge = (status) => {
     const styles = {
-      new: { backgroundColor: "#dbeafe", color: "#1e40af" },
+      new: { backgroundColor: "#fff7ed", color: "#c47209" },
       contacted: { backgroundColor: "#fef3c7", color: "#92400e" },
       qualified: { backgroundColor: "#dcfce7", color: "#166534" },
       rejected: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#374151" }
+    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
   const openCreate = () => {
@@ -418,7 +418,7 @@ function VendorLeadsPage() {
                         <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {(lead.mail_pool.model_summary || lead.mail_pool.last_summary || lead.mail_pool.last_subject || "").slice(0, 60)}
                         </div>
-                        <div style={{ color: "#6b7280" }}>
+                        <div style={{ color: "#4b5563" }}>
                           {lead.mail_pool.messages_in} in / {lead.mail_pool.messages_out} out
                           {lead.mail_pool.last_contact_at ? ` · ${String(lead.mail_pool.last_contact_at).slice(0, 10)}` : ""}
                         </div>
@@ -804,7 +804,7 @@ function VendorLeadsPage() {
             </p>
             
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "panel" ? "2px solid #3b82f6" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "panel" ? "#eff6ff" : "white" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "panel" ? "2px solid #e8890b" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "panel" ? "#fff7ed" : "white" }}>
                 <input 
                   type="radio" 
                   name="vendorType" 
@@ -818,7 +818,7 @@ function VendorLeadsPage() {
                 </div>
               </label>
               
-              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "billing" ? "2px solid #3b82f6" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "billing" ? "#eff6ff" : "white" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "billing" ? "2px solid #e8890b" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "billing" ? "#fff7ed" : "white" }}>
                 <input 
                   type="radio" 
                   name="vendorType" 

@@ -23,12 +23,12 @@
 .vendor-page .header-left h1 {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
   margin: 0 0 2px;
 }
 
 .vendor-page .header-left .subtitle {
-  color: #6b7280;
+  color: #4b5563;
   margin: 0;
   font-size: 0.875rem;
 }
@@ -60,18 +60,18 @@
 }
 
 .vendor-page .btn-primary {
-  background: #2563eb;
+  background: #e8890b;
   color: white;
 }
 
 .vendor-page .btn-primary:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: #c47209;
 }
 
 .vendor-page .btn-outline {
   background: white;
   border: 1px solid #e5e7eb;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .vendor-page .btn-outline:hover {
@@ -110,7 +110,7 @@
   border-radius: 8px;
   padding: 14px 16px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  border-left: 3px solid #3b82f6;
+  border-left: 3px solid #e8890b;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -119,18 +119,18 @@
 .vendor-page .stat-card.warning { border-left-color: #f59e0b; }
 .vendor-page .stat-card.success { border-left-color: #10b981; }
 .vendor-page .stat-card.danger { border-left-color: #ef4444; }
-.vendor-page .stat-card.primary { border-left-color: #2563eb; }
+.vendor-page .stat-card.primary { border-left-color: #e8890b; }
 
 .vendor-page .stat-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
   line-height: 1.2;
 }
 
 .vendor-page .stat-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* ============== FILTERS BAR - COMPACT ============== */
@@ -159,7 +159,7 @@
 }
 
 .vendor-page .search-input:focus {
-  border-color: #2563eb;
+  border-color: #e8890b;
 }
 
 .vendor-page .filter-select,
@@ -196,7 +196,7 @@
   text-align: left;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   white-space: nowrap;
@@ -206,7 +206,7 @@
   padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
   font-size: 0.875rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .vendor-page .data-table tr:hover {
@@ -214,7 +214,7 @@
 }
 
 .vendor-page .data-table tr.selected {
-  background: #eff6ff;
+  background: #fff7ed;
 }
 
 .vendor-page .checkbox-col {
@@ -227,7 +227,7 @@
 }
 
 .vendor-page .name-cell .name-link {
-  color: #2563eb;
+  color: #e8890b;
   text-decoration: none;
   cursor: pointer;
 }
@@ -262,7 +262,7 @@
   cursor: pointer;
   border: 1px solid #e5e7eb;
   background: white;
-  color: #374151;
+  color: #4a4a4a;
   transition: all 0.2s;
 }
 
@@ -272,8 +272,8 @@
 }
 
 .vendor-page .action-btn.edit {
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: #e8890b;
+  color: #e8890b;
 }
 
 .vendor-page .action-btn.delete {
@@ -294,7 +294,7 @@
 }
 
 .vendor-page .page-info {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -304,7 +304,7 @@
   align-items: center;
   justify-content: center;
   height: 200px;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -371,7 +371,7 @@
 }
 
 .vendor-page .action-card:hover {
-  border-color: #2563eb;
+  border-color: #e8890b;
   background: #f0f7ff;
 }
 
@@ -384,12 +384,12 @@
   font-size: 0.875rem;
   font-weight: 600;
   margin: 0 0 4px;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 .vendor-page .action-card p {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   margin: 0;
 }
 
@@ -424,7 +424,7 @@
 
 .vendor-page .dashboard-stat-card .stat-content h3 {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   margin: 0 0 2px;
   font-weight: 500;
 }
@@ -432,7 +432,7 @@
 .vendor-page .dashboard-stat-card .stat-value {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 /* ============== LEAD DETAIL MODAL ==============
@@ -490,6 +490,6 @@
 .vendor-page .section-card h2 {
   font-size: 1rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #1a1a1a;
   margin: 0 0 12px;
 }

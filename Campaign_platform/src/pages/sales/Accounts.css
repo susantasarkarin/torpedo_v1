@@ -38,7 +38,7 @@
 .accounts-empty {
   padding: 48px 24px;
   text-align: center;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .accounts-empty-hint {
@@ -82,7 +82,7 @@
 .accounts-table td {
   padding: 12px 16px;
   border-bottom: 1px solid #f0f1f5;
-  color: #1f2937;
+  color: #1a1a1a;
   vertical-align: middle;
 }
 
@@ -102,7 +102,7 @@
 .accounts-name {
   display: block;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .accounts-website {
@@ -147,7 +147,7 @@
 .accounts-badge.status-inactive,
 .accounts-badge.state-closed {
   background: #eef0f4;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .accounts-badge.status-overdue,
@@ -187,7 +187,7 @@
 }
 
 .accounts-back:hover {
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .accounts-summary {
@@ -209,7 +209,7 @@
 
 .accounts-stat-label {
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
@@ -217,7 +217,7 @@
 .accounts-stat-value {
   font-size: 20px;
   font-weight: 700;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .accounts-stat-warn {
@@ -236,14 +236,14 @@
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .accounts-tab:hover {
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .accounts-tab.active {

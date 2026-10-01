@@ -23,7 +23,7 @@
 }
 
 .stat-card.total {
-  border-left-color: #3b82f6;
+  border-left-color: #e8890b;
 }
 
 .stat-card.subscribed {
@@ -41,13 +41,13 @@
 .stat-number {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #1e293b;
+  color: #1a1a1a;
   margin-bottom: 8px;
 }
 
 .stat-label {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #4b5563;
   font-weight: 500;
 }
 
@@ -64,11 +64,11 @@
 
 .date-range-label {
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .date-range-value {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -93,7 +93,7 @@
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .table-actions {
@@ -120,7 +120,7 @@
 .contacts-table th {
   background: #f9fafb;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   font-size: 0.875rem;
 }
 
@@ -130,16 +130,16 @@
 
 .contact-name {
   font-weight: 500;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .contact-email {
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .contact-phone,
 .contact-company {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -199,17 +199,17 @@
 }
 
 .btn-primary {
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: #e8890b;
 }
 
 .btn-secondary {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #d1d5db;
 }
 

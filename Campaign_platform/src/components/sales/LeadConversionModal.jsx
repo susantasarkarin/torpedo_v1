@@ -211,7 +211,7 @@ export default function LeadConversionModal({
             className={`
               w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
               ${index < currentStep ? 'bg-green-500 text-white' : 
-                index === currentStep ? 'bg-blue-500 text-white' : 
+                index === currentStep ? 'bg-cogentix-orange-500 text-white' : 
                 'bg-gray-200 text-gray-500'}
             `}
           >
@@ -257,7 +257,7 @@ export default function LeadConversionModal({
           </div>
           <div>
             <span className="text-gray-500">Status:</span>
-            <Badge className="bg-blue-100 text-blue-800">{lead?.status || 'new'}</Badge>
+            <Badge className="bg-cogentix-orange-100 text-cogentix-orange-800">{lead?.status || 'new'}</Badge>
           </div>
         </div>
       </Card>
@@ -273,7 +273,7 @@ export default function LeadConversionModal({
               className="w-5 h-5"
             />
             <div className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-blue-500" />
+              <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
               <div>
                 <p className="font-medium">Create Contact</p>
                 <p className="text-sm text-gray-500">Add as a contact in your CRM</p>
@@ -305,7 +305,7 @@ export default function LeadConversionModal({
   const renderContactStep = () => (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
-        <UserPlus className="w-5 h-5 text-blue-500" />
+        <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
         <h3 className="font-medium">Contact Details</h3>
       </div>
       
@@ -459,7 +459,7 @@ export default function LeadConversionModal({
         <div className="space-y-3 text-left max-w-sm mx-auto">
           {result.contact && (
             <Card className="p-3 flex items-center gap-3">
-              <UserPlus className="w-5 h-5 text-blue-500" />
+              <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
               <div>
                 <p className="font-medium">Contact Created</p>
                 <p className="text-sm text-gray-500">

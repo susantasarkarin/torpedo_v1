@@ -5,7 +5,7 @@ function Sales() {
   return (
     <div>
       {/* Main Dashboard Card - Prominent */}
-      <div className="card" style={{ marginBottom: "1.5rem", background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)", border: "1px solid #334155" }}>
+      <div className="card" style={{ marginBottom: "1.5rem", background: "linear-gradient(135deg, #1a1a1a 0%, #1a1a1a 100%)", border: "1px solid #4a4a4a" }}>
         <div className="card-header">
           <h2 className="card-title" style={{ color: "#f8fafc", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <BarChart3 size={24} />
@@ -16,12 +16,12 @@ function Sales() {
           </p>
         </div>
         <div style={{ padding: "1rem 1.5rem" }}>
-          <Link to="/admin/sales/dashboard" className="btn btn-primary" style={{
+          <Link to="/admin/sales"className="btn btn-primary" style={{
             display: "inline-flex",
             alignItems: "center",
             gap: "0.5rem",
             padding: "0.75rem 1.5rem",
-            backgroundColor: "#3b82f6",
+            backgroundColor: "#e8890b",
             color: "white",
             textDecoration: "none",
             borderRadius: "0.5rem",

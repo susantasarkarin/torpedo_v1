@@ -8,11 +8,11 @@ import { formatCurrency } from "../../utils/currency"
 import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 
 const statusColors = {
-  pending: { background: "#f3f4f6", color: "#374151" },
+  pending: { background: "#f3f4f6", color: "#4a4a4a" },
   paid:    { background: "#dcfce7", color: "#15803d" },
   overdue: { background: "#fee2e2", color: "#b91c1c" },
   partial: { background: "#fef9c3", color: "#854d0e" },
-  open:    { background: "#dbeafe", color: "#1d4ed8" },
+  open:    { background: "#fff7ed", color: "#c47209" },
 }
 
 function badge(status) {
@@ -49,7 +49,7 @@ export default function BillDetailPage() {
 
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
-      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#0d6efd" }} />
+      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#e8890b" }} />
     </div>
   )
 
@@ -80,7 +80,7 @@ export default function BillDetailPage() {
               <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#111" }}>
                 {bill.bill_number || "—"}
               </h2>
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>Bill / Accounts Payable</p>
+              <p style={{ margin: 0, color: "#4b5563", fontSize: "0.85rem" }}>Bill / Accounts Payable</p>
             </div>
           </div>
           {badge(bill.status)}
@@ -150,7 +150,7 @@ export default function BillDetailPage() {
                   {items.map((item, i) => (
                     <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
                       <td style={styles.td}>{item.name || "—"}</td>
-                      <td style={{ ...styles.td, color: "#6b7280", fontSize: "0.85rem" }}>{item.account || item.description || "—"}</td>
+                      <td style={{ ...styles.td, color: "#4b5563", fontSize: "0.85rem" }}>{item.account || item.description || "—"}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.quantity ?? 1}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{formatCurrency(item.rate, cur)}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.tax_percent ?? 0}%</td>
@@ -195,7 +195,7 @@ export default function BillDetailPage() {
         {bill.notes && (
           <div style={{ marginTop: "1.5rem" }}>
             <h3 style={styles.sectionTitle}>Notes</h3>
-            <p style={{ color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{bill.notes}</p>
+            <p style={{ color: "#4a4a4a", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{bill.notes}</p>
           </div>
         )}
       </div>
@@ -209,18 +209,18 @@ const styles = {
   backBtn: {
     display: "inline-flex", alignItems: "center", gap: 4,
     background: "none", border: "1px solid #d1d5db", borderRadius: 6,
-    padding: "0.4rem 0.9rem", cursor: "pointer", fontSize: "0.875rem", color: "#374151",
+    padding: "0.4rem 0.9rem", cursor: "pointer", fontSize: "0.875rem", color: "#4a4a4a",
   },
   card: { background: "#fff", borderRadius: 10, padding: "2rem", boxShadow: "0  1px 4px rgba(0,0,0,0.08)" },
   metaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "1rem", background: "#f9fafb", borderRadius: 8, padding: "1rem" },
   metaBlock: { display: "flex", flexDirection: "column", gap: 2 },
   metaLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" },
-  metaValue: { fontSize: "0.95rem", color: "#111827", fontWeight: 500 },
-  sectionTitle: { fontSize: "0.9rem", fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" },
+  metaValue: { fontSize: "0.95rem", color: "#1a1a1a", fontWeight: 500 },
+  sectionTitle: { fontSize: "0.9rem", fontWeight: 700, color: "#4a4a4a", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" },
   table: { width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" },
   thead: { background: "#f9fafb" },
-  th: { padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "#374151", borderBottom: "2px solid #e5e7eb", whiteSpace: "nowrap" },
-  td: { padding: "0.6rem 0.75rem", color: "#111827" },
+  th: { padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "#4a4a4a", borderBottom: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  td: { padding: "0.6rem 0.75rem", color: "#1a1a1a" },
   totalsBox: { marginTop: "1.5rem", marginLeft: "auto", maxWidth: 340, display: "flex", flexDirection: "column", gap: "0.4rem" },
-  totalRow: { display: "flex", justifyContent: "space-between", fontSize: "0.9rem", color: "#374151", padding: "0.15rem 0" },
+  totalRow: { display: "flex", justifyContent: "space-between", fontSize: "0.9rem", color: "#4a4a4a", padding: "0.15rem 0" },
 }

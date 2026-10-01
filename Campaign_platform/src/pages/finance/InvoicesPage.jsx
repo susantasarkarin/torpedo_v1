@@ -395,10 +395,10 @@ function InvoicesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading invoices...</p>
+            <p style={{ color: "#4b5563" }}>Loading invoices...</p>
           </div>
         </div>
       ) : (
@@ -614,10 +614,10 @@ function InvoicesPage() {
                       }}
                     >
                       <tr>
-                        <th style={{ padding: "0.75rem", textAlign: "left", fontWeight: "500", color: "#6b7280" }}>
+                        <th style={{ padding: "0.75rem", textAlign: "left", fontWeight: "500", color: "#4b5563" }}>
                           Item
                         </th>
-                        <th style={{ padding: "0.75rem", textAlign: "left", fontWeight: "500", color: "#6b7280" }}>
+                        <th style={{ padding: "0.75rem", textAlign: "left", fontWeight: "500", color: "#4b5563" }}>
                           Description
                         </th>
                         <th
@@ -625,7 +625,7 @@ function InvoicesPage() {
                             padding: "0.75rem",
                             textAlign: "left",
                             fontWeight: "500",
-                            color: "#6b7280",
+                            color: "#4b5563",
                             width: "80px",
                           }}
                         >
@@ -636,7 +636,7 @@ function InvoicesPage() {
                             padding: "0.75rem",
                             textAlign: "left",
                             fontWeight: "500",
-                            color: "#6b7280",
+                            color: "#4b5563",
                             width: "112px",
                           }}
                         >
@@ -647,7 +647,7 @@ function InvoicesPage() {
                             padding: "0.75rem",
                             textAlign: "left",
                             fontWeight: "500",
-                            color: "#6b7280",
+                            color: "#4b5563",
                             width: "80px",
                           }}
                         >
@@ -658,7 +658,7 @@ function InvoicesPage() {
                             padding: "0.75rem",
                             textAlign: "right",
                             fontWeight: "500",
-                            color: "#6b7280",
+                            color: "#4b5563",
                             width: "112px",
                           }}
                         >
@@ -793,7 +793,7 @@ function InvoicesPage() {
                     marginBottom: "0.5rem",
                   }}
                 >
-                  <span style={{ color: "#6b7280" }}>Subtotal:</span>
+                  <span style={{ color: "#4b5563" }}>Subtotal:</span>
                   <span style={{ fontWeight: "500" }}>
                     {formatCurrency(calculateSubtotal(), formData.currency_code)}
                   </span>
@@ -809,7 +809,7 @@ function InvoicesPage() {
                     marginBottom: "0.5rem",
                   }}
                 >
-                  <span style={{ color: "#6b7280" }}>Discount:</span>
+                  <span style={{ color: "#4b5563" }}>Discount:</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <select
                       style={{ ...styles.input, width: "80px", padding: "0.25rem", fontSize: "0.85rem" }}
@@ -842,7 +842,7 @@ function InvoicesPage() {
                     marginBottom: "0.5rem",
                   }}
                 >
-                  <span style={{ color: "#6b7280" }}>Tax:</span>
+                  <span style={{ color: "#4b5563" }}>Tax:</span>
                   <span style={{ fontWeight: "500" }}>{formatCurrency(calculateTax(), formData.currency_code)}</span>
                 </div>
                 <div
@@ -941,13 +941,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1012,7 +1012,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -1034,7 +1034,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -1044,7 +1044,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   statusBadge: {
     display: "inline-block",
@@ -1059,8 +1059,8 @@ const styles = {
     color: "#065f46",
   },
   statusSent: {
-    backgroundColor: "#dbeafe",
-    color: "#1e40af",
+    backgroundColor: "#fff7ed",
+    color: "#c47209",
   },
   statusOverdue: {
     backgroundColor: "#fee2e2",
@@ -1072,7 +1072,7 @@ const styles = {
   },
   statusDefault: {
     backgroundColor: "#e5e7eb",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   actionButtons: {
     display: "flex",
@@ -1080,7 +1080,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1109,8 +1109,8 @@ const styles = {
   },
   currencyBadge: {
     display: "inline-block",
-    backgroundColor: "#dbeafe",
-    color: "#1e40af",
+    backgroundColor: "#fff7ed",
+    color: "#c47209",
     borderRadius: "0.375rem",
     padding: "0.375rem 0.75rem",
     fontSize: "0.8rem",
@@ -1129,7 +1129,7 @@ const styles = {
   },
   paginationBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1145,7 +1145,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
     minWidth: "150px",
     textAlign: "center",
   },
@@ -1223,7 +1223,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -1252,7 +1252,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1262,7 +1262,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

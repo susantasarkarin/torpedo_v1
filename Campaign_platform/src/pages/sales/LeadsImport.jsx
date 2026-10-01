@@ -91,7 +91,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "0.5rem",
-    color: "#6b7280",
+    color: "#4b5563",
     background: "none",
     border: "none",
     cursor: "pointer",
@@ -105,11 +105,11 @@ const styles = {
   title: {
     fontSize: "1.5rem",
     fontWeight: "700",
-    color: "#111827",
+    color: "#1a1a1a",
     margin: 0,
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     marginTop: "0.25rem",
   },
   progressBar: {
@@ -156,8 +156,8 @@ const styles = {
     transition: "all 0.2s",
   },
   dropZoneHover: {
-    borderColor: "#3b82f6",
-    backgroundColor: "#eff6ff",
+    borderColor: "#e8890b",
+    backgroundColor: "#fff7ed",
   },
   templateSection: {
     marginTop: "2rem",
@@ -188,7 +188,7 @@ const styles = {
     width: "200px",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   mappingSelect: {
     flex: 1,
@@ -213,16 +213,16 @@ const styles = {
     backgroundColor: "#f9fafb",
     borderBottom: "1px solid #e5e7eb",
     fontWeight: "600",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   previewTd: {
     padding: "0.75rem",
     borderBottom: "1px solid #f3f4f6",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   btnPrimary: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "#fff",
     border: "none",
     borderRadius: "6px",
@@ -235,7 +235,7 @@ const styles = {
   btnSecondary: {
     padding: "0.625rem 1.25rem",
     backgroundColor: "#fff",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "6px",
     cursor: "pointer",
@@ -423,7 +423,7 @@ function LeadsImport() {
         return (
           <div style={styles.card}>
             <h3 style={{ marginTop: 0 }}>📁 Upload CSV File</h3>
-            <p style={{ color: "#6b7280" }}>
+            <p style={{ color: "#4b5563" }}>
               Upload a CSV file containing your leads data. The file should have headers in the first row.
             </p>
             
@@ -445,7 +445,7 @@ function LeadsImport() {
               <p style={{ margin: 0, fontWeight: "500" }}>
                 Drop your CSV file here, or click to browse
               </p>
-              <p style={{ margin: "0.5rem 0 0", color: "#6b7280", fontSize: "0.875rem" }}>
+              <p style={{ margin: "0.5rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
                 Supports .csv files up to 500MB
               </p>
               <input
@@ -460,7 +460,7 @@ function LeadsImport() {
             <div style={styles.templateSection}>
               <div>
                 <strong>📋 Need a template?</strong>
-                <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.875rem" }}>
+                <p style={{ margin: "0.25rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
                   Download our CSV template with all supported fields
                 </p>
               </div>
@@ -478,14 +478,14 @@ function LeadsImport() {
               <span>📄</span>
               <div>
                 <strong>{file?.name}</strong>
-                <span style={{ color: "#6b7280", marginLeft: "0.5rem" }}>
+                <span style={{ color: "#4b5563", marginLeft: "0.5rem" }}>
                   ({csvData.length} rows, {csvColumns.length} columns)
                 </span>
               </div>
             </div>
             
             <h3 style={{ marginTop: 0 }}>🔗 Map Columns</h3>
-            <p style={{ color: "#6b7280" }}>
+            <p style={{ color: "#4b5563" }}>
               Match your CSV columns to the lead fields. We've auto-matched {getMappedFieldsCount()} fields.
             </p>
             
@@ -544,7 +544,7 @@ function LeadsImport() {
         return (
           <div style={styles.card}>
             <h3 style={{ marginTop: 0 }}>👁️ Preview Import</h3>
-            <p style={{ color: "#6b7280" }}>
+            <p style={{ color: "#4b5563" }}>
               Review the first 5 rows before importing. {csvData.length} leads will be imported.
             </p>
             
@@ -604,7 +604,7 @@ function LeadsImport() {
             <div style={styles.successBox}>
               <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>✅</div>
               <h2 style={{ margin: 0, color: "#16a34a" }}>Import Complete!</h2>
-              <p style={{ color: "#6b7280", marginTop: "0.5rem" }}>
+              <p style={{ color: "#4b5563", marginTop: "0.5rem" }}>
                 {importResult?.imported || 0} leads imported successfully
                 {importResult?.skipped > 0 && `, ${importResult.skipped} skipped`}
               </p>
@@ -614,7 +614,7 @@ function LeadsImport() {
                   <p style={{ fontWeight: "500", color: "#dc2626" }}>
                     Some rows had errors:
                   </p>
-                  <ul style={{ color: "#6b7280", fontSize: "0.875rem" }}>
+                  <ul style={{ color: "#4b5563", fontSize: "0.875rem" }}>
                     {importResult.errors.slice(0, 5).map((err, idx) => (
                       <li key={idx}>{err}</li>
                     ))}
@@ -668,8 +668,8 @@ function LeadsImport() {
               <div
                 style={{
                   ...styles.stepCircle,
-                  backgroundColor: step >= s.num ? "#3b82f6" : "#e5e7eb",
-                  color: step >= s.num ? "#fff" : "#6b7280",
+                  backgroundColor: step >= s.num ? "#e8890b" : "#e5e7eb",
+                  color: step >= s.num ? "#fff" : "#4b5563",
                 }}
               >
                 {step > s.num ? "✓" : s.num}
@@ -677,7 +677,7 @@ function LeadsImport() {
               <span
                 style={{
                   ...styles.stepLabel,
-                  color: step >= s.num ? "#111827" : "#6b7280",
+                  color: step >= s.num ? "#1a1a1a" : "#4b5563",
                   fontWeight: step === s.num ? "600" : "400",
                 }}
               >
@@ -688,7 +688,7 @@ function LeadsImport() {
               <div
                 style={{
                   ...styles.stepConnector,
-                  backgroundColor: step > s.num ? "#3b82f6" : "#e5e7eb",
+                  backgroundColor: step > s.num ? "#e8890b" : "#e5e7eb",
                 }}
               />
             )}

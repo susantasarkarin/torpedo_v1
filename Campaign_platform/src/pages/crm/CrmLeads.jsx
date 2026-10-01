@@ -10,7 +10,7 @@ import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
 import "../../styles/crm-ui.css";
 
 const STATUS_COLORS = {
-  new: "#2563eb", working: "#d97706", converted: "#059669", disqualified: "#6b7280",
+  new: "#e8890b", working: "#d97706", converted: "#059669", disqualified: "#4b5563",
 };
 
 export default function CrmLeads() {
@@ -110,7 +110,7 @@ export default function CrmLeads() {
           ) : leads.map((l) => (
             <div key={l._id} className="crm-row" style={{ gap: "0.75rem" }}>
               <div style={{ flex: 2, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontWeight: 600, color: "#1a1a1a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {l.name || `${l.firstName || ""} ${l.lastName || ""}`.trim() || l.email || "(unnamed)"}
                 </div>
                 <div className="crm-muted" style={{ fontSize: "0.75rem" }}>
@@ -118,7 +118,7 @@ export default function CrmLeads() {
                 </div>
               </div>
               <span className="crm-muted" style={{ fontSize: "0.72rem", width: 90 }}>{l.source || "—"}</span>
-              <span className="crm-badge" style={{ color: STATUS_COLORS[l.status] || "#374151" }}>
+              <span className="crm-badge" style={{ color: STATUS_COLORS[l.status] || "#4a4a4a" }}>
                 {l.status || "new"}
               </span>
               {l.status !== "converted" && (

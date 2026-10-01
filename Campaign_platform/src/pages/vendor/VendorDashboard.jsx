@@ -103,12 +103,12 @@ function VendorDashboard() {
               border: "1px solid #e5e7eb",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#2563eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
           >
             <span style={{ fontSize: "2rem" }}>👥</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Vendor Leads</h3>
-            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "4px" }}>Manage vendor leads</p>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Manage vendor leads</p>
           </div>
           
           <div 
@@ -121,12 +121,12 @@ function VendorDashboard() {
               border: "1px solid #e5e7eb",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#2563eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
           >
             <span style={{ fontSize: "2rem" }}>🏢</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Vendors</h3>
-            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "4px" }}>View all vendors</p>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>View all vendors</p>
           </div>
           
           <div 
@@ -139,12 +139,12 @@ function VendorDashboard() {
               border: "1px solid #e5e7eb",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#2563eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
           >
             <span style={{ fontSize: "2rem" }}>💰</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Billing</h3>
-            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "4px" }}>Manage invoices</p>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Manage invoices</p>
           </div>
           
           <div 
@@ -157,12 +157,12 @@ function VendorDashboard() {
               border: "1px solid #e5e7eb",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#2563eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
           >
             <span style={{ fontSize: "2rem" }}>💳</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Payments</h3>
-            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "4px" }}>Process payments</p>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Process payments</p>
           </div>
         </div>
       </div>

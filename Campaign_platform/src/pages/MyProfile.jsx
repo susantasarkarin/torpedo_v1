@@ -258,8 +258,8 @@ function MyProfile() {
             onClick={() => setActiveTab("profile")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'profile' ? '#3b82f6' : 'transparent',
-              color: activeTab === 'profile' ? 'white' : '#374151',
+              background: activeTab === 'profile' ? '#e8890b' : 'transparent',
+              color: activeTab === 'profile' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
               cursor: 'pointer',
@@ -273,8 +273,8 @@ function MyProfile() {
             onClick={() => setActiveTab("users")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'users' ? '#3b82f6' : 'transparent',
-              color: activeTab === 'users' ? 'white' : '#374151',
+              background: activeTab === 'users' ? '#e8890b' : 'transparent',
+              color: activeTab === 'users' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
               cursor: 'pointer',
@@ -288,8 +288,8 @@ function MyProfile() {
             onClick={() => setActiveTab("roles")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'roles' ? '#3b82f6' : 'transparent',
-              color: activeTab === 'roles' ? 'white' : '#374151',
+              background: activeTab === 'roles' ? '#e8890b' : 'transparent',
+              color: activeTab === 'roles' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
               cursor: 'pointer',
@@ -365,8 +365,8 @@ function MyProfile() {
                       padding: '0.25rem 0.75rem',
                       borderRadius: '999px',
                       fontSize: '0.75rem',
-                      background: profile.role === 'admin' ? '#dbeafe' : '#f3f4f6',
-                      color: profile.role === 'admin' ? '#1e40af' : '#374151',
+                      background: profile.role === 'admin' ? '#fff7ed' : '#f3f4f6',
+                      color: profile.role === 'admin' ? '#c47209' : '#4a4a4a',
                       fontWeight: 'bold'
                     }}>
                       {profile.role === 'admin' ? '🔐 Full Access' : 
@@ -492,12 +492,12 @@ function MyProfile() {
                             padding: '0.25rem 0.75rem',
                             borderRadius: '999px',
                             fontSize: '0.875rem',
-                            background: role.code === 'admin' ? '#dbeafe' : 
+                            background: role.code === 'admin' ? '#fff7ed' : 
                                        role.code === 'manager' ? '#fef3c7' :
                                        role.code === 'user' ? '#dcfce7' : '#f3f4f6',
-                            color: role.code === 'admin' ? '#1e40af' : 
+                            color: role.code === 'admin' ? '#c47209' : 
                                   role.code === 'manager' ? '#92400e' :
-                                  role.code === 'user' ? '#166534' : '#374151',
+                                  role.code === 'user' ? '#166534' : '#4a4a4a',
                             fontWeight: 'bold'
                           }}>
                             {role.name}
@@ -512,7 +512,7 @@ function MyProfile() {
                                 borderRadius: '4px',
                                 fontSize: '0.75rem',
                                 background: '#f3f4f6',
-                                color: '#374151'
+                                color: '#4a4a4a'
                               }}>
                                 {perm}
                               </span>
@@ -523,7 +523,7 @@ function MyProfile() {
                                 borderRadius: '4px',
                                 fontSize: '0.75rem',
                                 background: '#e5e7eb',
-                                color: '#374151'
+                                color: '#4a4a4a'
                               }}>
                                 +{role.permissions.length - 3} more
                               </span>
@@ -547,7 +547,7 @@ function MyProfile() {
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#dbeafe', color: '#1e40af', fontWeight: 'bold' }}>Admin</span>
+                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#fff7ed', color: '#c47209', fontWeight: 'bold' }}>Admin</span>
                       <span>- Full system access</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -559,7 +559,7 @@ function MyProfile() {
                       <span>- View and edit access</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#f3f4f6', color: '#374151', fontWeight: 'bold' }}>Viewer</span>
+                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#f3f4f6', color: '#4a4a4a', fontWeight: 'bold' }}>Viewer</span>
                       <span>- Read-only access</span>
                     </div>
                   </div>
@@ -569,11 +569,11 @@ function MyProfile() {
 
             <div className="settings-group" style={{ marginTop: '2rem' }}>
               <h3>ℹ️ Role Assignment</h3>
-              <div style={{ padding: '1rem', background: '#f0f9ff', borderRadius: '8px', borderLeft: '4px solid #3b82f6' }}>
-                <p style={{ margin: 0, color: '#1e40af' }}>
+              <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', borderLeft: '4px solid #e8890b' }}>
+                <p style={{ margin: 0, color: '#c47209' }}>
                   <strong>To assign or change a user's role:</strong>
                 </p>
-                <ol style={{ marginTop: '0.5rem', marginBottom: 0, color: '#1e40af' }}>
+                <ol style={{ marginTop: '0.5rem', marginBottom: 0, color: '#c47209' }}>
                   <li>Go to the "User Management" tab</li>
                   <li>Click the edit (✏️) button for the user</li>
                   <li>Select the new role from the dropdown</li>

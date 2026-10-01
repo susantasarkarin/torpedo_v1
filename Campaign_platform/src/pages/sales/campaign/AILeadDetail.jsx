@@ -30,7 +30,7 @@ function AILeadDetail() {
   
   // Lead Stage Options
   const LEAD_STAGE_OPTIONS = [
-    { value: "ai_database", label: "AI Database", icon: "🤖", color: "#6366f1" },
+    { value: "ai_database", label: "AI Database", icon: "🤖", color: "#e8890b" },
     { value: "leads", label: "Leads", icon: "🎯", color: "#10b981" },
     { value: "contacts", label: "Contacts", icon: "👥", color: "#f59e0b" }
   ];

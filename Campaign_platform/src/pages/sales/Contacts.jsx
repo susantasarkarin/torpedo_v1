@@ -326,7 +326,7 @@ function Contacts() {
     const stageStyle = getPipelineStageStyle(stageId);
     return {
       backgroundColor: stageStyle?.bg || stageStyle?.backgroundColor || "#f3f4f6",
-      color: stageStyle?.color || "#374151",
+      color: stageStyle?.color || "#4a4a4a",
     };
   };
 
@@ -492,7 +492,7 @@ function Contacts() {
                             padding: '2px 6px',
                             fontSize: '10px',
                             background: '#e5e7eb',
-                            color: '#6b7280',
+                            color: '#4b5563',
                             borderRadius: '4px',
                             fontWeight: '500'
                           }}

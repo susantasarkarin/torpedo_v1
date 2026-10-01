@@ -56,13 +56,13 @@ function CompanyDetail() {
 
   const getStageStyle = (stage) => {
     const colors = {
-      RFQ: { bg: "#dbeafe", text: "#1e40af" },
+      RFQ: { bg: "#fff7ed", text: "#c47209" },
       Proposal: { bg: "#fef3c7", text: "#92400e" },
       Negotiation: { bg: "#e9d5ff", text: "#6b21a8" },
       Won: { bg: "#d1fae5", text: "#065f46" },
       Lost: { bg: "#fee2e2", text: "#991b1b" },
     };
-    const style = colors[stage] || { bg: "#f3f4f6", text: "#374151" };
+    const style = colors[stage] || { bg: "#f3f4f6", text: "#4a4a4a" };
     return {
       backgroundColor: style.bg,
       color: style.text,
@@ -221,12 +221,12 @@ const styles = {
   title: {
     fontSize: "28px",
     fontWeight: "700",
-    color: "#111827",
+    color: "#1a1a1a",
     margin: "8px 0",
   },
   subtitle: {
     fontSize: "14px",
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "4px 0",
   },
   errorAlert: {
@@ -239,12 +239,12 @@ const styles = {
   loadingText: {
     textAlign: "center",
     padding: "40px",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   emptyState: {
     textAlign: "center",
     padding: "60px 20px",
-    color: "#6b7280",
+    color: "#4b5563",
     backgroundColor: "#f9fafb",
     borderRadius: "8px",
   },
@@ -265,7 +265,7 @@ const styles = {
     textAlign: "left",
     fontWeight: "600",
     fontSize: "12px",
-    color: "#374151",
+    color: "#4a4a4a",
     textTransform: "uppercase",
     letterSpacing: "0.5px",
     borderBottom: "2px solid #e5e7eb",
@@ -276,7 +276,7 @@ const styles = {
   td: {
     padding: "12px 16px",
     fontSize: "14px",
-    color: "#111827",
+    color: "#1a1a1a",
   },
   nameCell: {
     display: "flex",
@@ -288,7 +288,7 @@ const styles = {
   },
   subText: {
     fontSize: "12px",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   badge: {
     padding: "2px 8px",
@@ -298,7 +298,7 @@ const styles = {
     marginLeft: "8px",
   },
   link: {
-    color: "#2563eb",
+    color: "#e8890b",
     textDecoration: "none",
   },
   companyDetails: {
@@ -320,12 +320,12 @@ const styles = {
   },
   statLabel: {
     fontSize: "14px",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   statValue: {
     fontSize: "18px",
     fontWeight: "700",
-    color: "#111827",
+    color: "#1a1a1a",
   },
 };
 

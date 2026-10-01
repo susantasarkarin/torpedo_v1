@@ -387,8 +387,8 @@ function PaymentsPage() {
                 {formatCurrency(totalReceived - totalMade)}
               </p>
             </div>
-            <div style={{ ...styles.summaryIcon, backgroundColor: "#dbeafe" }}>
-              <TrendingUp style={{ width: "24px", height: "24px", color: "#0d6efd" }} />
+            <div style={{ ...styles.summaryIcon, backgroundColor: "#fff7ed" }}>
+              <TrendingUp style={{ width: "24px", height: "24px", color: "#e8890b" }} />
             </div>
           </div>
         </div>
@@ -459,10 +459,10 @@ function PaymentsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading payments...</p>
+            <p style={{ color: "#4b5563" }}>Loading payments...</p>
           </div>
         </div>
       ) : (
@@ -554,9 +554,9 @@ function PaymentsPage() {
                       value="received"
                       checked={formData.payment_type === "received"}
                       onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
-                      style={{ width: "16px", height: "16px", accentColor: "#0d6efd" }}
+                      style={{ width: "16px", height: "16px", accentColor: "#e8890b" }}
                     />
-                    <span style={{ fontSize: "0.875rem", color: "#374151" }}>Payment Received</span>
+                    <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>Payment Received</span>
                   </label>
                   <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
                     <input
@@ -565,9 +565,9 @@ function PaymentsPage() {
                       value="made"
                       checked={formData.payment_type === "made"}
                       onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
-                      style={{ width: "16px", height: "16px", accentColor: "#0d6efd" }}
+                      style={{ width: "16px", height: "16px", accentColor: "#e8890b" }}
                     />
-                    <span style={{ fontSize: "0.875rem", color: "#374151" }}>Payment Made</span>
+                    <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>Payment Made</span>
                   </label>
                 </div>
               </div>
@@ -736,13 +736,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -782,7 +782,7 @@ const styles = {
   },
   summaryLabel: {
     fontSize: "0.875rem",
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0 0 0.5rem 0",
   },
   summaryValue: {
@@ -815,7 +815,7 @@ const styles = {
     textAlign: "center",
     fontSize: "0.95rem",
     fontWeight: "500",
-    color: "#6b7280",
+    color: "#4b5563",
     backgroundColor: "white",
     border: "none",
     cursor: "pointer",
@@ -828,7 +828,7 @@ const styles = {
   tabActive: {
     color: "#1a1a1a",
     backgroundColor: "#f9fafb",
-    borderBottom: "2px solid #0d6efd",
+    borderBottom: "2px solid #e8890b",
   },
   searchSection: {
     display: "flex",
@@ -856,7 +856,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -878,7 +878,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -887,7 +887,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   code: {
     fontSize: "0.85rem",
@@ -960,7 +960,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -986,7 +986,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -996,7 +996,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

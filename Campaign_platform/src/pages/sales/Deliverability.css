@@ -19,12 +19,12 @@
   margin: 0 0 8px 0;
   font-size: 28px;
   font-weight: 700;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .subtitle {
   margin: 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 14px;
 }
 
@@ -48,7 +48,7 @@
 
 .btn-outline {
   background: #ffffff;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #d1d5db;
 }
 
@@ -73,14 +73,14 @@
   align-items: center;
   justify-content: center;
   padding: 80px 20px;
-  color: #6b7280;
+  color: #4b5563;
   gap: 16px;
 }
 
 .loading-state svg {
   width: 32px;
   height: 32px;
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 /* Health Score Card */
@@ -135,13 +135,13 @@
 .score-value {
   font-size: 32px;
   font-weight: 700;
-  color: #111827;
+  color: #1a1a1a;
   line-height: 1;
 }
 
 .score-label {
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   margin-top: 4px;
   font-weight: 500;
 }
@@ -161,13 +161,13 @@
 .grade-label {
   font-size: 18px;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
   margin-bottom: 8px;
 }
 
 .grade-description {
   font-size: 14px;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 /* Alerts Section */
@@ -229,7 +229,7 @@
   margin: 0 0 16px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 /* Domain Cards Grid */
@@ -273,7 +273,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
   flex: 1;
   word-break: break-all;
 }
@@ -316,7 +316,7 @@
   display: block;
   font-size: 11px;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   margin-bottom: 4px;
 }
@@ -346,7 +346,7 @@
 .metric-value {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .domain-score-bar {
@@ -374,7 +374,7 @@
   flex: 1;
   min-width: 90px;
   padding: 8px 12px;
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 6px;
@@ -385,7 +385,7 @@
 }
 
 .action-btn:hover {
-  background: #2563eb;
+  background: #e8890b;
 }
 
 .action-btn.small {
@@ -395,7 +395,7 @@
 
 .action-btn.secondary {
   background: #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #d1d5db;
 }
 
@@ -428,17 +428,17 @@
   gap: 8px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .account-header svg {
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .account-email {
   flex: 1;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
   word-break: break-all;
 }
 
@@ -461,14 +461,14 @@
 .usage-numbers {
   font-size: 18px;
   font-weight: 700;
-  color: #111827;
+  color: #1a1a1a;
   display: flex;
   align-items: baseline;
   gap: 2px;
 }
 
 .usage-sent {
-  color: #3b82f6;
+  color: #e8890b;
 }
 
 .usage-slash {
@@ -477,7 +477,7 @@
 
 .usage-limit {
   font-size: 14px;
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 600;
 }
 
@@ -518,7 +518,7 @@
 .info-label {
   display: block;
   font-size: 10px;
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 600;
   text-transform: uppercase;
   margin-bottom: 4px;
@@ -528,7 +528,7 @@
   display: block;
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .health-badge {
@@ -567,7 +567,7 @@
   margin: 0 0 12px 0;
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 /* Responsive */

@@ -244,7 +244,7 @@ function UserManagement() {
             case 'locked':
                 return { background: '#fce7f3', color: '#9d174d' }
             default:
-                return { background: '#f3f4f6', color: '#374151' }
+                return { background: '#f3f4f6', color: '#4a4a4a' }
         }
     }
 
@@ -293,7 +293,7 @@ function UserManagement() {
                     </button>
                     <button
                         onClick={handleAdd}
-                        style={{ padding: '0.5rem 1rem', background: '#3b82f6', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}
+                        style={{ padding: '0.5rem 1rem', background: '#e8890b', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}
                     >
                         + Add User
                     </button>
@@ -323,8 +323,8 @@ function UserManagement() {
                                         padding: '0.25rem 0.5rem',
                                         borderRadius: '999px',
                                         fontSize: '0.75rem',
-                                        background: user.role === 'admin' ? '#dbeafe' : '#f3f4f6',
-                                        color: user.role === 'admin' ? '#1e40af' : '#374151'
+                                        background: user.role === 'admin' ? '#fff7ed' : '#f3f4f6',
+                                        color: user.role === 'admin' ? '#c47209' : '#4a4a4a'
                                     }}>
                                         {getRoleDisplay(user.role)}
                                     </span>
@@ -491,7 +491,7 @@ function UserManagement() {
                                 </button>
                                 <button
                                     type="submit"
-                                    style={{ padding: '0.5rem 1rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ padding: '0.5rem 1rem', background: '#e8890b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                     {editingUser ? "Save Changes" : "Create User"}
                                 </button>

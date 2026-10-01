@@ -2,8 +2,8 @@
 
 /* Color tokens (3-5 colors total) */
 :root {
-  --bg-dark-1: #0f172a;
-  --bg-dark-2: #111827;
+  --bg-dark-1: #1a1a1a;
+  --bg-dark-2: #1a1a1a;
   --text-strong: #e5e7eb;
   --text-muted: #94a3b8;
   --accent: #f97316;
@@ -23,7 +23,7 @@ body {
   margin: 0;
   background: var(--bg-dark-1);
   color: var(--text-strong);
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: var(--cx-font);
 }
 a {
   color: inherit;
@@ -142,7 +142,7 @@ a {
   border-radius: 9999px;
   border: none;
   background: var(--white);
-  color: #0f172a;
+  color: #1a1a1a;
   font-weight: 600;
   cursor: pointer;
   transition: transform .06s ease, filter .2s ease;

@@ -81,7 +81,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "0.5rem",
-    color: "#6b7280",
+    color: "#4b5563",
     background: "none",
     border: "none",
     cursor: "pointer",
@@ -95,11 +95,11 @@ const styles = {
   title: {
     fontSize: "1.5rem",
     fontWeight: "700",
-    color: "#111827",
+    color: "#1a1a1a",
     margin: 0,
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     marginTop: "0.25rem",
   },
   progressBar: {
@@ -146,8 +146,8 @@ const styles = {
     transition: "all 0.2s",
   },
   dropZoneHover: {
-    borderColor: "#3b82f6",
-    backgroundColor: "#eff6ff",
+    borderColor: "#e8890b",
+    backgroundColor: "#fff7ed",
   },
   templateSection: {
     marginTop: "2rem",
@@ -178,7 +178,7 @@ const styles = {
     width: "200px",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   mappingSelect: {
     flex: 1,
@@ -203,16 +203,16 @@ const styles = {
     backgroundColor: "#f9fafb",
     borderBottom: "1px solid #e5e7eb",
     fontWeight: "600",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   previewTd: {
     padding: "0.75rem",
     borderBottom: "1px solid #f3f4f6",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   btnPrimary: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "#fff",
     border: "none",
     borderRadius: "6px",
@@ -225,7 +225,7 @@ const styles = {
   btnSecondary: {
     padding: "0.625rem 1.25rem",
     backgroundColor: "#fff",
-    color: "#374151",
+    color: "#4a4a4a",
     border: "1px solid #d1d5db",
     borderRadius: "6px",
     cursor: "pointer",
@@ -477,8 +477,8 @@ function InvoicesImport() {
             <div
               style={{
                 ...styles.stepCircle,
-                backgroundColor: step >= s.num ? "#0d6efd" : "#e5e7eb",
-                color: step >= s.num ? "#fff" : "#6b7280",
+                backgroundColor: step >= s.num ? "#e8890b" : "#e5e7eb",
+                color: step >= s.num ? "#fff" : "#4b5563",
               }}
             >
               {step > s.num ? <CheckCircle style={{ width: "16px", height: "16px" }} /> : s.num}
@@ -486,7 +486,7 @@ function InvoicesImport() {
             <span
               style={{
                 ...styles.stepLabel,
-                color: step >= s.num ? "#111827" : "#9ca3af",
+                color: step >= s.num ? "#1a1a1a" : "#9ca3af",
                 fontWeight: step >= s.num ? "500" : "400",
               }}
             >
@@ -496,7 +496,7 @@ function InvoicesImport() {
               <div
                 style={{
                   ...styles.stepConnector,
-                  backgroundColor: step > s.num ? "#0d6efd" : "#e5e7eb",
+                  backgroundColor: step > s.num ? "#e8890b" : "#e5e7eb",
                 }}
               />
             )}
@@ -520,7 +520,7 @@ function InvoicesImport() {
               style={{
                 width: "64px",
                 height: "64px",
-                backgroundColor: "#eff6ff",
+                backgroundColor: "#fff7ed",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
@@ -528,12 +528,12 @@ function InvoicesImport() {
                 margin: "0 auto 1rem",
               }}
             >
-              <Upload style={{ width: "32px", height: "32px", color: "#3b82f6" }} />
+              <Upload style={{ width: "32px", height: "32px", color: "#e8890b" }} />
             </div>
             <h2 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "0.5rem" }}>
               Upload your CSV file
             </h2>
-            <p style={{ color: "#6b7280" }}>Select a CSV file containing your invoice data</p>
+            <p style={{ color: "#4b5563" }}>Select a CSV file containing your invoice data</p>
           </div>
 
           {/* Drop Zone */}
@@ -555,8 +555,8 @@ function InvoicesImport() {
               style={{ display: "none" }}
             />
             <FileSpreadsheet style={{ width: "48px", height: "48px", color: "#9ca3af", margin: "0 auto 1rem" }} />
-            <p style={{ color: "#6b7280", marginBottom: "0.5rem" }}>
-              <span style={{ color: "#3b82f6", fontWeight: "500" }}>Click to upload</span> or drag and drop
+            <p style={{ color: "#4b5563", marginBottom: "0.5rem" }}>
+              <span style={{ color: "#e8890b", fontWeight: "500" }}>Click to upload</span> or drag and drop
             </p>
             <p style={{ fontSize: "0.875rem", color: "#9ca3af" }}>CSV files only</p>
           </div>
@@ -564,8 +564,8 @@ function InvoicesImport() {
           {/* Template Download */}
           <div style={styles.templateSection}>
             <div>
-              <h3 style={{ fontWeight: "500", color: "#111827", marginBottom: "0.25rem" }}>Need a template?</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+              <h3 style={{ fontWeight: "500", color: "#1a1a1a", marginBottom: "0.25rem" }}>Need a template?</h3>
+              <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                 Download our CSV template to format your data correctly
               </p>
             </div>
@@ -573,8 +573,8 @@ function InvoicesImport() {
               onClick={handleDownloadTemplate}
               style={{
                 ...styles.btnSecondary,
-                color: "#3b82f6",
-                borderColor: "#3b82f6",
+                color: "#e8890b",
+                borderColor: "#e8890b",
               }}
             >
               <Download style={{ width: "16px", height: "16px" }} />
@@ -603,8 +603,8 @@ function InvoicesImport() {
               <CheckCircle style={{ width: "24px", height: "24px", color: "#22c55e" }} />
             </div>
             <div style={{ flex: 1 }}>
-              <h3 style={{ fontWeight: "500", color: "#111827" }}>{file?.name}</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+              <h3 style={{ fontWeight: "500", color: "#1a1a1a" }}>{file?.name}</h3>
+              <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                 {csvData.length} rows found • {csvColumns.length} columns detected
               </p>
             </div>
@@ -618,12 +618,12 @@ function InvoicesImport() {
             <div style={{ marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <h3 style={{ fontWeight: "600", color: "#111827" }}>Map Columns</h3>
-                  <p style={{ fontSize: "0.875rem", color: "#6b7280", marginTop: "0.25rem" }}>
+                  <h3 style={{ fontWeight: "600", color: "#1a1a1a" }}>Map Columns</h3>
+                  <p style={{ fontSize: "0.875rem", color: "#4b5563", marginTop: "0.25rem" }}>
                     Match your CSV columns to invoice fields. We've auto-matched what we could.
                   </p>
                 </div>
-                <span style={{ fontSize: "0.875rem", color: "#6b7280" }}>
+                <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                   {getMappingStats().mapped} of {csvColumns.length} columns mapped
                 </span>
               </div>
@@ -687,7 +687,7 @@ function InvoicesImport() {
 
           {/* Preview */}
           <div style={{ ...styles.card, marginTop: "1.5rem" }}>
-            <h3 style={{ fontWeight: "600", color: "#111827", marginBottom: "1rem" }}>Preview (First 5 rows)</h3>
+            <h3 style={{ fontWeight: "600", color: "#1a1a1a", marginBottom: "1rem" }}>Preview (First 5 rows)</h3>
             <div style={{ overflowX: "auto" }}>
               <table style={styles.previewTable}>
                 <thead>
@@ -770,10 +770,10 @@ function InvoicesImport() {
             >
               <CheckCircle style={{ width: "32px", height: "32px", color: "#22c55e" }} />
             </div>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#111827", marginBottom: "0.5rem" }}>
+            <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#1a1a1a", marginBottom: "0.5rem" }}>
               Import Complete!
             </h2>
-            <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>{importResult.message}</p>
+            <p style={{ color: "#4b5563", marginBottom: "1.5rem" }}>{importResult.message}</p>
 
             {importResult.errors && importResult.errors.length > 0 && (
               <div

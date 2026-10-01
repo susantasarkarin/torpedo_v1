@@ -5,7 +5,7 @@
   right: 0;
   width: 250px;
   height: calc(100vh - 90px);
-  background: #1f2937;
+  background: #1a1a1a;
   color: white;
   padding: 20px 15px;
   box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
@@ -54,7 +54,7 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  font-family: var(--cx-font);
 }
 
 /* Icon styling */
@@ -95,7 +95,7 @@
 
 .dropdown-arrow.rotated {
   transform: rotate(180deg);
-  color: #f47c20;
+  color: #e8890b;
 }
 
 /* Campaign Submenu */
@@ -166,16 +166,16 @@
 
 /* AI Leads Link - Special styling */
 .ai-leads-link {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.15));
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(232, 137, 11, 0.15));
   border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
 .ai-leads-link:hover {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(99, 102, 241, 0.25));
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(232, 137, 11, 0.25));
   border-color: rgba(139, 92, 246, 0.5);
 }
 
 .sidebar-item.active .ai-leads-link {
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #8b5cf6, #e8890b);
   border-color: #8b5cf6;
 }

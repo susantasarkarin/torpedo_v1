@@ -36,12 +36,12 @@ const styles = {
   title: {
     fontSize: "20px",
     fontWeight: "700",
-    color: "#1e293b",
+    color: "#1a1a1a",
     margin: 0
   },
   subtitle: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "#4b5563",
     marginTop: "2px"
   },
   controls: {
@@ -136,7 +136,7 @@ const styles = {
     gap: "6px",
     fontSize: "13px",
     fontWeight: "600",
-    color: "#1e293b",
+    color: "#1a1a1a",
     margin: 0
   },
   cardContent: {
@@ -157,13 +157,13 @@ const styles = {
   kpiLabel: {
     fontSize: "11px",
     fontWeight: "500",
-    color: "#64748b",
+    color: "#4b5563",
     margin: 0
   },
   kpiValue: {
     fontSize: "20px",
     fontWeight: "700",
-    color: "#1e293b",
+    color: "#1a1a1a",
     marginTop: "4px"
   },
   kpiSubtitle: {
@@ -232,7 +232,7 @@ const styles = {
   velocityValue: {
     fontSize: "18px",
     fontWeight: "700",
-    color: "#1e293b",
+    color: "#1a1a1a",
     marginTop: "2px"
   },
   velocityTarget: {
@@ -268,7 +268,7 @@ const styles = {
   },
   agingAmount: {
     fontSize: "10px",
-    color: "#64748b"
+    color: "#4b5563"
   },
   // Forecast
   forecastRow: {
@@ -283,7 +283,7 @@ const styles = {
   },
   forecastLabel: {
     fontSize: "10px",
-    color: "#64748b",
+    color: "#4b5563",
     textTransform: "uppercase"
   },
   forecastValue: {
@@ -334,7 +334,7 @@ const formatCurrency = (amount) => {
 
 const formatPercent = (value) => `${(value || 0).toFixed(1)}%`
 
-const funnelColors = ["#3b82f6", "#6366f1", "#8b5cf6", "#d946ef", "#22c55e"]
+const funnelColors = ["#e8890b", "#e8890b", "#8b5cf6", "#d946ef", "#22c55e"]
 
 // ============== COMPONENTS ==============
 
@@ -371,7 +371,7 @@ function CompactFunnel({ funnel }) {
           <Target size={14} style={{ color: "#f97316" }} />
           Sales Funnel
         </h3>
-        <span style={{ fontSize: "11px", color: "#64748b" }}>
+        <span style={{ fontSize: "11px", color: "#4b5563" }}>
           E2E: <strong style={{ color: funnel.end_to_end_rate > 1 ? "#16a34a" : "#dc2626" }}>
             {formatPercent(funnel.end_to_end_rate)}
           </strong>
@@ -477,7 +477,7 @@ function RFQAgingSection({ aging }) {
           <AlertTriangle size={14} style={{ color: "#f97316" }} />
           RFQ Aging
         </h3>
-        <span style={{ fontSize: "11px", color: "#64748b" }}>{totalCount} open</span>
+        <span style={{ fontSize: "11px", color: "#4b5563" }}>{totalCount} open</span>
       </div>
       <div style={styles.cardContent}>
         <div style={styles.agingGrid}>
@@ -491,7 +491,7 @@ function RFQAgingSection({ aging }) {
                 <div style={{ ...styles.agingLabel, color: isRisk ? "#dc2626" : "#475569" }}>
                   {bucket.bucket}d
                 </div>
-                <div style={{ ...styles.agingValue, color: isRisk ? "#dc2626" : "#1e293b" }}>
+                <div style={{ ...styles.agingValue, color: isRisk ? "#dc2626" : "#1a1a1a" }}>
                   {bucket.count}
                 </div>
                 <div style={styles.agingAmount}>{formatCurrency(bucket.total_value)}</div>
@@ -528,7 +528,7 @@ function ForecastSection({ forecast }) {
       <div style={styles.cardContent}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "11px" }}>
           <span style={{ color: "#475569" }}>Attainment</span>
-          <span style={{ fontWeight: "600", color: "#1e293b" }}>{formatPercent(forecast.attainment_percent)}</span>
+          <span style={{ fontWeight: "600", color: "#1a1a1a" }}>{formatPercent(forecast.attainment_percent)}</span>
         </div>
         <div style={styles.progressBar}>
           <div style={{
@@ -540,15 +540,15 @@ function ForecastSection({ forecast }) {
         <div style={styles.forecastRow}>
           <div style={{ ...styles.forecastCard, backgroundColor: "#f8fafc" }}>
             <div style={styles.forecastLabel}>Target</div>
-            <div style={{ ...styles.forecastValue, color: "#1e293b" }}>{formatCurrency(forecast.target)}</div>
+            <div style={{ ...styles.forecastValue, color: "#1a1a1a" }}>{formatCurrency(forecast.target)}</div>
           </div>
           <div style={{ ...styles.forecastCard, backgroundColor: "#dcfce7" }}>
             <div style={styles.forecastLabel}>Actual</div>
             <div style={{ ...styles.forecastValue, color: "#16a34a" }}>{formatCurrency(forecast.actual)}</div>
           </div>
-          <div style={{ ...styles.forecastCard, backgroundColor: "#dbeafe" }}>
+          <div style={{ ...styles.forecastCard, backgroundColor: "#fff7ed" }}>
             <div style={styles.forecastLabel}>Forecast</div>
-            <div style={{ ...styles.forecastValue, color: "#2563eb" }}>{formatCurrency(forecast.forecast)}</div>
+            <div style={{ ...styles.forecastValue, color: "#e8890b" }}>{formatCurrency(forecast.forecast)}</div>
           </div>
           <div style={{ ...styles.forecastCard, backgroundColor: forecast.gap_to_target > 0 ? "#fee2e2" : "#dcfce7" }}>
             <div style={styles.forecastLabel}>Gap</div>
@@ -603,7 +603,7 @@ export default function SalesDashboard() {
       <div style={styles.page}>
         <div style={styles.loading}>
           <RefreshCw size={20} style={{ color: "#f97316" }} />
-          <span style={{ marginLeft: "8px", color: "#64748b", fontSize: "13px" }}>Loading...</span>
+          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "13px" }}>Loading...</span>
         </div>
       </div>
     )
@@ -614,8 +614,8 @@ export default function SalesDashboard() {
       <div style={styles.page}>
         <div style={{ ...styles.card, ...styles.errorCard }}>
           <XCircle size={40} style={{ color: "#ef4444", marginBottom: "12px" }} />
-          <h3 style={{ color: "#1e293b", marginBottom: "8px", fontSize: "16px" }}>Failed to load</h3>
-          <p style={{ color: "#64748b", marginBottom: "12px", fontSize: "13px" }}>{error}</p>
+          <h3 style={{ color: "#1a1a1a", marginBottom: "8px", fontSize: "16px" }}>Failed to load</h3>
+          <p style={{ color: "#4b5563", marginBottom: "12px", fontSize: "13px" }}>{error}</p>
           <button style={styles.refreshBtn} onClick={fetchDashboard}>
             <RefreshCw size={14} /> Retry
           </button>

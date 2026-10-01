@@ -607,10 +607,10 @@ function EstimatesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading estimates...</p>
+            <p style={{ color: "#4b5563" }}>Loading estimates...</p>
           </div>
         </div>
       ) : (
@@ -1019,13 +1019,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1099,7 +1099,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -1121,7 +1121,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -1130,7 +1130,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   estimateNo: {
     fontWeight: "600",
@@ -1148,11 +1148,11 @@ const styles = {
   },
   statusDraft: {
     backgroundColor: "#e5e7eb",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   statusSent: {
-    backgroundColor: "#dbeafe",
-    color: "#1e40af",
+    backgroundColor: "#fff7ed",
+    color: "#c47209",
   },
   statusAccepted: {
     backgroundColor: "#d1fae5",
@@ -1168,7 +1168,7 @@ const styles = {
   },
   statusDefault: {
     backgroundColor: "#e5e7eb",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   currencyBadge: {
     backgroundColor: "#ecfdf5",
@@ -1184,7 +1184,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1195,7 +1195,7 @@ const styles = {
   },
   btnView: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1233,7 +1233,7 @@ const styles = {
   },
   paginationBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1249,7 +1249,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
     minWidth: "150px",
     textAlign: "center",
   },
@@ -1322,7 +1322,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -1355,7 +1355,7 @@ const styles = {
     justifyContent: "space-between",
     marginBottom: "0.5rem",
     fontSize: "0.95rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   totalFinal: {
     fontSize: "1.2rem",
@@ -1373,7 +1373,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1383,7 +1383,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

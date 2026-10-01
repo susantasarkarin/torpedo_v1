@@ -21,14 +21,14 @@
 }
 
 .page-header h1 {
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 4px;
 }
 
 .page-header p {
-  color: #64748b;
+  color: #4b5563;
   margin: 0;
   font-size: 0.875rem;
 }
@@ -49,19 +49,19 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #e8890b 100%);
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #fb9f1a 0%, #e8890b 100%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.4);
 }
 
 .btn-secondary {
   background: #fff;
-  color: #374151;
+  color: #4a4a4a;
   border: 1px solid #e5e7eb;
 }
 
@@ -84,12 +84,12 @@
   border-radius: 4px;
   transition: background 0.2s;
   text-decoration: none;
-  color: #64748b;
+  color: #4b5563;
 }
 
 .btn-icon:hover {
   background: #f1f5f9;
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 .btn-icon.danger:hover {
@@ -114,7 +114,7 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 0.875rem;
 }
 
@@ -124,8 +124,8 @@
 
 .search-input:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .filter-select {
@@ -133,18 +133,18 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 0.875rem;
   cursor: pointer;
 }
 
 .filter-select option {
   background: #fff;
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 .results-count {
-  color: #64748b;
+  color: #4b5563;
   font-size: 0.875rem;
   margin-left: auto;
 }
@@ -177,7 +177,7 @@
 
 .data-table td {
   padding: 0.75rem 1rem;
-  color: #374151;
+  color: #4a4a4a;
   font-size: 0.9375rem;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
@@ -196,11 +196,11 @@
 }
 
 .data-table code {
-  background: #eef2ff;
+  background: #fff7ed;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 0.75rem;
-  color: #4f46e5;
+  color: #e8890b;
 }
 
 .customer-name,
@@ -213,7 +213,7 @@
 .avatar {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #e8890b, #e8890b);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -235,13 +235,13 @@
 .empty-state {
   text-align: center;
   padding: 48px !important;
-  color: #64748b !important;
+  color: #4b5563 !important;
 }
 
 .loading-state {
   text-align: center;
   padding: 48px;
-  color: #64748b;
+  color: #4b5563;
 }
 
 /* Badges */
@@ -270,18 +270,18 @@
 }
 
 .badge.info {
-  background: #dbeafe;
-  color: #2563eb;
+  background: #fff7ed;
+  color: #e8890b;
 }
 
 .badge.secondary {
   background: #f3f4f6;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .badge.goods {
-  background: #eef2ff;
-  color: #4f46e5;
+  background: #fff7ed;
+  color: #e8890b;
 }
 
 .badge.service {
@@ -355,7 +355,7 @@
 }
 
 .modal-header h2 {
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 1.25rem;
   margin: 0;
 }
@@ -370,7 +370,7 @@
 }
 
 .close-btn:hover {
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 .modal-content form {
@@ -378,7 +378,7 @@
 }
 
 .modal-content h3 {
-  color: #64748b;
+  color: #4b5563;
   font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -420,7 +420,7 @@
 }
 
 .form-group label {
-  color: #374151;
+  color: #4a4a4a;
   font-size: 0.8rem;
   font-weight: 500;
 }
@@ -432,7 +432,7 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 0.875rem;
   transition: all 0.2s;
 }
@@ -441,8 +441,8 @@
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
 .form-group select option {
@@ -476,7 +476,7 @@
   background: #f8fafc;
   padding: 10px;
   text-align: left;
-  color: #64748b;
+  color: #4b5563;
   font-size: 0.7rem;
   text-transform: uppercase;
   font-weight: 600;
@@ -494,7 +494,7 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  color: #1e293b;
+  color: #1a1a1a;
   font-size: 0.875rem;
 }
 
@@ -517,7 +517,7 @@
   display: flex;
   justify-content: space-between;
   padding: 8px 0;
-  color: #64748b;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -527,7 +527,7 @@
   padding-top: 12px;
   font-weight: 700;
   font-size: 1rem;
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 /* Invoice Number */
@@ -560,7 +560,7 @@
 
 .payment-summary .summary-label {
   display: block;
-  color: #64748b;
+  color: #4b5563;
   font-size: 0.75rem;
   text-transform: uppercase;
   margin-bottom: 4px;
@@ -571,7 +571,7 @@
   font-size: 1.5rem;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 .payment-summary .summary-value.positive {
@@ -594,7 +594,7 @@
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  color: #64748b;
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.2s;
   font-size: 0.875rem;
@@ -603,19 +603,19 @@
 
 .tab-btn:hover {
   background: #f9fafb;
-  color: #1e293b;
+  color: #1a1a1a;
 }
 
 .tab-btn.active {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #e8890b 100%);
   color: #fff;
   border-color: transparent;
 }
 
 /* Payment Method Tag */
 .payment-method {
-  background: #eef2ff;
-  color: #4f46e5;
+  background: #fff7ed;
+  color: #e8890b;
   padding: 4px 10px;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -632,7 +632,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #374151;
+  color: #4a4a4a;
   cursor: pointer;
   font-size: 0.875rem;
 }
@@ -640,7 +640,7 @@
 .radio-label input[type="radio"] {
   width: 16px;
   height: 16px;
-  accent-color: #6366f1;
+  accent-color: #e8890b;
 }
 
 /* Amount Colors in Table */

@@ -7,7 +7,7 @@
   max-width: 1280px;
   margin: 0 auto;
   padding: 1.25rem 1.5rem;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--cx-font);
   -webkit-font-smoothing: antialiased;
   color: #1a1a2e;
 }
@@ -36,7 +36,7 @@
 .qre-page-subtitle {
   margin: 0;
   font-size: 0.82rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 .qre-header-actions {
   display: flex;
@@ -59,17 +59,17 @@
   background: none;
   font-size: 0.83rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
-.qre-tab-btn:hover { color: #374151; }
+.qre-tab-btn:hover { color: #4a4a4a; }
 .qre-tab-btn.active {
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: #e8890b;
+  border-bottom-color: #e8890b;
 }
 
 /* ---- Buttons ---- */
@@ -78,7 +78,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.5rem 1rem;
-  background: #667eea;
+  background: #e8890b;
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -95,8 +95,8 @@
 }
 .qre-btn-outline {
   background: transparent;
-  color: #667eea;
-  border: 1.5px solid #667eea;
+  color: #e8890b;
+  border: 1.5px solid #e8890b;
 }
 .qre-btn-outline:hover { background: #f0f0ff; }
 .qre-btn-danger {
@@ -114,7 +114,7 @@
 }
 .qre-btn-success:hover { background: #15803d; }
 .qre-btn-secondary {
-  background: #6b7280;
+  background: #4b5563;
 }
 .qre-btn-secondary:hover { background: #4b5563; }
 
@@ -131,7 +131,7 @@
 .qre-badge-live { background: #d1fae5; color: #065f46; }
 .qre-badge-draft { background: #fef3c7; color: #92400e; }
 .qre-badge-paused { background: #fee2e2; color: #991b1b; }
-.qre-badge-closed { background: #e5e7eb; color: #374151; }
+.qre-badge-closed { background: #e5e7eb; color: #4a4a4a; }
 
 /* ---- Toast ---- */
 .qre-toast {
@@ -175,13 +175,13 @@
 }
 .qre-kpi-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-top: 0.25rem;
   font-weight: 500;
 }
 .qre-kpi-success .qre-kpi-value { color: #16a34a; }
 .qre-kpi-danger .qre-kpi-value { color: #dc2626; }
-.qre-kpi-info .qre-kpi-value { color: #667eea; }
+.qre-kpi-info .qre-kpi-value { color: #e8890b; }
 
 /* ---- Quota Bars ---- */
 .qre-quota-group {
@@ -192,7 +192,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 0.55rem;
   padding-bottom: 0.3rem;
   border-bottom: 1px solid #f3f4f6;
@@ -215,7 +215,7 @@
   margin-bottom: 0.45rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
 }
 .qre-quota-full-label { color: #dc2626; }
 .qre-quota-track {
@@ -231,7 +231,7 @@
 }
 .qre-quota-pct {
   font-size: 0.72rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-top: 0.3rem;
   text-align: right;
 }
@@ -253,7 +253,7 @@
 }
 .qre-section-desc {
   font-size: 0.82rem;
-  color: #6b7280;
+  color: #4b5563;
   margin: 0 0 1rem;
 }
 
@@ -271,14 +271,14 @@
   padding: 0.55rem 0.85rem;
   text-align: left;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   border-bottom: 1px solid #e5e7eb;
   white-space: nowrap;
 }
 .qre-table td {
   padding: 0.65rem 0.85rem;
   border-bottom: 1px solid #f3f4f6;
-  color: #374151;
+  color: #4a4a4a;
   vertical-align: middle;
 }
 .qre-table tbody tr:hover { background: #f9fafb; }
@@ -295,7 +295,7 @@
   display: block;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.3rem;
 }
 .qre-input,
@@ -315,8 +315,8 @@
 .qre-select:focus,
 .qre-textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102,126,234,0.12);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 3px rgba(232, 137, 11,0.12);
 }
 .qre-input-sm {
   width: 90px;
@@ -374,11 +374,11 @@
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.qre-export-card:hover { border-color: #667eea; background: #f0f0ff; }
-.qre-export-card.qre-export-loading { opacity: 0.6; cursor: wait; pointer-events: none; border-style: solid; border-color: #667eea; }
+.qre-export-card:hover { border-color: #e8890b; background: #f0f0ff; }
+.qre-export-card.qre-export-loading { opacity: 0.6; cursor: wait; pointer-events: none; border-style: solid; border-color: #e8890b; }
 .qre-export-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .qre-export-title { font-size: 0.9rem; font-weight: 700; color: #1a1a2e; }
-.qre-export-desc { font-size: 0.78rem; color: #6b7280; margin-top: 0.3rem; }
+.qre-export-desc { font-size: 0.78rem; color: #4b5563; margin-top: 0.3rem; }
 
 /* ---- Over-quota action panel ---- */
 .qre-overquota-action {
@@ -416,7 +416,7 @@
 .qre-study-selector label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   white-space: nowrap;
 }
 .qre-study-select {
@@ -435,17 +435,17 @@
 .qre-empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 .qre-empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
-.qre-empty-title { font-size: 1rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; }
+.qre-empty-title { font-size: 1rem; font-weight: 600; color: #4a4a4a; margin-bottom: 0.35rem; }
 .qre-empty-desc { font-size: 0.82rem; }
 
 /* ---- Loading / Error ---- */
 .qre-loading {
   text-align: center;
   padding: 3rem 1rem;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.9rem;
 }
 .qre-error-banner {
@@ -469,7 +469,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.78rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 0.35rem;
   font-weight: 500;
 }
@@ -481,7 +481,7 @@
 }
 .qre-fieldwork-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #667eea, #764ba2);
+  background: linear-gradient(90deg, #e8890b, #c47209);
   border-radius: 999px;
   transition: width 0.4s ease;
 }
@@ -507,13 +507,13 @@
 }
 .qre-daily-count {
   font-size: 0.65rem;
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 600;
   margin-bottom: 2px;
 }
 .qre-daily-bar {
   width: 20px;
-  background: #667eea;
+  background: #e8890b;
   border-radius: 3px 3px 0 0;
   min-height: 4px;
   transition: height 0.3s;
@@ -552,16 +552,16 @@
   background: none;
   font-size: 0.83rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   transition: color 0.15s, border-color 0.15s;
 }
-.ms-mode-tab:hover { color: #374151; }
+.ms-mode-tab:hover { color: #4a4a4a; }
 .ms-mode-tab.active {
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: #e8890b;
+  border-bottom-color: #e8890b;
 }
 
 /* ---- Form root ---- */
@@ -625,7 +625,7 @@
 .ms-section-score {
   font-size: 0.82rem;
   font-weight: 700;
-  color: #667eea;
+  color: #e8890b;
   background: #f0f0ff;
   padding: 0.2rem 0.6rem;
   border-radius: 20px;
@@ -642,7 +642,7 @@
   padding: 0.45rem 0.75rem;
   text-align: left;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -652,7 +652,7 @@
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
-  color: #374151;
+  color: #4a4a4a;
 }
 .ms-param-table tr:last-child td { border-bottom: none; }
 .ms-row-answered { background: #fafbff; }
@@ -680,7 +680,7 @@
   border-radius: 5px;
   cursor: pointer;
   transition: background 0.1s;
-  color: #374151;
+  color: #4a4a4a;
   border: 1.5px solid transparent;
 }
 .ms-radio-label:hover { background: #f3f4f6; }
@@ -716,7 +716,7 @@
   border-radius: 6px;
   font-size: 0.78rem;
   font-family: inherit;
-  color: #374151;
+  color: #4a4a4a;
   resize: vertical;
   min-height: 48px;
   transition: border-color 0.15s;
@@ -724,7 +724,7 @@
 }
 .ms-remarks-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #e8890b;
 }
 .ms-remarks-input:disabled { background: #f9fafb; color: #9ca3af; }
 
@@ -818,7 +818,7 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.ms-type-qre { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.ms-type-qre { background: #fff7ed; color: #c47209; border: 1px solid #fde68a; }
 .ms-type-ms  { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
 
 /* ---- Live Link card ---- */
@@ -850,12 +850,12 @@
   background: #f3f4f6;
   padding: 2px 7px;
   border-radius: 5px;
-  color: #374151;
+  color: #4a4a4a;
   user-select: all;
 }
 .ms-live-link-instructions {
-  background: #f0f9ff;
-  border: 1.5px solid #bae6fd;
+  background: #fff7ed;
+  border: 1.5px solid #fde68a;
   border-radius: 8px;
   padding: 1rem 1.25rem;
 }

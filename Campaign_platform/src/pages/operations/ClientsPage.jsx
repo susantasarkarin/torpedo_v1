@@ -444,8 +444,8 @@ function ClientsPage() {
                         alignItems: 'center',
                         gap: '4px',
                         padding: '4px 8px',
-                        background: '#e0f2fe',
-                        color: '#0369a1',
+                        background: '#fff7ed',
+                        color: '#c47209',
                         borderRadius: '12px',
                         fontSize: '12px',
                         fontWeight: '500',
@@ -686,13 +686,13 @@ const styles = {
     color: '#1a1a1a',
   },
   subtitle: {
-    color: '#6b7280',
+    color: '#4b5563',
     margin: '0',
     fontSize: '0.95rem',
   },
   btnPrimary: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -739,7 +739,7 @@ const styles = {
     display: 'flex',
     gap: '2rem',
     fontSize: '0.9rem',
-    color: '#6b7280',
+    color: '#4b5563',
   },
   tableContainer: {
     backgroundColor: 'white',
@@ -761,7 +761,7 @@ const styles = {
     fontSize: '0.75rem',
     fontWeight: '600',
     textTransform: 'uppercase',
-    color: '#6b7280',
+    color: '#4b5563',
     letterSpacing: '0.05em',
   },
   tr: {
@@ -771,7 +771,7 @@ const styles = {
   td: {
     padding: '1rem',
     fontSize: '0.9rem',
-    color: '#374151',
+    color: '#4a4a4a',
   },
   clientNo: {
     fontWeight: '600',
@@ -793,7 +793,7 @@ const styles = {
   },
   statusInactive: {
     backgroundColor: '#e5e7eb',
-    color: '#6b7280',
+    color: '#4b5563',
   },
   linkSelect: {
     padding: '0.4rem 0.6rem',
@@ -803,7 +803,7 @@ const styles = {
     backgroundColor: 'white',
     cursor: 'pointer',
     minWidth: '160px',
-    color: '#374151',
+    color: '#4a4a4a',
   },
   actionButtons: {
     display: 'flex',
@@ -811,7 +811,7 @@ const styles = {
   },
   btnEdit: {
     padding: '0.5rem 0.75rem',
-    backgroundColor: '#6b7280',
+    backgroundColor: '#4b5563',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -903,7 +903,7 @@ const styles = {
     marginBottom: '0.5rem',
     fontSize: '0.875rem',
     fontWeight: '500',
-    color: '#374151',
+    color: '#4a4a4a',
   },
   required: {
     color: '#ef4444',
@@ -935,7 +935,7 @@ const styles = {
   },
   btnCancel: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#6b7280',
+    backgroundColor: '#4b5563',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -945,7 +945,7 @@ const styles = {
   },
   btnSave: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -966,7 +966,7 @@ const styles = {
   },
   paginationBtn: {
     padding: '0.5rem 1rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -982,7 +982,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: '0.9rem',
-    color: '#6b7280',
+    color: '#4b5563',
     minWidth: '150px',
     textAlign: 'center',
   },

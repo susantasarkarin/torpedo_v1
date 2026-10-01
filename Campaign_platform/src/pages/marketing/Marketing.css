@@ -29,7 +29,7 @@
 .stat-card-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
@@ -38,7 +38,7 @@
 .stat-card-value {
   font-size: 2rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #1a1a1a;
 }
 
 /* Input */
@@ -48,7 +48,7 @@
   border: 1px solid #d1d5db;
   border-radius: 8px;
   font-size: 0.9rem;
-  color: #1f2937;
+  color: #1a1a1a;
   background: #fff;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
@@ -56,7 +56,7 @@
 
 .marketing-dashboard .input:focus {
   outline: none;
-  border-color: #f47c20;
+  border-color: #e8890b;
   box-shadow: 0 0 0 3px rgba(244, 124, 32, 0.12);
 }
 
@@ -72,7 +72,7 @@
 }
 
 .marketing-dashboard .table thead tr {
-  background: #1f2937;
+  background: #1a1a1a;
   color: white;
 }
 
@@ -88,7 +88,7 @@
 .marketing-dashboard .table td {
   padding: 0.875rem 1rem;
   border-bottom: 1px solid #f1f5f9;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .marketing-dashboard .table tbody tr:hover {
@@ -141,7 +141,7 @@
 
 .website-domain {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .website-status {
@@ -183,7 +183,7 @@
   font-weight: 500;
   border: 1px solid #e5e7eb;
   background: white;
-  color: #374151;
+  color: #4a4a4a;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -194,13 +194,13 @@
 }
 
 .website-action-btn.primary {
-  background: #3b82f6;
-  border-color: #3b82f6;
+  background: #e8890b;
+  border-color: #e8890b;
   color: white;
 }
 
 .website-action-btn.primary:hover {
-  background: #2563eb;
+  background: #e8890b;
 }
 
 /* Page Editor */
@@ -247,13 +247,13 @@
 }
 
 .section-item:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: #e8890b;
+  background: #fff7ed;
 }
 
 .section-item.active {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: #e8890b;
+  background: #fff7ed;
 }
 
 /* Section Types */
@@ -277,20 +277,20 @@
 }
 
 .section-type-btn:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: #e8890b;
+  background: #fff7ed;
 }
 
 .section-type-btn svg {
   width: 24px;
   height: 24px;
   margin-bottom: 0.5rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .section-type-btn span {
   font-size: 0.75rem;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 /* Canvas Section */
@@ -304,12 +304,12 @@
 }
 
 .canvas-section:hover {
-  border-color: #3b82f6;
+  border-color: #e8890b;
 }
 
 .canvas-section.selected {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  border-color: #e8890b;
+  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.2);
 }
 
 .section-toolbar {
@@ -375,7 +375,7 @@
 
 .blog-item-content p {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 0.5rem;
 }
 
@@ -440,7 +440,7 @@
 
 .stat-card-label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 0.5rem;
 }
 
@@ -486,13 +486,13 @@
 .empty-state h3 {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.5rem;
 }
 
 .empty-state p {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 1rem;
 }
 

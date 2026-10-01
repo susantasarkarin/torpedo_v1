@@ -30,7 +30,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -91,7 +91,7 @@
   gap: 12px;
   padding: 12px 20px;
   text-decoration: none;
-  color: #2d3748;
+  color: #1a1a1a;
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s ease;
@@ -104,7 +104,7 @@
 
 .profile-menu-item:hover {
   background: #f7fafc;
-  color: #667eea;
+  color: #e8890b;
 }
 
 .profile-menu-item:active {
@@ -167,11 +167,11 @@
 
 /* Focus states for accessibility */
 .profile-button:focus {
-  outline: 2px solid #667eea;
+  outline: 2px solid #e8890b;
   outline-offset: 2px;
 }
 
 .profile-menu-item:focus {
-  outline: 2px solid #667eea;
+  outline: 2px solid #e8890b;
   outline-offset: -2px;
 }

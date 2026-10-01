@@ -28,7 +28,7 @@ thead tr {
 thead th {
   padding: 0.75rem 1rem !important;
   font-weight: 600 !important;
-  color: #6b7280 !important;
+  color: #4b5563 !important;
   text-align: left !important;
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -48,7 +48,7 @@ tbody tr:hover {
 
 tbody td {
   padding: 0.75rem 1rem !important;
-  color: #374151;
+  color: #4a4a4a;
   vertical-align: middle !important;
 }
 
@@ -110,24 +110,24 @@ h1 {
 
 div[style*="header"] p,
 p {
-  color: #6b7280;
+  color: #4b5563;
   margin: 0;
   font-size: 0.95rem;
 }
 
 /* Primary button */
-button[style*="backgroundColor: #0d6efd"] {
+button[style*="backgroundColor: #e8890b"] {
   border-radius: 6px !important;
   transition: all 0.2s ease !important;
   font-weight: 500 !important;
 }
 
-button[style*="backgroundColor: #0d6efd"]:hover {
-  box-shadow: 0 2px 4px rgba(13, 110, 253, 0.3) !important;
+button[style*="backgroundColor: #e8890b"]:hover {
+  box-shadow: 0 2px 4px rgba(232, 137, 11, 0.3) !important;
 }
 
 /* Action buttons */
-button[style*="backgroundColor: #6b7280"],
+button[style*="backgroundColor: #4b5563"],
 button[style*="backgroundColor: #ef4444"] {
   border-radius: 4px !important;
   transition: all 0.2s ease !important;

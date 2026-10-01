@@ -259,7 +259,7 @@ function BillsPage() {
       color: "#1a1a1a",
     },
     subtitle: {
-      color: "#6b7280",
+      color: "#4b5563",
       margin: "0",
       fontSize: "0.95rem",
     },
@@ -305,7 +305,7 @@ function BillsPage() {
       display: "flex",
       gap: "2rem",
       fontSize: "0.9rem",
-      color: "#6b7280",
+      color: "#4b5563",
     },
     tableContainer: {
       backgroundColor: "white",
@@ -327,7 +327,7 @@ function BillsPage() {
       fontSize: "0.75rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      color: "#6b7280",
+      color: "#4b5563",
       letterSpacing: "0.05em",
     },
     tr: {
@@ -337,7 +337,7 @@ function BillsPage() {
     td: {
       padding: "1rem",
       fontSize: "0.9rem",
-      color: "#374151",
+      color: "#4a4a4a",
     },
     badgeGreen: {
       display: "inline-block",
@@ -376,8 +376,8 @@ function BillsPage() {
       fontSize: "0.8rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      backgroundColor: "#dbeafe",
-      color: "#1e40af",
+      backgroundColor: "#fff7ed",
+      color: "#c47209",
     },
     actionButtons: {
       display: "flex",
@@ -386,7 +386,7 @@ function BillsPage() {
     btnIcon: {
       padding: "0.5rem",
       backgroundColor: "transparent",
-      color: "#6b7280",
+      color: "#4b5563",
       border: "none",
       borderRadius: "0.375rem",
       cursor: "pointer",
@@ -395,7 +395,7 @@ function BillsPage() {
     },
     btnEdit: {
       padding: "0.5rem 0.75rem",
-      backgroundColor: "#6b7280",
+      backgroundColor: "#4b5563",
       color: "white",
       border: "none",
       borderRadius: "0.375rem",
@@ -422,7 +422,7 @@ function BillsPage() {
     },
     paginationBtn: {
       padding: "0.5rem 1rem",
-      backgroundColor: "#0d6efd",
+      backgroundColor: "#e8890b",
       color: "white",
       border: "none",
       borderRadius: "0.375rem",
@@ -438,7 +438,7 @@ function BillsPage() {
     },
     pageInfo: {
       fontSize: "0.9rem",
-      color: "#6b7280",
+      color: "#4b5563",
       minWidth: "150px",
       textAlign: "center",
     },
@@ -519,7 +519,7 @@ function BillsPage() {
       marginBottom: "0.5rem",
       fontSize: "0.875rem",
       fontWeight: "500",
-      color: "#374151",
+      color: "#4a4a4a",
     },
     required: {
       color: "#ef4444",
@@ -556,7 +556,7 @@ function BillsPage() {
       fontSize: "0.8rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      color: "#6b7280",
+      color: "#4b5563",
       letterSpacing: "0.05em",
     },
     lineItemsBody: {
@@ -597,7 +597,7 @@ function BillsPage() {
     },
     btnCancel: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#6b7280",
+      backgroundColor: "#4b5563",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -608,7 +608,7 @@ function BillsPage() {
     },
     btnPrimary: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#0d6efd",
+      backgroundColor: "#e8890b",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -729,10 +729,10 @@ function BillsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading bills...</p>
+            <p style={{ color: "#4b5563" }}>Loading bills...</p>
           </div>
         </div>
       ) : (
@@ -773,7 +773,7 @@ function BillsPage() {
                   <td
                     style={{
                       ...styles.td,
-                      color: bill.balance_due > 0 ? "#b45309" : "#374151",
+                      color: bill.balance_due > 0 ? "#b45309" : "#4a4a4a",
                       fontWeight: bill.balance_due > 0 ? "500" : "normal",
                     }}
                   >
@@ -969,7 +969,7 @@ function BillsPage() {
                 </div>
                 <div style={styles.totalRowBold}>
                   <span>Grand Total:</span>
-                  <span style={{ color: "#0d6efd" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
+                  <span style={{ color: "#e8890b" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
                 </div>
               </div>
             </form>

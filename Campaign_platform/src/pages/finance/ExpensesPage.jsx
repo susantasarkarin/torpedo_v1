@@ -277,7 +277,7 @@ function ExpensesPage() {
         <div style={styles.summaryCard}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280", margin: 0 }}>Total Expenses</p>
+              <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: 0 }}>Total Expenses</p>
               <p style={{ fontSize: "1.875rem", fontWeight: "700", color: "#1a1a1a", margin: "0.5rem 0 0 0" }}>
                 {formatCurrency(totalExpenses)}
               </p>
@@ -300,7 +300,7 @@ function ExpensesPage() {
         <div style={styles.summaryCard}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280", margin: 0 }}>Count</p>
+              <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: 0 }}>Count</p>
               <p style={{ fontSize: "1.875rem", fontWeight: "700", color: "#1a1a1a", margin: "0.5rem 0 0 0" }}>
                 {filteredExpenses.length}
               </p>
@@ -309,14 +309,14 @@ function ExpensesPage() {
               style={{
                 width: "48px",
                 height: "48px",
-                backgroundColor: "#dbeafe",
+                backgroundColor: "#fff7ed",
                 borderRadius: "0.5rem",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Receipt style={{ width: "24px", height: "24px", color: "#2563eb" }} />
+              <Receipt style={{ width: "24px", height: "24px", color: "#e8890b" }} />
             </div>
           </div>
         </div>
@@ -376,10 +376,10 @@ function ExpensesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading expenses...</p>
+            <p style={{ color: "#4b5563" }}>Loading expenses...</p>
           </div>
         </div>
       ) : (
@@ -556,7 +556,7 @@ function ExpensesPage() {
                     onChange={(e) => setFormData({ ...formData, is_billable: e.target.checked })}
                     style={{ width: "16px", height: "16px" }}
                   />
-                  <span style={{ fontSize: "0.875rem", color: "#374151" }}>Billable to Client</span>
+                  <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>Billable to Client</span>
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
                   <input
@@ -565,7 +565,7 @@ function ExpensesPage() {
                     onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })}
                     style={{ width: "16px", height: "16px" }}
                   />
-                  <span style={{ fontSize: "0.875rem", color: "#374151" }}>Requires Approval</span>
+                  <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>Requires Approval</span>
                 </label>
               </div>
             </form>
@@ -604,13 +604,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -688,7 +688,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -698,7 +698,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   statusBadge: {
     display: "inline-block",
@@ -722,7 +722,7 @@ const styles = {
   },
   statusDefault: {
     backgroundColor: "#e5e7eb",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   actionButtons: {
     display: "flex",
@@ -730,7 +730,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -818,7 +818,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -844,7 +844,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -854,7 +854,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

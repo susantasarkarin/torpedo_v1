@@ -28,7 +28,7 @@ function ActivityRow({ act }) {
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
           <span className="crm-mono">{act.type}</span>
-          <span style={{ fontWeight: 600, color: "#111827" }}>{act.subject || "—"}</span>
+          <span style={{ fontWeight: 600, color: "#1a1a1a" }}>{act.subject || "—"}</span>
         </div>
         {act.description && <p className="crm-muted" style={{ margin: "0.15rem 0 0" }}>{act.description}</p>}
         {act.changes && (
@@ -221,7 +221,7 @@ export default function AccountTimeline() {
               {/* ---- editable profile ---- */}
               <div style={{ borderBottom: "1px solid #f3f4f6", paddingBottom: "0.9rem", marginBottom: "1rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#111827" }}>{selected.name}</h2>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#1a1a1a" }}>{selected.name}</h2>
                   <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                     {notice && <span style={{ color: "#059669", fontSize: "0.78rem" }}>{notice}</span>}
                     <button className="crm-btn crm-btn--primary" disabled={!dirty || busy} onClick={saveAccount}>
@@ -231,7 +231,7 @@ export default function AccountTimeline() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.5rem", marginTop: "0.7rem" }}>
                   {EDIT_FIELDS.map(([f, label]) => (
-                    <label key={f} style={{ fontSize: "0.72rem", color: "#6b7280", fontWeight: 600 }}>
+                    <label key={f} style={{ fontSize: "0.72rem", color: "#4b5563", fontWeight: 600 }}>
                       {label}
                       <input style={{ ...inputStyle, marginTop: "0.15rem", fontSize: "0.8rem" }}
                         value={edit[f] || ""}
@@ -303,7 +303,7 @@ export default function AccountTimeline() {
                         <span style={{ flex: 1, textDecoration: t.status === "done" ? "line-through" : "none" }}>{t.title}</span>
                         {t.owner_id && <span className="crm-muted" style={{ fontSize: "0.72rem" }}>{t.owner_id}</span>}
                         {t.due_date && (
-                          <span style={{ fontSize: "0.72rem", color: overdue ? "#b91c1c" : "#6b7280", fontWeight: overdue ? 700 : 400 }}>
+                          <span style={{ fontSize: "0.72rem", color: overdue ? "#b91c1c" : "#4b5563", fontWeight: overdue ? 700 : 400 }}>
                             {new Date(t.due_date).toLocaleDateString()}
                           </span>
                         )}

@@ -30,8 +30,8 @@ export default function CrmNav() {
             display: "inline-flex", alignItems: "center", gap: "0.35rem",
             padding: "0.4rem 0.75rem", borderRadius: "0.4rem",
             fontSize: "0.85rem", fontWeight: 600, textDecoration: "none",
-            color: isActive ? "#1d4ed8" : "#6b7280",
-            background: isActive ? "#eff6ff" : "transparent",
+            color: isActive ? "#c47209" : "#4b5563",
+            background: isActive ? "#fff7ed" : "transparent",
           })}>
           <Icon size={15} /> {label}
         </NavLink>
@@ -54,7 +54,7 @@ export function Modal({ title, onClose, children, width = 440 }) {
         boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.9rem" }}>
-          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "#111827" }}>{title}</h3>
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "#1a1a1a" }}>{title}</h3>
           <button onClick={onClose} className="crm-btn" style={{ padding: "0.2rem 0.55rem" }}>✕</button>
         </div>
         {children}
@@ -66,7 +66,7 @@ export function Modal({ title, onClose, children, width = 440 }) {
 export function Field({ label, children }) {
   return (
     <label style={{ display: "block", marginBottom: "0.7rem" }}>
-      <span style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "#6b7280", marginBottom: "0.25rem" }}>
+      <span style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "#4b5563", marginBottom: "0.25rem" }}>
         {label}
       </span>
       {children}

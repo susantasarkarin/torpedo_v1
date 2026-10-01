@@ -515,13 +515,13 @@ const styles = {
     color: '#1a1a1a',
   },
   subtitle: {
-    color: '#6b7280',
+    color: '#4b5563',
     margin: '0',
     fontSize: '0.95rem',
   },
   btnPrimary: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -568,7 +568,7 @@ const styles = {
     display: 'flex',
     gap: '2rem',
     fontSize: '0.9rem',
-    color: '#6b7280',
+    color: '#4b5563',
   },
   tableContainer: {
     backgroundColor: 'white',
@@ -590,7 +590,7 @@ const styles = {
     fontSize: '0.75rem',
     fontWeight: '600',
     textTransform: 'uppercase',
-    color: '#6b7280',
+    color: '#4b5563',
     letterSpacing: '0.05em',
   },
   tr: {
@@ -600,11 +600,11 @@ const styles = {
   td: {
     padding: '1rem',
     fontSize: '0.9rem',
-    color: '#374151',
+    color: '#4a4a4a',
   },
   vid: {
     fontWeight: '600',
-    color: '#0d6efd',
+    color: '#e8890b',
     fontFamily: 'monospace',
     fontSize: '0.95rem',
   },
@@ -622,7 +622,7 @@ const styles = {
   },
   statusInactive: {
     backgroundColor: '#e5e7eb',
-    color: '#6b7280',
+    color: '#4b5563',
   },
   typeBadge: {
     display: 'inline-block',
@@ -632,16 +632,16 @@ const styles = {
     fontWeight: '600',
   },
   typePanel: {
-    backgroundColor: '#dbeafe',
-    color: '#1e40af',
+    backgroundColor: '#fff7ed',
+    color: '#c47209',
   },
   typeAffiliate: {
     backgroundColor: '#fce7f3',
     color: '#9f1239',
   },
   typeAPI: {
-    backgroundColor: '#e0e7ff',
-    color: '#3730a3',
+    backgroundColor: '#fff7ed',
+    color: '#c47209',
   },
   actionButtons: {
     display: 'flex',
@@ -649,7 +649,7 @@ const styles = {
   },
   btnEdit: {
     padding: '0.5rem 0.75rem',
-    backgroundColor: '#6b7280',
+    backgroundColor: '#4b5563',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -752,7 +752,7 @@ const styles = {
     marginBottom: '0.5rem',
     fontSize: '0.875rem',
     fontWeight: '500',
-    color: '#374151',
+    color: '#4a4a4a',
   },
   required: {
     color: '#ef4444',
@@ -793,7 +793,7 @@ const styles = {
   },
   btnCancel: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#6b7280',
+    backgroundColor: '#4b5563',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -803,7 +803,7 @@ const styles = {
   },
   btnSave: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -824,7 +824,7 @@ const styles = {
   },
   paginationBtn: {
     padding: '0.5rem 1rem',
-    backgroundColor: '#0d6efd',
+    backgroundColor: '#e8890b',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -840,7 +840,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: '0.9rem',
-    color: '#6b7280',
+    color: '#4b5563',
     minWidth: '150px',
     textAlign: 'center',
   },

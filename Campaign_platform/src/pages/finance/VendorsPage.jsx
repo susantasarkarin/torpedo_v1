@@ -500,10 +500,10 @@ function VendorsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#0d6efd",
+                color: "#e8890b",
               }}
             />
-            <p style={{ color: "#6b7280" }}>Loading vendors...</p>
+            <p style={{ color: "#4b5563" }}>Loading vendors...</p>
           </div>
         </div>
       ) : (
@@ -571,8 +571,8 @@ function VendorsPage() {
                     {vendor.is_panel_vendor ? (
                       <span 
                         style={{
-                          backgroundColor: "#dbeafe",
-                          color: "#1e40af",
+                          backgroundColor: "#fff7ed",
+                          color: "#c47209",
                           padding: "2px 8px",
                           borderRadius: "4px",
                           fontSize: "0.75rem",
@@ -601,11 +601,11 @@ function VendorsPage() {
                         </button>
                       ) : (
                         <button 
-                          style={{ ...styles.btnEdit, backgroundColor: "#dbeafe" }}
+                          style={{ ...styles.btnEdit, backgroundColor: "#fff7ed" }}
                           onClick={() => openLinkModal(vendor)}
                           title="Link to Panel Vendor"
                         >
-                          <Link2 style={{ width: "16px", height: "16px", color: "#1e40af" }} />
+                          <Link2 style={{ width: "16px", height: "16px", color: "#c47209" }} />
                         </button>
                       )}
                       <button style={styles.btnDelete} onClick={() => handleDelete(vendor._id)}>
@@ -996,7 +996,7 @@ function VendorsPage() {
             </div>
 
             <div style={{ padding: "1.5rem" }}>
-              <p style={{ marginBottom: "1rem", color: "#374151" }}>
+              <p style={{ marginBottom: "1rem", color: "#4a4a4a" }}>
                 Link <strong>{selectedVendorForLink.name}</strong> to an Operations panel vendor.
                 This allows tracking both billing and survey routing information.
               </p>
@@ -1018,7 +1018,7 @@ function VendorsPage() {
               </div>
 
               {panelVendors.length === 0 && (
-                <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "0.5rem" }}>
+                <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "0.5rem" }}>
                   No unlinked panel vendors available. All panel vendors may already be linked.
                 </p>
               )}
@@ -1066,13 +1066,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#6b7280",
+    color: "#4b5563",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1119,7 +1119,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -1141,7 +1141,7 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#6b7280",
+    color: "#4b5563",
     letterSpacing: "0.05em",
   },
   tr: {
@@ -1150,7 +1150,7 @@ const styles = {
   td: {
     padding: "1rem",
     fontSize: "0.9rem",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   statusBadge: {
     display: "inline-block",
@@ -1166,7 +1166,7 @@ const styles = {
   },
   statusInactive: {
     backgroundColor: "#e5e7eb",
-    color: "#6b7280",
+    color: "#4b5563",
   },
   actionButtons: {
     display: "flex",
@@ -1174,7 +1174,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1220,7 +1220,7 @@ const styles = {
   },
   paginationBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1236,7 +1236,7 @@ const styles = {
   },
   pageInfo: {
     fontSize: "0.9rem",
-    color: "#6b7280",
+    color: "#4b5563",
     minWidth: "150px",
     textAlign: "center",
   },
@@ -1309,7 +1309,7 @@ const styles = {
     marginBottom: "0.5rem",
     fontSize: "0.875rem",
     fontWeight: "500",
-    color: "#374151",
+    color: "#4a4a4a",
   },
   input: {
     padding: "0.75rem",
@@ -1340,7 +1340,7 @@ const styles = {
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#6b7280",
+    backgroundColor: "#4b5563",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1350,7 +1350,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#0d6efd",
+    backgroundColor: "#e8890b",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

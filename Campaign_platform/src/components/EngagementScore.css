@@ -53,12 +53,12 @@
   font-size: 28px;
   font-weight: 700;
   line-height: 1;
-  color: #111827;
+  color: #1a1a1a;
 }
 
 .score-label {
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 500;
   margin-top: 4px;
 }
@@ -81,7 +81,7 @@
 
 .metric-label {
   font-size: 11px;
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 500;
   text-transform: uppercase;
 }
@@ -89,7 +89,7 @@
 .metric-value {
   font-size: 14px;
   font-weight: 600;
-  color: #374151;
+  color: #4a4a4a;
   margin-top: 4px;
 }
 
@@ -122,7 +122,7 @@
 }
 
 .trend-label {
-  color: #374151;
+  color: #4a4a4a;
 }
 
 @media (max-width: 640px) {

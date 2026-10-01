@@ -142,7 +142,7 @@ export function initResponses() {
 export function ratingMeta(pct) {
   if (pct === null) return { label: "—", color: "#9ca3af" };
   if (pct >= 90) return { label: "Excellent", color: "#16a34a" };
-  if (pct >= 75) return { label: "Good", color: "#2563eb" };
+  if (pct >= 75) return { label: "Good", color: "#e8890b" };
   if (pct >= 60) return { label: "Needs Improvement", color: "#f59e0b" };
   return { label: "Critical", color: "#dc2626" };
 }
@@ -288,7 +288,7 @@ export function ScoreSummary({ responses }) {
                 <td style={{ textAlign: "center" }}>{max || 185}</td>
                 <td style={{ textAlign: "center" }}>{total}</td>
                 <td style={{ textAlign: "center" }}>
-                  {pct !== null && <span style={{ color: "#a5b4fc" }}>{pct}% — {label}</span>}
+                  {pct !== null && <span style={{ color: "#fde68a" }}>{pct}% — {label}</span>}
                 </td>
               </tr>
             );
@@ -298,7 +298,7 @@ export function ScoreSummary({ responses }) {
       <div className="ms-rating-legend">
         <span style={{ color: "#16a34a" }}>90%+ Excellent</span>
         <span className="ms-legend-dot">•</span>
-        <span style={{ color: "#2563eb" }}>75–89% Good</span>
+        <span style={{ color: "#e8890b" }}>75–89% Good</span>
         <span className="ms-legend-dot">•</span>
         <span style={{ color: "#f59e0b" }}>60–74% Needs Improvement</span>
         <span className="ms-legend-dot">•</span>
@@ -505,14 +505,14 @@ function MSQuotasTab({ audit }) {
                     <div className="qre-quota-card" key={cell.label}>
                       <div className="qre-quota-header">
                         <span style={{ fontWeight: 700 }}>{cell.label}</span>
-                        <span style={{ fontWeight: 700, color: full ? "#16a34a" : "#374151" }}>
+                        <span style={{ fontWeight: 700, color: full ? "#16a34a" : "#4a4a4a" }}>
                           {allAudits ? done : "…"} / {cell.target}
                         </span>
                       </div>
                       <div className="qre-quota-track" style={{ marginTop: "0.5rem" }}>
-                        <div className="qre-quota-fill" style={{ width: `${Math.min(pct, 100)}%`, background: full ? "#16a34a" : "#667eea" }} />
+                        <div className="qre-quota-fill" style={{ width: `${Math.min(pct, 100)}%`, background: full ? "#16a34a" : "#e8890b" }} />
                       </div>
-                      <div className="qre-quota-pct" style={{ color: full ? "#16a34a" : "#374151" }}>
+                      <div className="qre-quota-pct" style={{ color: full ? "#16a34a" : "#4a4a4a" }}>
                         {allAudits ? `${pct}%` : ""}
                       </div>
                     </div>
@@ -553,14 +553,14 @@ function MSQuotasTab({ audit }) {
                 return (
                   <tr key={loc.label}>
                     <td style={{ fontWeight: 600 }}>{loc.label}</td>
-                    <td style={{ color: "#6b7280" }}>{loc.city}</td>
+                    <td style={{ color: "#4b5563" }}>{loc.city}</td>
                     <td>
                       <span className={`qre-badge ${loc.type === "Loan Centre" ? "qre-badge-paused" : "qre-badge-draft"}`}>
                         {loc.type}
                       </span>
                     </td>
                     <td><span style={{ color: statusColor, fontWeight: 700, fontSize: "0.8rem" }}>{status}</span></td>
-                    <td style={{ color: "#6b7280", fontSize: "0.82rem" }}>{visitDate}</td>
+                    <td style={{ color: "#4b5563", fontSize: "0.82rem" }}>{visitDate}</td>
                     <td style={{ fontWeight: 700, color: statusColor }}>{score}</td>
                   </tr>
                 );
@@ -758,12 +758,12 @@ function MSOverviewTab({ audits }) {
           <h3 className="qre-section-title">Highlights</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
             <div className="qre-quota-card">
-              <div style={{ fontSize: "0.75rem", color: "#6b7280", fontWeight: 600 }}>Highest Scoring</div>
+              <div style={{ fontSize: "0.75rem", color: "#4b5563", fontWeight: 600 }}>Highest Scoring</div>
               <div style={{ fontWeight: 700, marginTop: 4 }}>{best.a.visit_details?.branch_name || "—"}</div>
               <div style={{ color: "#16a34a", fontWeight: 700, fontSize: "1.2rem" }}>{best.pct}%</div>
             </div>
             <div className="qre-quota-card">
-              <div style={{ fontSize: "0.75rem", color: "#6b7280", fontWeight: 600 }}>Lowest Scoring</div>
+              <div style={{ fontSize: "0.75rem", color: "#4b5563", fontWeight: 600 }}>Lowest Scoring</div>
               <div style={{ fontWeight: 700, marginTop: 4 }}>{worst.a.visit_details?.branch_name || "—"}</div>
               <div style={{ color: worst.pct >= 60 ? "#f59e0b" : "#dc2626", fontWeight: 700, fontSize: "1.2rem" }}>{worst.pct}%</div>
             </div>
@@ -796,9 +796,9 @@ function MSOverviewTab({ audits }) {
                     <tr key={a.id}>
                       <td style={{ color: "#9ca3af" }}>{idx + 1}</td>
                       <td style={{ fontWeight: 600 }}>{vd.branch_name || "—"}</td>
-                      <td style={{ color: "#6b7280" }}>{vd.city_state || vd.city || "—"}</td>
-                      <td style={{ color: "#6b7280" }}>{vd.shopper_name || "—"}</td>
-                      <td style={{ color: "#6b7280", fontSize: "0.82rem" }}>{vd.date_of_visit || "—"}</td>
+                      <td style={{ color: "#4b5563" }}>{vd.city_state || vd.city || "—"}</td>
+                      <td style={{ color: "#4b5563" }}>{vd.shopper_name || "—"}</td>
+                      <td style={{ color: "#4b5563", fontSize: "0.82rem" }}>{vd.date_of_visit || "—"}</td>
                       <td>
                         <span className={`qre-badge ${a.status === "submitted" ? "qre-badge-live" : "qre-badge-draft"}`}>{a.status}</span>
                       </td>
@@ -908,10 +908,10 @@ function RespondentsTab({ onChanged }) {
                   <tr key={a.id}>
                     <td style={{ color: "#9ca3af" }}>{idx + 1}</td>
                     <td style={{ fontWeight: 600 }}>{vd.branch_name || <span style={{ color: "#d1d5db" }}>—</span>}</td>
-                    <td style={{ color: "#6b7280" }}>{vd.city_state || "—"}</td>
-                    <td style={{ color: "#6b7280" }}>{vd.shopper_name || "—"}</td>
-                    <td style={{ color: "#6b7280", fontSize: "0.8rem" }}>{vd.date_of_visit || "—"}</td>
-                    <td style={{ fontSize: "0.78rem", color: "#6b7280" }}>{vd.type_of_visit || "—"}</td>
+                    <td style={{ color: "#4b5563" }}>{vd.city_state || "—"}</td>
+                    <td style={{ color: "#4b5563" }}>{vd.shopper_name || "—"}</td>
+                    <td style={{ color: "#4b5563", fontSize: "0.8rem" }}>{vd.date_of_visit || "—"}</td>
+                    <td style={{ fontSize: "0.78rem", color: "#4b5563" }}>{vd.type_of_visit || "—"}</td>
                     <td>
                       <span className={`qre-badge ${a.status === "submitted" ? "qre-badge-live" : "qre-badge-draft"}`}>
                         {a.status}

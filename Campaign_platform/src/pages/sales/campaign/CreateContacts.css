@@ -2,10 +2,10 @@
   --bg: #f8fafc;
   --card: #ffffff;
   --border: #e5e7eb;
-  --text: #111827;
-  --muted: #6b7280;
-  --primary: #2563eb;
-  --primary-600: #1d4ed8;
+  --text: #1a1a1a;
+  --muted: #4b5563;
+  --primary: #e8890b;
+  --primary-600: #c47209;
   --success: #10b981;
   --danger: #ef4444;
   --radius: 12px;
@@ -35,13 +35,13 @@
 .breadcrumb-link {
   background: none;
   border: none;
-  color: #6b7280;
+  color: #4b5563;
   cursor: pointer;
   text-decoration: underline;
 }
 
 .breadcrumb-link:hover {
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .breadcrumb-separator {
@@ -49,19 +49,19 @@
 }
 
 .breadcrumb-current {
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 500;
 }
 
 .page-title {
   font-size: 2rem;
   font-weight: 700;
-  color: #111827;
+  color: #1a1a1a;
   margin-bottom: 0.5rem;
 }
 
 .page-description {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 1.125rem;
 }
 
@@ -101,18 +101,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
   margin-bottom: 0.75rem;
 }
 
 .card-description {
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 1.5rem;
   line-height: 1.6;
 }
@@ -124,7 +124,7 @@
 }
 
 .card-features li {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
   margin-bottom: 0.5rem;
   position: relative;
@@ -141,7 +141,7 @@
 
 .card-button {
   width: 100%;
-  background: #3b82f6;
+  background: #e8890b;
   color: white;
   border: none;
   border-radius: 0.5rem;
@@ -156,7 +156,7 @@
 }
 
 .card-button:hover {
-  background: #2563eb;
+  background: #e8890b;
 }
 
 .button-arrow {
@@ -191,7 +191,7 @@
 .section-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #111827;
+  color: #1a1a1a;
   margin-bottom: 1rem;
 }
 
@@ -225,12 +225,12 @@
 .upload-text {
   font-size: 1.125rem;
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
   margin-bottom: 0.5rem;
 }
 
 .upload-subtext {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
 }
 
@@ -273,23 +273,23 @@
 
 .radio-option span {
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
   cursor: pointer;
   user-select: none;
 }
 
 .radio-option input[type="radio"]:checked + span {
-  color: #1e40af;
+  color: #c47209;
   font-weight: 600;
 }
 
 .radio-label {
-  color: #374151;
+  color: #4a4a4a;
   font-weight: 500;
 }
 
 .subscription-note {
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.875rem;
   font-style: italic;
 }
@@ -299,7 +299,7 @@
 }
 
 .mapping-description {
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 1.5rem;
 }
 
@@ -317,7 +317,7 @@
 
 .mapping-label {
   font-weight: 500;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .mapping-select {
@@ -325,13 +325,13 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: white;
-  color: #374151;
+  color: #4a4a4a;
 }
 
 .mapping-select:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.12);
 }
 
 .advanced-options-section {
@@ -341,7 +341,7 @@
 .advanced-toggle {
   background: none;
   border: none;
-  color: #3b82f6;
+  color: #e8890b;
   cursor: pointer;
   font-weight: 500;
   display: flex;
@@ -367,7 +367,7 @@
 }
 
 .checkbox-option label {
-  color: #374151;
+  color: #4a4a4a;
   cursor: pointer;
 }
 
@@ -381,7 +381,7 @@
   padding: 0.75rem 1.5rem;
   border: 1px solid var(--border);
   background: white;
-  color: #374151;
+  color: #4a4a4a;
   border-radius: 10px;
   font-weight: 500;
   cursor: pointer;
@@ -421,7 +421,7 @@
 .business-unit-section .mapping-label {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #1e293b;
+  color: #1a1a1a;
   margin-bottom: 1rem;
   display: block;
 }
@@ -430,8 +430,8 @@
 .email-section {
   margin-top: 2rem;
   padding: 1.5rem;
-  background: #f0f9ff;
-  border: 1px solid #bae6fd;
+  background: #fff7ed;
+  border: 1px solid #fde68a;
   border-radius: 0.5rem;
 }
 
@@ -464,11 +464,11 @@
 }
 
 .email-buttons .btn-primary {
-  background: #0ea5e9;
+  background: #e8890b;
 }
 
 .email-buttons .btn-primary:hover {
-  background: #0284c7;
+  background: #c47209;
 }
 
 @media (max-width: 768px) {

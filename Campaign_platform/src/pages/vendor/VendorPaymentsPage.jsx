@@ -112,11 +112,11 @@ function VendorPaymentsPage() {
   const getStatusBadge = (status) => {
     const styles = {
       pending: { backgroundColor: "#fef3c7", color: "#92400e" },
-      processing: { backgroundColor: "#dbeafe", color: "#1e40af" },
+      processing: { backgroundColor: "#fff7ed", color: "#c47209" },
       completed: { backgroundColor: "#dcfce7", color: "#166534" },
       failed: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#374151" }
+    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
   const getMethodLabel = (method) => {
