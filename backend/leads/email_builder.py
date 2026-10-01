@@ -295,10 +295,12 @@ def find_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[st
 # ---------------------------------------------------------------------------
 _SCHEMA = {"type": "object", "additionalProperties": False,
            "properties": {"domain_is_company": {"type": "boolean"},
+                          "has_special_characters": {"type": "boolean"},
                           "email_correct": {"type": "boolean"},
                           "corrected_email": {"type": "string", "maxLength": 80},
                           "reason": {"type": "string", "maxLength": 160}},
-           "required": ["domain_is_company", "email_correct", "corrected_email", "reason"]}
+           "required": ["domain_is_company", "has_special_characters", "email_correct", "corrected_email",
+                        "reason"]}
 
 _SYSTEM = ("You check business email addresses built from a person's name and their company's email "
            "pattern. Reply only with JSON.")
@@ -315,7 +317,27 @@ Built address: {candidate}
 
 1. Is {domain} really this company's email domain (not a parent, a reseller, or a different company)?
 2. Is the built address the right rendering of this person's name in that pattern (first and last name in the right places, no nickname, no initials mistaken for names)?
+3. Does the address contain anything that does not belong in an email address: accents, spaces, apostrophes, brackets, commas or other special characters? Before the @ only letters, digits and . _ - are allowed.
 If it is wrong, give the corrected address in the same pattern, otherwise repeat the built address."""
+
+
+_LOCAL_OK = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
+_DOMAIN_OK = r"[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+"
+
+
+def address_problem(email: str) -> Optional[str]:
+    """Why an address is not clean, or None. Before the @: letters, digits and
+    . _ - only, none at either end or doubled; plain ASCII throughout."""
+    if not email or email.count("@") != 1:
+        return "not one @"
+    local, domain = email.split("@")
+    if not email.isascii():
+        return "non-ASCII character"
+    if len(local) > 64 or not re.fullmatch(_LOCAL_OK, local):
+        return "special character before the @"
+    if not re.fullmatch(_DOMAIN_OK, domain):
+        return "bad domain"
+    return None
 
 
 def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candidate: str,
@@ -338,6 +360,8 @@ def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candi
     except Exception as e:  # the gate's queue timeout
         return {"verdict": "unavailable", "email": candidate, "reason": str(e)[:160]}
     reason = str(got.get("reason") or "")[:160]
+    if got.get("has_special_characters"):
+        return {"verdict": "doubt", "email": candidate, "reason": "model saw special characters: " + reason}
     if got.get("domain_is_company") is False:
         return {"verdict": "domain_doubt", "email": candidate, "reason": reason}
     if got.get("email_correct"):
@@ -345,7 +369,7 @@ def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candi
     fix = str(got.get("corrected_email") or "").strip().lower()
     # a correction must stay on the domain, fit a structure of this person's
     # name, and never have bounced -- the model cannot invent an address
-    if fix and fix != candidate and fix.endswith("@" + domain) and fix not in bounced:
+    if fix and fix != candidate and fix.endswith("@" + domain) and fix not in bounced             and not address_problem(fix):
         label, _ = structure_of(fix, first, last)
         if label != "unknown" and not label.startswith("role:"):
             return {"verdict": "corrected", "email": fix, "reason": reason}
@@ -396,6 +420,8 @@ def build_for_lead(client, lead: Dict[str, Any], now: datetime, bounced: set) ->
                 rec["status"] = "no_name"; rec["why"] = "pattern needs a surname" if not last else "unrenderable"
             elif candidate in bounced:
                 rec["status"] = "bounced_before"
+            elif address_problem(candidate):
+                rec["status"] = "ai_doubt"; rec["why"] = address_problem(candidate)
             else:
                 check = ai_check(lead, domain, structure, candidate, first, last, bounced)
                 rec["ai"] = {"verdict": check["verdict"], "reason": check["reason"]}

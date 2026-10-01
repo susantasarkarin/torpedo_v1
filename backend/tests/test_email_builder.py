@@ -90,16 +90,16 @@ def _ai(answer):
 def test_ai_ok_and_guarded_correction():
     st = {"form": "{first}.{last}", "examples": []}
     lead = {"name": "Keya Kundu", "company_name": "Hansa"}
-    with _ai({"domain_is_company": True, "email_correct": True, "corrected_email": "", "reason": "fits"}):
+    with _ai({"domain_is_company": True, "has_special_characters": False, "email_correct": True, "corrected_email": "", "reason": "fits"}):
         assert eb.ai_check(lead, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", set())["verdict"] == "ok"
-    with _ai({"domain_is_company": True, "email_correct": False, "corrected_email": "kkundu@hansa.com", "reason": "x"}):
+    with _ai({"domain_is_company": True, "has_special_characters": False, "email_correct": False, "corrected_email": "kkundu@hansa.com", "reason": "x"}):
         out = eb.ai_check(lead, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", set())
     assert out == {"verdict": "corrected", "email": "kkundu@hansa.com", "reason": "x"}
     # a correction off the domain, not a structure of the name, or bounced -> doubt
     for fix, bounced in (("keya@gmail.com", set()), ("sales@hansa.com", set()), ("kkundu@hansa.com", {"kkundu@hansa.com"})):
-        with _ai({"domain_is_company": True, "email_correct": False, "corrected_email": fix, "reason": ""}):
+        with _ai({"domain_is_company": True, "has_special_characters": False, "email_correct": False, "corrected_email": fix, "reason": ""}):
             assert eb.ai_check(lead, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", bounced)["verdict"] == "doubt"
-    with _ai({"domain_is_company": False, "email_correct": True, "corrected_email": "", "reason": "parent co"}):
+    with _ai({"domain_is_company": False, "has_special_characters": False, "email_correct": True, "corrected_email": "", "reason": "parent co"}):
         assert eb.ai_check(lead, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", set())["verdict"] == "domain_doubt"
 
 
@@ -156,3 +156,19 @@ def test_hunters_own_count_stops_the_search(monkeypatch):
     with patch.object(eb.requests, "get", return_value=acct) as get:
         assert eb.hunter_structure(client, "x.com", NOW) == (None, "hunter_quota_used_up")
     assert all("domain-search" not in str(c) for c in get.call_args_list)
+
+
+def test_special_characters_never_pass():
+    assert eb.address_problem("keya.kundu@hansaresearch.com") is None
+    assert eb.address_problem("bjorn-kaiser_2@shark-ninja.co.uk") is None
+    for bad in ("björn.kaiser@x.com", "o'brien@x.com", "jo hn@x.com", "john..doe@x.com", ".john@x.com",
+                "john.@x.com", "jo(hn)@x.com", "john@x", "a@b@c.com", "john,doe@x.com"):
+        assert eb.address_problem(bad), bad
+
+
+def test_model_flagging_special_characters_sends_it_to_a_person():
+    st = {"form": "{first}.{last}", "examples": []}
+    with _ai({"domain_is_company": True, "has_special_characters": True, "email_correct": True,
+              "corrected_email": "", "reason": "apostrophe"}):
+        out = eb.ai_check({"name": "Keya Kundu"}, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", set())
+    assert out["verdict"] == "doubt" and "special" in out["reason"]
