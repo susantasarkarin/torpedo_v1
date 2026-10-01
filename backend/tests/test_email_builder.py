@@ -172,3 +172,12 @@ def test_model_flagging_special_characters_sends_it_to_a_person():
               "corrected_email": "", "reason": "apostrophe"}):
         out = eb.ai_check({"name": "Keya Kundu"}, "hansa.com", st, "keya.kundu@hansa.com", "keya", "kundu", set())
     assert out["verdict"] == "doubt" and "special" in out["reason"]
+
+
+def test_shared_renderer_strips_apostrophes_and_accents():
+    from leads.email_pattern_system import render_pattern_email
+    assert render_pattern_email("{first}.{last}@{domain}", "Kevin", "O'Neill", "gehealthcare.com") == \
+        "kevin.oneill@gehealthcare.com"
+    assert render_pattern_email("{first}.{last}@{domain}", "Björn", "Kaiser", "sharkninja.com") == \
+        "bjorn.kaiser@sharkninja.com"
+    assert render_pattern_email("{first}.{last}@{domain}", "Kritika", "|", "x.com") is None

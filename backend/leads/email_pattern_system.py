@@ -71,8 +71,17 @@ def render_pattern_email(pattern: str, first_name: str, last_name: str, domain: 
     if not pattern or not domain:
         return None
 
-    first = (first_name or "").lower().strip()
-    last = (last_name or "").lower().strip()
+    # names go in as plain letters: "O'Neill" -> "oneill", "Björn" -> "bjorn"
+    # (every pipeline renders through here; 15 predicted addresses carried
+    # apostrophes and one a "|" before this, 2026-10-01)
+    import unicodedata
+
+    def _plain(s):
+        s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+        return re.sub(r"[^a-z0-9]", "", s)
+
+    first = _plain(first_name)
+    last = _plain(last_name)
     if not first:
         return None
 
