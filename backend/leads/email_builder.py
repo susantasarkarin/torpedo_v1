@@ -411,6 +411,8 @@ def build_for_lead(client, lead: Dict[str, Any], now: datetime, bounced: set) ->
                 else:
                     rec["status"] = "ai_doubt" if check["verdict"] == "doubt" else "domain_doubt"
     days = RETRY_DAYS.get(rec["status"], 3650 if rec["status"] in ("built", "domain_doubt") else 1)
+    if rec.get("why") in ("hunter_monthly_limit", "hunter_quota_used_up"):
+        days = 1  # waiting on Hunter's quota, not on missing evidence
     rec["next_try_at"] = now + timedelta(days=days) if days else now + timedelta(minutes=30)
     le.update_one({"_id": lead["_id"]}, {"$set": {"email_build": rec, **set_fields, "updated_at": now}})
     return rec
