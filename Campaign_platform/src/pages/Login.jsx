@@ -39,7 +39,9 @@ function Login() {
     <main className="login-page">
       <section className="login-left">
         <div className="login-left-inner">
-          <h1 className="brand">Cogentix Research</h1>
+          {/* the official white logo on near black (brand guidelines §2) */}
+          <img src="/newlogo.png" alt="" className="brand-logo" />
+          <h1 className="sr-only">Cogentix Research</h1>
           <p className="subtitle">Admin Login</p>
 
           <form onSubmit={handleSubmit} className="login-form">

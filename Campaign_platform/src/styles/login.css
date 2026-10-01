@@ -1,31 +1,24 @@
 /* Add standalone CSS to match the split-screen rocket design */
 
 /* Color tokens (3-5 colors total) */
-:root {
-  --bg-dark-1: #1a1a1a;
-  --bg-dark-2: #1a1a1a;
-  --text-strong: #e5e7eb;
-  --text-muted: #94a3b8;
-  --accent: #f97316;
+/* Scoped to the login page: these used to sit on :root and body and stayed
+   in force on every admin page after login (dark body, light text). */
+.login-page {
+  --bg-dark-1: var(--cx-black);
+  --bg-dark-2: var(--cx-black);
+  --text-strong: #ffffff;
+  --text-muted: #c7c7c7;
+  --accent: var(--cx-primary);
   --white: #ffffff;
-}
-
-/* Reset bits */
-* {
-  box-sizing: border-box;
-}
-html,
-body,
-#root {
-  height: 100%;
-}
-body {
-  margin: 0;
-  background: var(--bg-dark-1);
   color: var(--text-strong);
   font-family: var(--cx-font);
 }
-a {
+
+/* Reset bits (login page only) */
+.login-page * {
+  box-sizing: border-box;
+}
+.login-page a {
   color: inherit;
 }
 
@@ -56,7 +49,7 @@ a {
   align-items: center;
   justify-items: center;
   padding: 4rem 2rem;
-  background: linear-gradient(180deg, #0e1629 0%, #101827 100%);
+  background: var(--cx-black);
 }
 
 .login-left::after {
@@ -73,6 +66,14 @@ a {
 .login-left-inner {
   width: 100%;
   max-width: 440px;
+}
+
+.brand-logo {
+  display: block;
+  height: 56px;
+  width: auto;
+  min-width: 120px;
+  margin: 0 0 0.75rem 0;
 }
 
 .brand {
@@ -139,17 +140,18 @@ a {
 /* Button */
 .btn-login {
   height: 48px;
-  border-radius: 9999px;
+  border-radius: var(--cx-radius-button);
   border: none;
-  background: var(--white);
-  color: #1a1a1a;
+  background: var(--cx-primary);
+  color: #ffffff;
+  font-size: var(--cx-button);
   font-weight: 600;
   cursor: pointer;
-  transition: transform .06s ease, filter .2s ease;
+  transition: background var(--cx-transition), transform .06s ease;
 }
 
 .btn-login:hover {
-  filter: brightness(0.97);
+  background: var(--cx-primary-dark);
 }
 .btn-login:active {
   transform: translateY(1px);
