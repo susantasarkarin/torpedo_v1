@@ -142,3 +142,17 @@ def test_model_domain_must_match_the_company_name():
     assert eb.domain_matches_name("trainline.com", "Trainline")
     assert not eb.domain_matches_name("adidas.com", "Nike")
     assert not eb.domain_matches_name("gmail.com", "B2B SaaS")
+
+
+def test_hunters_own_count_stops_the_search(monkeypatch):
+    from unittest.mock import MagicMock
+    monkeypatch.setenv("HUNTER_API_KEY", "k")
+    usage = _Col()
+    usage.update_one = lambda *a, **k: None
+    client = {"email_automation": {"hunter_lookups": _Col(), "hunter_usage": usage}}
+    acct = MagicMock()
+    acct.json.return_value = {"data": {"plan_name": "Free", "reset_date": "2026-10-24",
+                                       "requests": {"searches": {"used": 50, "available": 50}}}}
+    with patch.object(eb.requests, "get", return_value=acct) as get:
+        assert eb.hunter_structure(client, "x.com", NOW) == (None, "hunter_quota_used_up")
+    assert all("domain-search" not in str(c) for c in get.call_args_list)

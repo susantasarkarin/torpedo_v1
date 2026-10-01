@@ -209,6 +209,29 @@ def hunter_monthly_limit() -> int:
         return 25
 
 
+def hunter_remaining(client, key: str, now: datetime) -> int:
+    """Domain searches left on the Hunter account (its /account call is free),
+    re-read at most hourly; 0 until the reset date once used up."""
+    usage = client["email_automation"]["hunter_usage"]
+    acct = usage.find_one({"_id": "account"}) or {}
+    reset = acct.get("reset_date")
+    fresh = acct.get("checked_at") and acct["checked_at"] > now - timedelta(hours=1)
+    if fresh and (acct.get("remaining", 0) > 0 or not reset or now < reset):
+        return int(acct.get("remaining") or 0)
+    try:
+        d = (requests.get("https://api.hunter.io/v2/account", params={"api_key": key}, timeout=15).json()
+             or {}).get("data") or {}
+        searches = (d.get("requests") or {}).get("searches") or {}
+        remaining = int(searches.get("available", 0)) - int(searches.get("used", 0))
+        reset_date = datetime.strptime(d["reset_date"], "%Y-%m-%d") if d.get("reset_date") else None
+    except Exception as e:
+        logger.warning("email_builder: Hunter account check failed: %s", e)
+        return int(acct.get("remaining") or 0) if fresh else 0
+    usage.update_one({"_id": "account"}, {"$set": {"remaining": remaining, "reset_date": reset_date,
+                                                   "plan": d.get("plan_name"), "checked_at": now}}, upsert=True)
+    return remaining
+
+
 def hunter_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[str, Any]], str]:
     """(structure or None, why). Each domain is asked once; answers are cached."""
     cache = client["email_automation"]["hunter_lookups"]
@@ -223,12 +246,20 @@ def hunter_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[
     used = (usage.find_one({"_id": month}) or {}).get("n", 0)
     if used >= hunter_monthly_limit():
         return None, "hunter_monthly_limit"
+    # Hunter's own count decides: other parts of the system search too, and
+    # its month resets on the account's date, not on the 1st (2026-10-01: our
+    # counter said 6 used, Hunter said 44 of 50)
+    if hunter_remaining(client, key, now) <= 0:
+        return None, "hunter_quota_used_up"
     try:
         r = requests.get("https://api.hunter.io/v2/domain-search",
                          params={"domain": domain, "api_key": key, "limit": 10}, timeout=20)
     except Exception as e:
         return None, f"hunter_error: {e}"
     usage.update_one({"_id": month}, {"$inc": {"n": 1}}, upsert=True)
+    usage.update_one({"_id": "account"}, {"$inc": {"remaining": -1}})
+    if r.status_code in (429, 403):
+        usage.update_one({"_id": "account"}, {"$set": {"remaining": 0, "checked_at": now}}, upsert=True)
     if r.status_code != 200:
         return None, f"hunter_http_{r.status_code}"
     data = (r.json() or {}).get("data") or {}
