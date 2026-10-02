@@ -166,6 +166,11 @@ function normalizeCountryCode(value) {
   return normalized;
 }
 
+function readCookie(name) {
+  const match = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+}
+
 function extractEmailFromParams(params = {}) {
   const candidateKeys = [
     "email",
@@ -296,7 +301,9 @@ export default function TrafficFlowParser() {
     // Check for required traffic parameters
     const vid = urlParams.vid;
     const ccFromUrl = normalizeCountryCode(urlParams.cc);
-    const rid = urlParams.rid;
+    // Ad clicks (Meta/Google/TikTok) can't carry a per-person rid in the ad URL — mint one here.
+    const isAdClick = Boolean(urlParams.fbclid || urlParams.gclid || urlParams.ttclid || urlParams.utm_source);
+    const rid = urlParams.rid || (isAdClick ? `ad-${generateTransId()}` : "");
 
     if (!vid || !rid) {
       isClickProcessingRef.current = false;  // Reset on validation failure
@@ -392,7 +399,11 @@ export default function TrafficFlowParser() {
           params: {
             ...urlParams,
             cc: effectiveCountryCode,
+            rid,
           },
+          // Meta Pixel cookies (if the pixel has set them on our domain)
+          fbp: readCookie("_fbp"),
+          fbc: readCookie("_fbc"),
           email: extractEmailFromParams(urlParams),
           userAgent: navigator.userAgent,
           // IP data from server-side prefetch (fast) or fallback

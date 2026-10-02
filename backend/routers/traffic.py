@@ -4,7 +4,7 @@ Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
 """
 from fastapi import APIRouter, HTTPException, Request, Query, Body
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse, Response
 from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime, timedelta
@@ -30,6 +30,13 @@ from database import (
     COL_PROJECTS,
     DB_FINANCE,
     COL_CUSTOMERS,
+)
+from services.ad_tracking import (
+    RID_PATTERN,
+    claim_pixel_fire,
+    extract_ad_tracking,
+    is_ad_platform,
+    render_thank_you_page,
 )
 
 # URL validation utility for redirect safety
@@ -1846,11 +1853,20 @@ async def cint_callback(
 # build vendor redirect URL â†’ 302 redirect back to vendor.
 # =============================================================================
 
+def _thank_you_response(pixel: Optional[dict] = None) -> HTMLResponse:
+    # no-store: a refresh must come back to the server, which decides (once) about pixels
+    return HTMLResponse(
+        content=render_thank_you_page(pixel),
+        status_code=200,
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+    )
+
+
 async def _handle_project_survey_callback(
     request: Request,
     rid: str,
     outcome: str,
-) -> RedirectResponse:
+) -> Response:
     """
     Shared handler for /surveycomplete, /surveyterminate, /surveyquotafull.
 
@@ -1858,7 +1874,13 @@ async def _handle_project_survey_callback(
     ----------
     rid : str  – Traffic record ObjectId (SFWID) passed as query param by the survey tool.
     outcome : str – One of "complete", "terminate", "quotafull".
+
+    Completes from ad traffic (traffic_source = an ad platform) are redirected
+    to /adpixel?rid= (the thank-you page that carries the pixel). Completes with
+    a missing/malformed/unknown rid get the same page directly, never a pixel.
+    Vendor traffic keeps its vendor completeRD redirect.
     """
+    is_complete = outcome == "complete"
     status_map = {
         "complete":  ("COMPLETE",    "completeRD"),
         "terminate": ("TERMINATED",  "terminateRD"),
@@ -1873,7 +1895,14 @@ async def _handle_project_survey_callback(
         if not rid:
             print("[warn] Project callback: missing rid")
             await _log_callback_error(request, f"project-{outcome}", "missing_id")
+            if is_complete:
+                return _thank_you_response()
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
+
+        if is_complete and not RID_PATTERN.match(rid):
+            print("[warn] Project callback: malformed rid")
+            await _log_callback_error(request, f"project-{outcome}", "malformed_id")
+            return _thank_you_response()
 
         # 1. Find traffic record
         async_url_collection = get_async_url_parameters_collection()
@@ -1886,6 +1915,8 @@ async def _handle_project_survey_callback(
         if not traffic_record:
             print(f"[warn] Project callback: traffic record not found for rid={rid}")
             await _log_callback_error(request, f"project-{outcome}", "not_found")
+            if is_complete:
+                return _thank_you_response()
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
 
         # 2. Update traffic record status
@@ -1901,6 +1932,10 @@ async def _handle_project_survey_callback(
             {"_id": traffic_record["_id"]},
             {"$set": update_fields},
         )
+
+        # 2b. Ad traffic: on to the /adpixel thank-you page (rid is validated hex here)
+        if is_complete and is_ad_platform(traffic_record.get("traffic_source")):
+            return RedirectResponse(url=f"/adpixel?rid={rid}", status_code=302)
 
         # 3. Resolve vendor redirect URL
         vendor_id = traffic_record.get("vendorId")
@@ -2011,6 +2046,26 @@ async def survey_complete_callback(
 ):
     """Callback when respondent completes an adhoc project survey."""
     return await _handle_project_survey_callback(request, _extract_rid(request, rid), "complete")
+
+
+@router.get("/adpixel")
+async def ad_pixel_thank_you(
+    request: Request,
+    rid: str = Query(None, description="SFWID, the rid from the ad URL, or fbclid"),
+):
+    """
+    Cogentix thank-you page for ad respondents. Renders the ad-platform pixel
+    once per RID, only after /surveycomplete has recorded the completion.
+    Every failed check gets the same page with no pixel — never says why.
+    """
+    rid = _extract_rid(request, rid)
+    pixel = None
+    if rid:  # format, existence, completion and once-only are checked inside
+        try:
+            pixel = await claim_pixel_fire(get_async_url_parameters_collection(), rid)
+        except Exception as pixel_err:
+            print(f"[warn] Ad pixel claim failed for rid={rid}: {pixel_err}")
+    return _thank_you_response(pixel)
 
 
 @router.get("/surveyterminate")
@@ -2618,6 +2673,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         client_user_agent = data.get('userAgent') or request.headers.get("User-Agent") or ""
         print(f"ðŸ“± User-Agent: {client_user_agent[:80]}..." if len(client_user_agent) > 80 else f"ðŸ“± User-Agent: {client_user_agent}")
         
+        # Ad attribution (utm_*, campaign/adset/ad ids, fbclid, _fbp/_fbc) + traffic_source
+        ad_fields = extract_ad_tracking(params, data, dict(request.cookies))
+
         # Extract device fingerprint from client
         device_fingerprint = data.get('deviceFingerprint', '')
         fingerprint_components = data.get('fingerprintComponents', {})
@@ -2752,9 +2810,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         email=user_email,
                         profiling_data=profiling_data,
                         panel_id=panel_id,
+                        extra_fields=ad_fields,
                     )
                 else:
                     # Fallback to direct async insertion if service not updated yet
+                    data.update(ad_fields)
                     data['timestamp'] = datetime.utcnow().isoformat()
                     data['status'] = 'INCOMPLETE'
                     data['createdAt'] = datetime.utcnow()
@@ -2790,6 +2850,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'panelId': panel_id,
                     'email': user_email,
                     'profilingData': profiling_data,
+                    **ad_fields,
                 }
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
@@ -4466,7 +4527,10 @@ async def vendor_takesurvey(
                 cc = normalized_cc
 
             # cc can be inferred later from geo IP on /api/store when omitted by vendor.
-            if not vid or not rid:
+            # Ad clicks carry no per-person rid; the parser page mints one.
+            qp = request.query_params
+            is_ad_click = any(qp.get(k) for k in ("fbclid", "gclid", "ttclid", "utm_source"))
+            if not vid or (not rid and not is_ad_click):
                 print("âŒ /takesurvey: Missing required params (vid, rid)")
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
 

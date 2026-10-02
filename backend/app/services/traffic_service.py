@@ -56,6 +56,7 @@ class TrafficService:
         profiling_data: Dict[str, Any] = None,
         source_origin: str = None,
         panel_id: str = None,
+        extra_fields: Dict[str, Any] = None,
     ) -> str:
         """Create a new traffic record (Asynchronous)"""
         try:
@@ -82,7 +83,11 @@ class TrafficService:
                 "redirectUrl": None,
                 "outUrl": None,
             }
-            
+            if extra_fields:
+                # Additive only (e.g. traffic_source / adTracking) — never overrides core fields
+                for key, value in extra_fields.items():
+                    traffic_record.setdefault(key, value)
+
             # Use async collection if available, fallback to sync in thread
             if self.async_traffic_collection is not None:
                 result = await self.async_traffic_collection.insert_one(traffic_record)
