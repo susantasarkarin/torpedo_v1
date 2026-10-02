@@ -57,3 +57,24 @@ def auth_token(client):
 def authed_headers(auth_token):
     """Authorization header dict for authenticated requests."""
     return {"Authorization": auth_token}
+
+
+# --- never against production by accident ------------------------------------
+# On 2026-09-29 the full test run on the production VM included these smoke
+# tests; with the default base URL (localhost:8000) and the local Mongo they
+# wrote to the LIVE system and left "Won RFQ" projects, contracts, work orders
+# and a customer behind. On the production host they now skip unless
+# SMOKE_ALLOW_PROD=1 is set on purpose.
+def _on_production_host() -> bool:
+    import socket
+    return (os.path.isdir("/var/www/campaign_platform")
+            or socket.gethostname().startswith("torpedo-prod"))
+
+
+def pytest_collection_modifyitems(config, items):
+    if not _on_production_host() or os.environ.get("SMOKE_ALLOW_PROD") == "1":
+        return
+    skip = pytest.mark.skip(reason="smoke tests write to the live system; set SMOKE_ALLOW_PROD=1 to run on the production host")
+    for item in items:
+        if "/smoke/" in str(item.fspath).replace("\\", "/"):
+            item.add_marker(skip)
