@@ -1875,8 +1875,9 @@ async def _handle_project_survey_callback(
     rid : str  – Traffic record ObjectId (SFWID) passed as query param by the survey tool.
     outcome : str – One of "complete", "terminate", "quotafull".
 
-    Completes from ad traffic (traffic_source = an ad platform) are redirected
-    to /adpixel?rid= (the thank-you page that carries the pixel). Completes with
+    Ad traffic follows its vendor's completeRD (set facebook_ads' complete URL to
+    https://torpedo.cogentixresearch.com/adpixel?rid=); with none configured it
+    falls back to /adpixel?rid=<SFWID>. Completes with
     a missing/malformed/unknown rid get the same page directly, never a pixel.
     Vendor traffic keeps its vendor completeRD redirect.
     """
@@ -1933,10 +1934,6 @@ async def _handle_project_survey_callback(
             {"$set": update_fields},
         )
 
-        # 2b. Ad traffic: on to the /adpixel thank-you page (rid is validated hex here)
-        if is_complete and is_ad_platform(traffic_record.get("traffic_source")):
-            return RedirectResponse(url=f"/adpixel?rid={rid}", status_code=302)
-
         # 3. Resolve vendor redirect URL
         vendor_id = traffic_record.get("vendorId")
         respondent_id = traffic_record.get("respondentId", "")
@@ -1974,6 +1971,15 @@ async def _handle_project_survey_callback(
                     print(f"[warn] Vendor {vendor.get('vendorName')} has no {rd_field} configured")
             else:
                 print(f"[warn] Vendor not found for vid={vendor_id}")
+
+        # Ad traffic whose vendor (e.g. facebook_ads) has no completeRD set still
+        # lands on the /adpixel thank-you page. A configured completeRD wins.
+        if (
+            is_complete
+            and redirect_url == fallback_url
+            and is_ad_platform(traffic_record.get("traffic_source"))
+        ):
+            return RedirectResponse(url=f"/adpixel?rid={rid}", status_code=302)
 
         # Encrypt rid and append panel= to the redirect URL.
         # AES-256-GCM encryption prevents URL spoofing / fabricated completions.

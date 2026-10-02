@@ -96,6 +96,8 @@ def env(monkeypatch):
     database = FakeDatabase()
     url_params = database["url_parameters"]
     monkeypatch.setattr(traffic, "get_async_url_parameters_collection", lambda: url_params)
+    vendors = database["vendors"]
+    monkeypatch.setattr(traffic, "get_async_vendors_collection", lambda: vendors)
 
     app = FastAPI()
     app.include_router(traffic.router)
@@ -260,6 +262,23 @@ def test_adpixel_by_ad_rid_fires_once_with_that_event_id(env):
     assert "fbq(" not in client.get("/adpixel", params={"rid": "FB-7781234"}).text
     assert "fbq(" not in client.get("/adpixel", params={"rid": sfwid}).text  # same person, other id
     assert [f["record_id"] for f in database["ad_pixel_fires"].docs] == [sfwid]
+
+
+def test_facebook_ads_vendor_complete_url_routes_to_adpixel(env):
+    """Operations > Vendors > facebook_ads: complete URL = .../adpixel?rid="""
+    client, url_params, database = env
+    database["vendors"].docs.append({
+        "vid": "77", "vendorName": "facebook_ads", "vendorVariable": "rid",
+        "completeRD": ["https://torpedo.cogentixresearch.com/adpixel?rid="],
+    })
+    sfwid = _add_record(url_params, traffic_source="meta", vendorId="77", respondentId="ad-1b2c3d4e")
+
+    resp = _complete(client, sfwid)
+
+    assert resp.status_code in (302, 307)
+    assert resp.headers["location"] == "https://torpedo.cogentixresearch.com/adpixel?rid=ad-1b2c3d4e"
+    page = client.get("/adpixel", params={"rid": "ad-1b2c3d4e"})
+    assert "{eventID: \"complete_ad-1b2c3d4e\"}" in page.text
 
 
 def test_adpixel_by_fbclid(env):
