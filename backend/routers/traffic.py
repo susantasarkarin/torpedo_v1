@@ -3036,7 +3036,30 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 if not candidates:
                     allocation_error = "CINT fallback has no candidates for this country"
                     return False
-                
+
+                # SFW panelists: let Qwen reorder the already-filtered candidates
+                # by profile fit. Off unless AI_ALLOCATION_SHARE > 0; any failure
+                # keeps the rule-based order.
+                ai_allocation_meta = {"ranked": False}
+                if panel_id:
+                    try:
+                        from services.ai_allocation import rerank_cint_candidates
+                        try:
+                            from tasks.cint_survey_cleanup import get_cached_offerwall
+                        except ImportError:
+                            from .tasks.cint_survey_cleanup import get_cached_offerwall
+                        survey_lookup = {
+                            str(s.get("SurveyNumber")): s
+                            for s in (get_cached_offerwall().get("surveys") or [])
+                        }
+                        candidates, ai_allocation_meta = await rerank_cint_candidates(
+                            panel_id, candidates, survey_lookup
+                        )
+                        if ai_allocation_meta.get("ranked"):
+                            print(f"   🤖 AI allocation: panel={panel_id} reordered top {len(ai_allocation_meta['aiTop'])} in {ai_allocation_meta['latencyMs']}ms")
+                    except Exception as ai_err:
+                        print(f"   [warn] AI allocation skipped: {ai_err}")
+
                 # Try candidates one by one until we get a working entry link
                 # user_email is accessible from the enclosing /api/store scope
                 for sid in candidates[:5]:
@@ -3067,6 +3090,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "cint_hashed_pid": hashed_pid,
                                 "cint_profiling_params": cint_profiling_params,
                                 "geoIpCountry": geo_ip_country,
+                                "aiAllocation": ai_allocation_meta,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
