@@ -46,18 +46,17 @@ export default function CrmDashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const [accounts, contacts, leads, opportunities, recent] = await Promise.all([
-          api.get("/api/crm/accounts", { limit: 1000 }, { cacheTTL: 0 }),
-          api.get("/api/crm/contacts", { limit: 1000 }, { cacheTTL: 0 }),
-          api.get("/api/crm/leads", { limit: 1000 }, { cacheTTL: 0 }),
-          api.get("/api/crm/opportunities", { limit: 1000 }, { cacheTTL: 0 }),
+        // counts come from the server -- this used to download 1,000 of
+        // every list just to count them (slow, and wrong past 1,000)
+        const [totals, recent] = await Promise.all([
+          api.get("/api/crm/counts", {}, { cacheTTL: 0 }),
           api.get("/api/crm/activities", { limit: 12 }, { cacheTTL: 0 }),
         ]);
         setCounts({
-          accounts: accounts.length,
-          contacts: contacts.length,
-          leads: leads.length,
-          opportunities: opportunities.length,
+          accounts: totals.accounts ?? 0,
+          contacts: totals.contacts ?? 0,
+          leads: totals.leads ?? 0,
+          opportunities: totals.opportunities ?? 0,
         });
         setActivities(Array.isArray(recent) ? recent : []);
         await loadNotifications();

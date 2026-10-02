@@ -74,13 +74,18 @@ function ProjectDetail() {
       }
 
       try {
-        const res = await authFetch(buildApiUrl(`/projects/`), {
+        // just this project (it used to download every project to pick one)
+        const res = await authFetch(buildApiUrl(`/projects/${encodeURIComponent(projectId)}`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
           },
         });
 
+        if (res.status === 404) {
+          setError("Project not found");
+          return;
+        }
         if (res.status === 401) {
           notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
@@ -91,8 +96,7 @@ function ProjectDetail() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load project");
 
-        const projects = data.projects || [];
-        const selectedProject = projects.find((p) => p._id === projectId);
+        const selectedProject = data.project;
 
         if (selectedProject) {
           setProject(selectedProject);

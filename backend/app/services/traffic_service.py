@@ -31,7 +31,14 @@ class TrafficService:
         self.surveys_collection = surveys_collection
         self.async_traffic_collection = async_traffic_collection
         self.async_surveys_collection = async_surveys_collection
-    
+        # project stats filter on params.pid; without this index every
+        # project's stats scanned all ~716k traffic records (2 s each)
+        try:
+            if traffic_collection is not None:
+                traffic_collection.create_index([("params.pid", 1), ("params.api", 1)], name="params_pid_api")
+        except Exception as e:
+            print(f"⚠️ Could not ensure traffic params_pid_api index: {e}")
+
     async def async_create_traffic_record(
         self,
         vendor_id: str,
@@ -846,55 +853,56 @@ class TrafficService:
         Filters: params.api = "false" AND params.pid = pid
         Returns completes, total_started, terminates, quota_full, median_loi, incidence_rate.
         """
-        import statistics as _stats
-        try:
-            projection = {"status": 1, "createdAt": 1, "completedAt": 1, "params": 1}
-            total = 0
-            completes = 0
-            terminates = 0
-            quota_full = 0
-            loi_values = []
+        return self.get_projects_traffic_stats([pid]).get(str(pid)) or self._empty_project_stats()
 
+    @staticmethod
+    def _empty_project_stats() -> Dict[str, Any]:
+        return {"total_started": 0, "completes": 0, "terminates": 0, "quota_full": 0,
+                "median_loi": None, "incidence_rate": 0.0}
+
+    def get_projects_traffic_stats(self, pids) -> Dict[str, Dict[str, Any]]:
+        """The same stats for many projects in ONE read. The Projects page used
+        to send one request per project (hundreds at once) as it opened."""
+        import statistics as _stats
+        wanted = [str(p) for p in pids if p not in (None, "")]
+        acc = {p: {"total": 0, "completes": 0, "terminates": 0, "quota_full": 0, "loi": []} for p in wanted}
+        try:
+            projection = {"status": 1, "createdAt": 1, "completedAt": 1, "params.pid": 1}
             for record in self.traffic_collection.find(
-                {"params.api": "false", "params.pid": str(pid)},
-                projection,
+                {"params.api": "false", "params.pid": {"$in": wanted}}, projection,
             ):
-                raw_status = record.get("status", "")
-                normalized = self._normalize_status(raw_status)
-                total += 1
+                a = acc.get(str((record.get("params") or {}).get("pid")))
+                if a is None:
+                    continue
+                normalized = self._normalize_status(record.get("status", ""))
+                a["total"] += 1
                 if normalized == "Complete":
-                    completes += 1
+                    a["completes"] += 1
                     created = self._safe_parse_datetime(record.get("createdAt"))
                     completed_ = self._safe_parse_datetime(record.get("completedAt"))
                     if created and completed_:
                         secs = (completed_ - created).total_seconds()
                         if secs > 0:
-                            loi_values.append(secs / 60.0)
+                            a["loi"].append(secs / 60.0)
                 elif normalized == "Terminate":
-                    terminates += 1
+                    a["terminates"] += 1
                 elif normalized == "Quota Full":
-                    quota_full += 1
-
-            median_loi = round(_stats.median(loi_values), 1) if loi_values else None
-            ir = round(completes / (completes + terminates) * 100, 1) if (completes + terminates) > 0 else 0.0
-            return {
-                "total_started": total,
-                "completes": completes,
-                "terminates": terminates,
-                "quota_full": quota_full,
-                "median_loi": median_loi,
-                "incidence_rate": ir,
-            }
+                    a["quota_full"] += 1
         except Exception as e:
-            print(f"❌ Error getting project traffic stats for pid={pid}: {e}")
-            return {
-                "total_started": 0,
-                "completes": 0,
-                "terminates": 0,
-                "quota_full": 0,
-                "median_loi": None,
-                "incidence_rate": 0.0,
+            print(f"❌ Error getting project traffic stats for {len(wanted)} pids: {e}")
+            return {p: self._empty_project_stats() for p in wanted}
+        out = {}
+        for p, a in acc.items():
+            c, t = a["completes"], a["terminates"]
+            out[p] = {
+                "total_started": a["total"],
+                "completes": c,
+                "terminates": t,
+                "quota_full": a["quota_full"],
+                "median_loi": round(_stats.median(a["loi"]), 1) if a["loi"] else None,
+                "incidence_rate": round(c / (c + t) * 100, 1) if (c + t) > 0 else 0.0,
             }
+        return out
 
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
         """

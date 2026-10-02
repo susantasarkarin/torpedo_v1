@@ -263,11 +263,12 @@ function ProjectsPage() {
 
     const fetchClients = async () => {
       try {
-        const customerList = await fetchAllClients();
-        const activeClients = customerList.filter(
+        const active = (list) => list.filter(
           (c) => !c.status || String(c.status).toLowerCase() === "active"
         );
-        setClients(activeClients);
+        // 100 at a time: the dropdown fills as clients arrive
+        const customerList = await fetchAllClients({ onBatch: (soFar) => setClients(active(soFar)) });
+        setClients(active(customerList));
       } catch (err) {
         if (err.status === 401) {
           notify("Session expired. Please login again.");
@@ -331,18 +332,24 @@ function ProjectsPage() {
     const pids = projects.map(p => p.surveyNo).filter(Boolean);
     if (!pids.length) return;
     const unique = [...new Set(pids)];
-    Promise.all(unique.map(pid =>
-      authFetch(buildApiUrl(`/api/traffic/project-stats?pid=${encodeURIComponent(pid)}`), {
-        headers: { Authorization: sessionId },
-      })
-        .then(r => (r.ok ? r.json() : null))
-        .then(s => [pid, s])
-        .catch(() => null)
-    )).then(results => {
-      const map = {};
-      results.forEach(r => { if (r && r[1]) map[r[0]] = r[1]; });
-      setTrafficStatsMap(map);
-    });
+    // 100 projects per request, one after another, each batch shown as it
+    // lands -- this used to fire one request per project all at once
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < unique.length && !cancelled; i += 100) {
+        try {
+          const r = await authFetch(buildApiUrl(`/api/traffic/project-stats/batch`), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: sessionId },
+            body: JSON.stringify({ pids: unique.slice(i, i + 100) }),
+          });
+          if (!r.ok || cancelled) continue;
+          const batch = await r.json();
+          if (!cancelled) setTrafficStatsMap(prev => (i === 0 ? batch : { ...prev, ...batch }));
+        } catch { /* a failed batch leaves those rows without stats */ }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [projects]);
 
   const handleChange = (e) => {

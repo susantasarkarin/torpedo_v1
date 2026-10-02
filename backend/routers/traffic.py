@@ -3306,6 +3306,21 @@ async def get_project_traffic_stats(
         raise HTTPException(status_code=500, detail=f"Project stats error: {str(e)}")
 
 
+@router.post("/api/traffic/project-stats/batch")
+async def get_projects_traffic_stats_batch(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Stats for up to 100 projects in one request: {"pids": [...]} -> {pid: stats}.
+    The Projects page loads them 100 at a time instead of one request each."""
+    session_id = request.headers.get("Authorization")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Missing session token")
+    if traffic_service is None:
+        raise HTTPException(status_code=503, detail="Traffic service not initialized")
+    pids = [str(p) for p in (payload.get("pids") or []) if p not in (None, "")]
+    if len(pids) > 100:
+        raise HTTPException(status_code=400, detail="At most 100 pids per request")
+    return await asyncio.to_thread(traffic_service.get_projects_traffic_stats, pids)
+
+
 @router.get("/api/traffic/dashboard-stats")
 async def get_dashboard_traffic_stats(
     request: Request,

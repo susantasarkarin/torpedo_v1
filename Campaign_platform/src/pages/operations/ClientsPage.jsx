@@ -92,7 +92,7 @@ function ClientsPage() {
     }
 
     try {
-      const collected = await fetchAllClients();
+      const collected = await fetchAllClients({ onBatch: (soFar) => setClients(soFar.map(customerToClient)) });
       setClients(collected.map(customerToClient));
       setError("");
     } catch (e) {

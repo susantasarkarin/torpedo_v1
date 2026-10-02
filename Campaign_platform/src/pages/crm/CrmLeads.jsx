@@ -2,7 +2,8 @@
  * CRM Leads — canonical spine leads with the standard Convert flow
  * (lead -> account + contact, optionally an opportunity).
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { streamBatches } from "../../hooks/useBatchedList";
 import { RefreshCw, UserPlus, ArrowRightCircle, Download } from "lucide-react";
 import api from "../../utils/api";
 import { API_BASE_URL } from "../../config";
@@ -24,15 +25,21 @@ export default function CrmLeads() {
   const [oppForm, setOppForm] = useState({});
   const [busy, setBusy] = useState(false);
 
+  // 8,000+ leads: the first 100 show at once, the rest stream in behind
+  const loadRun = useRef(0);
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const run = ++loadRun.current;
     try {
-      const params = { limit: 1000 };
+      const params = {};
       if (statusFilter) params.status = statusFilter;
       if (filter) params.q = filter;
-      const data = await api.get("/api/crm/leads", params, { cacheTTL: 0 });
-      setLeads(Array.isArray(data) ? data : []);
+      await streamBatches(
+        ({ offset, limit }) => api.get("/api/crm/leads", { ...params, limit, skip: offset }, { cacheTTL: 0 }),
+        (batch, { first }) => setLeads((prev) => (first ? batch : prev.concat(batch))),
+        () => loadRun.current === run,
+      );
     } catch (e) {
       setError(e.message || "Failed to load leads");
     } finally {

@@ -112,11 +112,14 @@ function CustomersPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        setOperationsClients(data || [])
-        
+        // the endpoint returns { customers, total, ... }, not a bare list --
+        // treating it as one meant the link map was never built
+        const list = Array.isArray(data) ? data : data.customers || []
+        setOperationsClients(list)
+
         // Build a map of customer->client links from linked_operations_client_id field
         const links = {}
-        ;(data || []).forEach(c => {
+        ;list.forEach(c => {
           if (c.linked_operations_client_id) {
             links[c._id] = c.linked_operations_client_id
           }

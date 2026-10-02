@@ -194,6 +194,14 @@ def spine_health(_user: str = Depends(require_read)):
     return mirror_stats()
 
 
+@router.get("/counts")
+def resource_counts(_user: str = Depends(require_read)):
+    """How many records each CRM list holds. The dashboard used to download
+    1,000 of every list just to count them -- slow, and wrong past 1,000."""
+    from app.services.crm_service import COLLECTIONS, _col
+    return {name: _col(name).estimated_document_count() for name in COLLECTIONS}
+
+
 @router.get("/duplicates/accounts")
 def duplicate_accounts(_user: str = Depends(require_read)):
     """Groups of accounts whose names collapse to the same dedupe key."""

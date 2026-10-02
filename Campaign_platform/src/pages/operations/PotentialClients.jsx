@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { streamBatches } from "../../hooks/useBatchedList";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import { fetchAllClients, authFetch } from "../../utils/api"
@@ -104,60 +105,32 @@ function PotentialClients() {
     }
   }, [surveys, clients, persistedClients]);
 
+  // CPX and Cint surveys, 100 at a time each (up to the 1,000 of each this page
+  // uses), streamed in parallel: the first batches show at once.
+  const surveysRun = useRef(0);
   const fetchAllSurveys = async () => {
     setLoading(true);
     setError(null);
-
+    const run = ++surveysRun.current;
+    const parts = { CPX: [], CINT: [] };
+    const show = () => setSurveys(parts.CPX.concat(parts.CINT));
+    const stream = (source, path) => streamBatches(
+      async ({ page, limit }) => {
+        const res = await authFetch(buildApiUrl(`${path}?page=${page}&page_size=${limit}&show_all=true`), {
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) throw new Error(`Could not load ${source} surveys (${res.status})`);
+        const data = await res.json();
+        return { items: (data.surveys || []).map((s) => ({ ...s, source })), total: data.total ?? null };
+      },
+      (batch, { first }) => { parts[source] = first ? batch : parts[source].concat(batch); show(); },
+      () => surveysRun.current === run,
+      { maxItems: 1000, onError: (e) => console.warn(e.message) },
+    );
     try {
-      const cpxResponse = await authFetch(buildApiUrl("/cpx/surveys?page=1&page_size=1000&show_all=true"), {
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      const cintQuery = "/api/cint/surveys?page=1&page_size=1000&show_all=true";
-      const cintResponse = await authFetch(buildApiUrl(cintQuery), {
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      let allSurveys = [];
-
-      if (cpxResponse.ok) {
-        const cpxData = await cpxResponse.json();
-        const cpxSurveys = (cpxData.surveys || []).map((s) => ({ ...s, source: "CPX" }));
-        allSurveys = allSurveys.concat(cpxSurveys);
-      }
-
-      let cintData = null;
-      if (cintResponse.ok) {
-        cintData = await cintResponse.json();
-      } else {
-        try {
-          const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
-          const fallbackResponse = await fetch(fallbackUrl, {
-            headers: {
-              Authorization: token,
-              "Content-Type": "application/json",
-            },
-          });
-          if (fallbackResponse.ok) {
-            cintData = await fallbackResponse.json();
-          }
-        } catch (fallbackError) {
-          console.warn("CINT fallback fetch failed:", fallbackError);
-        }
-      }
-
-      if (cintData) {
-        const cintSurveys = (cintData.surveys || []).map((s) => ({ ...s, source: "CINT" }));
-        allSurveys = allSurveys.concat(cintSurveys);
-      }
-
-      setSurveys(allSurveys);
+      const results = await Promise.allSettled([stream("CPX", "/cpx/surveys"), stream("CINT", "/api/cint/surveys")]);
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length === results.length) setError(failed[0].reason?.message || "Could not load surveys");
     } catch (err) {
       console.error("Error fetching surveys:", err);
       setError(err.message);
@@ -168,7 +141,7 @@ function PotentialClients() {
 
   const fetchClients = async () => {
     try {
-      setClients(await fetchAllClients());
+      setClients(await fetchAllClients({ onBatch: setClients }));
     } catch (err) {
       console.error("Error fetching clients:", err);
     }

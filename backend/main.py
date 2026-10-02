@@ -4064,6 +4064,21 @@ async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
     """Alias for /projects/ - POST project"""
     return await create_project(project_data=project_data)
 
+@app.get("/projects/{project_id}", dependencies=[Depends(verify_session)])
+async def get_project_by_id(project_id: str):
+    """One project. The project detail page used to download every project
+    just to pick one out."""
+    try:
+        oid = ObjectId(project_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Project not found")
+    import asyncio as _asyncio
+    doc = await _asyncio.to_thread(projects_collection.find_one, {"_id": oid, "is_deleted": {"$ne": True}})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Project not found")
+    doc["_id"] = str(doc["_id"])
+    return {"project": doc}
+
 @app.put("/projects/{project_id}")
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:

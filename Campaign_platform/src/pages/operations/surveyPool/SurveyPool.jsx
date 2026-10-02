@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { streamBatches } from '../../../hooks/useBatchedList';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
 import { buildApiUrl } from "../../../config"
@@ -198,52 +199,30 @@ export default function SurveyPool() {
     return () => clearInterval(interval);
   }, [token, cintConnected]);
 
-  // Fetch all surveys from both CPX and CINT, combine into unified pool
+  // The pool's surveys, 100 at a time (up to the 1,000 this page shows): the
+  // first batch appears at once instead of waiting for one 2 MB response.
+  const surveysRun = useRef(0);
   const fetchAllSurveys = async () => {
     setLoading(true);
     setError(null);
-    
+    const run = ++surveysRun.current;
     try {
-      // Fetch CINT surveys (mounted at /api/cint in backend)
-      const cintQuery = `/api/cint/surveys?page=1&page_size=1000&show_all=true`;
-      const cintResponse = await authFetch(buildApiUrl(cintQuery), {
-        headers: {
-          'Authorization': token,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      let allSurveys = [];
-
-      let cintData = null;
-      if (cintResponse.ok) {
-        cintData = await cintResponse.json();
-      } else {
-        try {
-          const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
-          const fallbackResponse = await fetch(fallbackUrl, {
-            headers: {
-              'Authorization': token,
-              'Content-Type': 'application/json',
-            },
+      await streamBatches(
+        async ({ page, limit }) => {
+          const res = await authFetch(buildApiUrl(`/api/cint/surveys?page=${page}&page_size=${limit}&show_all=true`), {
+            headers: { 'Content-Type': 'application/json' },
           });
-          if (fallbackResponse.ok) {
-            cintData = await fallbackResponse.json();
-          } else {
-            console.warn('CINT fetch failed:', cintResponse.status, fallbackResponse.status);
-          }
-        } catch (fallbackError) {
-          console.warn('CINT fallback fetch failed:', fallbackError);
-        }
-      }
-
-      if (cintData) {
-        const cintSurveys = (cintData.surveys || []).map(s => ({ ...s, source: 'CINT' }));
-        allSurveys = allSurveys.concat(cintSurveys);
-      }
-
-      setSurveys(allSurveys);
-      setTotalSurveys(allSurveys.length);
+          if (!res.ok) throw new Error(`Could not load surveys (${res.status})`);
+          const data = await res.json();
+          return { items: (data.surveys || []).map(s => ({ ...s, source: 'CINT' })), total: data.total ?? null };
+        },
+        (batch, { first, total }) => {
+          setSurveys(prev => (first ? batch : prev.concat(batch)));
+          if (total !== null) setTotalSurveys(total);
+        },
+        () => surveysRun.current === run,
+        { maxItems: 1000, onError: (e) => setError(e.message) },
+      );
       setLastUpdated(new Date().toISOString());
     } catch (err) {
       console.error('Error fetching surveys:', err);
@@ -275,7 +254,7 @@ export default function SurveyPool() {
   // Fetch clients for client name lookup
   const fetchClients = async () => {
     try {
-      setClients(await fetchAllClients());
+      setClients(await fetchAllClients({ onBatch: setClients }));
     } catch (err) {
       console.error('Error fetching clients:', err);
     }

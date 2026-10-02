@@ -4,7 +4,8 @@
  * contacts (with AI email draft), open opportunities, tasks, note/call
  * logging, and the full activity timeline.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { streamBatches } from "../../hooks/useBatchedList";
 import {
   Building2, Search, Mail, Phone, FileText, CheckSquare, Clock, Save,
   Plus, Target, Users, Sparkles,
@@ -69,13 +70,20 @@ export default function AccountTimeline() {
   const [draftResult, setDraftResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // 6,000+ accounts: the first 100 show at once, the rest stream in behind
+  const accountsRun = useRef(0);
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
+    const run = ++accountsRun.current;
     try {
-      const data = await api.get("/api/crm/accounts", { limit: 1000 }, { cacheTTL: 0 });
-      const list = Array.isArray(data) ? data : [];
-      setAccounts(list);
-      if (list.length && !selected) setSelected(list[0]);
+      await streamBatches(
+        ({ offset, limit }) => api.get("/api/crm/accounts", { limit, skip: offset }, { cacheTTL: 0 }),
+        (batch, { first }) => {
+          setAccounts((prev) => (first ? batch : prev.concat(batch)));
+          if (first && batch.length && !selected) setSelected(batch[0]);
+        },
+        () => accountsRun.current === run,
+      );
     } catch (e) {
       setError(e.message || "Failed to load accounts");
     } finally {

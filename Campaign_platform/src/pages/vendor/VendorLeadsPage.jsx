@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { streamBatches } from "../../hooks/useBatchedList"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
@@ -61,38 +62,31 @@ function VendorLeadsPage() {
     }
   }
 
+  // All vendor leads, 100 at a time: the first batch shows at once, the rest
+  // stream in. (It used to fetch one page of 50 without saying so, and showed
+  // made-up "demo" leads whenever the request failed.)
+  const leadsRun = useRef(0)
   const fetchLeads = async () => {
+    setLoading(true)
+    const run = ++leadsRun.current
     try {
-      setLoading(true)
-      const sessionId = localStorage.getItem("session_id")
-      
-      // Fetch vendor leads
-      const res = await authFetch(buildApiUrl(`/vendor-leads`), {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId || ""
-        }
-      })
-      
-      if (res.ok) {
-        const data = await res.json()
-        setLeads(data.leads || data || [])
-      } else {
-        // Demo data for now
-        setLeads([
-          { _id: "1", name: "John Smith", email: "john.smith@example.com", title: "Procurement Manager", company: "ABC Corp", vendor_name: "Panel Vendor A", status: "new" },
-          { _id: "2", name: "Sarah Johnson", email: "sarah.j@example.com", title: "Vendor Manager", company: "XYZ Inc", vendor_name: "Billing Vendor B", status: "contacted" },
-          { _id: "3", name: "Mike Davis", email: "mike.d@example.com", title: "Supply Chain Director", company: "Tech Solutions", vendor_name: "Panel Vendor C", status: "qualified" },
-        ])
-      }
+      await streamBatches(
+        async ({ page, limit }) => {
+          const res = await authFetch(buildApiUrl(`/vendor-leads?page=${page}&limit=${limit}`), {
+            headers: { "Content-Type": "application/json" },
+          })
+          if (!res.ok) throw new Error(`Could not load vendor leads (${res.status})`)
+          const data = await res.json()
+          return { items: data.leads || [], total: data.total ?? null }
+        },
+        (batch, { first }) => setLeads((prev) => (first ? batch : prev.concat(batch))),
+        () => leadsRun.current === run,
+        { onError: (e) => notify(e.message, "error") },
+      )
     } catch (err) {
       console.error("Error fetching vendor leads:", err)
-      // Demo data
-      setLeads([
-        { _id: "1", name: "John Smith", email: "john.smith@example.com", title: "Procurement Manager", company: "ABC Corp", vendor_name: "Panel Vendor A", status: "new" },
-        { _id: "2", name: "Sarah Johnson", email: "sarah.j@example.com", title: "Vendor Manager", company: "XYZ Inc", vendor_name: "Billing Vendor B", status: "contacted" },
-        { _id: "3", name: "Mike Davis", email: "mike.d@example.com", title: "Supply Chain Director", company: "Tech Solutions", vendor_name: "Panel Vendor C", status: "qualified" },
-      ])
+      setLeads([])
+      notify(err.message || "Could not load vendor leads", "error")
     } finally {
       setLoading(false)
     }

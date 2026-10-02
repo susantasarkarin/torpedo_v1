@@ -3,7 +3,8 @@
  * Stage moves via POST /api/crm/opportunities/{id}/stage (lost requires a
  * reason), Mark Won via /win, create + edit via the generic CRUD endpoints.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useState, useMemo } from "react";
+import { useBatchedList, batchProgressText } from "../../hooks/useBatchedList";
 import { Trophy, RefreshCw, Building2, Plus, Pencil, XCircle } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
@@ -17,11 +18,21 @@ const OPEN_STAGES = STAGE_ORDER.filter((s) => s !== "won" && s !== "lost");
 const fmtAmount = (n) => (typeof n === "number" && !Number.isNaN(n) ? formatMoney(n, "USD") : "—");
 
 export default function Pipeline() {
-  const [opps, setOpps] = useState([]);
-  const [accounts, setAccounts] = useState({});
-  const [accountList, setAccountList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  // 100 at a time: the board shows the first batch at once, the rest stream in
+  const oppList = useBatchedList(({ offset, limit }) =>
+    api.get("/api/crm/opportunities", { limit, skip: offset }, { cacheTTL: 0 }), []);
+  const accList = useBatchedList(({ offset, limit }) =>
+    api.get("/api/crm/accounts", { limit, skip: offset }, { cacheTTL: 0 }), []);
+  const opps = oppList.items;
+  const accountList = accList.items;
+  const accounts = useMemo(() => {
+    const map = {};
+    accountList.forEach((a) => { map[a._id] = a.name; });
+    return map;
+  }, [accountList]);
+  const loading = oppList.loading;
+  const [actionError, setError] = useState(null);
+  const error = actionError || oppList.error || accList.error;
   const [busyId, setBusyId] = useState(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);   // opportunity being edited
@@ -29,28 +40,7 @@ export default function Pipeline() {
   const [lossReason, setLossReason] = useState("");
   const [form, setForm] = useState({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [opportunities, accs] = await Promise.all([
-        api.get("/api/crm/opportunities", { limit: 1000 }, { cacheTTL: 0 }),
-        api.get("/api/crm/accounts", { limit: 1000 }, { cacheTTL: 0 }),
-      ]);
-      setOpps(Array.isArray(opportunities) ? opportunities : []);
-      const list = Array.isArray(accs) ? accs : [];
-      setAccountList(list);
-      const map = {};
-      list.forEach((a) => { map[a._id] = a.name; });
-      setAccounts(map);
-    } catch (e) {
-      setError(e.message || "Failed to load pipeline");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const load = () => { setError(null); oppList.reload(); accList.reload(); };
 
   const act = async (id, fn) => {
     setBusyId(id);
@@ -112,6 +102,7 @@ export default function Pipeline() {
           <h1 className="crm-title cx-page-title">Opportunity Pipeline</h1>
           <p className="crm-subtitle">
             {loading ? "Loading…" : `${opps.length} opportunities · open value ${fmtAmount(totalValue)}`}
+            {oppList.loadingMore && ` · ${batchProgressText(opps.length, oppList.total, true)}`}
           </p>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>

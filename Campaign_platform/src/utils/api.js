@@ -260,8 +260,10 @@ export const authFetch = (url, options = {}) => {
  * Throws on failure with `.status` set, so callers can keep their own 401
  * handling.
  */
-export const fetchAllClients = async () => {
-  const PAGE_SIZE = 200; // API maximum
+export const fetchAllClients = async ({ onBatch, pageSize = 100 } = {}) => {
+  // 100 at a time; onBatch(allSoFar) lets a page show clients as they arrive
+  // instead of waiting for every page (owner, 2026-10-02)
+  const PAGE_SIZE = pageSize;
   const all = [];
   let page = 1;
   let pages = 1;
@@ -278,6 +280,7 @@ export const fetchAllClients = async () => {
     }
     const data = await res.json();
     all.push(...(Array.isArray(data) ? data : data.customers || []));
+    if (onBatch) onBatch([...all]);
     pages = data.pages || 1;
     page += 1;
   } while (page <= pages);
