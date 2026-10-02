@@ -1,9 +1,9 @@
 """
-/surveycomplete -> /adpixel thank-you page + ad pixel (services/ad_tracking.py).
+/surveycomplete -> /adpixel (React thank-you page) -> GET /api/adpixel.
 
-Pixel renders only for: well-formed RID -> existing COMPLETE record -> ad
-traffic_source with an enabled platform -> not already fired. Every failure shows the same
-thank-you page with no pixel code. Vendor (non-ad) traffic keeps its redirect.
+The API returns a pixel only for: well-formed RID -> existing COMPLETE record ->
+ad traffic_source with an enabled platform -> not already fired. Everything
+else gets {"pixel": null}, never a reason. Vendor (non-ad) traffic keeps its redirect.
 """
 import pytest
 from bson import ObjectId
@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 import routers.traffic as traffic
 from services.ad_tracking import derive_traffic_source, extract_ad_tracking
 
-THANK_YOU = "Thank you! Your response has been recorded."
 PIXEL_ID = "192934514575015"
 
 
@@ -115,29 +114,29 @@ def _complete(client, rid):
     return client.get("/surveycomplete", params={"rid": rid}, follow_redirects=False)
 
 
+def _pixel(client, rid):
+    resp = client.get("/api/adpixel", params={"rid": rid})
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-store"
+    return resp.json()["pixel"]
+
+
 def _complete_and_land(client, rid):
-    """Client survey -> /surveycomplete -> 302 -> /adpixel."""
+    """Client survey -> /surveycomplete -> 302 /adpixel?rid= -> page asks /api/adpixel."""
     resp = _complete(client, rid)
     assert resp.status_code == 302
     assert resp.headers["location"] == f"/adpixel?rid={rid}"
-    return client.get("/adpixel", params={"rid": rid})
+    return _pixel(client, rid)
 
 
-def test_valid_first_completion_renders_meta_pixel(env):
+def test_valid_first_completion_returns_meta_pixel(env):
     client, url_params, database = env
     rid = _add_record(url_params, traffic_source="meta")
 
-    resp = _complete_and_land(client, rid)
+    pixel = _complete_and_land(client, rid)
 
-    assert resp.status_code == 200
-    assert THANK_YOU in resp.text
-    assert f"fbq('init', \"{PIXEL_ID}\")" in resp.text
-    assert "fbq('track', 'PageView')" in resp.text
-    assert (
-        f"fbq('trackCustom', 'SurveyComplete', {{survey_id: \"SV-42\"}}, {{eventID: \"complete_{rid}\"}})"
-        in resp.text
-    )
-    assert resp.headers["cache-control"] == "no-store"
+    assert pixel == {"platform": "meta", "pixel_id": PIXEL_ID, "survey_id": "SV-42",
+                     "event_id": f"complete_{rid}"}
     record = url_params.docs[0]
     assert record["status"] == "COMPLETE"  # existing completion logic still ran
     assert record["ad_pixel_fired_at"] is not None
@@ -145,45 +144,34 @@ def test_valid_first_completion_renders_meta_pixel(env):
     assert len(fires) == 1 and fires[0]["rid"] == rid and fires[0]["platform"] == "meta"
 
 
-def test_refresh_does_not_fire_twice(env):
+def test_refresh_and_reused_link_do_not_fire_twice(env):
     client, url_params, database = env
     rid = _add_record(url_params, traffic_source="meta")
 
-    _complete_and_land(client, rid)
-    resp = client.get("/adpixel", params={"rid": rid})  # refresh
-    assert "fbq(" not in resp.text
-    resp = _complete_and_land(client, rid)  # reused completion link
-
-    assert resp.status_code == 200
-    assert THANK_YOU in resp.text
-    assert "fbq(" not in resp.text
+    assert _complete_and_land(client, rid) is not None
+    assert _pixel(client, rid) is None              # refresh
+    assert _complete_and_land(client, rid) is None  # reused completion link
     assert len(database["ad_pixel_fires"].docs) == 1
 
 
-@pytest.mark.parametrize("path", ["/surveycomplete", "/adpixel"])
-def test_unknown_rid_shows_page_without_pixel(env, path):
+def test_unknown_rid(env):
     client, _, database = env
+    unknown = str(ObjectId())
 
-    resp = client.get(path, params={"rid": str(ObjectId())}, follow_redirects=False)
-
-    assert resp.status_code == 200
-    assert THANK_YOU in resp.text
-    assert "fbq(" not in resp.text
+    resp = _complete(client, unknown)
+    assert resp.status_code == 302 and resp.headers["location"] == "/adpixel"  # page, no rid
+    assert _pixel(client, unknown) is None
     assert database["ad_pixel_fires"].docs == []
 
 
 def test_adpixel_before_completion_fires_nothing(env):
-    """/adpixel is public: hitting it with a mid-survey RID must not fire."""
-    client, url_params, database = env
+    """/api/adpixel is public: a mid-survey RID must not fire."""
+    client, url_params, _ = env
     rid = _add_record(url_params, traffic_source="meta")  # INCOMPLETE
 
-    resp = client.get("/adpixel", params={"rid": rid})
-
-    assert resp.status_code == 200 and THANK_YOU in resp.text
-    assert "fbq(" not in resp.text
+    assert _pixel(client, rid) is None
     assert "ad_pixel_fired_at" not in url_params.docs[0]
-    # ...and the real completion afterwards still fires once
-    assert "fbq('trackCustom'" in _complete_and_land(client, rid).text
+    assert _complete_and_land(client, rid) is not None  # the real completion still fires
 
 
 def test_non_ad_traffic_keeps_vendor_flow_and_no_pixel(env):
@@ -192,20 +180,26 @@ def test_non_ad_traffic_keeps_vendor_flow_and_no_pixel(env):
 
     resp = _complete(client, rid)
 
-    assert resp.status_code in (302, 307)  # unchanged redirect behaviour
-    assert "fbq(" not in resp.text
+    assert resp.status_code in (302, 307)
+    assert resp.headers["location"].endswith("/thankyou")  # unchanged fallback
+    assert _pixel(client, rid) is None
     assert "ad_pixel_fired_at" not in url_params.docs[0]
 
 
-def test_ad_traffic_with_disabled_platform_renders_no_pixel(env):
+def test_ad_traffic_with_disabled_platform_gets_no_pixel(env):
     client, url_params, _ = env
     rid = _add_record(url_params, traffic_source="tiktok")  # present in config, disabled
 
-    resp = _complete_and_land(client, rid)
-
-    assert resp.status_code == 200 and THANK_YOU in resp.text
-    assert "<script" not in resp.text
+    assert _complete_and_land(client, rid) is None
     assert "ad_pixel_fired_at" not in url_params.docs[0]
+
+
+def test_meta_disabled_by_env(env, monkeypatch):
+    client, url_params, _ = env
+    monkeypatch.setenv("META_PIXEL_ENABLED", "false")
+    rid = _add_record(url_params, traffic_source="meta")
+
+    assert _complete_and_land(client, rid) is None
 
 
 @pytest.mark.parametrize("bad_rid", [
@@ -219,23 +213,10 @@ def test_malformed_rid_rejected_safely(env, bad_rid):
     client, url_params, database = env
     _add_record(url_params, traffic_source="meta")
 
-    for path in ("/surveycomplete", "/adpixel"):
-        resp = client.get(path, params={"rid": bad_rid}, follow_redirects=False)
-        assert resp.status_code == 200
-        assert THANK_YOU in resp.text
-        assert "fbq(" not in resp.text
-        assert "<script>alert" not in resp.text and "Purchase" not in resp.text
+    resp = _complete(client, bad_rid)
+    assert resp.status_code == 302 and resp.headers["location"] == "/adpixel"  # rid never echoed
+    assert client.get("/api/adpixel", params={"rid": bad_rid}).json() == {"pixel": None}
     assert database["ad_pixel_fires"].docs == []
-
-
-def test_survey_id_is_escaped_in_script(env):
-    client, url_params, _ = env
-    rid = _add_record(url_params, traffic_source="meta", assignedSurveyId='x"</script><script>alert(1)//')
-
-    resp = _complete_and_land(client, rid)
-
-    assert "</script><script>alert" not in resp.text
-    assert "\\u003c/script\\u003e" in resp.text
 
 
 def test_terminate_unchanged_for_ad_traffic(env):
@@ -245,22 +226,21 @@ def test_terminate_unchanged_for_ad_traffic(env):
     resp = client.get("/surveyterminate", params={"rid": rid}, follow_redirects=False)
 
     assert resp.status_code in (302, 307)
+    assert "adpixel" not in resp.headers["location"]
     assert "ad_pixel_fired_at" not in url_params.docs[0]
 
 
 # --- /adpixel reached with the ad-side identifier ----------------------------
 
-def test_adpixel_by_ad_rid_fires_once_with_that_event_id(env):
+def test_by_ad_rid_fires_once_with_that_event_id(env):
     """rid on /adpixel = the id that came in on the ad URL (respondentId)."""
     client, url_params, database = env
     sfwid = _add_record(url_params, traffic_source="meta", respondentId="FB-7781234")
     _complete(client, sfwid)  # client survey reports completion with our SFWID
 
-    resp = client.get("/adpixel", params={"rid": "FB-7781234"})
-
-    assert "{eventID: \"complete_FB-7781234\"}" in resp.text
-    assert "fbq(" not in client.get("/adpixel", params={"rid": "FB-7781234"}).text
-    assert "fbq(" not in client.get("/adpixel", params={"rid": sfwid}).text  # same person, other id
+    assert _pixel(client, "FB-7781234")["event_id"] == "complete_FB-7781234"
+    assert _pixel(client, "FB-7781234") is None
+    assert _pixel(client, sfwid) is None  # same person, other id
     assert [f["record_id"] for f in database["ad_pixel_fires"].docs] == [sfwid]
 
 
@@ -277,32 +257,31 @@ def test_facebook_ads_vendor_complete_url_routes_to_adpixel(env):
 
     assert resp.status_code in (302, 307)
     assert resp.headers["location"] == "https://torpedo.cogentixresearch.com/adpixel?rid=ad-1b2c3d4e"
-    page = client.get("/adpixel", params={"rid": "ad-1b2c3d4e"})
-    assert "{eventID: \"complete_ad-1b2c3d4e\"}" in page.text
+    assert _pixel(client, "ad-1b2c3d4e")["event_id"] == "complete_ad-1b2c3d4e"
 
 
-def test_adpixel_by_fbclid(env):
+def test_by_fbclid(env):
     client, url_params, _ = env
     fbclid = "IwAR2xYz_abc-123"
     sfwid = _add_record(url_params, traffic_source="meta", adTracking={"fbclid": fbclid})
     _complete(client, sfwid)
 
-    assert "fbq('trackCustom'" in client.get("/adpixel", params={"rid": fbclid}).text
+    assert _pixel(client, fbclid)["platform"] == "meta"
 
 
-def test_adpixel_ambiguous_ad_rid_fires_nothing(env):
+def test_ambiguous_ad_rid_fires_nothing(env):
     client, url_params, _ = env
     for _ in range(2):
         _complete(client, _add_record(url_params, traffic_source="meta", respondentId="DUP-123456"))
 
-    assert "fbq(" not in client.get("/adpixel", params={"rid": "DUP-123456"}).text
+    assert _pixel(client, "DUP-123456") is None
 
 
-def test_adpixel_ad_rid_not_from_ad_traffic_fires_nothing(env):
+def test_ad_rid_not_from_ad_traffic_fires_nothing(env):
     client, url_params, _ = env
     _complete(client, _add_record(url_params, traffic_source="direct", respondentId="VENDOR-998877"))
 
-    assert "fbq(" not in client.get("/adpixel", params={"rid": "VENDOR-998877"}).text
+    assert _pixel(client, "VENDOR-998877") is None
 
 
 # --- entry-side capture -----------------------------------------------------

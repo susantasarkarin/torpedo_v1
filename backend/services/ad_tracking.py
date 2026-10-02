@@ -6,15 +6,13 @@ traffic record, whose ObjectId is the RID) -> client survey -> /surveycomplete.
 
 Entry side:  extract_ad_tracking() turns the landing URL params + Meta cookies
              into `adTracking` + `traffic_source` on the traffic record.
-Exit side:   render_thank_you_page() renders a real HTML page (not a redirect,
-             so browser pixels load). claim_pixel_fire() decides server-side
-             whether a pixel may render, atomically, at most once per RID.
+Exit side:   the React thank-you page (/adpixel) asks GET /api/adpixel, which
+             calls claim_pixel_fire(): every check runs server-side and the
+             fire is stamped atomically, at most once per respondent.
 
-Adding a platform later = enable it in AD_PLATFORMS (env vars) + add a partial
-to _PIXEL_PARTIALS. Nothing else changes.
+Adding a platform later = enable it in AD_PLATFORMS (env vars) + add its
+loader to Campaign_platform/src/utils/adPixels.js. Nothing else changes.
 """
-import html
-import json
 import os
 import re
 import time
@@ -26,7 +24,7 @@ RID_PATTERN = re.compile(r"^[0-9a-fA-F]{24}$")  # traffic record ObjectId (SFWID
 PIXEL_RID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{6,255}$")
 
 # Platform config. `enabled_env` overrides `enabled_default`; a platform only
-# renders when it is enabled, has an ID, and has a partial.
+# renders when it is enabled and has a valid ID (and a loader in adPixels.js).
 AD_PLATFORMS: Dict[str, Dict[str, Any]] = {
     "meta": {
         "enabled_env": "META_PIXEL_ENABLED",
@@ -69,7 +67,7 @@ def _truthy(value: str) -> bool:
 def get_platform_config(platform: str) -> Optional[Dict[str, Any]]:
     """Resolved config for an enabled platform with a valid ID, else None. Read per call so env changes apply."""
     spec = AD_PLATFORMS.get(platform)
-    if not spec or platform not in _PIXEL_PARTIALS:
+    if not spec:
         return None
     raw_enabled = os.getenv(spec["enabled_env"])
     enabled = _truthy(raw_enabled) if raw_enabled is not None else spec["enabled_default"]
@@ -225,80 +223,3 @@ def send_server_side_conversion(record: Dict[str, Any], platform: str, event_id:
       - run it off the request path (background task / Celery), never inline
     """
     return None
-
-
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-def _js_string(value: str) -> str:
-    """JSON-encode for a JS string literal, safe inside <script> (no </script> breakout)."""
-    return (
-        json.dumps(value)
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-        .replace(" ", "\\u2028")
-        .replace(" ", "\\u2029")
-    )
-
-
-def _meta_partial(pixel: Dict[str, Any]) -> str:
-    pid = _js_string(pixel["pixel_id"])
-    survey_id = _js_string(pixel["survey_id"])
-    event_id = _js_string(pixel["event_id"])
-    noscript_id = html.escape(pixel["pixel_id"], quote=True)
-    return f"""<script>
-!function(f,b,e,v,n,t,s){{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
-n.callMethod.apply(n,arguments):n.queue.push(arguments)}};if(!f._fbq)f._fbq=n;
-n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}}(window,
-document,'script','https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', {pid});
-fbq('track', 'PageView');
-fbq('trackCustom', 'SurveyComplete', {{survey_id: {survey_id}}}, {{eventID: {event_id}}});
-</script>
-<noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id={noscript_id}&ev=PageView&noscript=1"></noscript>"""
-
-
-# Platform -> partial. Google Ads / TikTok partials go here when enabled.
-_PIXEL_PARTIALS = {
-    "meta": _meta_partial,
-}
-
-
-def render_thank_you_page(pixel: Optional[Dict[str, Any]] = None) -> str:
-    """Same message whether or not a pixel renders — never reveals why."""
-    partial = _PIXEL_PARTIALS.get(pixel["platform"]) if pixel else None
-    pixel_html = partial(pixel) if partial else ""
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>Thank you | Cogentix Research</title>
-<style>
-:root{{--navy:#123056;--orange:#ff7a59;--bg:#f0f4f8;--text:#334e68}}
-*{{box-sizing:border-box}}
-body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
-background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-.card{{width:100%;max-width:440px;background:#fff;border-radius:12px;padding:32px 24px;text-align:center;
-box-shadow:0 2px 12px rgba(18,48,86,.08);border-top:4px solid var(--orange)}}
-.brand{{font-weight:700;letter-spacing:.04em;color:var(--navy);font-size:14px;text-transform:uppercase;margin-bottom:20px}}
-.tick{{width:56px;height:56px;margin:0 auto 16px;border-radius:50%;background:var(--navy);color:#fff;
-display:flex;align-items:center;justify-content:center;font-size:28px;line-height:1}}
-h1{{margin:0 0 8px;color:var(--navy);font-size:22px}}
-p{{margin:0;font-size:15px;line-height:1.5}}
-</style>
-{pixel_html}
-</head>
-<body>
-<main class="card">
-<div class="brand">Cogentix Research</div>
-<div class="tick" aria-hidden="true">&#10003;</div>
-<h1>Thank you! Your response has been recorded.</h1>
-<p>You can now close this page.</p>
-</main>
-</body>
-</html>"""

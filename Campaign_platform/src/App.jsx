@@ -16,6 +16,7 @@ import Login from "./pages/Login"
 // Public user pages - Keep non-lazy
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 import SurveyError from "./pages/user/SurveyError"
+import AdPixelThankYou from "./pages/user/AdPixelThankYou"
 import SurveyResponse from "./pages/user/SurveyResponse"
 import MysteryShopperForm from "./pages/user/MysteryShopperForm"
 
@@ -173,6 +174,7 @@ function App() {
       <Route path="/mystery-shopper/:auditId" element={<MysteryShopperForm />} />
       <Route path="/survey-error" element={<SurveyError />} />
       <Route path="/nosurvey" element={<SurveyError />} />
+      <Route path="/adpixel" element={<AdPixelThankYou />} />
       <Route path="/response" element={<SurveyResponse />} />
       <Route path="/survey-response" element={<SurveyResponse />} />
 

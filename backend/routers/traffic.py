@@ -4,7 +4,7 @@ Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
 """
 from fastapi import APIRouter, HTTPException, Request, Query, Body
-from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse, Response
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime, timedelta
@@ -36,7 +36,6 @@ from services.ad_tracking import (
     claim_pixel_fire,
     extract_ad_tracking,
     is_ad_platform,
-    render_thank_you_page,
 )
 
 # URL validation utility for redirect safety
@@ -1853,13 +1852,9 @@ async def cint_callback(
 # build vendor redirect URL â†’ 302 redirect back to vendor.
 # =============================================================================
 
-def _thank_you_response(pixel: Optional[dict] = None) -> HTMLResponse:
-    # no-store: a refresh must come back to the server, which decides (once) about pixels
-    return HTMLResponse(
-        content=render_thank_you_page(pixel),
-        status_code=200,
-        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
-    )
+def _thank_you_response() -> RedirectResponse:
+    # The React thank-you page (/adpixel) without a rid: same message, never a pixel.
+    return RedirectResponse(url="/adpixel", status_code=302)
 
 
 async def _handle_project_survey_callback(
@@ -1878,7 +1873,7 @@ async def _handle_project_survey_callback(
     Ad traffic follows its vendor's completeRD (set facebook_ads' complete URL to
     https://torpedo.cogentixresearch.com/adpixel?rid=); with none configured it
     falls back to /adpixel?rid=<SFWID>. Completes with
-    a missing/malformed/unknown rid get the same page directly, never a pixel.
+    a missing/malformed/unknown rid go to /adpixel with no rid (never a pixel).
     Vendor traffic keeps its vendor completeRD redirect.
     """
     is_complete = outcome == "complete"
@@ -2054,24 +2049,27 @@ async def survey_complete_callback(
     return await _handle_project_survey_callback(request, _extract_rid(request, rid), "complete")
 
 
-@router.get("/adpixel")
-async def ad_pixel_thank_you(
+@router.get("/api/adpixel")
+async def ad_pixel_decision(
     request: Request,
     rid: str = Query(None, description="SFWID, the rid from the ad URL, or fbclid"),
 ):
     """
-    Cogentix thank-you page for ad respondents. Renders the ad-platform pixel
-    once per RID, only after /surveycomplete has recorded the completion.
-    Every failed check gets the same page with no pixel — never says why.
+    Called once by the /adpixel thank-you page (React). Returns the pixel to
+    render, or null. Format, existence, completion, ad source and once-only
+    are all checked (and the fire stamped) server-side; a null never says why.
     """
     rid = _extract_rid(request, rid)
     pixel = None
-    if rid:  # format, existence, completion and once-only are checked inside
+    if rid:
         try:
             pixel = await claim_pixel_fire(get_async_url_parameters_collection(), rid)
         except Exception as pixel_err:
             print(f"[warn] Ad pixel claim failed for rid={rid}: {pixel_err}")
-    return _thank_you_response(pixel)
+    return JSONResponse(
+        content={"pixel": pixel},
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+    )
 
 
 @router.get("/surveyterminate")
