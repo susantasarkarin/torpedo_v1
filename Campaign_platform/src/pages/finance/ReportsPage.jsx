@@ -582,7 +582,7 @@ function ReportsPage() {
         <p style={{ marginTop: "1rem", color: "#4b5563" }}>
           All amounts in INR. {reportData.basis}.
           {reportData.fx_rates && Object.keys(reportData.fx_rates).length > 0 && (
-            <> Converted at {reportData.fx_source || "current rates"}: {Object.entries(reportData.fx_rates).map(([c, r]) => `1 ${c} = ₹${Number(r).toFixed(2)}`).join(", ")}.</>
+            <> Foreign-currency amounts converted at {reportData.fx_source || "each document's own-date rate"}. Today's rates for reference: {Object.entries(reportData.fx_rates).map(([c, r]) => `1 ${c} = ₹${Number(r).toFixed(2)}`).join(", ")}.</>
           )}
         </p>
       )}

@@ -2,10 +2,12 @@
 Finance reports behind /admin/finance/reports (2026-10-02: the page asked for
 /finance/reports/* and no such endpoint existed, so every report was empty).
 
-All amounts are shown in INR. Invoices are mostly USD and carry no exchange
-rate, so other currencies are converted at FINANCE_FX_RATES (JSON in .env,
-e.g. {"USD": 84.1}) or the defaults below; every report returns the rates it
-used. There is no bank ledger: cash is what invoices record as received minus
+All amounts are shown in INR. Each invoice, bill and expense is converted at
+the rate of ITS OWN DATE (owner, 2026-10-02: an invoice's rate is the one on
+the day it was raised and must never change later). A rate recorded on the
+document itself (exchange_rate) wins; otherwise the day's rate is fetched once
+from frankfurter (ECB) and locked in finance_db.invoice_fx -- never refetched
+or overwritten. Only a document with no date falls back to today's rate. There is no bank ledger: cash is what invoices record as received minus
 what bills and expenses record as paid, and each report says what it is
 derived from.
 """
@@ -60,8 +62,81 @@ def fx_source() -> str:
     return f"live rates as of {_FX_CACHE['as_of']}" if _FX_CACHE.get("rates") else "fallback rates (rate service unreachable)"
 
 
-def _inr(amount, currency, rates) -> float:
-    return float(amount or 0) * rates.get((currency or "INR").upper(), 1.0)
+def _inr(amount, doc, conv) -> float:
+    return float(amount or 0) * conv.rate(doc)
+
+
+_DATE_FIELDS = ("invoice_date", "bill_date", "expense_date", "date", "payment_date")
+
+
+def _historical(currency: str, day: str) -> Optional[float]:
+    """INR per unit of `currency` on `day` (YYYY-MM-DD; a holiday gives the
+    last business day before it)."""
+    import requests
+    try:
+        d = requests.get(f"https://api.frankfurter.dev/v1/{day}", params={"from": currency, "to": "INR"},
+                         timeout=10).json()
+        r = (d.get("rates") or {}).get("INR")
+        return float(r) if r else None
+    except Exception:
+        return None
+
+
+class Converter:
+    """Per-document rates, locked once known."""
+
+    def __init__(self, db):
+        self.db = db
+        self.live = fx_rates()
+        self.locked: Dict[str, float] = {}
+        self.daily: Dict[tuple, Optional[float]] = {}
+        self.counts = {"locked": 0, "on_document": 0, "today": 0}
+        try:
+            for x in db["invoice_fx"].find({}, {"rate": 1}):
+                self.locked[str(x["_id"])] = float(x["rate"])
+        except Exception:
+            pass
+
+    def _key(self, doc) -> Optional[str]:
+        i = doc.get("_id")
+        if i is None:
+            return None
+        coll = "bill" if doc.get("bill_date") else "expense" if doc.get("expense_date") else "invoice"
+        return f"{coll}:{i}"
+
+    def rate(self, doc) -> float:
+        cur = _cur(doc)
+        if cur == "INR":
+            return 1.0
+        own = doc.get("exchange_rate")
+        try:
+            if own and float(own) > 0:
+                self.counts["on_document"] += 1
+                return float(own)
+        except (TypeError, ValueError):
+            pass
+        key = self._key(doc)
+        if key and key in self.locked:
+            self.counts["locked"] += 1
+            return self.locked[key]
+        day = next((_dt(doc.get(f)) for f in _DATE_FIELDS if _dt(doc.get(f))), None)
+        if key and day:
+            ds = day.strftime("%Y-%m-%d")
+            if (cur, ds) not in self.daily:
+                self.daily[(cur, ds)] = _historical(cur, ds)
+            r = self.daily[(cur, ds)]
+            if r:
+                self.locked[key] = r
+                try:  # insert-only: an existing locked rate is never overwritten
+                    self.db["invoice_fx"].update_one({"_id": key}, {"$setOnInsert": {
+                        "currency": cur, "rate": r, "rate_date": ds, "source": "frankfurter (ECB)",
+                        "locked_at": datetime.utcnow()}}, upsert=True)
+                except Exception:
+                    pass
+                self.counts["locked"] += 1
+                return r
+        self.counts["today"] += 1
+        return self.live.get(cur, 1.0)
 
 
 def _cur(doc) -> str:
@@ -109,20 +184,23 @@ def _paid(d) -> float:
 _SHOWN = ("USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD")
 
 
-def _meta(rates, basis: str) -> Dict[str, Any]:
-    return {"currency": "INR", "fx_rates": {k: rates[k] for k in _SHOWN if k in rates},
-            "fx_source": fx_source(), "basis": basis}
+def _meta(conv, basis: str) -> Dict[str, Any]:
+    c = conv.counts
+    src = (f"each document's own-date rate ({c['locked'] + c['on_document']} converted at their date"
+           + (f", {c['today']} with no date at today's rate" if c["today"] else "") + ")")
+    return {"currency": "INR", "fx_rates": {k: conv.live[k] for k in _SHOWN if k in conv.live},
+            "fx_source": src, "basis": basis}
 
 
 def profit_loss(db, start=None, end=None) -> Dict[str, Any]:
-    rates = fx_rates()
+    rates = Converter(db)
     s, e = _range(start, end)
     in_range = lambda d, f: (lambda t: t is not None and s <= t <= e)(_dt(d.get(f)))
-    sales = sum(_inr(i.get("subtotal") if i.get("subtotal") is not None else i.get("total_amount"), _cur(i), rates)
+    sales = sum(_inr(i.get("subtotal") if i.get("subtotal") is not None else i.get("total_amount"), i, rates)
                 for i in _live(db["invoices"].find({})) if in_range(i, "invoice_date"))
-    cogs = sum(_inr(b.get("subtotal") if b.get("subtotal") is not None else b.get("total_amount"), _cur(b), rates)
+    cogs = sum(_inr(b.get("subtotal") if b.get("subtotal") is not None else b.get("total_amount"), b, rates)
                for b in _live(db["bills"].find({})) if in_range(b, "bill_date"))
-    operating = sum(_inr(x.get("amount") or x.get("total_amount"), _cur(x), rates)
+    operating = sum(_inr(x.get("amount") or x.get("total_amount"), x, rates)
                     for x in _live(db["expenses"].find({})) if in_range(x, "expense_date") or in_range(x, "date"))
     revenue = {"total_sales": round(sales, 2), "other_income": 0.0, "total": round(sales, 2)}
     expenses = {"cogs": round(cogs, 2), "operating": round(operating, 2), "total": round(cogs + operating, 2)}
@@ -132,17 +210,17 @@ def profit_loss(db, start=None, end=None) -> Dict[str, Any]:
 
 
 def balance_sheet(db, start=None, end=None) -> Dict[str, Any]:
-    rates = fx_rates()
+    rates = Converter(db)
     _, e = _range(start, end)
     upto = lambda d, f: (lambda t: t is None or t <= e)(_dt(d.get(f)))
     invoices = [i for i in _live(db["invoices"].find({})) if upto(i, "invoice_date")]
     bills = [b for b in _live(db["bills"].find({})) if upto(b, "bill_date")]
     expenses = [x for x in _live(db["expenses"].find({})) if upto(x, "expense_date")]
-    receivables = sum(_inr(_balance(i), _cur(i), rates) for i in invoices)
-    payables = sum(_inr(_balance(b), _cur(b), rates) for b in bills)
-    collected = sum(_inr(_paid(i), _cur(i), rates) for i in invoices)
-    paid_out = sum(_inr(_paid(b), _cur(b), rates) for b in bills) + \
-        sum(_inr(x.get("amount") or x.get("total_amount"), _cur(x), rates) for x in expenses)
+    receivables = sum(_inr(_balance(i), i, rates) for i in invoices)
+    payables = sum(_inr(_balance(b), b, rates) for b in bills)
+    collected = sum(_inr(_paid(i), i, rates) for i in invoices)
+    paid_out = sum(_inr(_paid(b), b, rates) for b in bills) + \
+        sum(_inr(x.get("amount") or x.get("total_amount"), x, rates) for x in expenses)
     cash = collected - paid_out
     assets = {"cash": round(cash, 2), "receivables": round(receivables, 2), "inventory": 0.0,
               "total": round(cash + receivables, 2)}
@@ -167,7 +245,7 @@ def _aging(docs, rates, as_of) -> Dict[str, Any]:
         days = (as_of - due).days if due else 0
         key = "current" if days <= 0 else "1_30" if days <= 30 else "31_60" if days <= 60 else \
             "61_90" if days <= 90 else "90_plus"
-        buckets[key] += _inr(bal, _cur(d), rates)
+        buckets[key] += _inr(bal, d, rates)
     out = {k: round(v, 2) for k, v in buckets.items()}
     out["total"] = round(sum(buckets.values()), 2)
     out["count"] = count
@@ -175,7 +253,7 @@ def _aging(docs, rates, as_of) -> Dict[str, Any]:
 
 
 def aging(db, kind: str, start=None, end=None) -> Dict[str, Any]:
-    rates = fx_rates()
+    rates = Converter(db)
     _, e = _range(start, end)
     coll = "invoices" if kind == "receivables" else "bills"
     data = _aging(_live(db[coll].find({})), rates, e)
@@ -184,13 +262,13 @@ def aging(db, kind: str, start=None, end=None) -> Dict[str, Any]:
 
 
 def gst(db, start=None, end=None) -> Dict[str, Any]:
-    rates = fx_rates()
+    rates = Converter(db)
     s, e = _range(start, end)
     in_range = lambda d, f: (lambda t: t is not None and s <= t <= e)(_dt(d.get(f)))
     tax = lambda d: d.get("tax_total") if d.get("tax_total") is not None else d.get("tax_amount") or 0
-    output = sum(_inr(tax(i), _cur(i), rates) for i in _live(db["invoices"].find({})) if in_range(i, "invoice_date"))
-    inp = sum(_inr(tax(b), _cur(b), rates) for b in _live(db["bills"].find({})) if in_range(b, "bill_date")) + \
-        sum(_inr(x.get("gst_amount") or x.get("tax_amount") or 0, _cur(x), rates)
+    output = sum(_inr(tax(i), i, rates) for i in _live(db["invoices"].find({})) if in_range(i, "invoice_date"))
+    inp = sum(_inr(tax(b), b, rates) for b in _live(db["bills"].find({})) if in_range(b, "bill_date")) + \
+        sum(_inr(x.get("gst_amount") or x.get("tax_amount") or 0, x, rates)
             for x in _live(db["expenses"].find({})) if in_range(x, "expense_date"))
     return {"output_gst": round(output, 2), "input_gst": round(inp, 2), "net_gst": round(output - inp, 2),
             "period": {"start": s.date().isoformat(), "end": e.date().isoformat()},
@@ -200,7 +278,7 @@ def gst(db, start=None, end=None) -> Dict[str, Any]:
 def cash_flow(db, start=None, end=None) -> Dict[str, Any]:
     """Money in and out per month. Without a bank ledger, money in is what
     invoices record as received, dated by invoice date."""
-    rates = fx_rates()
+    rates = Converter(db)
     s, e = _range(start, end)
     months: "OrderedDict[str, Dict[str, float]]" = OrderedDict()
     cur = datetime(s.year, s.month, 1)
@@ -214,15 +292,15 @@ def cash_flow(db, start=None, end=None) -> Dict[str, Any]:
     for i in _live(db["invoices"].find({})):
         t = _dt(i.get("invoice_date"))
         if t and s <= t <= e:
-            add(t.strftime("%Y-%m"), "inflow", _inr(_paid(i), _cur(i), rates))
+            add(t.strftime("%Y-%m"), "inflow", _inr(_paid(i), i, rates))
     for b in _live(db["bills"].find({})):
         t = _dt(b.get("bill_date"))
         if t and s <= t <= e:
-            add(t.strftime("%Y-%m"), "outflow", _inr(_paid(b), _cur(b), rates))
+            add(t.strftime("%Y-%m"), "outflow", _inr(_paid(b), b, rates))
     for x in _live(db["expenses"].find({})):
         t = _dt(x.get("expense_date"))
         if t and s <= t <= e:
-            add(t.strftime("%Y-%m"), "outflow", _inr(x.get("amount") or x.get("total_amount"), _cur(x), rates))
+            add(t.strftime("%Y-%m"), "outflow", _inr(x.get("amount") or x.get("total_amount"), x, rates))
     rows = [{"month": k, "inflow": round(v["inflow"], 2), "outflow": round(v["outflow"], 2),
              "net": round(v["inflow"] - v["outflow"], 2)} for k, v in months.items()]
     inflow = round(sum(r["inflow"] for r in rows), 2)

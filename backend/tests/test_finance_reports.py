@@ -9,6 +9,7 @@ from app.services import finance_reports as fr
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     monkeypatch.setattr(fr, "_live_fx", lambda: None)
+    monkeypatch.setattr(fr, "_historical", lambda cur, day: None)
 
 
 class _Col:
@@ -58,3 +59,35 @@ def test_every_report_the_page_asks_for_exists():
     for rid in ("profit-loss", "balance-sheet", "cash-flow", "gst-report", "aging/receivables", "aging/payables"):
         assert rid in fr.REPORTS
         assert "basis" in fr.REPORTS[rid](_db(INV), "2026-01-01", "2026-12-31")
+
+
+class _Locks:
+    def __init__(self, docs=()):
+        self.docs = {d["_id"]: d for d in docs}
+        self.writes = 0
+
+    def find(self, q=None, p=None):
+        return list(self.docs.values())
+
+    def update_one(self, q, u, upsert=False):
+        if q["_id"] not in self.docs:  # $setOnInsert: never overwrite
+            self.docs[q["_id"]] = {"_id": q["_id"], **u["$setOnInsert"]}
+            self.writes += 1
+
+
+def test_invoice_rate_is_its_own_date_and_locked_forever(monkeypatch):
+    calls = []
+    monkeypatch.setattr(fr, "_historical", lambda cur, day: calls.append(day) or 75.56)
+    locks = _Locks()
+    db = {"invoices": _Col([]), "bills": _Col([]), "expenses": _Col([]), "invoice_fx": locks}
+    inv = {"_id": "a1", "currency_code": "USD", "invoice_date": datetime(2020, 4, 7)}
+    assert fr.Converter(db).rate(inv) == 75.56 and calls == ["2020-04-07"]
+    # later: a different market rate must not change the locked one
+    monkeypatch.setattr(fr, "_historical", lambda cur, day: 99.0)
+    assert fr.Converter(db).rate(inv) == 75.56 and locks.writes == 1
+
+
+def test_rate_on_the_invoice_itself_wins():
+    db = {"invoices": _Col([]), "bills": _Col([]), "expenses": _Col([]), "invoice_fx": _Locks()}
+    inv = {"_id": "z", "currency_code": "USD", "invoice_date": datetime(2026, 1, 1), "exchange_rate": 88.1}
+    assert fr.Converter(db).rate(inv) == 88.1
