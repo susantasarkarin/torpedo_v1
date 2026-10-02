@@ -19,13 +19,45 @@ DEFAULT_FX = {"INR": 1.0, "USD": 83.0, "EUR": 90.0, "GBP": 105.0, "AED": 22.6, "
 _CLOSED = {"void", "draft", "cancelled", "canceled", "written_off"}
 
 
+_FX_CACHE: Dict[str, Any] = {"at": 0.0, "rates": None, "as_of": None}
+FX_TTL_SECONDS = 6 * 3600
+
+
+def _live_fx() -> Optional[Dict[str, Any]]:
+    """INR per unit of each currency, from open.er-api.com (free, no key),
+    refreshed at most every 6 hours (owner, 2026-10-02: real-time rates)."""
+    import time
+    import requests
+    if _FX_CACHE["rates"] and time.time() - _FX_CACHE["at"] < FX_TTL_SECONDS:
+        return _FX_CACHE
+    try:
+        d = requests.get("https://open.er-api.com/v6/latest/INR", timeout=10).json()
+        if d.get("result") != "success":
+            return _FX_CACHE if _FX_CACHE["rates"] else None
+        rates = {k.upper(): round(1 / v, 4) for k, v in d["rates"].items() if v}
+        _FX_CACHE.update(at=time.time(), rates=rates, as_of=d.get("time_last_update_utc"))
+        return _FX_CACHE
+    except Exception:
+        return _FX_CACHE if _FX_CACHE["rates"] else None
+
+
 def fx_rates() -> Dict[str, float]:
+    """Live rates; the defaults only if the rate service cannot be reached.
+    FINANCE_FX_RATES (JSON) still overrides a currency when set."""
     rates = dict(DEFAULT_FX)
+    live = _live_fx()
+    if live:
+        rates.update(live["rates"])
     try:
         rates.update({k.upper(): float(v) for k, v in json.loads(os.getenv("FINANCE_FX_RATES", "{}")).items()})
     except Exception:
         pass
+    rates["INR"] = 1.0
     return rates
+
+
+def fx_source() -> str:
+    return f"live rates as of {_FX_CACHE['as_of']}" if _FX_CACHE.get("rates") else "fallback rates (rate service unreachable)"
 
 
 def _inr(amount, currency, rates) -> float:
@@ -74,8 +106,12 @@ def _paid(d) -> float:
     return float(d.get("total_amount") or d.get("total") or 0) - _balance(d)
 
 
+_SHOWN = ("USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD")
+
+
 def _meta(rates, basis: str) -> Dict[str, Any]:
-    return {"currency": "INR", "fx_rates": {k: v for k, v in rates.items() if k != "INR"}, "basis": basis}
+    return {"currency": "INR", "fx_rates": {k: rates[k] for k in _SHOWN if k in rates},
+            "fx_source": fx_source(), "basis": basis}
 
 
 def profit_loss(db, start=None, end=None) -> Dict[str, Any]:

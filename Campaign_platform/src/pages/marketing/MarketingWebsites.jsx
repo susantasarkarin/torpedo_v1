@@ -89,13 +89,32 @@ export default function MarketingWebsites() {
     finally { setSaving(false) }
   }
 
-  const publish = async (p) => {
-    if (!(await confirmAction(`Send "${p.title}" to the website as a draft for review there?`, { confirmText: "Send to site" }))) return
-    try {
-      const r = await api(`/posts/${p._id}/publish`, { method: "POST" })
-      notify(`Sent to the site${r.link ? `: ${r.link}` : ""}`, "success")
-      load()
-    } catch (e) { notify(e.message, "error") }
+  // the websites are hand-built HTML/CSS/JS: a post is handed over as a
+  // ready HTML page to drop into the site
+  const downloadPage = (p) => {
+    const esc = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;")
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(p.meta_title || p.title)}</title>
+<meta name="description" content="${esc(p.meta_description || p.excerpt)}">
+</head>
+<body>
+<article>
+<h1>${esc(p.title)}</h1>
+${p.body || ""}
+</article>
+</body>
+</html>
+`
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }))
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${p.slug || "post"}.html`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
   }
 
   const removePost = async (p) => {
@@ -164,15 +183,14 @@ export default function MarketingWebsites() {
                     <td className="py-2 font-semibold">{p.title}</td>
                     <td className="py-2">{siteName(p.site_id)}</td>
                     <td className="py-2"><span className="status-badge" style={{ background: "#fff7ed" }}>
-                      {p.status === "sent_to_site" ? "Sent to site" : p.status === "ready" ? "Ready" : "Draft"}</span>
-                      {p.published_url && <> · <a href={p.published_url} target="_blank" rel="noreferrer">open</a></>}
+                      {p.status === "ready" ? "Ready" : "Draft"}</span>
                     </td>
                     <td className="py-2">{formatDateTime(p.updated_at)}</td>
                     <td className="py-2">
                       <div className="flex justify-end gap-2">
                         <button className="action-btn" title="Edit" aria-label="Edit" onClick={() => setEditing(p)}><Pencil size={16} /></button>
                         <button className="action-btn" title="Copy HTML" aria-label="Copy HTML" onClick={() => copyHtml(p)}><Copy size={16} /></button>
-                        <button className="action-btn" title="Send to the website (WordPress)" aria-label="Send to website" onClick={() => publish(p)}><Send size={16} /></button>
+                        <button className="action-btn" title="Download as an HTML page for the website" aria-label="Download HTML page" onClick={() => downloadPage(p)}><Send size={16} /></button>
                         <button className="action-btn" title="Delete" aria-label="Delete" onClick={() => removePost(p)}><Trash2 size={16} /></button>
                       </div>
                     </td>

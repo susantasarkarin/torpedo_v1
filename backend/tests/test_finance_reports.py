@@ -1,7 +1,14 @@
 """Finance reports from invoices, bills and expenses, in INR."""
 from datetime import datetime
 
+import pytest
+
 from app.services import finance_reports as fr
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    monkeypatch.setattr(fr, "_live_fx", lambda: None)
 
 
 class _Col:

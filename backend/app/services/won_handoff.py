@@ -123,6 +123,62 @@ def _open_task(title: str, opportunity_id: str, due: datetime, description: str 
         logger.warning("won handoff: task creation failed: %s", e)
 
 
+
+# --- one Operations project per study ------------------------------------
+# A won RFQ used to get a new Operations project even when the team had already
+# set the study up by hand ("RFQ_Artha_iDirect Barrier_HRG_SFW" next to
+# "Artha iDirect Barrier"), or when one study came in through two RFQ records
+# (2026-10-02: 13 studies had such copies). The study is matched on the
+# client and the name with RFQ codes, vendor suffixes and punctuation ignored.
+# Wave numbers count: "Eduventure 2.0 Wave 6" is a new project, not a copy.
+_STUDY_CODES = re.compile(r"\b(rfq|hrg|sfw|hansa|new link|new project)\b", re.I)
+
+
+def _clean_study(s: str) -> str:
+    s = _STUDY_CODES.sub(" ", s.replace("_", " "))
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    return " ".join(s.split())
+
+
+def study_key(name: str) -> str:
+    s = (name or "").lower()
+    # " - VendorName" is the split-by-vendor suffix -- dropped only when a real
+    # name is left ("RFQ - Alzheimer's disease" keeps its title)
+    base = _clean_study(re.sub(r"\s+-\s+[^-]+$", "", s))
+    return base if len(base) >= 4 else _clean_study(s)
+
+
+def client_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower().split(" - ")[0])[:12]
+
+
+def find_existing_ops_project(projects, title: str, client: str, opp_id: str = None):
+    """The Operations project this study already has, if any. A failed lookup
+    never blocks a win: it just means a new project, as before."""
+    try:
+        return _find_existing_ops_project(projects, title, client, opp_id)
+    except Exception as e:
+        logger.warning("ops project lookup failed (%s); creating a new one", e)
+        return None
+
+
+def _find_existing_ops_project(projects, title, client, opp_id):
+    if opp_id:
+        hit = projects.find_one({"opportunity_id": opp_id, "is_deleted": {"$ne": True}})
+        if hit:
+            return hit
+    key, ck = study_key(title), client_key(client)
+    if len(key) < 4 or not ck:
+        return None
+    first = key.split()[0]
+    for p in projects.find({"is_deleted": {"$ne": True},
+                            "projectName": {"$regex": re.escape(first), "$options": "i"}},
+                           {"projectName": 1, "client": 1, "source": 1, "invoice_ids": 1, "opportunity_id": 1}):
+        if study_key(p.get("projectName")) == key and client_key(p.get("client")) == ck:
+            return p
+    return None
+
+
 def handoff_won_opportunity(opportunity: Dict[str, Any],
                             crm_project: Optional[Dict[str, Any]] = None, *,
                             historical: bool = False,
@@ -235,8 +291,21 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]],
         "createdAt": now,
         "created_at": now,
     }
-    ops_res = ops["projects"].insert_one(ops_project)
-    ops_project_id = str(ops_res.inserted_id)
+    existing_project = find_existing_ops_project(ops["projects"], title, customer.get("name"), opp_id)
+    if existing_project:
+        # link the win to the project the study already has
+        link = {"won_at": won_at, "updated_at": now}
+        for k in ("opportunity_id", "rfqId", "customer_id", "finance_customer_id", "crm_project_id"):
+            if not existing_project.get(k) and ops_project.get(k):
+                link[k] = ops_project[k]
+        upd = {"$set": link}
+        if invoice_ids:
+            upd["$addToSet"] = {"invoice_ids": {"$each": invoice_ids}}
+        ops["projects"].update_one({"_id": existing_project["_id"]}, upd)
+        ops_project_id = str(existing_project["_id"])
+    else:
+        ops_res = ops["projects"].insert_one(ops_project)
+        ops_project_id = str(ops_res.inserted_id)
 
     work_order = {
         "work_order_number": _next_number(fin["work_orders"], "work_order_number", "WO"),
