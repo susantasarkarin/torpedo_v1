@@ -172,7 +172,7 @@
 .bucket-label {
   display: block;
   color: rgba(255, 255, 255, 0.6);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   margin-bottom: 8px;
 }
 
@@ -256,7 +256,7 @@
 
 .summary-label {
   color: rgba(255, 255, 255, 0.6);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
 }
 
@@ -272,7 +272,7 @@
   color: #fde68a;
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .input-with-button {

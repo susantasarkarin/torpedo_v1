@@ -25,15 +25,15 @@ function AttentionItem({ item, onOpen }) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, color: "#1a1a1a" }}>{item.title}</div>
-        {item.detail && <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>{item.detail}</div>}
+        {item.detail && <div style={{ fontSize: "0.875rem", color: "#4b5563" }}>{item.detail}</div>}
         {item.examples?.length > 0 && (
-          <div style={{ fontSize: "0.75rem", color: "#4b5563", marginTop: "2px",
+          <div style={{ fontSize: "0.875rem", color: "#4b5563", marginTop: "2px",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {item.examples.join(" · ")}
           </div>
         )}
       </div>
-      <div style={{ fontSize: "0.7rem", color: s.bar, fontWeight: 600, whiteSpace: "nowrap" }}>{s.label}</div>
+      <div style={{ fontSize: "0.875rem", color: s.bar, fontWeight: 600, whiteSpace: "nowrap" }}>{s.label}</div>
     </div>
   )
 }
@@ -74,10 +74,10 @@ function Dashboard() {
   const stats = data?.stats || {}
   const items = data?.items || []
   const statCards = [
-    { label: "Active campaigns", value: stats.active_campaigns, color: "#e8890b", link: "/admin/sales/outreach" },
-    { label: "Leads", value: stats.leads, color: "#10b981", link: "/admin/sales/leads" },
+    { label: "Active campaigns", value: stats.active_campaigns, color: "#a25e07", link: "/admin/sales/outreach" },
+    { label: "Leads", value: stats.leads, color: "#047857", link: "/admin/sales/leads" },
     { label: "Vendor leads", value: stats.vendor_leads, color: "#8b5cf6", link: "/admin/vendor/leads" },
-    { label: "Open RFQs", value: stats.open_rfqs, color: "#f59e0b", link: "/admin/sales/rfq" },
+    { label: "Open RFQs", value: stats.open_rfqs, color: "#b45309", link: "/admin/sales/rfq" },
   ]
 
   return (

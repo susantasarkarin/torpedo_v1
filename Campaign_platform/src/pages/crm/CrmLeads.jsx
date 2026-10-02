@@ -120,22 +120,22 @@ export default function CrmLeads() {
                 <div style={{ fontWeight: 600, color: "#1a1a1a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {l.name || `${l.firstName || ""} ${l.lastName || ""}`.trim() || l.email || "(unnamed)"}
                 </div>
-                <div className="crm-muted" style={{ fontSize: "0.75rem" }}>
+                <div className="crm-muted" style={{ fontSize: "0.875rem" }}>
                   {l.email || "no email"}{l.company ? ` · ${l.company}` : ""}{l.title ? ` · ${l.title}` : ""}
                 </div>
               </div>
-              <span className="crm-muted" style={{ fontSize: "0.72rem", width: 90 }}>{l.source || "—"}</span>
+              <span className="crm-muted" style={{ fontSize: "0.875rem", width: 90 }}>{l.source || "—"}</span>
               <span className="crm-badge" style={{ color: STATUS_COLORS[l.status] || "#4a4a4a" }}>
                 {l.status || "new"}
               </span>
               {l.status !== "converted" && (
                 <div style={{ display: "flex", gap: "0.3rem" }}>
-                  <button className="crm-btn crm-btn--primary" style={{ padding: "0.25rem 0.55rem", fontSize: "0.75rem" }}
+                  <button className="crm-btn crm-btn--primary" style={{ padding: "0.25rem 0.55rem", fontSize: "0.875rem" }}
                     onClick={() => openConvert(l)}>
                     <ArrowRightCircle size={13} /> Convert
                   </button>
                   {l.status !== "disqualified" && (
-                    <button className="crm-btn" style={{ padding: "0.25rem 0.55rem", fontSize: "0.75rem" }}
+                    <button className="crm-btn" style={{ padding: "0.25rem 0.55rem", fontSize: "0.875rem" }}
                       onClick={() => setStatus(l, "disqualified")}>
                       Disqualify
                     </button>
@@ -153,7 +153,7 @@ export default function CrmLeads() {
             Creates/links {converting.company ? <b>account “{converting.company}”</b> : "no account (no company)"}{" "}
             and {converting.email ? <b>contact {converting.email}</b> : "no contact (no email)"}.
           </p>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.7rem", fontSize: "0.85rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.7rem", fontSize: "0.875rem" }}>
             <input type="checkbox" checked={withOpp} onChange={(e) => setWithOpp(e.target.checked)} />
             Also open an opportunity
           </label>

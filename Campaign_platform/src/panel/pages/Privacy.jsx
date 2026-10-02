@@ -13,7 +13,7 @@ export default function Privacy() {
       <header className="bg-panel-primary text-white py-6">
         <div className="max-w-4xl mx-auto px-6 flex items-center justify-between">
           <div className="inline-flex items-center gap-3 mb-4">
-            <img src="/newlogo.png" alt="Cogentix Research" style={{height:36}} />
+            <img src="/newlogo.png" alt="Cogentix Research" style={{height:61}} />
             <span className="text-xl font-semibold">Cogentix Research</span>
           </div>
           <h1 className="text-3xl font-bold">Privacy Policy</h1>

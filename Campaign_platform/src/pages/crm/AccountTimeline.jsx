@@ -34,11 +34,11 @@ function ActivityRow({ act }) {
         </div>
         {act.description && <p className="crm-muted" style={{ margin: "0.15rem 0 0" }}>{act.description}</p>}
         {act.changes && (
-          <p className="crm-muted" style={{ margin: "0.15rem 0 0", fontSize: "0.72rem" }}>
+          <p className="crm-muted" style={{ margin: "0.15rem 0 0", fontSize: "0.875rem" }}>
             {Object.entries(act.changes).map(([f, c]) => `${f}: ${c.from ?? "—"} → ${c.to}`).join("; ")}
           </p>
         )}
-        <span className="crm-muted" style={{ fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+        <span className="crm-muted" style={{ fontSize: "0.875rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
           <Clock size={12} /> {act.created_at ? formatDateTime(act.created_at) : ""}
           {act.author ? ` · ${act.author}` : ""}
         </span>
@@ -232,7 +232,7 @@ export default function AccountTimeline() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                   <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#1a1a1a" }}>{selected.name}</h2>
                   <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                    {notice && <span style={{ color: "#059669", fontSize: "0.78rem" }}>{notice}</span>}
+                    {notice && <span style={{ color: "#059669", fontSize: "0.875rem" }}>{notice}</span>}
                     <button className="crm-btn crm-btn--primary" disabled={!dirty || busy} onClick={saveAccount}>
                       <Save size={14} /> Save
                     </button>
@@ -240,9 +240,9 @@ export default function AccountTimeline() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.5rem", marginTop: "0.7rem" }}>
                   {EDIT_FIELDS.map(([f, label]) => (
-                    <label key={f} style={{ fontSize: "0.72rem", color: "#4b5563", fontWeight: 600 }}>
+                    <label key={f} style={{ fontSize: "0.875rem", color: "#4b5563", fontWeight: 600 }}>
                       {label}
-                      <input style={{ ...inputStyle, marginTop: "0.15rem", fontSize: "0.8rem" }}
+                      <input style={{ ...inputStyle, marginTop: "0.15rem", fontSize: "0.875rem" }}
                         value={edit[f] || ""}
                         onChange={(e) => { setEdit({ ...edit, [f]: e.target.value }); setDirty(true); }} />
                     </label>
@@ -255,16 +255,16 @@ export default function AccountTimeline() {
                   {/* ---- contacts ---- */}
                   <h3 className="crm-section-title"><Users size={16} className="crm-icon" /> Contacts ({detail.contacts.length})</h3>
                   {detail.contacts.length === 0 ? (
-                    <p className="crm-muted" style={{ fontSize: "0.8rem" }}>No linked contacts.</p>
+                    <p className="crm-muted" style={{ fontSize: "0.875rem" }}>No linked contacts.</p>
                   ) : detail.contacts.map((c) => (
                     <div key={c._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontWeight: 600 }}>{c.name || c.email}</span>
-                        <span className="crm-muted" style={{ fontSize: "0.75rem", marginLeft: "0.4rem" }}>
+                        <span className="crm-muted" style={{ fontSize: "0.875rem", marginLeft: "0.4rem" }}>
                           {c.email}{c.title ? ` · ${c.title}` : ""}
                         </span>
                       </div>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         title="AI-draft an email to this contact"
                         onClick={() => { setDraftFor(c); setDraftContext(""); setDraftResult(null); }}>
                         <Sparkles size={13} /> Draft email
@@ -277,7 +277,7 @@ export default function AccountTimeline() {
                     <Target size={16} className="crm-icon" /> Opportunities ({detail.opportunities.length})
                   </h3>
                   {detail.opportunities.length === 0 ? (
-                    <p className="crm-muted" style={{ fontSize: "0.8rem" }}>No opportunities for this account.</p>
+                    <p className="crm-muted" style={{ fontSize: "0.875rem" }}>No opportunities for this account.</p>
                   ) : detail.opportunities.map((o) => (
                     <div key={o._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                       <span style={{ flex: 1 }}>{o.title}</span>
@@ -294,13 +294,13 @@ export default function AccountTimeline() {
                       <CheckSquare size={16} className="crm-icon" /> Tasks ({detail.timeline?.tasks?.length || 0})
                     </h3>
                     <div style={{ display: "flex", gap: "0.35rem" }}>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         onClick={() => setTaskForm({ title: "" })}><Plus size={13} /> Task</button>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         onClick={() => setLogForm({ type: "note", subject: "" })}><FileText size={13} /> Note</button>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         onClick={() => setLogForm({ type: "call", subject: "" })}><Phone size={13} /> Log call</button>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         onClick={() => setLogForm({ type: "meeting", subject: "" })}><Users size={13} /> Meeting</button>
                     </div>
                   </div>
@@ -310,9 +310,9 @@ export default function AccountTimeline() {
                       <div key={t._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                         <input type="checkbox" checked={t.status === "done"} onChange={() => toggleTask(t)} />
                         <span style={{ flex: 1, textDecoration: t.status === "done" ? "line-through" : "none" }}>{t.title}</span>
-                        {t.owner_id && <span className="crm-muted" style={{ fontSize: "0.72rem" }}>{t.owner_id}</span>}
+                        {t.owner_id && <span className="crm-muted" style={{ fontSize: "0.875rem" }}>{t.owner_id}</span>}
                         {t.due_date && (
-                          <span style={{ fontSize: "0.72rem", color: overdue ? "#b91c1c" : "#4b5563", fontWeight: overdue ? 700 : 400 }}>
+                          <span style={{ fontSize: "0.875rem", color: overdue ? "#b91c1c" : "#4b5563", fontWeight: overdue ? 700 : 400 }}>
                             {formatDate(t.due_date)}
                           </span>
                         )}
@@ -396,10 +396,10 @@ export default function AccountTimeline() {
           ) : (
             <>
               <p style={{ fontWeight: 600, marginTop: 0 }}>{draftResult.subject}</p>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.83rem", background: "#f9fafb", padding: "0.7rem", borderRadius: "0.4rem" }}>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.875rem", background: "#f9fafb", padding: "0.7rem", borderRadius: "0.4rem" }}>
                 {draftResult.body}
               </pre>
-              <p className="crm-muted" style={{ fontSize: "0.75rem" }}>
+              <p className="crm-muted" style={{ fontSize: "0.875rem" }}>
                 Saved to the follow-up drafts queue (Mail → follow-up drafts) for review — nothing was sent.
               </p>
               <div style={{ display: "flex", justifyContent: "flex-end" }}>

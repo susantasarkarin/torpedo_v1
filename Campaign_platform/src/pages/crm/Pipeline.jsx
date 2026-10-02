@@ -132,14 +132,14 @@ export default function Pipeline() {
                     <div className="crm-opp__title">{o.title || "Untitled"}</div>
                     <div className="crm-opp__meta"><Building2 size={12} /> {accounts[o.account_id] || "—"}</div>
                     <div className="crm-opp__amount">{fmtAmount(o.amount)}</div>
-                    {o.owner && <div className="crm-muted" style={{ fontSize: "0.7rem" }}>owner: {o.owner}</div>}
+                    {o.owner && <div className="crm-muted" style={{ fontSize: "0.875rem" }}>owner: {o.owner}</div>}
                     {o.expected_close_date && (
-                      <div className="crm-muted" style={{ fontSize: "0.7rem" }}>
+                      <div className="crm-muted" style={{ fontSize: "0.875rem" }}>
                         close: {formatDate(o.expected_close_date)}
                       </div>
                     )}
                     {o.loss_reason && (
-                      <div style={{ fontSize: "0.7rem", color: "#b91c1c" }}>lost: {o.loss_reason}</div>
+                      <div style={{ fontSize: "0.875rem", color: "#b91c1c" }}>lost: {o.loss_reason}</div>
                     )}
                     {o.status === "open" ? (
                       <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.45rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -148,7 +148,7 @@ export default function Pipeline() {
                           disabled={busyId === o._id}
                           onChange={(e) => moveStage(o, e.target.value)}
                           title="Move stage"
-                          style={{ ...inputStyle, width: "auto", padding: "0.2rem 0.3rem", fontSize: "0.72rem" }}>
+                          style={{ ...inputStyle, width: "auto", padding: "0.2rem 0.3rem", fontSize: "0.875rem" }}>
                           {STAGE_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                         <button className="crm-btn" style={{ padding: "0.25rem 0.45rem" }} title="Edit"

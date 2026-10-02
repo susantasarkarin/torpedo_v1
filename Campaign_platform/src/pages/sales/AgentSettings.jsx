@@ -339,12 +339,12 @@ export default function AgentSettings() {
                       <div className="font-medium text-gray-900 flex items-center gap-2">
                         {config.name}
                         {config.is_default && (
-                          <span className="text-xs bg-cogentix-orange-100 text-cogentix-orange-700 px-1.5 py-0.5 rounded">
+                          <span className="text-sm bg-cogentix-orange-100 text-cogentix-orange-700 px-1.5 py-0.5 rounded">
                             Preset
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-500 truncate">
+                      <div className="text-sm text-gray-500 truncate">
                         {config.description}
                       </div>
                     </button>
@@ -545,7 +545,7 @@ export default function AgentSettings() {
                                 </div>
                                 <div className="text-left">
                                   <div className="font-medium text-gray-900">{agent.name}</div>
-                                  <div className="text-xs text-gray-500">{agent.description}</div>
+                                  <div className="text-sm text-gray-500">{agent.description}</div>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
@@ -578,7 +578,7 @@ export default function AgentSettings() {
                                     className="w-full border border-gray-300 rounded-md px-3 py-2 font-mono text-sm h-48"
                                     placeholder={agent.defaultPrompt}
                                   />
-                                  <p className="text-xs text-gray-500 mt-1">
+                                  <p className="text-sm text-gray-500 mt-1">
                                     Use {'{variable}'} placeholders for dynamic content
                                   </p>
                                 </div>
@@ -597,7 +597,7 @@ export default function AgentSettings() {
                                       onChange={(e) => updateConfig(`agents.${key}.temperature`, parseFloat(e.target.value))}
                                       className="w-full"
                                     />
-                                    <div className="flex justify-between text-xs text-gray-500">
+                                    <div className="flex justify-between text-sm text-gray-500">
                                       <span>Precise</span>
                                       <span>Creative</span>
                                     </div>
@@ -640,7 +640,7 @@ export default function AgentSettings() {
                           onChange={(e) => updateConfig('scoring.min_score_threshold', parseInt(e.target.value))}
                           className="w-full border border-gray-300 rounded-md px-3 py-2"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-sm text-gray-500 mt-1">
                           Leads below this score will be marked as cold
                         </p>
                       </div>

@@ -1020,7 +1020,7 @@ const styles = {
   statusBadge: {
     padding: "0.125rem 0.5rem",
     borderRadius: "4px",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "500"
   },
   errorBadge: {
@@ -1028,7 +1028,7 @@ const styles = {
     backgroundColor: "#fee2e2",
     color: "#991b1b",
     borderRadius: "4px",
-    fontSize: "0.75rem"
+    fontSize: "0.875rem"
   },
   mailboxActions: {
     display: "flex",
@@ -1220,11 +1220,11 @@ const styles = {
     marginBottom: "0.375rem"
   },
   progressMessage: {
-    fontSize: "0.813rem",
+    fontSize: "0.875rem",
     color: "#4a4a4a"
   },
   progressStats: {
-    fontSize: "0.813rem",
+    fontSize: "0.875rem",
     color: "#4b5563",
     fontWeight: "500"
   },

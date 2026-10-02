@@ -17,7 +17,7 @@ export default function Pagination({
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", gap: 16, flexWrap: "wrap" }}>
       {/* Left: showing X-Y of Z */}
-      <div style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+      <div style={{ fontSize: "0.875rem", color: "#4b5563" }}>
         {totalRecords > 0 ? (
           <>Showing <strong>{start}</strong>–<strong>{end}</strong> of <strong>{totalRecords.toLocaleString()}</strong></>
         ) : (
@@ -44,7 +44,7 @@ export default function Pagination({
           <ChevronLeft size={16} />
         </button>
 
-        <span style={{ fontSize: "0.85rem", color: "#4a4a4a", padding: "0 8px", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.875rem", color: "#4a4a4a", padding: "0 8px", whiteSpace: "nowrap" }}>
           Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
         </span>
 
@@ -68,7 +68,7 @@ export default function Pagination({
 
       {/* Right: records per page */}
       {onPageSizeChange && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem", color: "#4b5563" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.875rem", color: "#4b5563" }}>
           <span>Rows:</span>
           <select
             value={pageSize}
@@ -76,7 +76,7 @@ export default function Pagination({
             disabled={loading}
             style={{
               padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0",
-              background: "#fff", fontSize: "0.85rem", cursor: "pointer",
+              background: "#fff", fontSize: "0.875rem", cursor: "pointer",
             }}
           >
             {PAGE_SIZE_OPTIONS.map((opt) => (

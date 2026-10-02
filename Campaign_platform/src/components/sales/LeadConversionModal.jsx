@@ -273,7 +273,7 @@ export default function LeadConversionModal({
               className="w-5 h-5"
             />
             <div className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
+              <UserPlus className="w-5 h-5 text-cogentix-orange-700" />
               <div>
                 <p className="font-medium">Create Contact</p>
                 <p className="text-sm text-gray-500">Add as a contact in your CRM</p>
@@ -305,7 +305,7 @@ export default function LeadConversionModal({
   const renderContactStep = () => (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
-        <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
+        <UserPlus className="w-5 h-5 text-cogentix-orange-700" />
         <h3 className="font-medium">Contact Details</h3>
       </div>
       
@@ -459,7 +459,7 @@ export default function LeadConversionModal({
         <div className="space-y-3 text-left max-w-sm mx-auto">
           {result.contact && (
             <Card className="p-3 flex items-center gap-3">
-              <UserPlus className="w-5 h-5 text-cogentix-orange-500" />
+              <UserPlus className="w-5 h-5 text-cogentix-orange-700" />
               <div>
                 <p className="font-medium">Contact Created</p>
                 <p className="text-sm text-gray-500">

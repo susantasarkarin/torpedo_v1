@@ -29,7 +29,7 @@
 }
 
 .pp-title-icon {
-  color: #e8890b;
+  color: #a25e07;
   flex-shrink: 0;
 }
 
@@ -52,7 +52,7 @@
   align-items: center;
   padding: 0.2rem 0.7rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   background: #f0f0f0;
   color: #555;
@@ -66,7 +66,7 @@
 
 .pp-pill-pause {
   background: #fef9c3;
-  color: #ca8a04;
+  color: #a16207;
 }
 
 /* Primary button */
@@ -110,7 +110,7 @@
   left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #9ca3af;
+  color: #6b6b6b;
   pointer-events: none;
 }
 
@@ -169,7 +169,7 @@
   background: #f8f9fa;
   padding: 0.7rem 1rem;
   text-align: left;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #4b5563;
   text-transform: uppercase;
@@ -196,7 +196,7 @@
 
 /* Project name link */
 .pp-project-name {
-  color: #e8890b;
+  color: #a25e07;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -209,7 +209,7 @@
 /* Survey number badge */
 .pp-survey-no {
   font-family: monospace;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   background: #f3f4f6;
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
@@ -227,7 +227,7 @@
 .pp-td-date {
   white-space: nowrap;
   color: #4b5563;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
 .pp-td-vendor {
@@ -240,7 +240,7 @@
   align-items: center;
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: capitalize;
   white-space: nowrap;
@@ -253,7 +253,7 @@
 
 .pp-status-pause {
   background: #fef9c3;
-  color: #ca8a04;
+  color: #a16207;
 }
 
 .pp-status-close {
@@ -285,7 +285,7 @@
 .pp-act-view:hover {
   background: #fff7ed;
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .pp-act-edit:hover {
@@ -304,7 +304,7 @@
 .pp-empty {
   text-align: center;
   padding: 3rem !important;
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .pp-empty p {
@@ -338,7 +338,7 @@
 
 .pp-page-btn:hover:not(:disabled) {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .pp-page-btn:disabled {
@@ -432,7 +432,7 @@
 }
 
 .pp-fieldset legend {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #4b5563;
   text-transform: uppercase;
@@ -460,7 +460,7 @@
 }
 
 .pp-field label {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4a4a4a;
 }
@@ -499,8 +499,8 @@
 }
 
 .pp-hint {
-  font-size: 0.75rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   margin-top: 0.15rem;
 }
 
@@ -510,7 +510,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   overflow: hidden;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .pp-vendor-url-row {
@@ -553,7 +553,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
   font-weight: 400;
   cursor: pointer;

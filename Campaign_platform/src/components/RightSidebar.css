@@ -1,10 +1,10 @@
 /* Sidebar container */
 .right-sidebar {
   position: fixed;
-  top: 90px;
+  top: var(--cx-nav-h, 90px);
   right: 0;
   width: 250px;
-  height: calc(100vh - 90px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   background: #1a1a1a;
   color: white;
   padding: 20px 15px;
@@ -60,7 +60,7 @@
 /* Icon styling */
 .sidebar-icon {
   margin-right: 10px;
-  font-size: 5px;
+  font-size: 14px;
 }
 
 /* Hover effects */
@@ -88,7 +88,7 @@
 
 .dropdown-arrow {
   transition: transform 0.3s ease;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin-left: auto;
   color: #9ca3af;
 }

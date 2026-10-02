@@ -1,7 +1,7 @@
 "use client"
 
 import { Link, useNavigate } from "react-router-dom"
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { logout } from "../services/authService"
 import "./Navbar.css"
 
@@ -12,6 +12,25 @@ function Navbar({
 }) {
   const [logoDropdownOpen, setLogoDropdownOpen] = useState(false)
   const navigate = useNavigate()
+  const navRef = useRef(null)
+
+  // Publish the bar's real height as --cx-nav-h: sidebars and full-height
+  // panels sit below it. They used to hard-code 60/70/90px, which broke
+  // whenever the bar changed (e.g. the larger logo).
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return undefined
+    const publish = () =>
+      document.documentElement.style.setProperty("--cx-nav-h", `${Math.round(el.getBoundingClientRect().height)}px`)
+    publish()
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(publish) : null
+    ro?.observe(el)
+    window.addEventListener("resize", publish)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener("resize", publish)
+    }
+  }, [])
 
   const handleLogoDropdownToggle = () => {
     setLogoDropdownOpen((prev) => !prev)
@@ -37,12 +56,12 @@ function Navbar({
   const handleLogout = () => logout(navigate)
 
   return (
-    <nav className="top-navbar">
+    <nav className="top-navbar" ref={navRef}>
       <div className="navbar-left">
         <div className={`logo-dropdown ${logoDropdownOpen ? "open" : ""}`}>
           <button className="logo-dropdown-toggle" onClick={handleLogoDropdownToggle}>
             <div className="logo-section">
-              <img src="/newlogo.png" alt="Cogentix Research Logo" className="logo-image" style={{height:32}} />
+              <img src="/newlogo.png" alt="Cogentix Research Logo" className="logo-image" />
             </div>
             <span className="dropdown-arrow">⏷</span>
           </button>

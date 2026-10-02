@@ -70,7 +70,7 @@ h6 {
   border: 1px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.12);
   color: #e5e7eb;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -257,8 +257,8 @@ h6 {
   position: fixed;
   left: 0;
   /* Updated top position to account for larger navbar height */
-  top: 90px;
-  height: calc(100vh - 90px);
+  top: var(--cx-nav-h, 90px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   overflow-y: auto;
   box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
   z-index: 999;
@@ -439,7 +439,7 @@ h6 {
 
 .profile-dropdown .dropdown-arrow {
   transition: transform 0.3s ease;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   /* Updated dropdown arrow color to use medium gray */
   color: #4b5563;
 }
@@ -731,7 +731,7 @@ table tbody tr:last-child td {
 .status-badge {
   padding: 0.5rem 1rem;
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -843,8 +843,8 @@ table tbody tr:last-child td {
     width: 100%;
     left: 0;
     /* Updated top position for mobile to match new navbar height */
-    top: 90px;
-    height: calc(100vh - 90px);
+    top: var(--cx-nav-h, 90px);
+    height: calc(100vh - var(--cx-nav-h, 90px));
     transform: translateX(-100%);
   }
 
@@ -875,7 +875,7 @@ table tbody tr:last-child td {
   table th,
   table td {
     padding: 1rem;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
   }
 }
 
@@ -900,10 +900,10 @@ table tbody tr:last-child td {
 /* 🔹 Left (Operations) Sidebar */
 .operations-sidebar {
   position: fixed;
-  top: 70px; /* adjust for navbar height */
+  top: var(--cx-nav-h, 90px); /* adjust for navbar height */
   left: 0;
   width: 250px;
-  height: calc(100vh - 70px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   background-color: #1a1a1a;
   color: white;
   padding: 20px;
@@ -916,10 +916,10 @@ table tbody tr:last-child td {
 /* 🔹 Right (Sales) Sidebar */
 .right-sidebar {
   position: fixed;
-  top: 70px;
+  top: var(--cx-nav-h, 90px);
   right: 0;
   width: 280px;
-  height: calc(100vh - 70px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   background: #1a1a1a;
   color: white;
   padding: 20px;

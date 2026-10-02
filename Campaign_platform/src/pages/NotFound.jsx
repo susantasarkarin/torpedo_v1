@@ -10,7 +10,7 @@ export default function NotFound() {
   const notBuilt = NOT_BUILT.some((p) => pathname.startsWith(p))
   return (
     <div className="mx-auto max-w-xl px-6 py-20 text-left">
-      <p className="text-sm font-semibold uppercase tracking-wide text-cogentix-orange">
+      <p className="text-sm font-semibold uppercase tracking-wide text-cogentix-orange-700">
         {notBuilt ? "Not built yet" : "Page not found"}
       </p>
       <h1 className="mt-2 text-3xl font-bold text-cogentix-navy">
@@ -27,7 +27,7 @@ export default function NotFound() {
           Go to the dashboard
         </Link>
         <button type="button" onClick={() => window.history.back()}
-                className="rounded-lg border-2 border-cogentix-orange bg-transparent px-5 py-2 text-[0.95rem] font-semibold text-cogentix-orange hover:bg-cogentix-orange-50">
+                className="rounded-lg border-2 border-cogentix-orange bg-transparent px-5 py-2 text-[0.95rem] font-semibold text-cogentix-orange-700 hover:bg-cogentix-orange-50">
           Go back
         </button>
       </div>

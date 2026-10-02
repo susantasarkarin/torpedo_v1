@@ -33,7 +33,7 @@ const StatusBadge = ({ status }) => {
   const Icon = config.icon;
   
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium ${config.color}`}>
       <Icon className="w-3 h-3" />
       {status}
     </span>
@@ -159,7 +159,7 @@ export default function AgentDashboard() {
                 progress={(quota.leads_today / quota.limit) * 100} 
                 className="mt-4"
               />
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-2">
                 {quota.remaining} leads remaining today
               </p>
             </CardContent>
@@ -177,7 +177,7 @@ export default function AgentDashboard() {
                   <Zap className="w-6 h-6 text-cogentix-orange-600" />
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-4">
+              <p className="text-sm text-gray-500 mt-4">
                 {stats.completedJobs} completed today
               </p>
             </CardContent>
@@ -195,7 +195,7 @@ export default function AgentDashboard() {
                   <Users className="w-6 h-6 text-green-600" />
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-4">
+              <p className="text-sm text-gray-500 mt-4">
                 From {stats.totalJobs} total jobs
               </p>
             </CardContent>
@@ -213,7 +213,7 @@ export default function AgentDashboard() {
                   <Play className="w-6 h-6 text-purple-600" />
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-4">
+              <p className="text-sm text-gray-500 mt-4">
                 Click to run lead generation
               </p>
             </CardContent>
@@ -286,20 +286,20 @@ export default function AgentDashboard() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agent</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Leads</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Started</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Job ID</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Agent</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Progress</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Leads</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Started</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {jobs.slice(0, 20).map((job) => (
                       <tr key={job.job_id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
-                          <code className="text-xs text-gray-600">
+                          <code className="text-sm text-gray-600">
                             {job.job_id.slice(0, 8)}...
                           </code>
                         </td>
@@ -321,7 +321,7 @@ export default function AgentDashboard() {
                           {job.started_at ? formatTime(job.started_at) : '-'}
                         </td>
                         <td className="px-4 py-3">
-                          <button className="text-orange-600 hover:text-orange-700">
+                          <button className="text-orange-600 hover:text-orange-700" disabled aria-label="Open (not available yet)" title="Open — not available yet">
                             <ChevronRight className="w-4 h-4" />
                           </button>
                         </td>
@@ -366,7 +366,7 @@ export default function AgentDashboard() {
                       <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="text-sm text-yellow-800 font-medium">Low Quota</p>
-                        <p className="text-xs text-yellow-600">
+                        <p className="text-sm text-yellow-600">
                           Only {quota.remaining} leads remaining today
                         </p>
                       </div>

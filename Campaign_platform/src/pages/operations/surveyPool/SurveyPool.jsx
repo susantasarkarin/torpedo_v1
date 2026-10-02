@@ -767,7 +767,7 @@ export default function SurveyPool() {
                 </a>
               </div>
               <p className="sync-info">
-                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#e8890b' }}>Settings</a>.
+                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#a25e07' }}>Settings</a>.
                 {poolStats?.last_sync && (
                   <span className="last-sync">
                     Last sync: {formatDateTime(poolStats.last_sync)}
@@ -842,7 +842,7 @@ export default function SurveyPool() {
                       <span 
                         className="survey-link" 
                         onClick={() => handleSurveyClick(survey)}
-                        style={{ cursor: 'pointer', color: '#e8890b', textDecoration: 'underline' }}
+                        style={{ cursor: 'pointer', color: '#a25e07', textDecoration: 'underline' }}
                       >
                         {getSurveyName(survey)}
                       </span>
@@ -851,7 +851,7 @@ export default function SurveyPool() {
                       <span style={{ 
                         padding: '2px 8px', 
                         borderRadius: '4px', 
-                        fontSize: '0.8rem',
+                        fontSize: '0.875rem',
                         background: surveySource === 'CPX' ? '#fff7ed' : '#d1fae5',
                         color: surveySource === 'CPX' ? '#e8890b' : '#10b981',
                         fontWeight: 'bold'
@@ -998,7 +998,7 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Payout</span>
-                  <span className="detail-value" style={{ color: '#10b981', fontWeight: 'bold' }}>{getPayout(selectedSurvey)}</span>
+                  <span className="detail-value" style={{ color: '#047857', fontWeight: 'bold' }}>{getPayout(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Conversion Rate</span>
@@ -1131,15 +1131,15 @@ export default function SurveyPool() {
                       📋 Copy
                     </button>
                   </div>
-                  <div style={{ color: '#888', marginTop: '8px', fontSize: '0.85rem', lineHeight: '1.5' }}>
+                  <div style={{ color: '#888', marginTop: '8px', fontSize: '0.875rem', lineHeight: '1.5' }}>
                     <strong>Replace placeholders:</strong>
                     <ul style={{ margin: '4px 0 0 16px', padding: 0, listStyle: 'none' }}>
                       <li>• <code>{'{ext_user_id}'}</code> - Unique user ID (mandatory)</li>
                       <li>• <code>{'{secure_hash}'}</code> - MD5 hash of (ext_user_id + secure_key)</li>
                     </ul>
-                    <div style={{ marginTop: '8px', padding: '8px', background: '#f0f0f5', borderRadius: '4px', fontSize: '0.8rem' }}>
+                    <div style={{ marginTop: '8px', padding: '8px', background: '#f0f0f5', borderRadius: '4px', fontSize: '0.875rem' }}>
                       <strong>Parameter Details:</strong>
-                      <table style={{ width: '100%', marginTop: '4px', fontSize: '0.75rem' }}>
+                      <table style={{ width: '100%', marginTop: '4px', fontSize: '0.875rem' }}>
                         <tbody>
                           <tr><td><code>&ext_user_id=</code></td><td><strong>Mandatory</strong> - Unique per user</td></tr>
                           <tr><td><code>&app_id=10754</code></td><td><strong>Mandatory</strong> - Already included</td></tr>
@@ -1157,7 +1157,7 @@ export default function SurveyPool() {
               {/* CINT Entry Link Section */}
               {selectedSurvey.account_name && (
                 <div className="detail-item full-width" style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                  <span className="detail-label" style={{ color: '#10b981', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
+                  <span className="detail-label" style={{ color: '#047857', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
                   <div style={{ marginTop: '12px' }}>
                     {loadingEntryLink ? (
                       <div style={{ padding: '12px', color: '#666', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1248,21 +1248,21 @@ export default function SurveyPool() {
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: creatingEntryLink ? 'not-allowed' : 'pointer',
-                                fontSize: '0.85rem',
+                                fontSize: '0.875rem',
                                 fontWeight: '500'
                               }}
                             >
                               {creatingEntryLink ? '⏳ Creating…' : '➕ Create Entry Link'}
                             </button>
                           </div>
-                          <p style={{ color: '#78716c', fontSize: '0.8rem', margin: 0, lineHeight: '1.4' }}>
+                          <p style={{ color: '#78716c', fontSize: '0.875rem', margin: 0, lineHeight: '1.4' }}>
                             Cint surveys require allocation before entry links can be created. If creation fails with 404, 
                             the survey may still be in "opportunity" status. Entry links are auto-created when surveys become available.
                           </p>
                         </div>
                       </div>
                     )}
-                    <div style={{ color: '#666', marginTop: '12px', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                    <div style={{ color: '#666', marginTop: '12px', fontSize: '0.875rem', lineHeight: '1.6' }}>
                       <strong>CINT/Lucid Parameters:</strong>
                       <ul style={{ margin: '8px 0 0 16px', padding: 0, listStyle: 'none' }}>
                         <li>• <code>SID</code> - Survey ID: <strong>{selectedSurvey.survey_id}</strong></li>

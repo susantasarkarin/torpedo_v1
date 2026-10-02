@@ -308,11 +308,11 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                       <td><StatusBadge status={s.status} /></td>
                       <td>
                         {isMS ? (
-                          <span style={{ fontSize: "0.78rem", color: "#4b5563" }}>
+                          <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
                             {s._ms_count} {s._ms_count === 1 ? "response" : "responses"}
                           </span>
                         ) : (
-                          <code style={{ fontSize: "0.72rem", color: "#4b5563", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
+                          <code style={{ fontSize: "0.875rem", color: "#4b5563", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
                             {s.id ? s.id.slice(0, 8) : "—"}
                           </code>
                         )}
@@ -323,7 +323,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                           ? (() => {
                               const pct = msScore.pct;
                               const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#e8890b" : pct >= 60 ? "#f59e0b" : "#dc2626";
-                              return <span style={{ color, fontWeight: 700, fontSize: "0.8rem" }}>{pct}%</span>;
+                              return <span style={{ color, fontWeight: 700, fontSize: "0.875rem" }}>{pct}%</span>;
                             })()
                           : <span style={{ color: "#d1d5db" }}>—</span>}
                       </td>
@@ -817,13 +817,13 @@ function QuotasTab({ studyId }) {
                     const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
                     return (
                       <tr key={q.quota_key} style={{ background: q.is_full ? "#fff1f2" : undefined }}>
-                        <td style={{ color: "#4b5563", fontSize: "0.78rem" }}>
+                        <td style={{ color: "#4b5563", fontSize: "0.875rem" }}>
                           {i === 0 ? group.groupLabel : ""}
                         </td>
                         <td>
                           {label(q.quota_key)}
                           {q.is_full && (
-                            <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "#dc2626", fontWeight: 700 }}>
+                            <span style={{ marginLeft: 6, fontSize: "0.875rem", color: "#dc2626", fontWeight: 700 }}>
                               FULL
                             </span>
                           )}
@@ -1121,7 +1121,7 @@ export default function QREPage() {
         <div className="qre-page-header">
           <div>
             <button className="qre-btn qre-btn-outline qre-btn-sm" onClick={handleBackToList}
-              style={{ marginBottom: "0.5rem", fontSize: "0.78rem" }}>
+              style={{ marginBottom: "0.5rem", fontSize: "0.875rem" }}>
               ← All Studies
             </button>
             <div className="qre-page-title-row">

@@ -76,26 +76,26 @@ export default function CrmReports() {
             <div className="crm-card">
               <div className="crm-card__top"><span className="crm-card__label">Open pipeline</span><TrendingUp size={18} className="crm-icon" /></div>
               <div className="crm-card__value">{fmt(pipeline?.open_value)}</div>
-              <div className="crm-muted" style={{ fontSize: "0.75rem" }}>{pipeline?.open_count ?? 0} open deals</div>
+              <div className="crm-muted" style={{ fontSize: "0.875rem" }}>{pipeline?.open_count ?? 0} open deals</div>
             </div>
             <div className="crm-card">
               <div className="crm-card__top"><span className="crm-card__label">Weighted forecast</span></div>
               <div className="crm-card__value">{fmt(pipeline?.forecast)}</div>
-              <div className="crm-muted" style={{ fontSize: "0.75rem" }}>amount × stage probability</div>
+              <div className="crm-muted" style={{ fontSize: "0.875rem" }}>amount × stage probability</div>
             </div>
             <div className="crm-card">
               <div className="crm-card__top"><span className="crm-card__label">Win rate</span></div>
               <div className="crm-card__value">
                 {pipeline?.win_rate != null ? `${Math.round(pipeline.win_rate * 100)}%` : "—"}
               </div>
-              <div className="crm-muted" style={{ fontSize: "0.75rem" }}>
+              <div className="crm-muted" style={{ fontSize: "0.875rem" }}>
                 {pipeline?.won_count ?? 0} won / {pipeline?.lost_count ?? 0} lost
               </div>
             </div>
             <div className="crm-card">
               <div className="crm-card__top"><span className="crm-card__label">Avg days to close</span></div>
               <div className="crm-card__value">{pipeline?.avg_days_to_close ?? "—"}</div>
-              <div className="crm-muted" style={{ fontSize: "0.75rem" }}>won deals only</div>
+              <div className="crm-muted" style={{ fontSize: "0.875rem" }}>won deals only</div>
             </div>
           </div>
 
@@ -112,7 +112,7 @@ export default function CrmReports() {
                       background: s.stage === "won" ? "#059669" : s.stage === "lost" ? "#dc2626" : "#e8890b",
                     }} />
                   </div>
-                  <span style={{ width: 150, textAlign: "right", fontSize: "0.8rem" }}>
+                  <span style={{ width: 150, textAlign: "right", fontSize: "0.875rem" }}>
                     {s.count} · {fmt(s.value)}
                   </span>
                 </div>
@@ -145,10 +145,10 @@ export default function CrmReports() {
                 ) : dupes.map((g) => (
                   <div key={g.key} style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", padding: "0.5rem 0.7rem", marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: "0.82rem" }}>
+                      <span style={{ fontSize: "0.875rem" }}>
                         {g.accounts.map((a) => a.name).join("  ·  ")}
                       </span>
-                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.72rem" }}
+                      <button className="crm-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.875rem" }}
                         onClick={() => { setMerging(g); setPrimaryId(g.accounts[0]._id); }}>
                         <GitMerge size={13} /> Merge
                       </button>
@@ -163,16 +163,16 @@ export default function CrmReports() {
 
       {merging && (
         <Modal title="Merge duplicate accounts" onClose={() => setMerging(null)}>
-          <p className="crm-muted" style={{ marginTop: 0, fontSize: "0.82rem" }}>
+          <p className="crm-muted" style={{ marginTop: 0, fontSize: "0.875rem" }}>
             Pick the account to keep. All contacts, deals, invoices and history from the
             others will be re-pointed onto it; the duplicates are archived.
           </p>
           {merging.accounts.map((a) => (
-            <label key={a._id} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.35rem 0", fontSize: "0.85rem" }}>
+            <label key={a._id} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.35rem 0", fontSize: "0.875rem" }}>
               <input type="radio" name="primary" checked={primaryId === a._id}
                 onChange={() => setPrimaryId(a._id)} />
               <span style={{ fontWeight: primaryId === a._id ? 700 : 400 }}>{a.name}</span>
-              <span className="crm-muted" style={{ fontSize: "0.72rem" }}>
+              <span className="crm-muted" style={{ fontSize: "0.875rem" }}>
                 created {a.created_at ? formatDate(a.created_at) : "?"}
               </span>
             </label>

@@ -464,7 +464,7 @@ export default function TrafficManagement() {
                                                 : "#333",
                                         padding: "2px 8px",
                                         borderRadius: "4px",
-                                        fontSize: "12px",
+                                        fontSize: "14px",
                                         fontWeight: "600",
                                       }}
                                     >
@@ -499,7 +499,7 @@ export default function TrafficManagement() {
                                 <h4>🔶 Cint Entry Link</h4>
                                 <code className="redirect-url">{record.currentCintLink}</code>
                                 {record.currentCintSurveyId && (
-                                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6c757d" }}>
+                                  <div style={{ marginTop: "6px", fontSize: "14px", color: "#6c757d" }}>
                                     <strong>Cint Survey ID:</strong> {record.currentCintSurveyId}
                                   </div>
                                 )}
@@ -510,7 +510,7 @@ export default function TrafficManagement() {
                                 <h4>📥 Cint Callback URL</h4>
                                 <code className="redirect-url">{record.cintCallbackUrl}</code>
                                 {(record.cint_mid || record.cint_revenue) && (
-                                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6c757d" }}>
+                                  <div style={{ marginTop: "6px", fontSize: "14px", color: "#6c757d" }}>
                                     {record.cint_mid && <span><strong>MID:</strong> {record.cint_mid} </span>}
                                     {record.cint_revenue && <span><strong>Revenue:</strong> {record.cint_revenue}</span>}
                                   </div>
@@ -520,7 +520,7 @@ export default function TrafficManagement() {
                             {record.cint_hashed_pid && (
                               <div className="expanded-section">
                                 <h4>🔑 Cint Hashed PID</h4>
-                                <code className="redirect-url" style={{ fontSize: "11px" }}>{record.cint_hashed_pid}</code>
+                                <code className="redirect-url" style={{ fontSize: "14px" }}>{record.cint_hashed_pid}</code>
                               </div>
                             )}
                             <div className="expanded-section">

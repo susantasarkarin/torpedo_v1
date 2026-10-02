@@ -43,7 +43,7 @@
 
 .accounts-empty-hint {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: 14px;
   color: #8b93a1;
   max-width: 620px;
   margin-left: auto;
@@ -72,7 +72,7 @@
   background: #f7f8fa;
   color: #4b5563;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   border-bottom: 1px solid #e6e8ee;
@@ -107,13 +107,13 @@
 
 .accounts-website {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   color: #8b93a1;
   margin-top: 2px;
 }
 
 .accounts-source {
-  font-size: 12px;
+  font-size: 14px;
   color: #8b93a1;
 }
 
@@ -123,7 +123,7 @@
   display: inline-block;
   padding: 3px 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   text-transform: capitalize;
   background: #eef0f4;
@@ -165,7 +165,7 @@
 .accounts-chip {
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.3px;
 }
@@ -208,7 +208,7 @@
 }
 
 .accounts-stat-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #4b5563;
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -267,7 +267,7 @@
 
 .accounts-subhead {
   margin: 20px 16px 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;

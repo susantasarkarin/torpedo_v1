@@ -404,7 +404,7 @@ export default function CompanyUpload() {
                       <div>
                         <span className="font-medium">{config.name}</span>
                         {config.is_default && (
-                          <span className="ml-2 text-xs bg-cogentix-orange-100 text-cogentix-orange-700 px-2 py-0.5 rounded">
+                          <span className="ml-2 text-sm bg-cogentix-orange-100 text-cogentix-orange-700 px-2 py-0.5 rounded">
                             Preset
                           </span>
                         )}

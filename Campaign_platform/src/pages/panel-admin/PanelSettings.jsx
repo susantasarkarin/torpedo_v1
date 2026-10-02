@@ -123,7 +123,7 @@ function PanelSettings() {
                 >
                   <div>
                     <p style={{ fontWeight: "500" }}>{template.name}</p>
-                    <p style={{ fontSize: "0.75rem", color: "#4b5563" }}>{template.desc}</p>
+                    <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>{template.desc}</p>
                   </div>
                   <button className="btn btn-outline">Edit</button>
                 </div>

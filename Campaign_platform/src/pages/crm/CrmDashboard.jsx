@@ -116,15 +116,15 @@ export default function CrmDashboard() {
               <p className="crm-muted" style={{ padding: "0.8rem" }}>No matches.</p>
             ) : Object.entries(results).map(([kind, items]) => items.length > 0 && (
               <div key={kind}>
-                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.7rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", background: "#f9fafb" }}>
+                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.875rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", background: "#f9fafb" }}>
                   {kind}
                 </div>
                 {items.map((it) => (
                   <Link key={it._id} to={RESULT_LINKS[kind]?.(it) || "/admin/crm"}
                     onClick={() => setQuery("")}
-                    style={{ display: "block", padding: "0.45rem 0.8rem", fontSize: "0.84rem", color: "#1a1a1a", textDecoration: "none" }}>
+                    style={{ display: "block", padding: "0.45rem 0.8rem", fontSize: "0.875rem", color: "#1a1a1a", textDecoration: "none" }}>
                     {it.name || it.title || it.email}
-                    <span className="crm-muted" style={{ fontSize: "0.72rem", marginLeft: "0.4rem" }}>
+                    <span className="crm-muted" style={{ fontSize: "0.875rem", marginLeft: "0.4rem" }}>
                       {it.email && (it.name || it.title) ? it.email : it.company || it.stage || ""}
                     </span>
                   </Link>
@@ -164,7 +164,7 @@ export default function CrmDashboard() {
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {a.subject || a.description || "—"}
                 </span>
-                <span className="crm-muted" style={{ fontSize: "0.75rem" }}>
+                <span className="crm-muted" style={{ fontSize: "0.875rem" }}>
                   {a.created_at ? formatDateTime(a.created_at) : ""}
                 </span>
               </div>
@@ -181,8 +181,8 @@ export default function CrmDashboard() {
           ) : notifications.map((n) => (
             <div key={n._id} className="crm-row">
               <span className="crm-mono">{n.type}</span>
-              <span style={{ flex: 1, fontSize: "0.84rem" }}>{n.message}</span>
-              <button className="crm-btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.72rem" }}
+              <span style={{ flex: 1, fontSize: "0.875rem" }}>{n.message}</span>
+              <button className="crm-btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.875rem" }}
                 onClick={() => markRead(n)}>Dismiss</button>
             </div>
           ))}

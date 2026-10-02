@@ -564,7 +564,7 @@ function PanelistManagement() {
             {/* CSV Preview */}
             {csvData && csvData.length > 0 && (
               <div style={{ marginTop: "1rem", overflowX: "auto", maxHeight: "200px", overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
                       {Object.keys(csvData[0]).map((col) => (
@@ -585,7 +585,7 @@ function PanelistManagement() {
                   </tbody>
                 </table>
                 {csvData.length > 5 && (
-                  <p style={{ fontSize: "0.75rem", color: "#4b5563", marginTop: "0.5rem" }}>
+                  <p style={{ fontSize: "0.875rem", color: "#4b5563", marginTop: "0.5rem" }}>
                     Showing first 5 of {csvData.length} rows
                   </p>
                 )}
@@ -673,12 +673,12 @@ function PanelistManagement() {
               SFW Panelists
             </button>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", color: "#4b5563", paddingBottom: "0.5rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#4b5563", paddingBottom: "0.5rem" }}>
             Rows per batch
             <select
               value={pageSize}
               onChange={handlePageSizeChange}
-              style={{ padding: "0.35rem 0.5rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.8rem", backgroundColor: "#fff" }}
+              style={{ padding: "0.35rem 0.5rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem", backgroundColor: "#fff" }}
             >
               {PAGE_SIZE_OPTIONS.map((n) => (
                 <option key={n} value={n}>{n}</option>
@@ -699,7 +699,7 @@ function PanelistManagement() {
               display: "flex", justifyContent: "space-between", alignItems: "center",
               gap: "1rem", flexWrap: "wrap",
             }}>
-              <div style={{ fontSize: "0.85rem", color: "#92400e", lineHeight: "1.5" }}>
+              <div style={{ fontSize: "0.875rem", color: "#92400e", lineHeight: "1.5" }}>
                 <strong>These leads are only mailed once merged into the panelist list.</strong>
                 <br />
                 {promotionStatus
@@ -790,7 +790,7 @@ function PanelistManagement() {
                               <span style={{
                                 display: "inline-flex", alignItems: "center", gap: "0.25rem",
                                 background: "#fff7ed", color: "#c47209", padding: "0.2rem 0.6rem",
-                                borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                                borderRadius: "9999px", fontSize: "0.875rem", fontWeight: "600",
                               }}>
                                 {lead.countryCode}
                               </span>
@@ -800,7 +800,7 @@ function PanelistManagement() {
                           <td style={tdStyle}>{lead.vendorId || "-"}</td>
                           <td style={tdStyle}>
                             <span style={{
-                              fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                              fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                               backgroundColor: lead.status === "COMPLETE" ? "#d1fae5" : lead.status === "INCOMPLETE" ? "#fef3c7" : "#e5e7eb",
                               color: lead.status === "COMPLETE" ? "#065f46" : lead.status === "INCOMPLETE" ? "#92400e" : "#4a4a4a",
                             }}>
@@ -907,7 +907,7 @@ function PanelistManagement() {
                                 <span style={{
                                   display: "inline-flex", alignItems: "center", gap: "0.25rem",
                                   background: "#fff7ed", color: "#c47209", padding: "0.2rem 0.6rem",
-                                  borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                                  borderRadius: "9999px", fontSize: "0.875rem", fontWeight: "600",
                                 }}>
                                   {panelist.country}
                                 </span>
@@ -916,7 +916,7 @@ function PanelistManagement() {
                             <td style={tdStyle}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "-"}</td>
                             <td style={tdStyle}>
                               <span style={{
-                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                                 backgroundColor: panelist.status === "active" ? "#d1fae5" : panelist.status === "pending" ? "#fef3c7" : "#fee2e2",
                                 color: panelist.status === "active" ? "#065f46" : panelist.status === "pending" ? "#92400e" : "#991b1b",
                               }}>
@@ -925,7 +925,7 @@ function PanelistManagement() {
                             </td>
                             <td style={tdStyle}>
                               <span style={{
-                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                                 backgroundColor: panelist.email_verified ? "#d1fae5" : "#f3f4f6",
                                 color: panelist.email_verified ? "#065f46" : "#4b5563",
                               }}>
@@ -934,7 +934,7 @@ function PanelistManagement() {
                             </td>
                             <td style={tdStyle}>
                               <span style={{
-                                fontSize: "0.75rem", padding: "0.25rem 0.65rem", borderRadius: "6px", fontWeight: "600",
+                                fontSize: "0.875rem", padding: "0.25rem 0.65rem", borderRadius: "6px", fontWeight: "600",
                                 backgroundColor:
                                   panelist.email_status === "bounced" ? "#fee2e2" :
                                   panelist.email_status === "soft_bounced" ? "#fef3c7" :
@@ -960,7 +960,7 @@ function PanelistManagement() {
                             </td>
                             <td style={tdStyle}>
                               <span style={{
-                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                                 backgroundColor: emailStatusBadge.bg,
                                 color: emailStatusBadge.text,
                                 fontWeight: "600",
@@ -1021,7 +1021,7 @@ function PanelistManagement() {
               </button>
             </div>
 
-            <p style={{ fontSize: "0.8rem", color: "#9ca3af", marginBottom: "0.75rem" }}>{sfwTotal} panelists {sfwSearch || sfwCountry ? "(filtered)" : ""}</p>
+            <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginBottom: "0.75rem" }}>{sfwTotal} panelists {sfwSearch || sfwCountry ? "(filtered)" : ""}</p>
 
             {/* Table */}
             {sfwLoading ? (
@@ -1030,7 +1030,7 @@ function PanelistManagement() {
               <p style={{ color: "#4b5563", padding: "2rem 0", textAlign: "center" }}>No panelists found</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
                   <thead>
                     <tr style={{ background: "#f9fafb", borderBottom: "2px solid #e5e7eb" }}>
                       {[
@@ -1067,9 +1067,9 @@ function PanelistManagement() {
                           onMouseEnter={(e) => e.currentTarget.style.background = "#fff7ed"}
                           onMouseLeave={(e) => e.currentTarget.style.background = ""}>
                           <td style={tdStyle}>
-                            <p style={{ fontWeight: "600", color: "#1a1a1a" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#9ca3af" }}>unnamed</span>}</p>
-                            <p style={{ color: "#9ca3af", fontSize: "0.75rem" }}>{p.email}</p>
-                            <p style={{ color: "#d1d5db", fontFamily: "monospace", fontSize: "0.7rem" }}>{p.panelistId || "—"}</p>
+                            <p style={{ fontWeight: "600", color: "#1a1a1a" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#6b6b6b" }}>unnamed</span>}</p>
+                            <p style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>{p.email}</p>
+                            <p style={{ color: "#d1d5db", fontFamily: "monospace", fontSize: "0.875rem" }}>{p.panelistId || "—"}</p>
                           </td>
                           <td style={tdStyle}>{cname(p.country)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#4b5563" }}>{fmtDate(p.createdAt)}</td>
@@ -1081,7 +1081,7 @@ function PanelistManagement() {
                           <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a" }}>{rupees(p.totalEarnedPaise)}</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{rupees(p.balancePaise)}</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#4b5563" }}>{rupees(redeemed > 0 ? redeemed : 0)}</td>
-                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#9ca3af" }}>{fmtDate(p.lastActiveAt)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6b6b6b" }}>{fmtDate(p.lastActiveAt)}</td>
                         </tr>
                       )
                     })}
@@ -1113,7 +1113,7 @@ function PanelistManagement() {
                 <div style={{ background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "600px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
                   <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h3 style={{ fontWeight: "700", color: "#1a1a1a", margin: 0 }}>Panelist Detail</h3>
-                    <button onClick={() => setSfwDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", color: "#9ca3af" }}>✕</button>
+                    <button onClick={() => setSfwDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", color: "#6b6b6b" }}>✕</button>
                   </div>
                   <div style={{ overflowY: "auto", padding: "1.5rem", flex: 1 }}>
                     {sfwDetailLoading ? (
@@ -1128,9 +1128,9 @@ function PanelistManagement() {
                             <p style={{ fontWeight: "700", color: "#1a1a1a", fontSize: "1rem" }}>{[sfwDetail.user?.firstName, sfwDetail.user?.lastName].filter(Boolean).join(" ") || "—"}</p>
                             <p style={{ color: "#4b5563", fontSize: "0.875rem" }}>{sfwDetail.user?.email}</p>
                             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#f3f4f6", borderRadius: "99px", fontFamily: "monospace" }}>{sfwDetail.user?.panelistId || "no-id"}</span>
-                              {sfwDetail.user?.country && <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#fff7ed", color: "#c47209", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
-                              <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#fef3c7", color: "#92400e", borderRadius: "99px", textTransform: "capitalize" }}>{sfwDetail.user?.level || "bronze"}</span>
+                              <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#f3f4f6", borderRadius: "99px", fontFamily: "monospace" }}>{sfwDetail.user?.panelistId || "no-id"}</span>
+                              {sfwDetail.user?.country && <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#fff7ed", color: "#c47209", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
+                              <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#fef3c7", color: "#92400e", borderRadius: "99px", textTransform: "capitalize" }}>{sfwDetail.user?.level || "bronze"}</span>
                             </div>
                           </div>
                         </div>
@@ -1145,7 +1145,7 @@ function PanelistManagement() {
                             { label: "Joined", value: fmtDate(sfwDetail.user?.createdAt) },
                           ].map(({ label, value }) => (
                             <div key={label} style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem" }}>
-                              <p style={{ fontSize: "0.7rem", color: "#9ca3af", marginBottom: "0.25rem" }}>{label}</p>
+                              <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginBottom: "0.25rem" }}>{label}</p>
                               <p style={{ fontWeight: "600", color: "#1a1a1a", fontSize: "0.875rem" }}>{value}</p>
                             </div>
                           ))}
@@ -1161,38 +1161,38 @@ function PanelistManagement() {
                           ].map(({ label, value, color }) => (
                             <div key={label} style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
                               <p style={{ fontSize: "1.25rem", fontWeight: "700", color }}>{value}</p>
-                              <p style={{ fontSize: "0.7rem", color: "#9ca3af" }}>{label}</p>
+                              <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>{label}</p>
                             </div>
                           ))}
                         </div>
-                        <p style={{ fontSize: "0.75rem", color: "#9ca3af", marginBottom: "1.5rem" }}>
+                        <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginBottom: "1.5rem" }}>
                           Points from surveys: {rupees(sfwDetail.survey_stats?.points_earned)}
                         </p>
 
                         {sfwDetail.recent_surveys?.length > 0 && (
                           <>
                             <p style={{ fontWeight: "700", color: "#4a4a4a", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Recent Survey Activity</p>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
                               <thead>
                                 <tr style={{ background: "#f9fafb" }}>
                                   {["Survey ID", "Status", "Points", "Date"].map(h => (
-                                    <th key={h} style={{ ...thStyle, fontSize: "0.7rem", padding: "0.5rem 0.75rem" }}>{h}</th>
+                                    <th key={h} style={{ ...thStyle, fontSize: "0.875rem", padding: "0.5rem 0.75rem" }}>{h}</th>
                                   ))}
                                 </tr>
                               </thead>
                               <tbody>
                                 {sfwDetail.recent_surveys.map((s, i) => (
                                   <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.7rem", color: "#4b5563", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
+                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.875rem", color: "#4b5563", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
                                     <td style={{ ...tdStyle, padding: "0.5rem 0.75rem" }}>
-                                      <span style={{ padding: "0.15rem 0.5rem", borderRadius: "99px", fontSize: "0.7rem", fontWeight: "600",
+                                      <span style={{ padding: "0.15rem 0.5rem", borderRadius: "99px", fontSize: "0.875rem", fontWeight: "600",
                                         background: s.status === "complete" ? "#d1fae5" : s.status === "terminate" ? "#fee2e2" : "#fef3c7",
                                         color: s.status === "complete" ? "#065f46" : s.status === "terminate" ? "#991b1b" : "#92400e" }}>
                                         {s.status}
                                       </span>
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#1a1a1a" }}>{s.pointsEarned > 0 ? rupees(s.pointsEarned) : "—"}</td>
-                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
+                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#6b6b6b", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -1326,7 +1326,7 @@ function PanelistManagement() {
                     ? `Send invitation emails to ${inviteCount} eligible panelists in ${countryFilter}.`
                     : `Send invitation emails to ${inviteCount} eligible panelists across all countries.`}
                 </p>
-                <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginBottom: "1.5rem" }}>
+                <p style={{ color: "#6b6b6b", fontSize: "0.875rem", marginBottom: "1.5rem" }}>
                   Suppressed (bounced/complained) and already-invited panelists will be skipped automatically.
                 </p>
                 <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>

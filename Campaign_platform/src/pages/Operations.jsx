@@ -530,8 +530,8 @@ function Operations() {
               <ResponsiveContainer width="100%" height={310}>
                 <LineChart data={dailyPerformance} margin={{ top: 12, right: 20, left: -10, bottom: 6 }}>
                   <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e6e9ef" />
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#7b869a", fontSize: 11 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#7b869a", fontSize: 11 }} />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#7b869a", fontSize: 14 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#7b869a", fontSize: 14 }} />
                   <Tooltip
                     contentStyle={{
                       borderRadius: "10px",
@@ -665,23 +665,23 @@ function Operations() {
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">Pending</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#fef3c720', color: '#f59e0b' }}>⏳</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#fef3c720', color: '#b45309' }}>⏳</div>
             </div>
-            <div className="kpi-value" style={{ color: '#f59e0b' }}>{rfqStats.pending}</div>
+            <div className="kpi-value" style={{ color: '#b45309' }}>{rfqStats.pending}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">In Progress</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#e8890b' }}>🔄</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#a25e07' }}>🔄</div>
             </div>
-            <div className="kpi-value" style={{ color: '#e8890b' }}>{rfqStats.inProgress}</div>
+            <div className="kpi-value" style={{ color: '#a25e07' }}>{rfqStats.inProgress}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">Quoted</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#dcfce720', color: '#10b981' }}>✅</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#dcfce720', color: '#047857' }}>✅</div>
             </div>
-            <div className="kpi-value" style={{ color: '#10b981' }}>{rfqStats.quoted}</div>
+            <div className="kpi-value" style={{ color: '#047857' }}>{rfqStats.quoted}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">

@@ -80,7 +80,7 @@
 .loading-state svg {
   width: 32px;
   height: 32px;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 /* Health Score Card */
@@ -140,7 +140,7 @@
 }
 
 .score-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #4b5563;
   margin-top: 4px;
   font-weight: 500;
@@ -217,7 +217,7 @@
 
 .alert-content p {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* Sections */
@@ -284,7 +284,7 @@
   gap: 6px;
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -314,7 +314,7 @@
 
 .metric-label {
   display: block;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;
@@ -334,7 +334,7 @@
 }
 
 .metric-status.pass {
-  color: #22c55e;
+  color: #047857;
   background: #f0fdf4;
 }
 
@@ -344,7 +344,7 @@
 }
 
 .metric-value {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #4a4a4a;
 }
@@ -378,7 +378,7 @@
   color: white;
   border: none;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -389,7 +389,7 @@
 }
 
 .action-btn.small {
-  font-size: 11px;
+  font-size: 14px;
   padding: 6px 10px;
 }
 
@@ -427,12 +427,12 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: #4b5563;
 }
 
 .account-header svg {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .account-email {
@@ -447,7 +447,7 @@
 }
 
 .account-status.healthy {
-  color: #22c55e;
+  color: #047857;
 }
 
 .account-status.at_risk {
@@ -468,7 +468,7 @@
 }
 
 .usage-sent {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .usage-slash {
@@ -483,8 +483,8 @@
 
 .usage-label {
   display: block;
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: 14px;
+  color: #6b6b6b;
   margin-top: 4px;
 }
 
@@ -517,7 +517,7 @@
 
 .info-label {
   display: block;
-  font-size: 10px;
+  font-size: 14px;
   color: #4b5563;
   font-weight: 600;
   text-transform: uppercase;
@@ -526,7 +526,7 @@
 
 .info-value {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #1a1a1a;
 }
@@ -535,7 +535,7 @@
   display: inline-block;
   padding: 2px 6px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -624,7 +624,7 @@
   }
 
   .domain-header h3 {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .domain-status {
@@ -638,7 +638,7 @@
 
   .action-btn {
     min-width: 80px;
-    font-size: 11px;
+    font-size: 14px;
     padding: 6px 8px;
   }
 

@@ -448,7 +448,7 @@ function ClientsPage() {
                         background: '#fff7ed',
                         color: '#c47209',
                         borderRadius: '12px',
-                        fontSize: '12px',
+                        fontSize: '14px',
                         fontWeight: '500',
                         cursor: 'pointer',
                       }}
@@ -458,7 +458,7 @@ function ClientsPage() {
                       👤 {c.linked_contacts_count} contact{c.linked_contacts_count > 1 ? 's' : ''}
                     </span>
                   ) : (
-                    <span style={{ color: '#9ca3af', fontSize: '12px' }}>—</span>
+                    <span style={{ color: '#6b6b6b', fontSize: '14px' }}>—</span>
                   )}
                 </td>
                 <td style={styles.td}>
@@ -759,7 +759,7 @@ const styles = {
   th: {
     padding: '1rem',
     textAlign: 'left',
-    fontSize: '0.75rem',
+    fontSize: '0.875rem',
     fontWeight: '600',
     textTransform: 'uppercase',
     color: '#4b5563',
@@ -784,7 +784,7 @@ const styles = {
     display: 'inline-block',
     padding: '0.375rem 0.75rem',
     borderRadius: '0.375rem',
-    fontSize: '0.8rem',
+    fontSize: '0.875rem',
     fontWeight: '600',
     textTransform: 'capitalize',
   },
@@ -800,7 +800,7 @@ const styles = {
     padding: '0.4rem 0.6rem',
     border: '1px solid #d1d5db',
     borderRadius: '0.375rem',
-    fontSize: '0.85rem',
+    fontSize: '0.875rem',
     backgroundColor: 'white',
     cursor: 'pointer',
     minWidth: '160px',
@@ -831,7 +831,7 @@ const styles = {
   emptyState: {
     textAlign: 'center',
     padding: '3rem',
-    color: '#9ca3af',
+    color: '#6b6b6b',
   },
   modal: {
     position: 'fixed',
@@ -875,7 +875,7 @@ const styles = {
     background: 'none',
     border: 'none',
     fontSize: '2rem',
-    color: '#9ca3af',
+    color: '#6b6b6b',
     cursor: 'pointer',
     padding: '0',
     width: '2rem',

@@ -63,7 +63,7 @@ export function TableHeaderCell({
       scope="col"
       onClick={sortable ? onSort : undefined}
       className={clsx(
-        'px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider',
+        'px-4 py-3 text-sm font-semibold text-text-secondary uppercase tracking-wider',
         alignClasses[align],
         sortable && 'cursor-pointer hover:text-cogentix-navy select-none',
         className

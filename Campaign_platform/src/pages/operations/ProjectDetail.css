@@ -44,7 +44,7 @@
   background: white;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4a4a4a;
   cursor: pointer;
@@ -55,7 +55,7 @@
 
 .pd-back-btn:hover {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
   background: #f5f3ff;
 }
 
@@ -98,7 +98,7 @@
   gap: 0.25rem;
   padding: 0.22rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   background: #f3f4f6;
   color: #4a4a4a;
@@ -111,7 +111,7 @@
   align-items: center;
   padding: 0.22rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: capitalize;
 }
@@ -123,7 +123,7 @@
 
 .pd-status-badge.status-pause {
   background: #fef9c3;
-  color: #ca8a04;
+  color: #a16207;
 }
 
 .pd-status-badge.status-close {
@@ -184,8 +184,8 @@
 }
 
 .pd-stat-label {
-  font-size: 0.7rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -193,7 +193,7 @@
 }
 
 .pd-stat-sub {
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-top: 0.1rem;
 }
@@ -210,14 +210,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
   margin-bottom: 0.5rem;
 }
 
 .pd-progress-pct {
   font-weight: 700;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .pd-progress-bar {
@@ -265,7 +265,7 @@
   align-items: center;
   gap: 0.35rem;
   margin: 0 0 0.85rem 0;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #4b5563;
   text-transform: uppercase;
@@ -292,9 +292,9 @@
 }
 
 .pd-k {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #9ca3af;
+  color: #6b6b6b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -308,7 +308,7 @@
 
 .pd-v.mono {
   font-family: monospace;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   background: #f3f4f6;
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
@@ -331,9 +331,9 @@
 }
 
 .pd-live-link-label {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  color: #9ca3af;
+  color: #6b6b6b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0.45rem 0.75rem;
@@ -351,8 +351,8 @@
 
 .pd-live-link-url {
   flex: 1;
-  font-size: 0.8rem;
-  color: #e8890b;
+  font-size: 0.875rem;
+  color: #a25e07;
   text-decoration: none;
   word-break: break-all;
   min-width: 0;
@@ -370,7 +370,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: white;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #4a4a4a;
   cursor: pointer;
@@ -381,7 +381,7 @@
 
 .pd-copy-btn:hover {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 /* ---- URL rows table ---- */
@@ -411,7 +411,7 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   white-space: nowrap;
@@ -429,8 +429,8 @@
 }
 
 .pd-url-value {
-  font-size: 0.78rem;
-  color: #e8890b;
+  font-size: 0.875rem;
+  color: #a25e07;
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -443,7 +443,7 @@
 }
 
 .pd-url-empty {
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: #d1d5db;
   font-style: italic;
 }
@@ -471,7 +471,7 @@
 
 .pd-icon-btn:hover {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
   background: #f5f3ff;
 }
 

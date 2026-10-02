@@ -20,7 +20,7 @@ function badge(status) {
   const s = (status || "pending").toLowerCase()
   const c = statusColors[s] || statusColors.pending
   return (
-    <span style={{ ...c, padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "0.8rem", fontWeight: 600 }}>
+    <span style={{ ...c, padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "0.875rem", fontWeight: 600 }}>
       {s.charAt(0).toUpperCase() + s.slice(1)}
     </span>
   )
@@ -50,7 +50,7 @@ export default function BillDetailPage() {
 
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
-      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#e8890b" }} />
+      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#a25e07" }} />
     </div>
   )
 
@@ -81,7 +81,7 @@ export default function BillDetailPage() {
               <h2 className="cx-page-title" style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#111" }}>
                 {bill.bill_number || "—"}
               </h2>
-              <p style={{ margin: 0, color: "#4b5563", fontSize: "0.85rem" }}>Bill / Accounts Payable</p>
+              <p style={{ margin: 0, color: "#4b5563", fontSize: "0.875rem" }}>Bill / Accounts Payable</p>
             </div>
           </div>
           {badge(bill.status)}
@@ -151,7 +151,7 @@ export default function BillDetailPage() {
                   {items.map((item, i) => (
                     <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
                       <td style={styles.td}>{item.name || "—"}</td>
-                      <td style={{ ...styles.td, color: "#4b5563", fontSize: "0.85rem" }}>{item.account || item.description || "—"}</td>
+                      <td style={{ ...styles.td, color: "#4b5563", fontSize: "0.875rem" }}>{item.account || item.description || "—"}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.quantity ?? 1}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{formatCurrency(item.rate, cur)}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.tax_percent ?? 0}%</td>
@@ -215,7 +215,7 @@ const styles = {
   card: { background: "#fff", borderRadius: 10, padding: "2rem", boxShadow: "0  1px 4px rgba(0,0,0,0.08)" },
   metaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "1rem", background: "#f9fafb", borderRadius: 8, padding: "1rem" },
   metaBlock: { display: "flex", flexDirection: "column", gap: 2 },
-  metaLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" },
+  metaLabel: { fontSize: "0.875rem", color: "#6b6b6b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" },
   metaValue: { fontSize: "0.95rem", color: "#1a1a1a", fontWeight: 500 },
   sectionTitle: { fontSize: "0.9rem", fontWeight: 700, color: "#4a4a4a", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" },
   table: { width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" },

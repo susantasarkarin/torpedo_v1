@@ -33,9 +33,9 @@ function AILeadDetail() {
   
   // Lead Stage Options
   const LEAD_STAGE_OPTIONS = [
-    { value: "ai_database", label: "AI Database", icon: "🤖", color: "#e8890b" },
-    { value: "leads", label: "Leads", icon: "🎯", color: "#10b981" },
-    { value: "contacts", label: "Contacts", icon: "👥", color: "#f59e0b" }
+    { value: "ai_database", label: "AI Database", icon: "🤖", color: "#a25e07" },
+    { value: "leads", label: "Leads", icon: "🎯", color: "#047857" },
+    { value: "contacts", label: "Contacts", icon: "👥", color: "#b45309" }
   ];
   
   // Email Compose Modal State
@@ -563,7 +563,7 @@ function AILeadDetail() {
                   {lead.company_website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a></span></div>}
                   {lead.company_name && !lead.company_domain && !lead.company_website && <div className="info-row"><span className="label">Company</span><span className="value">{lead.company_name}</span></div>}
                   {!lead.company_founded && !lead.company_headquarters && !lead.company_linkedin_url && !lead.company_employee_count_range && !lead.company_employee_count && !lead.company_industry && !lead.industry && !lead.company_size && !lead.company_type && !lead.company_revenue_range && !lead.company_domain && !lead.company_website && (
-                    <div className="info-row empty-notice"><span className="value" style={{color:"#aaa",fontStyle:"italic"}}>No company details available</span></div>
+                    <div className="info-row empty-notice"><span className="value" style={{color:"#6b6b6b",fontStyle:"italic"}}>No company details available</span></div>
                   )}
                 </div>
               </div>

@@ -30,7 +30,7 @@ thead th {
   font-weight: 600 !important;
   color: #4b5563 !important;
   text-align: left !important;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -78,7 +78,7 @@ span[style*="display: inline-block"] {
   border-radius: 4px !important;
   padding: 0.375rem 0.75rem !important;
   font-weight: 500 !important;
-  font-size: 0.8rem !important;
+  font-size: 0.875rem !important;
 }
 
 /* Error alert */
@@ -141,7 +141,7 @@ button[style*="backgroundColor: #ef4444"] {
   }
 
   thead th {
-    font-size: 0.7rem !important;
+    font-size: 0.875rem !important;
     padding: 0.5rem 0.75rem !important;
   }
 

@@ -324,7 +324,7 @@ function UserManagement() {
                                     <span style={{
                                         padding: '0.25rem 0.5rem',
                                         borderRadius: '999px',
-                                        fontSize: '0.75rem',
+                                        fontSize: '0.875rem',
                                         background: user.role === 'admin' ? '#fff7ed' : '#f3f4f6',
                                         color: user.role === 'admin' ? '#c47209' : '#4a4a4a'
                                     }}>
@@ -335,7 +335,7 @@ function UserManagement() {
                                     <span style={{
                                         padding: '0.25rem 0.5rem',
                                         borderRadius: '999px',
-                                        fontSize: '0.75rem',
+                                        fontSize: '0.875rem',
                                         ...getStatusStyle(user.status)
                                     }}>
                                         {user.status}

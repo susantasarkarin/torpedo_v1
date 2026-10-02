@@ -130,7 +130,7 @@
 
 .btn-sm {
   padding: 6px 12px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 /* ============== STATS ROW ============== */
@@ -162,7 +162,7 @@
 }
 
 .stat-label {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -331,7 +331,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -354,7 +354,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -377,7 +377,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -405,7 +405,7 @@
 .action-link {
   color: var(--primary);
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .action-link:hover {
@@ -416,7 +416,7 @@
   background: none;
   border: none;
   color: var(--primary);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
   padding: 0;
 }
@@ -541,7 +541,7 @@
 .linkedin-link {
   color: var(--primary);
   text-decoration: none;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .linkedin-link:hover {
@@ -553,7 +553,7 @@
   display: inline-block;
   padding: 3px 8px;
   border-radius: 12px;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -674,7 +674,7 @@
 
 .detail-group h4 {
   margin: 0 0 12px 0;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--primary);
   text-transform: uppercase;
@@ -685,7 +685,7 @@
 
 .detail-group p {
   margin: 6px 0;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--text);
   display: flex;
   gap: 8px;
@@ -714,7 +714,7 @@
   border-radius: 4px;
   cursor: pointer;
   margin-right: 6px;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   transition: all 0.2s;
 }
 
@@ -843,7 +843,7 @@
   border: 1px solid var(--border);
   background: white;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -911,7 +911,7 @@
 
 .form-hint {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin: 0;
 }
 
@@ -982,7 +982,7 @@
 .form-group label {
   font-weight: 500;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .form-select {
@@ -1004,7 +1004,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 12px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -1066,7 +1066,7 @@
 
 .dropzone-hint {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* ============== CSV FILE INFO ============== */
@@ -1082,7 +1082,7 @@
 
 .csv-stats {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* ============== COLUMN MAPPING ============== */
@@ -1151,7 +1151,7 @@
 .preview-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .preview-table th {
@@ -1202,7 +1202,7 @@
   padding: 8px 12px;
   background: #f9fafb;
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--text-muted);
 }
 
@@ -1211,7 +1211,7 @@
   border: none;
   color: var(--danger);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   padding: 2px 6px;
 }
 
@@ -1239,7 +1239,7 @@
   padding: 6px 8px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   transition: background 0.15s;
 }
 
@@ -1266,7 +1266,7 @@
   border-radius: 16px;
   border: 1px solid var(--border);
   background: white;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.15s;
   color: var(--text);

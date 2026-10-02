@@ -1,7 +1,7 @@
 .rate-card-page {
   padding: 20px;
   background-color: #f5f5f5;
-  min-height: calc(100vh - 60px);
+  min-height: calc(100vh - var(--cx-nav-h, 90px));
 }
 
 .page-header {
@@ -24,13 +24,13 @@
 .page-header p {
   margin: 0;
   color: #4b5563;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .page-header .last-refresh {
   margin-top: 4px;
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: 14px;
+  color: #6b6b6b;
 }
 
 .refresh-button {
@@ -67,7 +67,7 @@
 }
 
 .filter-group label {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: #4a4a4a;
 }
@@ -76,7 +76,7 @@
   padding: 8px 12px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   min-width: 160px;
   background: #ffffff;
   cursor: pointer;
@@ -94,7 +94,7 @@
   gap: 10px;
   color: #1a1a1a;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .markup-control input {
@@ -102,7 +102,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid #d1d5db;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .markup-control input:focus {
@@ -116,7 +116,7 @@
   color: #c47209;
   padding: 6px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   margin-left: auto;
 }
@@ -139,7 +139,7 @@
   padding: 8px 10px;
   text-align: center;
   border: 1px solid #e5e7eb;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .matrix-table thead th {
@@ -200,7 +200,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 14px;
   color: #4a4a4a;
 }
 
@@ -234,7 +234,7 @@
 }
 
 .error-detail {
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 4px;
   color: #7f1d1d;
 }

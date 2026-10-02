@@ -458,7 +458,7 @@ function VendorsPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -496,7 +496,7 @@ function VendorsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading vendors…</p>
@@ -543,7 +543,7 @@ function VendorsPage() {
                   <td style={styles.td}>
                     <code
                       style={{
-                        fontSize: "0.85rem",
+                        fontSize: "0.875rem",
                         backgroundColor: "#f3f4f6",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
@@ -571,7 +571,7 @@ function VendorsPage() {
                           color: "#c47209",
                           padding: "2px 8px",
                           borderRadius: "4px",
-                          fontSize: "0.75rem",
+                          fontSize: "0.875rem",
                           fontWeight: "500"
                         }}
                         title={`Linked to: ${vendor.panel_vendor_name || vendor.panel_vendor_vid}`}
@@ -579,7 +579,7 @@ function VendorsPage() {
                         🔗 {vendor.panel_vendor_name || vendor.panel_vendor_vid || "Linked"}
                       </span>
                     ) : (
-                      <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>Not linked</span>
+                      <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>Not linked</span>
                     )}
                   </td>
                   <td style={styles.td}>
@@ -1134,7 +1134,7 @@ const styles = {
   th: {
     padding: "1rem",
     textAlign: "left",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
     color: "#4b5563",
@@ -1152,7 +1152,7 @@ const styles = {
     display: "inline-block",
     padding: "0.375rem 0.75rem",
     borderRadius: "0.375rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "capitalize",
   },
@@ -1193,7 +1193,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
   },
   recordsPerPageSelect: {
     padding: "0.75rem 1rem",
@@ -1277,7 +1277,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     cursor: "pointer",
     padding: "0",
     width: "2rem",
@@ -1324,7 +1324,7 @@ const styles = {
   },
   errorText: {
     color: "#ef4444",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     marginTop: "0.25rem",
   },
   modalFooter: {

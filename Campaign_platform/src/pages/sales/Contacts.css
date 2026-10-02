@@ -30,7 +30,7 @@ thead th {
   font-weight: 600 !important;
   color: #4b5563 !important;
   text-align: left !important;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -207,7 +207,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
   display: inline-block;
   padding: 0.25rem 0.75rem;
   border-radius: 12px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -240,7 +240,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
   background: white;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   transition: all 0.2s ease;
 }
 

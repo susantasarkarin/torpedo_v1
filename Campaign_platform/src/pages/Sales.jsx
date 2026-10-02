@@ -11,7 +11,7 @@ function Sales() {
             <BarChart3 size={24} />
             Sales Dashboard
           </h2>
-          <p className="card-description" style={{ color: "#94a3b8" }}>
+          <p className="card-description" style={{ color: "#c7c7c7" }}>
             Conversion-focused KPIs: funnel analysis, velocity metrics, revenue reality
           </p>
         </div>

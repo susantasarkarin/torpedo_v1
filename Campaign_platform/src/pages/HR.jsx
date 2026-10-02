@@ -27,7 +27,7 @@ function HR() {
           {hrMetrics.map((metric, index) => (
             <div key={index} className="card">
               <h3 className="card-title">{metric.title}</h3>
-              <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#e8890b", marginBottom: "0.5rem" }}>
+              <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#a25e07", marginBottom: "0.5rem" }}>
                 {metric.value}
               </p>
               <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>{metric.change}</p>
@@ -73,11 +73,11 @@ function HR() {
               >
                 <div>
                   <p style={{ fontWeight: "500", marginBottom: "0.25rem" }}>{activity.activity}</p>
-                  <p style={{ fontSize: "0.75rem", color: "#4b5563" }}>{activity.time}</p>
+                  <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>{activity.time}</p>
                 </div>
                 <span
                   style={{
-                    fontSize: "0.75rem",
+                    fontSize: "0.875rem",
                     padding: "0.25rem 0.75rem",
                     borderRadius: "9999px",
                     backgroundColor: "#f3f4f6",

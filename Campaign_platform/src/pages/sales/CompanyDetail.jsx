@@ -70,7 +70,7 @@ function CompanyDetail() {
       color: style.text,
       padding: "4px 12px",
       borderRadius: "12px",
-      fontSize: "12px",
+      fontSize: "14px",
       fontWeight: "600",
       display: "inline-block",
     };
@@ -266,7 +266,7 @@ const styles = {
     padding: "12px 16px",
     textAlign: "left",
     fontWeight: "600",
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#4a4a4a",
     textTransform: "uppercase",
     letterSpacing: "0.5px",
@@ -289,18 +289,18 @@ const styles = {
     fontWeight: "600",
   },
   subText: {
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#4b5563",
   },
   badge: {
     padding: "2px 8px",
     borderRadius: "12px",
-    fontSize: "11px",
+    fontSize: "14px",
     fontWeight: "600",
     marginLeft: "8px",
   },
   link: {
-    color: "#e8890b",
+    color: "#a25e07",
     textDecoration: "none",
   },
   companyDetails: {

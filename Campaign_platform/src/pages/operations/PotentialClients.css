@@ -1,7 +1,7 @@
 .potential-clients-page {
   padding: 20px;
   background-color: #f5f5f5;
-  min-height: calc(100vh - 60px);
+  min-height: calc(100vh - var(--cx-nav-h, 90px));
 }
 
 .page-header {
@@ -24,7 +24,7 @@
 .page-header p {
   margin: 0;
   color: #4b5563;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .refresh-button {
@@ -62,7 +62,7 @@
   color: #c47209;
   padding: 6px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -81,7 +81,7 @@
 .data-table th {
   text-align: left;
   padding: 12px 16px;
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: #1a1a1a;
@@ -114,7 +114,7 @@
 }
 
 .error-detail {
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 4px;
   color: #7f1d1d;
 }
@@ -149,7 +149,7 @@
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 14px;
   color: #4a4a4a;
 }
 
@@ -165,7 +165,7 @@
 }
 
 .client-name-link {
-  color: #e8890b;
+  color: #a25e07;
   cursor: pointer;
   text-decoration: none;
 }
@@ -177,7 +177,7 @@
 .enrichment-badge {
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -196,7 +196,7 @@
   border: none;
   padding: 6px 12px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -213,7 +213,7 @@
 
 .enriching-spinner {
   color: #4b5563;
-  font-size: 12px;
+  font-size: 14px;
   font-style: italic;
 }
 
@@ -300,7 +300,7 @@
 }
 
 .field label {
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
   color: #4b5563;
   font-weight: 600;
@@ -312,7 +312,7 @@
 }
 
 .field a {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
 }
 
@@ -326,7 +326,7 @@
   padding: 12px 16px;
   background: #f9fafb;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 14px;
   color: #4b5563;
 }
 
@@ -340,9 +340,9 @@
 }
 
 .citations-list a {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .citations-list a:hover {

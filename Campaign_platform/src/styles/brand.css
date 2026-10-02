@@ -72,6 +72,7 @@
   /* colour */
   --cx-primary: #e8890b;
   --cx-primary-dark: #c47209;
+  --cx-primary-text: #a25e07;  /* orange for TEXT on light backgrounds (5.1:1) */
   --cx-primary-light: #f59e0b;
   --cx-accent: #fb9f1a;
   --cx-accent-soft: #fff7ed;
@@ -96,7 +97,7 @@
   --cx-lead: 1.15rem;
   --cx-button: 0.95rem;
   --cx-small: 0.95rem;
-  --cx-badge: 0.8rem;
+  --cx-badge: 0.875rem; /* 14px floor (owner, 2026-10-02) */
 
   /* shape and motion (guidelines §6) */
   --cx-radius-card: 12px;
@@ -129,14 +130,16 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.25;
 }
 
-a { color: var(--cx-primary); }
-a:hover { color: var(--cx-primary-dark); }
+/* text on white needs 4.5:1: Primary Orange is 2.6:1, so links use the darker shade */
+a { color: var(--cx-primary-text); }
+a:hover { color: #7f4a06; }
 
 :focus-visible { outline: 2px solid var(--cx-primary); outline-offset: 2px; }
 
 /* ---- top bar: near black, white logo in proportion (guidelines §2) --------- */
 .top-navbar { background: var(--cx-black); padding: 0.75rem 1.5rem; }
-.logo-image { width: auto !important; height: 36px !important; min-width: 120px; object-fit: contain; }
+/* logo +70% (owner, 2026-10-02): 36px -> 61px; never wider than the bar allows */
+.logo-image { width: auto !important; height: 61px !important; max-width: 60vw; min-width: 120px; object-fit: contain; }
 .logo-dropdown-item:hover { color: var(--cx-primary); background: var(--cx-accent-soft); }
 .dropdown-arrow:hover { color: var(--cx-primary); }
 
@@ -193,7 +196,7 @@ a:hover { color: var(--cx-primary-dark); }
   transition: background-color var(--cx-transition), border-color var(--cx-transition),
               color var(--cx-transition), box-shadow var(--cx-transition);
 }
-:is(.btn-sm, .save-button-small):not(#cx) { font-size: 0.85rem; }
+:is(.btn-sm, .save-button-small):not(#cx) { font-size: 0.875rem; }
 :is(.btn-primary, .crm-btn--primary, .save-button, .save-button-small, .create-contacts-btn):not(#cx) {
   background: var(--cx-primary); border: 1px solid var(--cx-primary); color: #fff;
 }
@@ -242,7 +245,7 @@ a:hover { color: var(--cx-primary-dark); }
   box-shadow: var(--cx-shadow-card); transition: box-shadow var(--cx-transition);
 }
 .stat-label:not(#cx) {
-  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--cx-gray);
+  font-size: 0.875rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--cx-gray);
 }
 .stat-value:not(#cx) { font-weight: 700; color: var(--cx-black); line-height: 1.2; }
 
@@ -272,3 +275,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--cx-primary); }
 
 /* tables: one header style */
 :is(table th, .data-table th, .crm-table th):not(#cx) { color: var(--cx-gray); font-weight: 600; }
+
+/* buttons for features not built yet (they used to do nothing when clicked) */
+button:disabled[title$="not available yet"] { opacity: 0.4; cursor: not-allowed; }

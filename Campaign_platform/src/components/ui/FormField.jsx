@@ -235,7 +235,7 @@ const FormCheckbox = forwardRef(({
         type="checkbox"
         className={clsx(
           'w-4 h-4 rounded border-gray-300',
-          'text-cogentix-orange focus:ring-cogentix-orange-400',
+          'text-cogentix-orange-700 focus:ring-cogentix-orange-400',
           error && 'border-red-300'
         )}
         {...props}
@@ -268,7 +268,7 @@ const FormRadioGroup = ({ name, options = [], value, onChange, error, className 
             onChange={(e) => onChange?.(e.target.value)}
             className={clsx(
               'w-4 h-4 border-gray-300',
-              'text-cogentix-orange focus:ring-cogentix-orange-400',
+              'text-cogentix-orange-700 focus:ring-cogentix-orange-400',
               error && 'border-red-300'
             )}
           />

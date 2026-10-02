@@ -129,7 +129,7 @@ function SyncItem({ mailboxId, syncData, onCancel }) {
       {/* Status and progress */}
       <div className="space-y-2">
         {/* Status badge and counts */}
-        <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center justify-between text-sm">
           <span className={`px-2 py-0.5 rounded ${statusColors[status] || 'bg-gray-500'} text-white`}>
             {statusLabels[status] || status}
           </span>
@@ -153,21 +153,21 @@ function SyncItem({ mailboxId, syncData, onCancel }) {
 
         {/* Current email info (when downloading) */}
         {status === 'downloading' && subject && (
-          <div className="text-xs text-gray-400 truncate" title={subject}>
+          <div className="text-sm text-gray-400 truncate" title={subject}>
             📧 {subject}
           </div>
         )}
 
         {/* Folder info */}
         {folder && (
-          <div className="text-xs text-gray-500">
+          <div className="text-sm text-gray-500">
             📁 {folder}
           </div>
         )}
 
         {/* Errors (show first error if any) */}
         {errors && errors.length > 0 && (
-          <div className="text-xs text-red-400 flex items-center gap-1">
+          <div className="text-sm text-red-400 flex items-center gap-1">
             <AlertIcon />
             {errors[0]}
           </div>

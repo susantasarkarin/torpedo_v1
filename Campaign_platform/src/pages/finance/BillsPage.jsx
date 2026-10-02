@@ -326,7 +326,7 @@ function BillsPage() {
     th: {
       padding: "1rem",
       textAlign: "left",
-      fontSize: "0.75rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       color: "#4b5563",
@@ -345,7 +345,7 @@ function BillsPage() {
       display: "inline-block",
       padding: "0.375rem 0.75rem",
       borderRadius: "0.375rem",
-      fontSize: "0.8rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       backgroundColor: "#d1fae5",
@@ -355,7 +355,7 @@ function BillsPage() {
       display: "inline-block",
       padding: "0.375rem 0.75rem",
       borderRadius: "0.375rem",
-      fontSize: "0.8rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       backgroundColor: "#fef3c7",
@@ -365,7 +365,7 @@ function BillsPage() {
       display: "inline-block",
       padding: "0.375rem 0.75rem",
       borderRadius: "0.375rem",
-      fontSize: "0.8rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       backgroundColor: "#fee2e2",
@@ -375,7 +375,7 @@ function BillsPage() {
       display: "inline-block",
       padding: "0.375rem 0.75rem",
       borderRadius: "0.375rem",
-      fontSize: "0.8rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       backgroundColor: "#fff7ed",
@@ -409,7 +409,7 @@ function BillsPage() {
     emptyState: {
       textAlign: "center",
       padding: "3rem",
-      color: "#9ca3af",
+      color: "#6b6b6b",
     },
     paginationContainer: {
       display: "flex",
@@ -485,7 +485,7 @@ function BillsPage() {
       background: "none",
       border: "none",
       fontSize: "1.5rem",
-      color: "#9ca3af",
+      color: "#6b6b6b",
       cursor: "pointer",
       padding: "0",
     },
@@ -555,7 +555,7 @@ function BillsPage() {
     lineItemsHeadCell: {
       padding: "0.75rem",
       textAlign: "left",
-      fontSize: "0.8rem",
+      fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
       color: "#4b5563",
@@ -689,7 +689,7 @@ function BillsPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -731,7 +731,7 @@ function BillsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading bills…</p>
@@ -758,7 +758,7 @@ function BillsPage() {
                   <td style={styles.td}>
                     <code
                       style={{
-                        fontSize: "0.85rem",
+                        fontSize: "0.875rem",
                         backgroundColor: "#f3f4f6",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
@@ -787,11 +787,11 @@ function BillsPage() {
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <Link to={`/admin/finance/bills/${bill._id}`}>
-                        <button style={styles.btnEdit}>
+                        <button style={styles.btnEdit} aria-label="View" title="View">
                           <Eye style={{ width: "16px", height: "16px" }} />
                         </button>
                       </Link>
-                      <button style={styles.btnEdit}>
+                      <button style={styles.btnEdit} disabled aria-label="Record payment (not available yet)" title="Record payment — not available yet">
                         <CreditCard style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>
@@ -826,7 +826,7 @@ function BillsPage() {
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Create Bill</h3>
-              <button onClick={handleCloseModal} style={styles.closeBtn}>
+              <button onClick={handleCloseModal} style={styles.closeBtn} aria-label="Close" title="Close">
                 <X style={{ width: "1.5rem", height: "1.5rem" }} />
               </button>
             </div>
@@ -971,7 +971,7 @@ function BillsPage() {
                 </div>
                 <div style={styles.totalRowBold}>
                   <span>Grand Total:</span>
-                  <span style={{ color: "#e8890b" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
+                  <span style={{ color: "#a25e07" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
                 </div>
               </div>
             </form>

@@ -134,7 +134,7 @@
 }
 
 .contact-email {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .contact-phone,
@@ -146,7 +146,7 @@
 .status-badge {
   padding: 4px 12px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   text-transform: capitalize;
 }

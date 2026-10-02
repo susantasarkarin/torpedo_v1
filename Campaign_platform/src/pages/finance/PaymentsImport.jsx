@@ -603,7 +603,7 @@ function PaymentsImport() {
                 margin: "0 auto 1rem",
               }}
             >
-              <Upload style={{ width: "32px", height: "32px", color: "#e8890b" }} />
+              <Upload style={{ width: "32px", height: "32px", color: "#a25e07" }} />
             </div>
             <h2 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "0.5rem" }}>
               Upload your CSV file
@@ -631,11 +631,11 @@ function PaymentsImport() {
               onChange={(e) => handleFileSelect(e.target.files[0])}
               style={{ display: "none" }}
             />
-            <FileSpreadsheet style={{ width: "48px", height: "48px", color: "#9ca3af", margin: "0 auto 1rem" }} />
+            <FileSpreadsheet style={{ width: "48px", height: "48px", color: "#6b6b6b", margin: "0 auto 1rem" }} />
             <p style={{ color: "#4b5563", marginBottom: "0.5rem" }}>
-              <span style={{ color: "#e8890b", fontWeight: "500" }}>Click to upload</span> or drag and drop
+              <span style={{ color: "#a25e07", fontWeight: "500" }}>Click to upload</span> or drag and drop
             </p>
-            <p style={{ fontSize: "0.875rem", color: "#9ca3af" }}>CSV files only</p>
+            <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>CSV files only</p>
           </div>
 
           {/* Template Download */}
@@ -650,7 +650,7 @@ function PaymentsImport() {
               onClick={handleDownloadTemplate}
               style={{
                 ...styles.btnSecondary,
-                color: "#e8890b",
+                color: "#a25e07",
                 borderColor: "#e8890b",
               }}
             >
@@ -677,7 +677,7 @@ function PaymentsImport() {
                 justifyContent: "center",
               }}
             >
-              <CheckCircle style={{ width: "24px", height: "24px", color: "#22c55e" }} />
+              <CheckCircle style={{ width: "24px", height: "24px", color: "#047857" }} />
             </div>
             <div style={{ flex: 1 }}>
               <h3 style={{ fontWeight: "500", color: "#1a1a1a" }}>{file?.name}</h3>
@@ -713,7 +713,7 @@ function PaymentsImport() {
                     {field.label}
                     {field.required && <span style={{ color: "#dc2626", marginLeft: "4px" }}>*</span>}
                   </div>
-                  <ArrowRight style={{ width: "20px", height: "20px", color: "#9ca3af" }} />
+                  <ArrowRight style={{ width: "20px", height: "20px", color: "#6b6b6b" }} />
                   <select
                     value={getMappedValue(field.key)}
                     onChange={(e) => handleMappingChange(field.key, e.target.value)}
@@ -730,7 +730,7 @@ function PaymentsImport() {
                     ))}
                   </select>
                   {getMappedValue(field.key) && (
-                    <CheckCircle style={{ width: "20px", height: "20px", color: "#22c55e" }} />
+                    <CheckCircle style={{ width: "20px", height: "20px", color: "#047857" }} />
                   )}
                 </div>
               ))}
@@ -845,7 +845,7 @@ function PaymentsImport() {
                 margin: "0 auto 1.5rem",
               }}
             >
-              <CheckCircle style={{ width: "32px", height: "32px", color: "#22c55e" }} />
+              <CheckCircle style={{ width: "32px", height: "32px", color: "#047857" }} />
             </div>
             <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#1a1a1a", marginBottom: "0.5rem" }}>
               Import Complete!

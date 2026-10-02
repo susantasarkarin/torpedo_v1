@@ -103,7 +103,7 @@
 }
 
 .stat-label {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   opacity: 0.9;
   margin-top: 0.25rem;
 }
@@ -243,12 +243,12 @@
 .expand-cell {
   width: 30px;
   color: #888;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .respondent-id {
   font-family: 'Monaco', 'Menlo', monospace;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #555;
 }
 
@@ -260,21 +260,21 @@
 }
 
 .out-url-cell a {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .out-url-cell a:hover {
   text-decoration: underline;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .status-badge {
   display: inline-block;
   padding: 0.25rem 0.75rem;
   border-radius: 12px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -301,7 +301,7 @@
 }
 
 .expanded-section h4 {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #555;
   margin: 0 0 0.5rem 0;
@@ -323,7 +323,7 @@
   background: #f0f0f0;
   padding: 0.75rem;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   word-break: break-all;
   color: #333;
 }
@@ -333,7 +333,7 @@
   color: #a5d6ff;
   padding: 1rem;
   border-radius: 8px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   overflow-x: auto;
   max-height: 200px;
   margin: 0;
@@ -368,7 +368,7 @@
   background: white;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   transition: all 0.2s ease;
 }
 

@@ -84,7 +84,7 @@ export default function CrmTasks() {
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "center" }}>
         <input style={{ ...inputStyle, maxWidth: 240 }} placeholder="Filter by assignee (my tasks)…"
           value={owner} onChange={(e) => setOwner(e.target.value)} />
-        <label style={{ fontSize: "0.8rem", color: "#4b5563", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+        <label style={{ fontSize: "0.875rem", color: "#4b5563", display: "flex", alignItems: "center", gap: "0.3rem" }}>
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
           show completed
         </label>
@@ -107,14 +107,14 @@ export default function CrmTasks() {
                     {t.title}
                   </span>
                   {t.linked_object_type && (
-                    <span className="crm-muted" style={{ fontSize: "0.72rem", marginLeft: "0.4rem" }}>
+                    <span className="crm-muted" style={{ fontSize: "0.875rem", marginLeft: "0.4rem" }}>
                       on {t.linked_object_type}
                     </span>
                   )}
                 </div>
                 {t.owner_id && <span className="crm-badge">{t.owner_id}</span>}
                 {t.due_date && (
-                  <span style={{ fontSize: "0.75rem", fontWeight: overdue ? 700 : 400, color: overdue ? "#b91c1c" : "#4b5563" }}>
+                  <span style={{ fontSize: "0.875rem", fontWeight: overdue ? 700 : 400, color: overdue ? "#b91c1c" : "#4b5563" }}>
                     {formatDate(t.due_date)}{overdue ? " · overdue" : ""}
                   </span>
                 )}

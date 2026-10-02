@@ -125,7 +125,7 @@ export function KPICard({
           )}
         </div>
         {icon && (
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-cogentix-orange-50 text-cogentix-orange">
+          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-cogentix-orange-50 text-cogentix-orange-700">
             {icon}
           </div>
         )}

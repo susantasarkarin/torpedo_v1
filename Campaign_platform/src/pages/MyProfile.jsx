@@ -355,7 +355,7 @@ function MyProfile() {
                     <span style={{
                       padding: '0.25rem 0.75rem',
                       borderRadius: '999px',
-                      fontSize: '0.75rem',
+                      fontSize: '0.875rem',
                       background: profile.role === 'admin' ? '#fff7ed' : '#f3f4f6',
                       color: profile.role === 'admin' ? '#c47209' : '#4a4a4a',
                       fontWeight: 'bold'
@@ -501,7 +501,7 @@ function MyProfile() {
                               <span key={idx} style={{
                                 padding: '0.125rem 0.5rem',
                                 borderRadius: '4px',
-                                fontSize: '0.75rem',
+                                fontSize: '0.875rem',
                                 background: '#f3f4f6',
                                 color: '#4a4a4a'
                               }}>
@@ -512,7 +512,7 @@ function MyProfile() {
                               <span style={{
                                 padding: '0.125rem 0.5rem',
                                 borderRadius: '4px',
-                                fontSize: '0.75rem',
+                                fontSize: '0.875rem',
                                 background: '#e5e7eb',
                                 color: '#4a4a4a'
                               }}>

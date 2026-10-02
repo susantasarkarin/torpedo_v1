@@ -145,7 +145,7 @@ function RFQReviewQueue() {
                     <tr key={item._id}>
                       <td>
                         <div>{item.sender_name || "—"}</div>
-                        <div style={{ color: "#4b5563", fontSize: "0.85em" }}>{item.sender_email}</div>
+                        <div style={{ color: "#4b5563", fontSize: "0.875rem" }}>{item.sender_email}</div>
                       </td>
                       <td>{payload.title || "—"}</td>
                       <td>{formatMoney(payload.budget, payload.currency)}</td>

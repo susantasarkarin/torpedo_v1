@@ -55,7 +55,7 @@
 
 .ai-prompt-icon {
   font-size: 1.5rem;
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .ai-prompt-input {
@@ -68,7 +68,7 @@
 }
 
 .ai-prompt-input::placeholder {
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .ai-prompt-submit {
@@ -229,7 +229,7 @@
 }
 
 .tab-btn.active {
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
   font-weight: 500;
 }
@@ -317,7 +317,7 @@
   padding: 0.35rem 0.5rem;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   background: white;
 }
 
@@ -330,7 +330,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -347,7 +347,7 @@
 .files-table th {
   text-align: left;
   padding: 0.75rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #4b5563;
   text-transform: uppercase;
@@ -377,8 +377,8 @@
 }
 
 .leads-indicator {
-  font-size: 0.75rem;
-  color: #f59e0b;
+  font-size: 0.875rem;
+  color: #b45309;
 }
 
 .file-name {
@@ -388,7 +388,7 @@
 
 .date-cell {
   color: #4b5563;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .owner-cell {
@@ -405,7 +405,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .favorite-btn {
@@ -420,7 +420,7 @@
 
 .favorite-btn:hover,
 .favorite-btn.active {
-  color: #f59e0b;
+  color: #b45309;
 }
 
 .more-btn {
@@ -428,7 +428,7 @@
   border: none;
   cursor: pointer;
   font-size: 1.25rem;
-  color: #9ca3af;
+  color: #6b6b6b;
   padding: 0.25rem;
 }
 
@@ -441,7 +441,7 @@
 .empty-state {
   text-align: center;
   padding: 3rem;
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .spinner {
@@ -511,7 +511,7 @@
   border: none;
   font-size: 1.5rem;
   cursor: pointer;
-  color: #9ca3af;
+  color: #6b6b6b;
   line-height: 1;
 }
 
@@ -613,7 +613,7 @@
 .upload-btn:hover {
   border-color: #e8890b;
   background: #fff7ed;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .csv-file-info {
@@ -628,7 +628,7 @@
 }
 
 .csv-rows {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #059669;
   font-weight: 500;
 }
@@ -725,7 +725,7 @@
 }
 
 .import-progress p {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #059669;
   margin: 0;
 }
@@ -770,7 +770,7 @@
 
 .import-tab.active {
   background: #ffffff;
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
 }
 
@@ -808,7 +808,7 @@
 }
 
 .status-dot {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .status-text {
@@ -826,7 +826,7 @@
   border: none;
   padding: 0.4rem 0.75rem;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
 }
 
@@ -836,7 +836,7 @@
   border: none;
   padding: 0.4rem 0.75rem;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
 }
 
@@ -880,8 +880,8 @@
 
 .form-hint {
   display: block;
-  color: #9ca3af;
-  font-size: 0.8rem;
+  color: #6b6b6b;
+  font-size: 0.875rem;
   margin-top: 0.25rem;
 }
 
@@ -916,7 +916,7 @@
 .selected-count {
   display: block;
   color: #4b5563;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin-top: 0.5rem;
 }
 
@@ -1008,8 +1008,8 @@
 }
 
 .upload-hint {
-  font-size: 0.85rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   margin-top: 0.5rem;
 }
 
@@ -1033,7 +1033,7 @@
 }
 
 .mapping-row label {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
   font-weight: 500;
 }
@@ -1066,7 +1066,7 @@
 .preview-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .preview-table th,

@@ -1677,21 +1677,21 @@ function AILeads() {
             🎯 Transfer to Vendor Leads
           </button>
           <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
-          <span style={{ fontSize: "0.8rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag as:</span>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("BIMwave")} style={{ backgroundColor: "#fff7ed", color: "#c47209", borderColor: "#fde68a", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+          <span style={{ fontSize: "0.875rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag as:</span>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("BIMwave")} style={{ backgroundColor: "#fff7ed", color: "#c47209", borderColor: "#fde68a", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
             BIMwave
           </button>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("SFW")} style={{ backgroundColor: "#dcfce7", color: "#166534", borderColor: "#86efac", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("SFW")} style={{ backgroundColor: "#dcfce7", color: "#166534", borderColor: "#86efac", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
             SFW
           </button>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Cogentix")} style={{ backgroundColor: "#ede9fe", color: "#5b21b6", borderColor: "#c4b5fd", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Cogentix")} style={{ backgroundColor: "#ede9fe", color: "#5b21b6", borderColor: "#c4b5fd", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
             Cogentix
           </button>
           <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
-          <span style={{ fontSize: "0.8rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag ICP:</span>
+          <span style={{ fontSize: "0.875rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag ICP:</span>
           <select
             className="filter-select"
-            style={{ fontSize: "0.8rem", padding: "0.25rem 0.4rem", height: "auto" }}
+            style={{ fontSize: "0.875rem", padding: "0.25rem 0.4rem", height: "auto" }}
             value={bulkIcpSegment}
             onChange={(e) => setBulkIcpSegment(e.target.value)}
           >
@@ -1704,7 +1704,7 @@ function AILeads() {
           <button
             className="btn btn-sm"
             disabled={!bulkIcpSegment}
-            style={{ backgroundColor: "#8b5cf6", color: "#fff", borderColor: "#7c3aed", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}
+            style={{ backgroundColor: "#8b5cf6", color: "#fff", borderColor: "#7c3aed", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}
             onClick={async () => {
               if (!bulkIcpSegment) return;
               const ids = Array.from(selectedIds);
@@ -1845,7 +1845,7 @@ function AILeads() {
                             nurture:          { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db" },
                           };
                           if (!code && tags.length === 0) {
-                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                            return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>;
                           }
                           return (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
@@ -1853,7 +1853,7 @@ function AILeads() {
                                 const c = BASKET_COLORS[code] || BASKET_COLORS.E;
                                 const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || code;
                                 return (
-                                  <span key="basket" style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                                  <span key="basket" style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
                                     {code} — {bname}
                                   </span>
                                 );
@@ -1867,7 +1867,7 @@ function AILeads() {
                         {(() => {
                           const tier = lead.fit_tier;
                           const label = lead.fit_tier_label;
-                          if (!tier) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                          if (!tier) return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>;
                           const TIER_STYLE = {
                             1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
                             2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
@@ -1875,7 +1875,7 @@ function AILeads() {
                           };
                           const s = TIER_STYLE[tier] || TIER_STYLE[3];
                           return (
-                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
                               {s.icon} {label || `Tier ${tier}`}
                             </span>
                           );
@@ -1883,7 +1883,7 @@ function AILeads() {
                       </td>
                       {/* Persona */}
                       <td>
-                        <span style={{ fontSize: "0.75rem", color: "#4a4a4a" }}>
+                        <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>
                           {lead.persona_label || lead.persona || "—"}
                         </span>
                       </td>
@@ -2117,7 +2117,7 @@ function AILeads() {
                         </span>
                         {searchControl.active_jobs_count > 0 && (
                           <span style={{ 
-                            fontSize: "0.75rem", 
+                            fontSize: "0.875rem", 
                             backgroundColor: "#fff7ed", 
                             color: "#c47209", 
                             padding: "0.125rem 0.5rem", 
@@ -2360,7 +2360,7 @@ function AILeads() {
                         }}>
                           API key may be invalid or expired. Check Settings → Google CSE configuration.
                           {webSearchProgress.errors && webSearchProgress.errors.length > 0 && (
-                            <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
+                            <div style={{ marginTop: "0.25rem", fontSize: "0.875rem" }}>
                               Last error: {webSearchProgress.errors[webSearchProgress.errors.length - 1]}
                             </div>
                           )}
@@ -2400,7 +2400,7 @@ function AILeads() {
                           <div style={{ color: "#4b5563" }}>Imported</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#e8890b" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#a25e07" }}>
                             {webSearchProgress.classified || 0}
                           </div>
                           <div style={{ color: "#4b5563" }}>Classified</div>
@@ -2424,7 +2424,7 @@ function AILeads() {
                         marginTop: "0.75rem", 
                         paddingTop: "0.75rem", 
                         borderTop: "1px solid #e5e7eb",
-                        fontSize: "0.75rem",
+                        fontSize: "0.875rem",
                         color: "#4b5563"
                       }}>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -2630,7 +2630,7 @@ function AILeads() {
                                   color: "#1976d2", 
                                   padding: "2px 8px", 
                                   borderRadius: "12px", 
-                                  fontSize: "12px" 
+                                  fontSize: "14px" 
                                 }}>
                                   {account.email_count.toLocaleString()} emails
                                 </span>
@@ -2685,7 +2685,7 @@ function AILeads() {
                       {gmailImporting ? "⏳ Extracting Leads..." : "📧 Extract Leads from Emails"}
                     </button>
                     {selectedGmailAccounts.length === 0 && !gmailImporting && (
-                      <small style={{ color: "#ff6b6b", display: "block", marginTop: "8px", textAlign: "center" }}>
+                      <small style={{ color: "#dc2626", display: "block", marginTop: "8px", textAlign: "center" }}>
                         ⚠️ Please select at least one email account above
                       </small>
                     )}

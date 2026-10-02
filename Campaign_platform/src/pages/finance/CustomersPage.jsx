@@ -546,7 +546,7 @@ function CustomersPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -584,7 +584,7 @@ function CustomersPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading customers…</p>
@@ -635,7 +635,7 @@ function CustomersPage() {
                   <td style={styles.td}>
                     <code
                       style={{
-                        fontSize: "0.85rem",
+                        fontSize: "0.875rem",
                         backgroundColor: "#f3f4f6",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
@@ -656,7 +656,7 @@ function CustomersPage() {
                           background: '#fff7ed',
                           color: '#c47209',
                           borderRadius: '12px',
-                          fontSize: '12px',
+                          fontSize: '14px',
                           fontWeight: '500',
                           cursor: 'pointer',
                         }}
@@ -666,7 +666,7 @@ function CustomersPage() {
                         👤 {customer.linked_contacts_count} contact{customer.linked_contacts_count > 1 ? 's' : ''}
                       </span>
                     ) : (
-                      <span style={{ color: '#9ca3af', fontSize: '12px' }}>—</span>
+                      <span style={{ color: '#6b6b6b', fontSize: '14px' }}>—</span>
                     )}
                   </td>
                   <td style={styles.td}>
@@ -683,7 +683,7 @@ function CustomersPage() {
                       <button style={styles.btnEdit} onClick={() => handleEdit(customer)}>
                         <Pencil style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit}>
+                      <button style={styles.btnEdit} disabled aria-label="Statement (not available yet)" title="Statement — not available yet">
                         <FileText style={{ width: "16px", height: "16px" }} />
                       </button>
                       <button style={styles.btnDelete} onClick={() => handleDelete(customer._id)}>
@@ -1269,7 +1269,7 @@ const styles = {
   th: {
     padding: "1rem",
     textAlign: "left",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
     color: "#4b5563",
@@ -1293,7 +1293,7 @@ const styles = {
     display: "inline-block",
     padding: "0.375rem 0.75rem",
     borderRadius: "0.375rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "capitalize",
   },
@@ -1309,7 +1309,7 @@ const styles = {
     padding: "0.4rem 0.6rem",
     border: "1px solid #d1d5db",
     borderRadius: "0.375rem",
-    fontSize: "0.85rem",
+    fontSize: "0.875rem",
     backgroundColor: "white",
     cursor: "pointer",
     minWidth: "140px",
@@ -1344,7 +1344,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
   },
   paginationContainer: {
     display: "flex",
@@ -1420,7 +1420,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     cursor: "pointer",
     padding: "0",
     width: "2rem",
@@ -1467,7 +1467,7 @@ const styles = {
   },
   errorText: {
     color: "#ef4444",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     marginTop: "0.25rem",
   },
   modalFooter: {

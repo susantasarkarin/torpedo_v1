@@ -43,7 +43,7 @@ const styles = {
     margin: 0
   },
   subtitle: {
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#4b5563",
     marginTop: "2px"
   },
@@ -63,7 +63,7 @@ const styles = {
   },
   dateInput: {
     border: "none",
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#475569",
     outline: "none",
     backgroundColor: "transparent",
@@ -74,7 +74,7 @@ const styles = {
     backgroundColor: "white",
     border: "1px solid #e2e8f0",
     borderRadius: "6px",
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#475569",
     cursor: "pointer",
     outline: "none"
@@ -85,7 +85,7 @@ const styles = {
     backgroundColor: "white",
     border: "1px solid #e2e8f0",
     borderRadius: "6px",
-    fontSize: "12px",
+    fontSize: "14px",
     color: "#475569",
     outline: "none"
   },
@@ -98,7 +98,7 @@ const styles = {
     color: "white",
     border: "none",
     borderRadius: "6px",
-    fontSize: "12px",
+    fontSize: "14px",
     fontWeight: "500",
     cursor: "pointer"
   },
@@ -137,7 +137,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "6px",
-    fontSize: "13px",
+    fontSize: "14px",
     fontWeight: "600",
     color: "#1a1a1a",
     margin: 0
@@ -158,7 +158,7 @@ const styles = {
     padding: "12px"
   },
   kpiLabel: {
-    fontSize: "11px",
+    fontSize: "14px",
     fontWeight: "500",
     color: "#4b5563",
     margin: 0
@@ -170,8 +170,8 @@ const styles = {
     marginTop: "4px"
   },
   kpiSubtitle: {
-    fontSize: "10px",
-    color: "#94a3b8",
+    fontSize: "14px",
+    color: "#6b6b6b",
     marginTop: "2px"
   },
   kpiIcon: {
@@ -191,10 +191,10 @@ const styles = {
   },
   funnelStageName: {
     fontWeight: "600",
-    fontSize: "12px"
+    fontSize: "14px"
   },
   funnelStageCount: {
-    fontSize: "10px",
+    fontSize: "14px",
     opacity: 0.9
   },
   funnelStageValue: {
@@ -213,7 +213,7 @@ const styles = {
     gap: "4px",
     padding: "2px 8px",
     borderRadius: "999px",
-    fontSize: "10px",
+    fontSize: "14px",
     fontWeight: "500"
   },
   // Velocity
@@ -228,7 +228,7 @@ const styles = {
     border: "1px solid #e2e8f0"
   },
   velocityName: {
-    fontSize: "11px",
+    fontSize: "14px",
     fontWeight: "500",
     color: "#475569"
   },
@@ -239,13 +239,13 @@ const styles = {
     marginTop: "2px"
   },
   velocityTarget: {
-    fontSize: "10px",
-    color: "#94a3b8"
+    fontSize: "14px",
+    color: "#6b6b6b"
   },
   badge: {
     padding: "1px 6px",
     borderRadius: "999px",
-    fontSize: "9px",
+    fontSize: "14px",
     fontWeight: "600",
     textTransform: "uppercase"
   },
@@ -261,7 +261,7 @@ const styles = {
     textAlign: "center"
   },
   agingLabel: {
-    fontSize: "11px",
+    fontSize: "14px",
     fontWeight: "500"
   },
   agingValue: {
@@ -270,7 +270,7 @@ const styles = {
     marginTop: "2px"
   },
   agingAmount: {
-    fontSize: "10px",
+    fontSize: "14px",
     color: "#4b5563"
   },
   // Forecast
@@ -285,7 +285,7 @@ const styles = {
     textAlign: "center"
   },
   forecastLabel: {
-    fontSize: "10px",
+    fontSize: "14px",
     color: "#4b5563",
     textTransform: "uppercase"
   },
@@ -319,8 +319,8 @@ const styles = {
   },
   footer: {
     textAlign: "center",
-    fontSize: "11px",
-    color: "#94a3b8",
+    fontSize: "14px",
+    color: "#6b6b6b",
     marginTop: "8px",
     flexShrink: 0
   }
@@ -365,10 +365,10 @@ function CompactFunnel({ funnel }) {
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <h3 style={styles.cardTitle}>
-          <Target size={14} style={{ color: "#f97316" }} />
+          <Target size={14} style={{ color: "#c2410c" }} />
           Sales Funnel
         </h3>
-        <span style={{ fontSize: "11px", color: "#4b5563" }}>
+        <span style={{ fontSize: "14px", color: "#4b5563" }}>
           E2E: <strong style={{ color: funnel.end_to_end_rate > 1 ? "#16a34a" : "#dc2626" }}>
             {formatPercent(funnel.end_to_end_rate)}
           </strong>
@@ -425,7 +425,7 @@ function VelocitySection({ velocity }) {
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <h3 style={styles.cardTitle}>
-          <Clock size={14} style={{ color: "#f97316" }} />
+          <Clock size={14} style={{ color: "#c2410c" }} />
           Velocity
         </h3>
       </div>
@@ -471,10 +471,10 @@ function RFQAgingSection({ aging }) {
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <h3 style={styles.cardTitle}>
-          <AlertTriangle size={14} style={{ color: "#f97316" }} />
+          <AlertTriangle size={14} style={{ color: "#c2410c" }} />
           RFQ Aging
         </h3>
-        <span style={{ fontSize: "11px", color: "#4b5563" }}>{totalCount} open</span>
+        <span style={{ fontSize: "14px", color: "#4b5563" }}>{totalCount} open</span>
       </div>
       <div style={styles.cardContent}>
         <div style={styles.agingGrid}>
@@ -510,7 +510,7 @@ function ForecastSection({ forecast }) {
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <h3 style={styles.cardTitle}>
-          <BarChart3 size={14} style={{ color: "#f97316" }} />
+          <BarChart3 size={14} style={{ color: "#c2410c" }} />
           Forecast vs Actual
         </h3>
         <span style={{
@@ -523,7 +523,7 @@ function ForecastSection({ forecast }) {
         </span>
       </div>
       <div style={styles.cardContent}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "11px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: "14px" }}>
           <span style={{ color: "#475569" }}>Attainment</span>
           <span style={{ fontWeight: "600", color: "#1a1a1a" }}>{formatPercent(forecast.attainment_percent)}</span>
         </div>
@@ -545,7 +545,7 @@ function ForecastSection({ forecast }) {
           </div>
           <div style={{ ...styles.forecastCard, backgroundColor: "#fff7ed" }}>
             <div style={styles.forecastLabel}>Forecast</div>
-            <div style={{ ...styles.forecastValue, color: "#e8890b" }}>{formatCurrency(forecast.forecast)}</div>
+            <div style={{ ...styles.forecastValue, color: "#a25e07" }}>{formatCurrency(forecast.forecast)}</div>
           </div>
           <div style={{ ...styles.forecastCard, backgroundColor: forecast.gap_to_target > 0 ? "#fee2e2" : "#dcfce7" }}>
             <div style={styles.forecastLabel}>Gap</div>
@@ -599,8 +599,8 @@ export default function SalesDashboard() {
     return (
       <div style={styles.page}>
         <div style={styles.loading}>
-          <RefreshCw size={20} style={{ color: "#f97316" }} />
-          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "13px" }}>Loading…</span>
+          <RefreshCw size={20} style={{ color: "#c2410c" }} />
+          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "14px" }}>Loading…</span>
         </div>
       </div>
     )
@@ -612,7 +612,7 @@ export default function SalesDashboard() {
         <div style={{ ...styles.card, ...styles.errorCard }}>
           <XCircle size={40} style={{ color: "#ef4444", marginBottom: "12px" }} />
           <h3 style={{ color: "#1a1a1a", marginBottom: "8px", fontSize: "16px" }}>Failed to load</h3>
-          <p style={{ color: "#4b5563", marginBottom: "12px", fontSize: "13px" }}>{error}</p>
+          <p style={{ color: "#4b5563", marginBottom: "12px", fontSize: "14px" }}>{error}</p>
           <button style={styles.refreshBtn} onClick={fetchDashboard}>
             <RefreshCw size={14} /> Retry
           </button>
@@ -639,14 +639,14 @@ export default function SalesDashboard() {
         </div>
         <div style={styles.controls}>
           <div style={styles.dateContainer}>
-            <Calendar size={12} style={{ color: "#94a3b8" }} />
+            <Calendar size={12} style={{ color: "#6b6b6b" }} />
             <input
               type="date"
               value={dateRange.start_date}
               onChange={(e) => setDateRange(prev => ({ ...prev, start_date: e.target.value }))}
               style={styles.dateInput}
             />
-            <span style={{ color: "#94a3b8", fontSize: "11px" }}>to</span>
+            <span style={{ color: "#6b6b6b", fontSize: "14px" }}>to</span>
             <input
               type="date"
               value={dateRange.end_date}

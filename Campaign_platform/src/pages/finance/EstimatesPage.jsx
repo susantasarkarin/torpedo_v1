@@ -545,7 +545,7 @@ function EstimatesPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -604,7 +604,7 @@ function EstimatesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading estimates…</p>
@@ -1115,7 +1115,7 @@ const styles = {
   th: {
     padding: "1rem",
     textAlign: "left",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
     color: "#4b5563",
@@ -1139,7 +1139,7 @@ const styles = {
     display: "inline-block",
     padding: "0.375rem 0.75rem",
     borderRadius: "0.375rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "capitalize",
   },
@@ -1215,7 +1215,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
   },
   paginationContainer: {
     display: "flex",
@@ -1291,7 +1291,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     cursor: "pointer",
     padding: "0",
     width: "2rem",
@@ -1338,7 +1338,7 @@ const styles = {
   },
   errorText: {
     color: "#ef4444",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     marginTop: "0.25rem",
   },
   totalsCard: {

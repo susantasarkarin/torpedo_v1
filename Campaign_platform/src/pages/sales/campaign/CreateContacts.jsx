@@ -656,7 +656,7 @@ function CreateContacts({ onBack, listName }) {
               Ready to add contacts — <span className="font-medium text-[var(--foreground)]">{dbCount}</span> in MongoDB
               for "{listName}"
               <button
-                className="ml-3 inline-flex items-center rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--accent)]"
+                className="ml-3 inline-flex items-center rounded-md border border-[var(--border)] px-2 py-1 text-sm hover:bg-[var(--accent)]"
                 onClick={refreshDbCount}
                 type="button"
               >
@@ -674,7 +674,7 @@ function CreateContacts({ onBack, listName }) {
               <span className="mx-1 font-medium text-[var(--foreground)]">{lastUploadSummary.skipped}</span>
               {csvPreview.length > 0 && (
                 <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-sm">
                     <thead className="text-[var(--foreground)]">
                       <tr>
                         <th className="py-1 pr-3">Email</th>

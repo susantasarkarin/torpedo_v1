@@ -778,12 +778,12 @@ function RFQ() {
                     <td className="rfq-title-cell">
                       <div className="rfq-title">{rfq.title || "Untitled RFQ"}</div>
                       {rfq.direction === "outbound" && rfq.client_name && (
-                        <div className="rfq-subtitle" style={{ color: '#8b5cf6', fontSize: '0.75rem' }}>
+                        <div className="rfq-subtitle" style={{ color: '#8b5cf6', fontSize: '0.875rem' }}>
                           Client: {rfq.client_name}
                         </div>
                       )}
                       {rfq.methodology && (
-                        <div className="rfq-subtitle" style={{ color: '#4b5563', fontSize: '0.75rem' }}>
+                        <div className="rfq-subtitle" style={{ color: '#4b5563', fontSize: '0.875rem' }}>
                           {rfq.methodology} {rfq.study_type && `• ${rfq.study_type}`}
                         </div>
                       )}
@@ -808,31 +808,31 @@ function RFQ() {
                           {rfq.account_name}
                         </Link>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>—</span>
+                        <span style={{ color: '#6b6b6b' }}>—</span>
                       )}
                     </td>
                     <td>
-                      <span style={{ fontSize: '0.85rem' }}>{rfq.country || "—"}</span>
+                      <span style={{ fontSize: '0.875rem' }}>{rfq.country || "—"}</span>
                     </td>
                     <td>
                       {rfq.loi ? (
-                        <span style={{ fontSize: '0.85rem', color: '#e8890b', fontWeight: '500' }}>{rfq.loi} min</span>
+                        <span style={{ fontSize: '0.875rem', color: '#a25e07', fontWeight: '500' }}>{rfq.loi} min</span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>—</span>
+                        <span style={{ color: '#6b6b6b' }}>—</span>
                       )}
                     </td>
                     <td>
                       {rfq.ir ? (
-                        <span style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: '500' }}>{rfq.ir}%</span>
+                        <span style={{ fontSize: '0.875rem', color: '#047857', fontWeight: '500' }}>{rfq.ir}%</span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>—</span>
+                        <span style={{ color: '#6b6b6b' }}>—</span>
                       )}
                     </td>
                     <td>
                       {rfq.sample_size ? (
-                        <span style={{ fontSize: '0.85rem', color: '#8b5cf6', fontWeight: '500' }}>{rfq.sample_size.toLocaleString()}</span>
+                        <span style={{ fontSize: '0.875rem', color: '#8b5cf6', fontWeight: '500' }}>{rfq.sample_size.toLocaleString()}</span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>—</span>
+                        <span style={{ color: '#6b6b6b' }}>—</span>
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -871,7 +871,7 @@ function RFQ() {
                               ? <span title="CPI from our quote; value needs the sample size">
                                   CPI {formatCurrency(rfq.cpi, rfq.manual_currency || rfq.extracted_currency || "USD")}
                                 </span>
-                              : <span style={{ color: '#9ca3af' }}>—</span>}
+                              : <span style={{ color: '#6b6b6b' }}>—</span>}
                           {rfq.manual_value && <span className="override-badge">✎</span>}
                         </div>
                       )}
@@ -1019,7 +1019,7 @@ function RFQ() {
                   )}
                   <div className="detail-item">
                     <label>Value</label>
-                    <span style={{ fontWeight: 'bold', color: '#10b981' }}>
+                    <span style={{ fontWeight: 'bold', color: '#047857' }}>
                       {formatCurrency(selectedRfq.manual_value || selectedRfq.extracted_value, selectedRfq.manual_currency || selectedRfq.extracted_currency)}
                     </span>
                   </div>
@@ -1030,7 +1030,7 @@ function RFQ() {
                         ? <>
                             {formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)}
                             {selectedRfq.taxes_extra ? " + taxes" : ""}
-                            {selectedRfq.cpi ? <span style={{ color: '#4b5563', fontSize: '0.75rem' }}> (our quote)</span> : null}
+                            {selectedRfq.cpi ? <span style={{ color: '#4b5563', fontSize: '0.875rem' }}> (our quote)</span> : null}
                           </>
                         : "— (not quoted yet)"}
                     </span>
@@ -1160,7 +1160,7 @@ function RFQ() {
                 </div>
                 {/* Target Audience - Full width */}
                 <div style={{ marginTop: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '4px' }}>Target Audience</label>
+                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#4b5563', marginBottom: '4px' }}>Target Audience</label>
                   <textarea
                     value={selectedRfq.target_audience || ""}
                     onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "target_audience", e.target.value)}
@@ -1240,7 +1240,7 @@ function RFQ() {
                     {selectedRfq.estimate_number && (
                       <div className="detail-item">
                         <label>Estimate</label>
-                        <span style={{ color: '#e8890b', fontWeight: 'bold' }}>
+                        <span style={{ color: '#a25e07', fontWeight: 'bold' }}>
                           {selectedRfq.estimate_number}
                         </span>
                       </div>
@@ -1248,7 +1248,7 @@ function RFQ() {
                     {selectedRfq.invoice_number && (
                       <div className="detail-item">
                         <label>Invoice</label>
-                        <span style={{ color: '#10b981', fontWeight: 'bold' }}>
+                        <span style={{ color: '#047857', fontWeight: 'bold' }}>
                           {selectedRfq.invoice_number}
                         </span>
                       </div>

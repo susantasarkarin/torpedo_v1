@@ -46,7 +46,7 @@
 }
 
 .stat-label {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #666;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -56,7 +56,7 @@
 .stat-value {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .success-banner {
@@ -143,8 +143,8 @@
 }
 
 .timeline-info {
-  font-size: 0.85rem;
-  color: #e8890b;
+  font-size: 0.875rem;
+  color: #a25e07;
   font-weight: 500;
   padding: 0.75rem;
   background: white;
@@ -269,7 +269,7 @@
 }
 
 .filter-toggle:hover {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .filters-panel {
@@ -401,7 +401,7 @@
 }
 
 .leads-table tbody tr.selected td {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .leads-table input[type="checkbox"] {
@@ -434,7 +434,7 @@
   display: inline-block;
   padding: 0.4rem 0.8rem;
   border-radius: 20px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: white;
 }
@@ -561,7 +561,7 @@
   .leads-table th,
   .leads-table td {
     padding: 0.75rem 0.5rem;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
   }
 
   .btn-create-campaign {

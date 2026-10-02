@@ -91,7 +91,7 @@ function RateCard() {
             <p className="last-refresh">Last updated: {formatTime(lastRefresh)} (auto-refreshes every 5 min)</p>
           )}
           {rateCardData && (
-            <p style={{fontSize: '12px', color: '#666'}}>
+            <p style={{fontSize: '14px', color: '#666'}}>
               {rateCardData.filtered_surveys} of {rateCardData.total_surveys} surveys for {countryFilter || "all countries"}
             </p>
           )}

@@ -403,7 +403,7 @@ function VendorLeadsPage() {
                   <td>{lead.company || "-"}</td>
                   <td>{lead.vendor_name || "-"}</td>
                   <td
-                    style={{ fontSize: "0.75rem", maxWidth: 240 }}
+                    style={{ fontSize: "0.875rem", maxWidth: 240 }}
                     title={lead.mail_pool ? `${lead.mail_pool.last_subject || ""}\n\n${lead.mail_pool.model_summary || lead.mail_pool.last_summary || ""}` : ""}
                   >
                     {lead.mail_pool ? (
@@ -667,7 +667,7 @@ function VendorLeadsPage() {
                         {detailLead.location && <div className="info-row"><span className="label">Location</span><span className="value">{detailLead.location}</span></div>}
                         {detailLead.website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">{detailLead.website} ↗</a></span></div>}
                         {!detailLead.company && !detailLead.vendor_name && !detailLead.industry && !detailLead.location && !detailLead.website && (
-                          <div className="info-row"><span className="value" style={{ color: "#aaa", fontStyle: "italic" }}>No company details available</span></div>
+                          <div className="info-row"><span className="value" style={{ color: "#6b6b6b", fontStyle: "italic" }}>No company details available</span></div>
                         )}
                       </div>
                     </div>
@@ -807,7 +807,7 @@ function VendorLeadsPage() {
                 />
                 <div>
                   <strong>🎯 Panel Vendor</strong>
-                  <p style={{ margin: 0, fontSize: "13px", color: "#666" }}>For survey panels & traffic operations</p>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>For survey panels & traffic operations</p>
                 </div>
               </label>
               
@@ -821,7 +821,7 @@ function VendorLeadsPage() {
                 />
                 <div>
                   <strong>💰 Billing Vendor</strong>
-                  <p style={{ margin: 0, fontSize: "13px", color: "#666" }}>For invoicing & financial transactions</p>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>For invoicing & financial transactions</p>
                 </div>
               </label>
             </div>

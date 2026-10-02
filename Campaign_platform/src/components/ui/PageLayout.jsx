@@ -207,14 +207,14 @@ export function StatsCard({
     )}>
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <p className="text-xs sm:text-sm font-medium text-gray-500 uppercase tracking-wide truncate">
+          <p className="text-sm sm:text-sm font-medium text-gray-500 uppercase tracking-wide truncate">
             {title}
           </p>
           <p className={clsx('mt-2 text-2xl sm:text-3xl font-bold', valueColorClasses[color])}>
             {value}
           </p>
           {subtitle && (
-            <p className="mt-1 text-xs sm:text-sm text-gray-500">{subtitle}</p>
+            <p className="mt-1 text-sm sm:text-sm text-gray-500">{subtitle}</p>
           )}
         </div>
         {icon && (
@@ -223,7 +223,7 @@ export function StatsCard({
       </div>
       {trend && (
         <div className={clsx(
-          'mt-2 inline-flex items-center text-xs sm:text-sm font-medium',
+          'mt-2 inline-flex items-center text-sm sm:text-sm font-medium',
           trendDirection === 'up' ? 'text-green-600' : 'text-red-600'
         )}>
           {trendDirection === 'up' ? '↑' : '↓'} {trend}
@@ -273,7 +273,7 @@ export function TabsContainer({ tabs, activeTab, onTabChange, className = '' }) 
             {tab.label}
             {tab.count !== undefined && (
               <span className={clsx(
-                'ml-2 px-2 py-0.5 text-xs rounded-full',
+                'ml-2 px-2 py-0.5 text-sm rounded-full',
                 activeTab === tab.id
                   ? 'bg-orange-100 text-orange-600'
                   : 'bg-gray-100 text-gray-500'
@@ -369,7 +369,7 @@ export function ActionButton({
   };
 
   const sizes = {
-    sm: 'px-3 py-1.5 text-xs',
+    sm: 'px-3 py-1.5 text-sm',
     md: 'px-4 py-2 text-sm',
     lg: 'px-5 py-2.5 text-base',
   };

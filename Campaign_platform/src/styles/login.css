@@ -70,8 +70,9 @@
 
 .brand-logo {
   display: block;
-  height: 56px;
+  height: 95px; /* +70% (owner, 2026-10-02) */
   width: auto;
+  max-width: 100%;
   min-width: 120px;
   margin: 0 0 0.75rem 0;
 }

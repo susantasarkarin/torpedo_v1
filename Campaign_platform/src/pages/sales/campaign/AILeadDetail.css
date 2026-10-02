@@ -85,7 +85,7 @@
   background: none;
   border: 1px dashed #c0c0c0;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: 14px;
   color: #666;
   border-radius: 4px;
   cursor: pointer;
@@ -105,7 +105,7 @@
   padding: 8px 16px;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   text-decoration: none;
   background: #fff;
@@ -156,7 +156,7 @@
   background: #fff;
   border-right: 1px solid #e0e0e0;
   padding: 16px 0;
-  height: calc(100vh - 60px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   position: sticky;
   top: 60px;
   overflow-y: auto;
@@ -167,7 +167,7 @@
 }
 
 .sidebar-section h3 {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: #888;
   text-transform: uppercase;
@@ -185,7 +185,7 @@
 .related-list li,
 .links-list li {
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
   cursor: pointer;
   border-left: 3px solid transparent;
@@ -214,7 +214,7 @@
 }
 
 .links-list .no-links {
-  color: #999;
+  color: #6b6b6b;
   font-style: italic;
   cursor: default;
 }
@@ -223,7 +223,7 @@
 .add-related-btn {
   margin: 8px 16px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 14px;
   color: #1976d2;
   background: none;
   border: 1px dashed #1976d2;
@@ -242,7 +242,7 @@
   display: inline-block;
   background: #1976d2;
   color: #fff;
-  font-size: 11px;
+  font-size: 14px;
   padding: 1px 6px;
   border-radius: 10px;
   margin-left: 6px;
@@ -274,7 +274,7 @@
 
 .tab {
   padding: 10px 24px;
-  font-size: 13px;
+  font-size: 14px;
   background: #fff;
   border: none;
   cursor: pointer;
@@ -297,7 +297,7 @@
 }
 
 .last-update {
-  font-size: 12px;
+  font-size: 14px;
   color: #888;
 }
 
@@ -319,7 +319,7 @@
 }
 
 .quick-info-card .label {
-  font-size: 11px;
+  font-size: 14px;
   color: #888;
   text-transform: uppercase;
 }
@@ -337,7 +337,7 @@
 /* Details Toggle */
 .details-toggle {
   color: #1976d2;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   padding: 8px 0;
   display: inline-block;
@@ -379,12 +379,12 @@
 
 .human-intervention-banner .intervention-body p {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: #78350f;
 }
 
 .human-intervention-banner .tried-emails {
-  font-size: 12px;
+  font-size: 14px;
   color: #92400e;
   cursor: pointer;
 }
@@ -397,7 +397,7 @@
 
 .human-intervention-banner .tried-emails li code {
   font-family: monospace;
-  font-size: 12px;
+  font-size: 14px;
   background: #fef3c7;
   padding: 1px 4px;
   border-radius: 2px;
@@ -411,7 +411,7 @@
   border: none;
   padding: 7px 14px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -462,7 +462,7 @@
 
 .section-edit-btn {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 14px;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
   background: #fff;
@@ -485,7 +485,7 @@
   color: #1976d2;
   text-decoration: none;
   word-break: break-all;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .url-link:hover {
@@ -499,13 +499,13 @@
   gap: 6px;
   padding: 4px 12px;
   border-radius: 16px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
 .stage-badge.ai_database {
   background: #fff7ed;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .stage-badge.leads {
@@ -585,7 +585,7 @@
   color: #fff;
   padding: 4px 10px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -621,7 +621,7 @@
 }
 
 .note-date {
-  font-size: 12px;
+  font-size: 14px;
   color: #6c757d;
 }
 
@@ -656,13 +656,13 @@
 .info-grid .label {
   width: 180px;
   min-width: 180px;
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
 }
 
 .info-grid .value {
   flex: 1;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
 }
 
@@ -684,7 +684,7 @@
 .snippet-text {
   padding: 16px 20px;
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   color: #555;
   line-height: 1.6;
   background: #fafafa;
@@ -717,7 +717,7 @@
 
 .section-btn {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 14px;
   background: #fff;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
@@ -731,7 +731,7 @@
 
 .sort-select {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 14px;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
   background: #fff;
@@ -747,7 +747,7 @@
   padding: 10px 12px;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
 }
 
@@ -760,8 +760,8 @@
 .empty-state {
   padding: 24px 20px;
   text-align: center;
-  color: #999;
-  font-size: 13px;
+  color: #6b6b6b;
+  font-size: 14px;
   margin: 0;
 }
 
@@ -848,12 +848,12 @@
 }
 
 .timeline-date {
-  font-size: 12px;
+  font-size: 14px;
   color: #888;
 }
 
 .timeline-description {
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
   line-height: 1.5;
 }
@@ -874,7 +874,7 @@
   align-items: center;
   justify-content: center;
   min-height: 300px;
-  color: #999;
+  color: #6b6b6b;
 }
 
 /* Emails Section */
@@ -900,7 +900,7 @@
   color: #1976d2;
   padding: 8px 16px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -915,7 +915,7 @@
   padding: 6px 12px;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   background: #fff;
   cursor: pointer;
 }
@@ -931,7 +931,7 @@
   background: none;
   border: none;
   padding: 10px 20px;
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
   cursor: pointer;
   position: relative;
@@ -965,7 +965,7 @@
 .emails-table table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .emails-table thead {
@@ -980,7 +980,7 @@
   color: #333333;
   white-space: nowrap;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 14px;
   letter-spacing: 0.5px;
 }
 
@@ -1021,13 +1021,13 @@
 }
 
 .reply-icon {
-  color: #999;
-  font-size: 12px;
+  color: #6b6b6b;
+  font-size: 14px;
 }
 
 .recipient-preview {
   color: #888;
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 4px;
 }
 
@@ -1052,7 +1052,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -1127,7 +1127,7 @@
   }
   
   .emails-table {
-    font-size: 12px;
+    font-size: 14px;
   }
   
   .email-subject {
@@ -1231,7 +1231,7 @@
 }
 
 .form-group label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: #555;
 }
@@ -1330,7 +1330,7 @@
   background: #fff;
   border: none;
   border-bottom: 2px solid #e8890b;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: #202124;
   cursor: pointer;
@@ -1405,9 +1405,9 @@
   padding: 8px 16px;
   background: #fff;
   border: 1px solid #e8890b;
-  color: #e8890b;
+  color: #a25e07;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
@@ -1418,7 +1418,7 @@
 }
 
 .dropdown-arrow {
-  font-size: 10px;
+  font-size: 14px;
   margin-left: 4px;
 }
 
@@ -1462,7 +1462,7 @@
 .field-label {
   width: 70px;
   color: #5f6368;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .field-value {
@@ -1485,7 +1485,7 @@
   padding: 4px 8px 4px 12px;
   background: #e8eaed;
   border-radius: 16px;
-  font-size: 13px;
+  font-size: 14px;
   color: #202124;
 }
 
@@ -1545,7 +1545,7 @@
   color: #5f6368;
   cursor: pointer;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   min-width: 28px;
   display: flex;
   align-items: center;
@@ -1568,7 +1568,7 @@
   border: 1px solid #dadce0;
   border-radius: 4px;
   background: #fff;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -1578,12 +1578,12 @@
 
 .plain-text-toggle {
   color: #5f6368;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
 }
 
 .plain-text-toggle:hover {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 /* Compose Body */
@@ -1627,7 +1627,7 @@
 
 .compose-editor:empty:before {
   content: "Compose your email...";
-  color: #aaa;
+  color: #6b6b6b;
 }
 
 .toolbar-color {
@@ -1693,7 +1693,7 @@
   background: none;
   border: none;
   color: #5f6368;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   border-radius: 4px;
 }

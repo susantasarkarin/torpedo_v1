@@ -103,7 +103,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       subtitle: `${displayKpis.revenue.total_invoices} invoices`,
       trend: "+12% vs last month",
       trendDirection: "up",
-      color: "#e8890b",
+      color: "#a25e07",
     },
     {
       title: "Total Expenses",
@@ -117,7 +117,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       subtitle: `${displayKpis.profitability.profit_margin.toFixed(1)}% margin`,
       trend: "+5% improvement",
       trendDirection: "up",
-      color: "#10b981",
+      color: "#047857",
     },
     {
       title: "Cash Flow",
@@ -130,7 +130,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       title: "Receivables",
       value: formatCurrency(displayKpis.receivables.outstanding),
       subtitle: `${displayKpis.receivables.overdue_count} overdue`,
-      color: "#f59e0b",
+      color: "#b45309",
     },
     {
       title: "Payables",
@@ -141,13 +141,13 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
   ]
 
   const quickActions = [
-    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#e8890b" },
+    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#a25e07" },
     { href: "/admin/finance/vendors", icon: "🏢", label: "Vendors", color: "#8b5cf6" },
-    { href: "/admin/finance/estimates", icon: "📝", label: "Estimates", color: "#f59e0b" },
-    { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#10b981" },
+    { href: "/admin/finance/estimates", icon: "📝", label: "Estimates", color: "#b45309" },
+    { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#047857" },
     { href: "/admin/finance/bills", icon: "🧾", label: "Bills", color: "#ef4444" },
     { href: "/admin/finance/expenses", icon: "💸", label: "Expenses", color: "#ec4899" },
-    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#e8890b" },
+    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#a25e07" },
     { href: "/admin/finance/settings", icon: "⚙️", label: "Settings", color: "#4b5563" },
   ]
 
@@ -463,7 +463,7 @@ const styles = {
     marginBottom: "0.75rem",
   },
   kpiTitle: {
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     color: "#4b5563",
     textTransform: "uppercase",
@@ -489,7 +489,7 @@ const styles = {
     color: "#4b5563",
   },
   kpiTrend: {
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     marginTop: "0.5rem",
   },
@@ -525,7 +525,7 @@ const styles = {
   },
   viewAllLink: {
     fontSize: "0.875rem",
-    color: "#e8890b",
+    color: "#a25e07",
     textDecoration: "none",
     fontWeight: "500",
   },
@@ -543,7 +543,7 @@ const styles = {
   },
   emptyText: {
     fontSize: "0.875rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     margin: "0",
   },
   activityList: {
@@ -580,13 +580,13 @@ const styles = {
     margin: "0 0 0.25rem 0",
   },
   activityDescription: {
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     color: "#4b5563",
     margin: "0 0 0.25rem 0",
   },
   activityTime: {
-    fontSize: "0.75rem",
-    color: "#9ca3af",
+    fontSize: "0.875rem",
+    color: "#6b6b6b",
     margin: "0",
   },
   activityAmount: {
@@ -601,7 +601,7 @@ const styles = {
     display: "inline-block",
     padding: "0.25rem 0.5rem",
     borderRadius: "0.25rem",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "capitalize",
   },
@@ -655,14 +655,14 @@ const styles = {
     margin: "0 0 0.25rem 0",
   },
   customerInvoices: {
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     color: "#4b5563",
     margin: "0",
   },
   customerRevenue: {
     fontSize: "0.875rem",
     fontWeight: "600",
-    color: "#10b981",
+    color: "#047857",
   },
   quickActionsGrid: {
     display: "grid",

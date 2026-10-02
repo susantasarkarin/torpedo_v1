@@ -53,7 +53,7 @@ export default function SurveyRevenue() {
       </div>
 
       {recommendedAt && (
-        <p className="crm-muted" style={{ fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.75rem" }}>
+        <p className="crm-muted" style={{ fontSize: "0.875rem", display: "inline-flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.75rem" }}>
           <Clock size={12} /> Last recommended {formatDateTime(recommendedAt)}
         </p>
       )}

@@ -15,11 +15,11 @@ const styles = {
   statsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14, marginBottom: 28 },
   statCard: { background: "#fff", borderRadius: 10, padding: "18px 16px", textAlign: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.07)" },
   statValue: { fontSize: 26, fontWeight: 700, color: "#4361ee" },
-  statLabel: { fontSize: 12, color: "#666", marginTop: 4 },
+  statLabel: { fontSize: 14, color: "#666", marginTop: 4 },
   section: { background: "#fff", borderRadius: 10, padding: 22, marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.07)" },
   sectionTitle: { fontSize: 16, fontWeight: 600, marginBottom: 14, color: "#1a1a2e" },
   row: { display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" },
-  label: { fontSize: 13, fontWeight: 500, color: "#444", marginBottom: 4 },
+  label: { fontSize: 14, fontWeight: 500, color: "#444", marginBottom: 4 },
   input: { padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", fontSize: 14, width: 240 },
   btn: { padding: "9px 18px", borderRadius: 6, border: "none", fontWeight: 600, fontSize: 14, cursor: "pointer", transition: "background 0.2s" },
   btnPrimary: { background: "#4361ee", color: "#fff" },
@@ -27,12 +27,12 @@ const styles = {
   btnWarning: { background: "#f77f00", color: "#fff" },
   result: { marginTop: 14, padding: 14, background: "#f8f9fa", borderRadius: 8, fontSize: 14 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
-  th: { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #e9ecef", color: "#555", fontWeight: 600, fontSize: 12, textTransform: "uppercase" },
+  th: { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #e9ecef", color: "#555", fontWeight: 600, fontSize: 14, textTransform: "uppercase" },
   td: { padding: "10px 12px", borderBottom: "1px solid #f0f0f0" },
-  badge: (color) => ({ display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600, background: color, color: "#fff" }),
+  badge: (color) => ({ display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 14, fontWeight: 600, background: color, color: "#fff" }),
   confidenceBar: (pct, color) => ({ width: 80, height: 8, borderRadius: 4, background: "#e9ecef", position: "relative", display: "inline-block", verticalAlign: "middle", overflow: "hidden" }),
   confidenceFill: (pct, color) => ({ position: "absolute", left: 0, top: 0, height: "100%", width: `${pct}%`, borderRadius: 4, background: color }),
-  emptyState: { textAlign: "center", padding: 40, color: "#999" },
+  emptyState: { textAlign: "center", padding: 40, color: "#6b6b6b" },
   error: { color: "#e63946", background: "#fff0f0", padding: 12, borderRadius: 8, marginTop: 10, fontSize: 14 },
 };
 
@@ -170,8 +170,8 @@ export default function EmailPatterns() {
       {stats && (
         <div style={styles.statsGrid}>
           <div style={styles.statCard}><div style={styles.statValue}>{stats.total_domains}</div><div style={styles.statLabel}>Domains</div></div>
-          <div style={styles.statCard}><div style={{ ...styles.statValue, color: "#2ec4b6" }}>{stats.high_confidence}</div><div style={styles.statLabel}>High Confidence</div></div>
-          <div style={styles.statCard}><div style={{ ...styles.statValue, color: "#f77f00" }}>{stats.medium_confidence}</div><div style={styles.statLabel}>Medium</div></div>
+          <div style={styles.statCard}><div style={{ ...styles.statValue, color: "#047857" }}>{stats.high_confidence}</div><div style={styles.statLabel}>High Confidence</div></div>
+          <div style={styles.statCard}><div style={{ ...styles.statValue, color: "#c2410c" }}>{stats.medium_confidence}</div><div style={styles.statLabel}>Medium</div></div>
           <div style={styles.statCard}><div style={{ ...styles.statValue, color: "#e63946" }}>{stats.low_confidence}</div><div style={styles.statLabel}>Low</div></div>
           <div style={styles.statCard}><div style={styles.statValue}>{stats.total_samples_analyzed}</div><div style={styles.statLabel}>Emails Analyzed</div></div>
           <div style={styles.statCard}><div style={styles.statValue}>{(stats.avg_confidence * 100).toFixed(0)}%</div><div style={styles.statLabel}>Avg Confidence</div></div>
@@ -183,7 +183,7 @@ export default function EmailPatterns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={styles.sectionTitle}>🔍 Analyze Mail Pool</div>
-            <p style={{ fontSize: 13, color: "#777", margin: 0 }}>Scan your mail pool to discover email patterns from known addresses. This learns how companies format their emails.</p>
+            <p style={{ fontSize: 14, color: "#777", margin: 0 }}>Scan your mail pool to discover email patterns from known addresses. This learns how companies format their emails.</p>
           </div>
           <button
             style={{ ...styles.btn, ...styles.btnWarning, opacity: analyzing ? 0.6 : 1 }}
@@ -206,7 +206,7 @@ export default function EmailPatterns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={styles.sectionTitle}>🤖 Scan AI Database</div>
-            <p style={{ fontSize: 13, color: "#777", margin: 0 }}>Mine the AI-sourced leads database for confirmed emails to discover additional domain patterns.</p>
+            <p style={{ fontSize: 14, color: "#777", margin: 0 }}>Mine the AI-sourced leads database for confirmed emails to discover additional domain patterns.</p>
           </div>
           <button
             style={{ ...styles.btn, ...styles.btnWarning, opacity: scanningAI ? 0.6 : 1 }}
@@ -228,7 +228,7 @@ export default function EmailPatterns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <div style={styles.sectionTitle}>🔄 Apply to Bounced & Missing</div>
-            <p style={{ fontSize: 13, color: "#777", margin: 0 }}>Retry alternate email formats for bounced leads and generate emails for leads with missing addresses.</p>
+            <p style={{ fontSize: 14, color: "#777", margin: 0 }}>Retry alternate email formats for bounced leads and generate emails for leads with missing addresses.</p>
           </div>
           <button
             style={{ ...styles.btn, ...styles.btnWarning, opacity: applying ? 0.6 : 1 }}
@@ -275,7 +275,7 @@ export default function EmailPatterns() {
                   )}
                 </>
               ) : (
-                <span style={{ color: "#999" }}>No pattern found for {lookupResult.domain}. Run analysis first.</span>
+                <span style={{ color: "#6b6b6b" }}>No pattern found for {lookupResult.domain}. Run analysis first.</span>
               )}
             </div>
           )}
@@ -305,7 +305,7 @@ export default function EmailPatterns() {
               <div style={{ fontSize: 18, fontWeight: 700, color: "#4361ee" }}>{buildResult.email}</div>
               <div style={{ marginTop: 6 }}><b>Pattern:</b> {buildResult.pattern} · <b>Confidence:</b>{" "}
                 <span style={{ color: confidenceColor(buildResult.confidence) }}>{(buildResult.confidence * 100).toFixed(0)}%</span>
-                {buildResult.note && <span style={{ color: "#999" }}> — {buildResult.note}</span>}
+                {buildResult.note && <span style={{ color: "#6b6b6b" }}> — {buildResult.note}</span>}
               </div>
             </div>
           )}
@@ -362,7 +362,7 @@ export default function EmailPatterns() {
                       </div>
                     </td>
                     <td style={styles.td}>{p.sample_count}</td>
-                    <td style={styles.td}><span style={{ color: "#999", fontSize: 12 }}>{p.last_updated ? formatDate(p.last_updated) : "—"}</span></td>
+                    <td style={styles.td}><span style={{ color: "#6b6b6b", fontSize: 14 }}>{p.last_updated ? formatDate(p.last_updated) : "—"}</span></td>
                   </tr>
                 );
               })}

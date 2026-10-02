@@ -114,7 +114,7 @@
 }
 
 .stat-label {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   opacity: 0.9;
   margin-top: 0.25rem;
 }
@@ -180,7 +180,7 @@
 
 .cpx-logs-empty .hint {
   font-size: 0.9rem;
-  color: #999;
+  color: #6b6b6b;
   margin-top: 0.5rem;
 }
 
@@ -233,13 +233,13 @@
 .expand-cell {
   width: 30px;
   text-align: center;
-  color: #999;
+  color: #6b6b6b;
 }
 
 .rid-cell,
 .sfwid-cell {
   font-family: monospace;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -249,7 +249,7 @@
 .status-badge {
   padding: 0.25rem 0.75rem;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -309,7 +309,7 @@
 }
 
 .detail-grid > div {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #555;
 }
 
@@ -325,13 +325,13 @@
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
   font-family: monospace;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   word-break: break-all;
   color: #333;
 }
 
 .redirect-url {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
 }
 

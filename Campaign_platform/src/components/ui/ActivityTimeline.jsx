@@ -106,7 +106,7 @@ const activityTypes = {
       </svg>
     ),
     bgColor: 'bg-cogentix-orange-100',
-    iconColor: 'text-cogentix-orange',
+    iconColor: 'text-cogentix-orange-700',
     borderColor: 'border-cogentix-orange-200',
   },
 };
@@ -203,7 +203,7 @@ const ActivityItem = forwardRef(({
             {/* Meta info */}
             <div className={clsx(
               'flex items-center gap-2 text-gray-500',
-              compact ? 'mt-0.5 text-xs' : 'mt-1 text-sm'
+              compact ? 'mt-0.5 text-sm' : 'mt-1 text-sm'
             )}>
               {activity.user && (
                 <>
@@ -223,7 +223,7 @@ const ActivityItem = forwardRef(({
           {/* Type badge */}
           {!compact && (
             <span className={clsx(
-              'flex-shrink-0 px-2 py-0.5 text-xs font-medium rounded-full capitalize',
+              'flex-shrink-0 px-2 py-0.5 text-sm font-medium rounded-full capitalize',
               typeConfig.bgColor,
               typeConfig.iconColor
             )}>
@@ -239,7 +239,7 @@ const ActivityItem = forwardRef(({
               <a
                 key={idx}
                 href={attachment.url}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+                className="inline-flex items-center gap-1 px-2 py-1 text-sm text-gray-600 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -343,7 +343,7 @@ const ActivityTimeline = forwardRef(({
             onClick={onLoadMore}
             disabled={loading}
             className={clsx(
-              'w-full py-2 text-sm font-medium text-cogentix-orange rounded-lg',
+              'w-full py-2 text-sm font-medium text-cogentix-orange-700 rounded-lg',
               'hover:bg-cogentix-orange-50 transition-colors',
               'focus:outline-none focus:ring-2 focus:ring-cogentix-orange-400',
               loading && 'opacity-50 cursor-not-allowed'
@@ -385,7 +385,7 @@ const ActivityTimelineHeader = ({
         onClick={onAddActivity}
         className={clsx(
           'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium',
-          'text-cogentix-orange border border-cogentix-orange rounded-lg',
+          'text-cogentix-orange-700 border border-cogentix-orange rounded-lg',
           'hover:bg-cogentix-orange-50 transition-colors'
         )}
       >

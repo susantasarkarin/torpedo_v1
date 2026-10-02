@@ -1,7 +1,7 @@
 .survey-pool-container {
   padding: 20px;
   background-color: #f5f5f5;
-  min-height: calc(100vh - 60px);
+  min-height: calc(100vh - var(--cx-nav-h, 90px));
 }
 
 .survey-pool-header {
@@ -44,8 +44,8 @@
 }
 
 .stat-label {
-  font-size: 12px;
-  color: #999;
+  font-size: 14px;
+  color: #6b6b6b;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -65,7 +65,7 @@
 }
 
 .stat-note {
-  font-size: 11px;
+  font-size: 14px;
   color: #666;
   font-style: italic;
 }
@@ -77,7 +77,7 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   transition: all 0.3s ease;
   white-space: nowrap;
@@ -128,7 +128,7 @@
 }
 
 .filter-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #333;
   margin-bottom: 6px;
@@ -139,7 +139,7 @@
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   transition: border-color 0.3s;
 }
 
@@ -198,7 +198,7 @@ thead {
 th {
   padding: 12px;
   text-align: left;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #ffffff;
   text-transform: uppercase;
@@ -208,7 +208,7 @@ th {
 td {
   padding: 12px;
   border-bottom: 1px solid #dee2e6;
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
 }
 
@@ -219,7 +219,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .survey-id {
   font-weight: 600;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .survey-title {
@@ -269,8 +269,8 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .survey-last-updated {
-  font-size: 12px;
-  color: #999;
+  font-size: 14px;
+  color: #6b6b6b;
 }
 
 /* Pagination */
@@ -288,7 +288,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .pagination-info {
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
   font-weight: 600;
 }
@@ -304,7 +304,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: border-color 0.3s;
 }
@@ -326,7 +326,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   background: white;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   transition: all 0.3s;
 }
@@ -344,7 +344,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .pagination-page-info {
-  font-size: 13px;
+  font-size: 14px;
   color: #666;
   font-weight: 600;
   min-width: 100px;
@@ -499,7 +499,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   th,
   td {
     padding: 8px;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .survey-title {
@@ -576,7 +576,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .validation-error {
-  font-size: 11px;
+  font-size: 14px;
   color: #dc3545;
   font-weight: 500;
   margin-top: 2px;
@@ -595,7 +595,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   border-radius: 4px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   transition: all 0.2s ease;
 }
 
@@ -628,7 +628,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .preview-info {
   margin: 8px 0;
-  font-size: 13px;
+  font-size: 14px;
   color: #495057;
 }
 
@@ -642,7 +642,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 .preview-details summary {
   cursor: pointer;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   padding: 4px;
   color: #1976d2;
 }
@@ -655,7 +655,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .preview-list li {
   padding: 4px 0;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .preview-list code {
@@ -747,7 +747,7 @@ td {
 /* Survey Link Styles */
 .survey-link {
   cursor: pointer;
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: underline;
   transition: color 0.2s ease;
 }
@@ -761,7 +761,7 @@ td {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   text-transform: uppercase;
   background-color: #e8f4fd;
@@ -857,7 +857,7 @@ td {
 }
 
 .detail-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #666;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -882,12 +882,12 @@ td {
   display: block;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #10b981;
+  color: #047857;
   margin-bottom: 8px;
 }
 
 .entry-link-label.test-mode {
-  color: #f59e0b;
+  color: #b45309;
 }
 
 .entry-link-container {
@@ -901,7 +901,7 @@ td {
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   background-color: #f5f5f5;
   cursor: text;
   font-family: 'Courier New', monospace;
@@ -920,7 +920,7 @@ td {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   transition: all 0.2s;
   white-space: nowrap;
@@ -946,7 +946,7 @@ td {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
@@ -1020,7 +1020,7 @@ td {
   padding: 6px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   transition: all 0.2s;
 }
 
@@ -1077,20 +1077,20 @@ td {
 .stat-numbers .active {
   font-size: 24px;
   font-weight: 700;
-  color: #10b981;
+  color: #047857;
 }
 
 /* Per-card active number colors matching border accent */
 .pool-stats-grid .stat-card.cpx .stat-numbers .active {
-  color: #f59e0b;
+  color: #b45309;
 }
 
 .pool-stats-grid .stat-card.cint .stat-numbers .active {
-  color: #06b6d4;
+  color: #0e7490;
 }
 
 .pool-stats-grid .stat-card.total .stat-numbers .active {
-  color: #22c55e;
+  color: #047857;
 }
 
 .stat-numbers .total {
@@ -1110,7 +1110,7 @@ td {
 .distribution-header {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #4a4a4a;
   margin-bottom: 8px;
@@ -1134,7 +1134,7 @@ td {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   color: #fff;
   min-width: 0;
@@ -1153,19 +1153,19 @@ td {
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 14px;
   color: #4b5563;
 }
 
 .legend-api::before {
   content: '●';
-  color: #e8890b;
+  color: #a25e07;
   margin-right: 4px;
 }
 
 .legend-diy::before {
   content: '●';
-  color: #10b981;
+  color: #047857;
   margin-right: 4px;
 }
 
@@ -1198,7 +1198,7 @@ td {
 .settings-link {
   padding: 12px 20px;
   background: #f8f9fa;
-  color: #e8890b;
+  color: #a25e07;
   border: 1px solid #e8890b;
   border-radius: 6px;
   font-size: 14px;
@@ -1233,7 +1233,7 @@ td {
 }
 
 .sync-info {
-  font-size: 12px;
+  font-size: 14px;
   color: #666;
   margin: 0;
 }
@@ -1257,7 +1257,7 @@ td {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
 }
 
@@ -1272,7 +1272,7 @@ td {
   padding: 4px 10px;
   border-radius: 4px;
   border: none;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -1297,7 +1297,7 @@ td {
 }
 
 .filter-note {
-  color: #e8890b;
+  color: #a25e07;
   font-weight: 500;
   font-style: italic;
 }

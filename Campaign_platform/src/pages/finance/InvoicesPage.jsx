@@ -348,7 +348,7 @@ function InvoicesPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -397,7 +397,7 @@ function InvoicesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading invoices…</p>
@@ -424,7 +424,7 @@ function InvoicesPage() {
                   <td style={styles.td}>
                     <code
                       style={{
-                        fontSize: "0.85rem",
+                        fontSize: "0.875rem",
                         backgroundColor: "#f3f4f6",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
@@ -451,14 +451,14 @@ function InvoicesPage() {
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <Link to={`/admin/finance/invoices/${invoice._id}`}>
-                        <button style={styles.btnEdit}>
+                        <button style={styles.btnEdit} aria-label="View" title="View">
                           <Eye style={{ width: "16px", height: "16px" }} />
                         </button>
                       </Link>
-                      <button style={styles.btnEdit}>
+                      <button style={styles.btnEdit} disabled aria-label="Download (not available yet)" title="Download — not available yet">
                         <Download style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit}>
+                      <button style={styles.btnEdit} disabled aria-label="Email (not available yet)" title="Email — not available yet">
                         <Mail style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>
@@ -679,7 +679,7 @@ function InvoicesPage() {
                                 padding: "0.375rem",
                                 border: "1px solid #d1d5db",
                                 borderRadius: "0.375rem",
-                                fontSize: "0.85rem",
+                                fontSize: "0.875rem",
                               }}
                               value={item.item_id}
                               onChange={(e) => handleItemChange(index, "item_id", e.target.value)}
@@ -699,7 +699,7 @@ function InvoicesPage() {
                                 padding: "0.375rem",
                                 border: "1px solid #d1d5db",
                                 borderRadius: "0.375rem",
-                                fontSize: "0.85rem",
+                                fontSize: "0.875rem",
                               }}
                               type="text"
                               value={item.description}
@@ -714,7 +714,7 @@ function InvoicesPage() {
                                 padding: "0.375rem",
                                 border: "1px solid #d1d5db",
                                 borderRadius: "0.375rem",
-                                fontSize: "0.85rem",
+                                fontSize: "0.875rem",
                               }}
                               type="number"
                               value={item.quantity}
@@ -729,7 +729,7 @@ function InvoicesPage() {
                                 padding: "0.375rem",
                                 border: "1px solid #d1d5db",
                                 borderRadius: "0.375rem",
-                                fontSize: "0.85rem",
+                                fontSize: "0.875rem",
                               }}
                               type="number"
                               value={item.rate}
@@ -744,7 +744,7 @@ function InvoicesPage() {
                                 padding: "0.375rem",
                                 border: "1px solid #d1d5db",
                                 borderRadius: "0.375rem",
-                                fontSize: "0.85rem",
+                                fontSize: "0.875rem",
                               }}
                               value={item.tax_rate}
                               onChange={(e) => handleItemChange(index, "tax_rate", Number.parseFloat(e.target.value))}
@@ -770,7 +770,7 @@ function InvoicesPage() {
                   </table>
                 </div>
                 <button
-                  style={{ ...styles.btnPrimary, marginTop: "1rem", fontSize: "0.85rem" }}
+                  style={{ ...styles.btnPrimary, marginTop: "1rem", fontSize: "0.875rem" }}
                   type="button"
                   onClick={addLineItem}
                 >
@@ -814,7 +814,7 @@ function InvoicesPage() {
                   <span style={{ color: "#4b5563" }}>Discount:</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <select
-                      style={{ ...styles.input, width: "80px", padding: "0.25rem", fontSize: "0.85rem" }}
+                      style={{ ...styles.input, width: "80px", padding: "0.25rem", fontSize: "0.875rem" }}
                       value={formData.discount_type}
                       onChange={(e) => setFormData({ ...formData, discount_type: e.target.value })}
                     >
@@ -824,7 +824,7 @@ function InvoicesPage() {
                     </select>
                     <input
                       type="number"
-                      style={{ ...styles.input, width: "80px", padding: "0.25rem", fontSize: "0.85rem", textAlign: "right" }}
+                      style={{ ...styles.input, width: "80px", padding: "0.25rem", fontSize: "0.875rem", textAlign: "right" }}
                       value={formData.discount_value}
                       onChange={(e) => setFormData({ ...formData, discount_value: parseFloat(e.target.value) || 0 })}
                       min="0"
@@ -1033,7 +1033,7 @@ const styles = {
   th: {
     padding: "1rem",
     textAlign: "left",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
     color: "#4b5563",
@@ -1052,7 +1052,7 @@ const styles = {
     display: "inline-block",
     padding: "0.375rem 0.75rem",
     borderRadius: "0.375rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
   },
@@ -1107,7 +1107,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
   },
   currencyBadge: {
     display: "inline-block",
@@ -1115,7 +1115,7 @@ const styles = {
     color: "#c47209",
     borderRadius: "0.375rem",
     padding: "0.375rem 0.75rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
   },
   paginationContainer: {
@@ -1193,7 +1193,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     cursor: "pointer",
     padding: "0",
     width: "2rem",

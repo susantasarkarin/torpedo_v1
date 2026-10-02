@@ -25,7 +25,7 @@ export function PageHeader({
                 {crumb.href ? (
                   <a 
                     href={crumb.href} 
-                    className="text-text-muted hover:text-cogentix-orange transition-colors"
+                    className="text-text-muted hover:text-cogentix-orange-700 transition-colors"
                   >
                     {crumb.label}
                   </a>

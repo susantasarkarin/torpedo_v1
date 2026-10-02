@@ -74,7 +74,7 @@
 }
 
 .search-box input::placeholder {
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .stats {
@@ -141,7 +141,7 @@ tbody td {
   display: inline-block;
   padding: 0.375rem 0.75rem;
   border-radius: 0.375rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -243,7 +243,7 @@ tbody td {
   background: none;
   border: none;
   font-size: 1.5rem;
-  color: #9ca3af;
+  color: #6b6b6b;
   cursor: pointer;
   padding: 0;
   width: 2rem;
@@ -308,7 +308,7 @@ tbody td {
 
 .form-group input::placeholder,
 .form-group textarea::placeholder {
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .form-group select {

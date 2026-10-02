@@ -303,7 +303,7 @@ function ExpensesPage() {
                 justifyContent: "center",
               }}
             >
-              <Receipt style={{ width: "24px", height: "24px", color: "#e8890b" }} />
+              <Receipt style={{ width: "24px", height: "24px", color: "#a25e07" }} />
             </div>
           </div>
         </div>
@@ -319,7 +319,7 @@ function ExpensesPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#9ca3af",
+              color: "#6b6b6b",
             }}
           />
           <input
@@ -363,7 +363,7 @@ function ExpensesPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#e8890b",
+                color: "#a25e07",
               }}
             />
             <p style={{ color: "#4b5563" }}>Loading expenses…</p>
@@ -404,7 +404,7 @@ function ExpensesPage() {
                   </td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      <button style={styles.btnEdit}>
+                      <button style={styles.btnEdit} disabled aria-label="Attach receipt (not available yet)" title="Attach receipt — not available yet">
                         <Paperclip style={{ width: "16px", height: "16px" }} />
                       </button>
                       <button style={styles.btnDelete} onClick={() => handleDelete(expense._id)}>
@@ -450,7 +450,7 @@ function ExpensesPage() {
                     placeholder="Enter expense description"
                   />
                   <button
-                    style={{ ...styles.btnPrimary, padding: "0.75rem 1rem", fontSize: "0.85rem" }}
+                    style={{ ...styles.btnPrimary, padding: "0.75rem 1rem", fontSize: "0.875rem" }}
                     type="button"
                     onClick={handleAutoCategorize}
                   >
@@ -672,7 +672,7 @@ const styles = {
   th: {
     padding: "1rem",
     textAlign: "left",
-    fontSize: "0.75rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
     color: "#4b5563",
@@ -691,7 +691,7 @@ const styles = {
     display: "inline-block",
     padding: "0.375rem 0.75rem",
     borderRadius: "0.375rem",
-    fontSize: "0.8rem",
+    fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
   },
@@ -742,7 +742,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
   },
   modal: {
     position: "fixed",
@@ -785,7 +785,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#9ca3af",
+    color: "#6b6b6b",
     cursor: "pointer",
     padding: "0",
     width: "2rem",

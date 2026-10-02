@@ -27,7 +27,7 @@
 }
 
 .stat-card-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;
@@ -61,7 +61,7 @@
 }
 
 .marketing-dashboard .input::placeholder {
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 /* Table */
@@ -80,7 +80,7 @@
   padding: 0.875rem 1rem;
   text-align: left;
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -147,7 +147,7 @@
 .website-status {
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   text-transform: uppercase;
 }
@@ -207,7 +207,7 @@
 .page-editor {
   display: grid;
   grid-template-columns: 280px 1fr 300px;
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--cx-nav-h, 90px));
   background: #f9fafb;
 }
 
@@ -289,7 +289,7 @@
 }
 
 .section-type-btn span {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
 }
 
@@ -382,8 +382,8 @@
 .blog-item-meta {
   display: flex;
   gap: 1rem;
-  font-size: 0.75rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
 }
 
 /* Media Library */
@@ -451,12 +451,12 @@
 }
 
 .stat-card-change {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   margin-top: 0.25rem;
 }
 
 .stat-card-change.positive {
-  color: #10b981;
+  color: #047857;
 }
 
 .stat-card-change.negative {
@@ -479,7 +479,7 @@
 .empty-state svg {
   width: 48px;
   height: 48px;
-  color: #9ca3af;
+  color: #6b6b6b;
   margin-bottom: 1rem;
 }
 

@@ -41,7 +41,7 @@ export default function PanelForgotPassword() {
           {/* Logo */}
           <div className="mb-8">
             <Link to="/panel/login" className="inline-flex items-center gap-3">
-              <img src="/newlogo.png" alt="Cogentix Research logo" style={{height:32}} />
+              <img src="/newlogo.png" alt="Cogentix Research logo" style={{height:54}} />
               <span className="text-xl font-bold text-gray-900">Cogentix Research</span>
             </Link>
           </div>

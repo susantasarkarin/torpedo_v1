@@ -132,7 +132,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 12px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -143,17 +143,17 @@
 
 .type-badge.billing {
   background: #e6fff5;
-  color: #00b894;
+  color: #047857;
 }
 
 .linked-badge {
   color: #4a90a4;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .unlinked-badge {
-  color: #999;
-  font-size: 0.85rem;
+  color: #6b6b6b;
+  font-size: 0.875rem;
 }
 
 .actions-cell {
@@ -198,7 +198,7 @@
 .no-data {
   text-align: center;
   padding: 40px !important;
-  color: #999;
+  color: #6b6b6b;
   font-style: italic;
 }
 

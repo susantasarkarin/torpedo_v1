@@ -18,14 +18,14 @@ function Marketing() {
       description: "Manage your websites, pages, and content",
       icon: Globe,
       link: "/admin/marketing/websites",
-      color: "#e8890b"
+      color: "#a25e07"
     },
     { 
       title: "Blog Management", 
       description: "Create and publish blog posts",
       icon: BookOpen,
       link: "/admin/marketing/websites",
-      color: "#10b981"
+      color: "#047857"
     },
     { 
       title: "Media Library", 
@@ -39,7 +39,7 @@ function Marketing() {
       description: "Track website performance and visitor insights",
       icon: BarChart3,
       link: "/admin/marketing/websites",
-      color: "#f59e0b"
+      color: "#b45309"
     },
     {
       title: "LinkedIn Automation",

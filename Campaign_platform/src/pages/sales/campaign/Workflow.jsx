@@ -111,7 +111,7 @@ export default function Workflow() {
               outreach, and reply enrichment.
             </p>
             {lastRefresh && (
-              <p style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: "0.25rem" }}>
+              <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginTop: "0.25rem" }}>
                 Last refreshed: {formatTime(lastRefresh)}
               </p>
             )}
@@ -193,7 +193,7 @@ export default function Workflow() {
                       <span style={{ color: "#4b5563" }}>
                         <strong style={{ color: "#1a1a1a" }}>{stage.count.toLocaleString()}</strong>
                         {convPct !== null && (
-                          <span style={{ marginLeft: "0.5rem", fontSize: "0.8rem", color: convPct >= 50 ? "#16a34a" : "#dc2626" }}>
+                          <span style={{ marginLeft: "0.5rem", fontSize: "0.875rem", color: convPct >= 50 ? "#16a34a" : "#dc2626" }}>
                             ({convPct}% of prev)
                           </span>
                         )}
@@ -211,7 +211,7 @@ export default function Workflow() {
                         }}
                       />
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "0.25rem" }}>
+                    <div style={{ fontSize: "0.875rem", color: "#6b6b6b", marginTop: "0.25rem" }}>
                       {STAGE_DESC[stage.id]}
                     </div>
                   </div>
@@ -259,7 +259,7 @@ export default function Workflow() {
                     }}
                   >
                     <div style={{ fontSize: "1.4rem" }}>{STAGE_ICONS[stage.id]}</div>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#4a4a4a", marginTop: "0.25rem" }}>
+                    <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a", marginTop: "0.25rem" }}>
                       {stage.label}
                     </div>
                     <div style={{ fontSize: "1.1rem", fontWeight: 700, color: stage.color }}>

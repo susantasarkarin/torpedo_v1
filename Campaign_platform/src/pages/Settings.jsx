@@ -876,7 +876,7 @@ function Settings() {
 
               {/* Email Rate Limits Section */}
               <div className="settings-group">
-                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>Loading…</span>}</h3>
+                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.875rem', color: '#6b6b6b', fontWeight: 400 }}>Loading…</span>}</h3>
 
                 <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
@@ -1024,7 +1024,7 @@ function Settings() {
                 ⚠ {allocationError}
                 <button
                   onClick={loadAllocationSettings}
-                  style={{ marginLeft: '1rem', background: 'none', border: '1px solid currentColor', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}
+                  style={{ marginLeft: '1rem', background: 'none', border: '1px solid currentColor', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.875rem' }}
                 >
                   Retry
                 </button>
@@ -1200,7 +1200,7 @@ function Settings() {
               {showBuNewForm && (
                 <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "8px", marginBottom: "1rem", border: "1px solid #e5e7eb" }}>
                   <div className="setting-row">
-                    <label>Slug <small style={{ color: "#9ca3af", fontWeight: 400 }}>(lowercase, used as filename)</small></label>
+                    <label>Slug <small style={{ color: "#6b6b6b", fontWeight: 400 }}>(lowercase, used as filename)</small></label>
                     <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
                       <input
                         type="text"
@@ -1221,7 +1221,7 @@ function Settings() {
                 {/* BU list sidebar */}
                 <div style={{ width: "210px", borderRight: "1px solid #e5e7eb", overflowY: "auto", flexShrink: 0, backgroundColor: "#f9fafb" }}>
                   {buUnits.length === 0 && !buLoading && (
-                    <p style={{ padding: "1rem", fontSize: "0.8rem", color: "#9ca3af", fontStyle: "italic" }}>No configs yet.<br />Create one above →</p>
+                    <p style={{ padding: "1rem", fontSize: "0.875rem", color: "#6b6b6b", fontStyle: "italic" }}>No configs yet.<br />Create one above →</p>
                   )}
                   {buUnits.map(unit => (
                     <button
@@ -1257,11 +1257,11 @@ function Settings() {
                           <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#1a1a1a" }}>
                             {buUnits.find(u => u.slug === buSelected)?.name || buSelected}
                           </span>
-                          <span style={{ fontFamily: "monospace", fontSize: "0.75rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#4b5563" }}>
+                          <span style={{ fontFamily: "monospace", fontSize: "0.875rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#4b5563" }}>
                             {buSelected}.txt
                           </span>
                           {buDirty && (
-                            <span style={{ fontSize: "0.75rem", color: "#d97706", fontWeight: "500" }}>● unsaved</span>
+                            <span style={{ fontSize: "0.875rem", color: "#d97706", fontWeight: "500" }}>● unsaved</span>
                           )}
                         </div>
                         <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -1301,7 +1301,7 @@ function Settings() {
                       />
                     </>
                   ) : (
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6b6b6b" }}>
                       <p>Select a business unit from the left to edit</p>
                     </div>
                   )}
@@ -1337,7 +1337,7 @@ function Settings() {
                     </div>
                     <p style={{ marginBottom: '0.5rem' }}><strong>Agent:</strong> {prompt.agent_type}</p>
                     <p style={{ color: '#666', fontSize: '0.9rem' }}>{prompt.description}</p>
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#999' }}>
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#6b6b6b' }}>
                       Version: {prompt.version} • Updated: {formatDate(prompt.updated_at)}
                     </div>
                   </div>

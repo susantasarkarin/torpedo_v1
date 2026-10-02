@@ -119,7 +119,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 }
 
 .stat-label {
-  font-size: 13px;
+  font-size: 14px;
   color: #a3a3a3;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -158,7 +158,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   background: transparent;
   border: none;
   color: #e8890b;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   padding: 4px 8px;
 }
@@ -180,7 +180,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 }
 
 .filter-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #a3a3a3;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -229,7 +229,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 .leads-table th {
   padding: 14px 16px;
   text-align: left;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: #a3a3a3;
   text-transform: uppercase;
@@ -281,7 +281,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   gap: 6px;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -327,7 +327,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   display: inline-block;
   padding: 3px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   background: #262626;
   color: #e5e5e5;
@@ -387,7 +387,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 .confidence-fill.low { background: #ef4444; }
 
 .confidence-value {
-  font-size: 12px;
+  font-size: 14px;
   color: #a3a3a3;
   min-width: 35px;
 }
@@ -406,7 +406,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 .linkedin-link {
   color: #e8890b;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .linkedin-link:hover {
@@ -516,7 +516,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   padding: 12px;
   color: #e5e5e5;
   font-family: monospace;
-  font-size: 13px;
+  font-size: 14px;
   resize: vertical;
   outline: none;
 }
@@ -527,7 +527,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 
 .import-help {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: #a3a3a3;
 }
 
@@ -556,7 +556,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   transition: all 0.2s;
 }
 
@@ -572,7 +572,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 
 .pagination-info {
   color: #a3a3a3;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* ============== SELECTED COUNT BAR ============== */
@@ -644,7 +644,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
   border-radius: 6px;
   padding: 10px 16px;
   color: #a3a3a3;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -704,7 +704,7 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 }
 
 .form-group label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: #e5e5e5;
 }
@@ -724,6 +724,6 @@ Path: /admin/sales/campaign/list/Add Contacts/Database Connection
 }
 
 .form-group .hint {
-  font-size: 12px;
+  font-size: 14px;
   color: #737373;
 }

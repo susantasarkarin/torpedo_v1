@@ -35,7 +35,7 @@
 }
 .qre-page-subtitle {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 .qre-header-actions {
@@ -57,7 +57,7 @@
   padding: 0.6rem 1.1rem;
   border: none;
   background: none;
-  font-size: 0.83rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   cursor: pointer;
@@ -68,7 +68,7 @@
 }
 .qre-tab-btn:hover { color: #4a4a4a; }
 .qre-tab-btn.active {
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
 }
 
@@ -82,7 +82,7 @@
   color: #fff;
   border: none;
   border-radius: 6px;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
@@ -91,11 +91,11 @@
 .qre-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .qre-btn-sm {
   padding: 0.3rem 0.65rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 .qre-btn-outline {
   background: transparent;
-  color: #e8890b;
+  color: #a25e07;
   border: 1.5px solid #e8890b;
 }
 .qre-btn-outline:hover { background: #f0f0ff; }
@@ -108,7 +108,7 @@
   color: #fff;
 }
 .qre-btn-warning:hover { background: #b45309; }
-.qre-btn-warning:disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+.qre-btn-warning:disabled { background: #e5e7eb; color: #6b6b6b; cursor: not-allowed; }
 .qre-btn-success {
   background: #16a34a;
 }
@@ -123,7 +123,7 @@
   display: inline-block;
   padding: 0.2rem 0.55rem;
   border-radius: 10px;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -142,7 +142,7 @@
   color: #fff;
   padding: 0.65rem 1.2rem;
   border-radius: 8px;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 500;
   z-index: 9999;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
@@ -174,21 +174,21 @@
   line-height: 1.1;
 }
 .qre-kpi-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-top: 0.25rem;
   font-weight: 500;
 }
 .qre-kpi-success .qre-kpi-value { color: #16a34a; }
 .qre-kpi-danger .qre-kpi-value { color: #dc2626; }
-.qre-kpi-info .qre-kpi-value { color: #e8890b; }
+.qre-kpi-info .qre-kpi-value { color: #a25e07; }
 
 /* ---- Quota Bars ---- */
 .qre-quota-group {
   margin-bottom: 1.25rem;
 }
 .qre-quota-group-label {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -213,7 +213,7 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.45rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4a4a4a;
 }
@@ -230,7 +230,7 @@
   transition: width 0.3s ease;
 }
 .qre-quota-pct {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-top: 0.3rem;
   text-align: right;
@@ -252,7 +252,7 @@
   margin: 0 0 0.75rem;
 }
 .qre-section-desc {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin: 0 0 1rem;
 }
@@ -264,7 +264,7 @@
 .qre-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 .qre-table th {
   background: #f9fafb;
@@ -293,7 +293,7 @@
 .qre-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
 .qre-label {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4a4a4a;
   margin-bottom: 0.3rem;
@@ -305,7 +305,7 @@
   padding: 0.5rem 0.75rem;
   border: 1.5px solid #d1d5db;
   border-radius: 6px;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #1a1a2e;
   background: #fff;
   transition: border-color 0.15s;
@@ -323,7 +323,7 @@
   padding: 0.3rem 0.5rem;
   border: 1.5px solid #d1d5db;
   border-radius: 4px;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
 }
 .qre-textarea { resize: vertical; min-height: 80px; }
 
@@ -378,7 +378,7 @@
 .qre-export-card.qre-export-loading { opacity: 0.6; cursor: wait; pointer-events: none; border-style: solid; border-color: #e8890b; }
 .qre-export-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .qre-export-title { font-size: 0.9rem; font-weight: 700; color: #1a1a2e; }
-.qre-export-desc { font-size: 0.78rem; color: #4b5563; margin-top: 0.3rem; }
+.qre-export-desc { font-size: 0.875rem; color: #4b5563; margin-top: 0.3rem; }
 
 /* ---- Over-quota action panel ---- */
 .qre-overquota-action {
@@ -393,7 +393,7 @@
 }
 .qre-overquota-info {
   flex: 1;
-  font-size: 0.83rem;
+  font-size: 0.875rem;
   color: #92400e;
   line-height: 1.45;
 }
@@ -403,7 +403,7 @@
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin-top: 0.85rem;
-  font-size: 0.83rem;
+  font-size: 0.875rem;
   color: #14532d;
 }
 
@@ -414,7 +414,7 @@
   gap: 0.6rem;
 }
 .qre-study-selector label {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4a4a4a;
   white-space: nowrap;
@@ -423,7 +423,7 @@
   padding: 0.4rem 0.7rem;
   border: 1.5px solid #d1d5db;
   border-radius: 6px;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   min-width: 200px;
   max-width: 300px;
   color: #1a1a2e;
@@ -439,7 +439,7 @@
 }
 .qre-empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
 .qre-empty-title { font-size: 1rem; font-weight: 600; color: #4a4a4a; margin-bottom: 0.35rem; }
-.qre-empty-desc { font-size: 0.82rem; }
+.qre-empty-desc { font-size: 0.875rem; }
 
 /* ---- Loading / Error ---- */
 .qre-loading {
@@ -454,7 +454,7 @@
   border-radius: 8px;
   padding: 0.85rem 1.1rem;
   color: #991b1b;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   margin-bottom: 1rem;
   display: flex;
   align-items: center;
@@ -468,7 +468,7 @@
 .qre-fieldwork-bar-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-bottom: 0.35rem;
   font-weight: 500;
@@ -487,8 +487,8 @@
 }
 
 /* ---- Termination table ---- */
-.qre-term-table th { font-size: 0.78rem; }
-.qre-term-table td { font-size: 0.8rem; }
+.qre-term-table th { font-size: 0.875rem; }
+.qre-term-table td { font-size: 0.875rem; }
 
 /* ---- Daily chart ---- */
 .qre-daily-chart {
@@ -506,7 +506,7 @@
   min-width: 28px;
 }
 .qre-daily-count {
-  font-size: 0.65rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
   font-weight: 600;
   margin-bottom: 2px;
@@ -519,8 +519,8 @@
   transition: height 0.3s;
 }
 .qre-daily-date {
-  font-size: 0.6rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   margin-top: 3px;
   transform: rotate(-45deg);
   transform-origin: top left;
@@ -550,7 +550,7 @@
   padding: 0.55rem 1.25rem;
   border: none;
   background: none;
-  font-size: 0.83rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   cursor: pointer;
@@ -560,7 +560,7 @@
 }
 .ms-mode-tab:hover { color: #4a4a4a; }
 .ms-mode-tab.active {
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
 }
 
@@ -623,9 +623,9 @@
   color: #1a1a2e;
 }
 .ms-section-score {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  color: #e8890b;
+  color: #a25e07;
   background: #f0f0ff;
   padding: 0.2rem 0.6rem;
   border-radius: 20px;
@@ -635,7 +635,7 @@
 .ms-param-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .ms-param-table th {
   background: #f9fafb;
@@ -643,7 +643,7 @@
   text-align: left;
   font-weight: 600;
   color: #4b5563;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   border-bottom: 1px solid #e5e7eb;
@@ -658,7 +658,7 @@
 .ms-row-answered { background: #fafbff; }
 
 /* ---- Column widths ---- */
-.ms-col-num { width: 36px; text-align: center; color: #9ca3af; font-size: 0.75rem; }
+.ms-col-num { width: 36px; text-align: center; color: #6b6b6b; font-size: 0.875rem; }
 .ms-col-param { min-width: 240px; line-height: 1.45; }
 .ms-col-response { width: 180px; }
 .ms-col-score { width: 56px; text-align: center; }
@@ -674,7 +674,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 500;
   padding: 0.2rem 0.45rem;
   border-radius: 5px;
@@ -700,12 +700,12 @@
   height: 28px;
   border-radius: 50%;
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 .ms-score-5 { background: #dcfce7; color: #14532d; }
 .ms-score-3 { background: #fef3c7; color: #78350f; }
 .ms-score-0 { background: #fee2e2; color: #7f1d1d; }
-.ms-score-na { color: #94a3b8; font-size: 0.75rem; }
+.ms-score-na { color: #6b6b6b; font-size: 0.875rem; }
 .ms-score-empty { color: #d1d5db; }
 
 /* ---- Remarks textarea ---- */
@@ -714,7 +714,7 @@
   padding: 0.4rem 0.55rem;
   border: 1.5px solid #e5e7eb;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-family: inherit;
   color: #4a4a4a;
   resize: vertical;
@@ -726,7 +726,7 @@
   outline: none;
   border-color: #e8890b;
 }
-.ms-remarks-input:disabled { background: #f9fafb; color: #9ca3af; }
+.ms-remarks-input:disabled { background: #f9fafb; color: #6b6b6b; }
 
 /* ---- Visit details grid ---- */
 .ms-visit-grid {
@@ -752,7 +752,7 @@
   background: #7c3aed22;
 }
 .ms-part-label {
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 800;
   color: #7c3aed;
   text-transform: uppercase;
@@ -769,7 +769,7 @@
 .ms-subtotal-row td {
   background: #f0f4ff;
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 .ms-overall-row td {
   background: #1a1a2e;
@@ -784,7 +784,7 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.65rem 1rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   border-top: 1px solid #f3f4f6;
   background: #fafbfc;
@@ -814,7 +814,7 @@
   display: inline-block;
   padding: 0.18rem 0.6rem;
   border-radius: 20px;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -836,17 +836,17 @@
   margin-bottom: 0.75rem;
   flex-wrap: wrap;
 }
-.ms-live-link-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; }
+.ms-live-link-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
 .ms-live-link-id-label {
-  color: #9ca3af;
+  color: #6b6b6b;
   font-weight: 600;
   text-transform: uppercase;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   letter-spacing: 0.04em;
 }
 .ms-live-link-id {
   font-family: monospace;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   background: #f3f4f6;
   padding: 2px 7px;
   border-radius: 5px;

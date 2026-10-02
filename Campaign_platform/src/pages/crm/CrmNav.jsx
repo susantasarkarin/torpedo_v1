@@ -29,7 +29,7 @@ export default function CrmNav() {
           style={({ isActive }) => ({
             display: "inline-flex", alignItems: "center", gap: "0.35rem",
             padding: "0.4rem 0.75rem", borderRadius: "0.4rem",
-            fontSize: "0.85rem", fontWeight: 600, textDecoration: "none",
+            fontSize: "0.875rem", fontWeight: 600, textDecoration: "none",
             color: isActive ? "#c47209" : "#4b5563",
             background: isActive ? "#fff7ed" : "transparent",
           })}>
@@ -66,7 +66,7 @@ export function Modal({ title, onClose, children, width = 440 }) {
 export function Field({ label, children }) {
   return (
     <label style={{ display: "block", marginBottom: "0.7rem" }}>
-      <span style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "#4b5563", marginBottom: "0.25rem" }}>
+      <span style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#4b5563", marginBottom: "0.25rem" }}>
         {label}
       </span>
       {children}
@@ -76,5 +76,5 @@ export function Field({ label, children }) {
 
 export const inputStyle = {
   width: "100%", padding: "0.45rem 0.6rem", border: "1px solid #d1d5db",
-  borderRadius: "0.4rem", fontSize: "0.85rem", boxSizing: "border-box",
+  borderRadius: "0.4rem", fontSize: "0.875rem", boxSizing: "border-box",
 };

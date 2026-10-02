@@ -43,13 +43,13 @@ function ReplyCell({ lead }) {
   const t = lead.reply_triage
   const n = lead.nurture
   const m = lead.mail_pool
-  if (!t && !n && !m) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>
+  if (!t && !n && !m) return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>
   const mailSummary = m ? (m.model_summary || m.last_summary || "") : ""
   const title = t
     ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
     : m ? `${m.last_subject || ""}\n\n${mailSummary}${m.triage?.reason ? `\n\nTriage: ${m.triage.reason}` : ""}` : ""
   return (
-    <div style={{ fontSize: "0.75rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
+    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
       {t?.reply_text && (
         <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           “{t.reply_text.replace(/\s+/g, " ").slice(0, 70)}”
@@ -104,7 +104,7 @@ function LeadStatusBadge({ lead, sessionId, onUpdated }) {
         onChange={handleChange}
         disabled={saving}
         style={{
-          padding: "2px 6px", borderRadius: 9999, fontSize: "0.72rem", fontWeight: 600,
+          padding: "2px 6px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 600,
           background: s.bg, color: s.color, border: `1px solid ${s.border}`,
           cursor: "pointer", appearance: "auto",
         }}
@@ -395,22 +395,22 @@ function Leads() {
                       const c = BASKET_COLORS[lead.classification_basket] || BASKET_COLORS.E
                       const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || lead.classification_basket
                       return (
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.75rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
                           {lead.classification_basket} — {bname}
                         </span>
                       )
-                    })() : <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>}
+                    })() : <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>}
                   </td>
                   {/* Fit Tier */}
                   <td>
                     {lead.fit_tier ? (() => {
                       const s = TIER_STYLE[lead.fit_tier] || TIER_STYLE[3]
                       return (
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.75rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
                           {s.icon} {lead.fit_tier_label || `Tier ${lead.fit_tier}`}
                         </span>
                       )
-                    })() : <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>}
+                    })() : <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>}
                   </td>
                   <td><ReplyCell lead={lead} /></td>
                   {/* Lead Status */}

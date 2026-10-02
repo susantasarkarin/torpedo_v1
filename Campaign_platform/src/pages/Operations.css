@@ -55,18 +55,18 @@
 }
 
 .operations-tab:hover {
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .operations-tab.active {
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
 }
 
 .operations-tab .tab-badge {
   background: #ef4444;
   color: white;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   padding: 0.125rem 0.375rem;
   border-radius: 9999px;
   margin-left: 0.5rem;
@@ -102,7 +102,7 @@
 }
 
 .kpi-title {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;
@@ -127,20 +127,20 @@
 }
 
 .kpi-subtitle {
-  font-size: 0.8rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
 }
 
 .kpi-trend {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   margin-top: 0.5rem;
 }
 
 .kpi-trend.up {
-  color: #10b981;
+  color: #047857;
 }
 
 .kpi-trend.down {
@@ -205,7 +205,7 @@
 .rfq-table th {
   text-align: left;
   padding: 0.75rem 1rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;
@@ -225,7 +225,7 @@
 
 .rfq-id {
   font-weight: 600;
-  color: #e8890b;
+  color: #a25e07;
   cursor: pointer;
 }
 
@@ -253,7 +253,7 @@
 }
 
 .rfq-sender-email {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -264,7 +264,7 @@
   gap: 0.25rem;
   padding: 0.25rem 0.625rem;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -310,7 +310,7 @@
   gap: 0.25rem;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -327,7 +327,7 @@
 
 .priority-badge.low {
   background: #fff7ed;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 /* Value Display */
@@ -337,7 +337,7 @@
 }
 
 .value-currency {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
   font-weight: 400;
 }
@@ -386,7 +386,7 @@
 .activity-meta {
   display: flex;
   gap: 1rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -448,8 +448,8 @@
 }
 
 .project-stat-label {
-  font-size: 0.7rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   text-transform: uppercase;
 }
 
@@ -501,7 +501,7 @@
 }
 
 .vendor-last-msg {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #4b5563;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -514,14 +514,14 @@
 }
 
 .vendor-time {
-  font-size: 0.7rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
 }
 
 .vendor-unread {
   background: #e8890b;
   color: white;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 600;
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
@@ -563,7 +563,7 @@
 
 .btn-sm {
   padding: 0.375rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .btn-icon {
@@ -693,7 +693,7 @@
 }
 
 .progress-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -710,7 +710,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9ca3af;
+  color: #6b6b6b;
   font-size: 0.875rem;
 }
 
@@ -824,7 +824,7 @@
 }
 
 .ops-meta-breadcrumb {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #778099;
   margin-top: 0.35rem;
 }
@@ -836,7 +836,7 @@
 
 .ops-kpi-section-tag {
   display: inline-block;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -868,7 +868,7 @@
   border: 1.5px solid #d1d5db;
   background: #fff;
   color: #4a4a4a;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -895,7 +895,7 @@
 }
 
 .ops-kpi-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #7b869a;
   margin-bottom: 0.5rem;
 }
@@ -913,13 +913,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.68rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
 .ops-kpi-icon.success {
   background: #e8f7df;
-  color: #57aa27;
+  color: #047857;
 }
 
 .ops-kpi-icon.warning {
@@ -975,7 +975,7 @@
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -1026,7 +1026,7 @@
 }
 
 .ops-side-title {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-bottom: 0.3rem;
 }
@@ -1047,13 +1047,13 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
 }
 
 .ops-ir-item strong {
   margin-left: auto;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   color: #1a1a1a;
 }
 
@@ -1124,7 +1124,7 @@
   position: absolute;
   left: 0.78rem;
   top: -0.18rem;
-  font-size: 0.66rem;
+  font-size: 0.875rem;
   color: #4a4a4a;
   font-weight: 600;
   background: rgba(255, 255, 255, 0.88);
@@ -1145,7 +1145,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin-bottom: 0.28rem;
 }

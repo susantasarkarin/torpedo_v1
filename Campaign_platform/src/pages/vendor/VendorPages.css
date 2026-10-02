@@ -129,7 +129,7 @@
 }
 
 .vendor-page .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
 }
 
@@ -194,7 +194,7 @@
 .vendor-page .data-table th {
   padding: 10px 12px;
   text-align: left;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #4b5563;
   text-transform: uppercase;
@@ -227,7 +227,7 @@
 }
 
 .vendor-page .name-cell .name-link {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
   cursor: pointer;
 }
@@ -243,7 +243,7 @@
   display: inline-block;
   padding: 3px 8px;
   border-radius: 4px;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 500;
   text-transform: capitalize;
 }
@@ -258,7 +258,7 @@
 .vendor-page .action-btn {
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   cursor: pointer;
   border: 1px solid #e5e7eb;
   background: white;
@@ -273,7 +273,7 @@
 
 .vendor-page .action-btn.edit {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .vendor-page .action-btn.delete {
@@ -388,7 +388,7 @@
 }
 
 .vendor-page .action-card p {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin: 0;
 }
@@ -423,7 +423,7 @@
 }
 
 .vendor-page .dashboard-stat-card .stat-content h3 {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
   margin: 0 0 2px;
   font-weight: 500;

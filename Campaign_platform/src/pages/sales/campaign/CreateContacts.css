@@ -45,7 +45,7 @@
 }
 
 .breadcrumb-separator {
-  color: #9ca3af;
+  color: #6b6b6b;
 }
 
 .breadcrumb-current {
@@ -135,7 +135,7 @@
   content: "✓";
   position: absolute;
   left: 0;
-  color: #10b981;
+  color: #047857;
   font-weight: 600;
 }
 
@@ -341,7 +341,7 @@
 .advanced-toggle {
   background: none;
   border: none;
-  color: #e8890b;
+  color: #a25e07;
   cursor: pointer;
   font-weight: 500;
   display: flex;

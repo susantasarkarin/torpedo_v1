@@ -4,7 +4,7 @@ import { clsx } from 'clsx';
 const badgeVariants = {
   default: 'bg-slate-100 text-slate-700 border-slate-200',
   primary: 'bg-cogentix-navy-50 text-cogentix-navy border-cogentix-navy-200',
-  secondary: 'bg-cogentix-orange-50 text-cogentix-orange border-cogentix-orange-200',
+  secondary: 'bg-cogentix-orange-50 text-cogentix-orange-700 border-cogentix-orange-200',
   success: 'bg-cogentix-green-50 text-cogentix-green-700 border-cogentix-green-200',
   warning: 'bg-amber-50 text-amber-700 border-amber-200',
   danger: 'bg-red-50 text-red-700 border-red-200',
@@ -12,8 +12,8 @@ const badgeVariants = {
 };
 
 const badgeSizes = {
-  sm: 'px-2 py-0.5 text-xs',
-  md: 'px-2.5 py-1 text-xs',
+  sm: 'px-2 py-0.5 text-sm',
+  md: 'px-2.5 py-1 text-sm',
   lg: 'px-3 py-1.5 text-sm',
 };
 

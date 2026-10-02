@@ -71,19 +71,19 @@ function RewardsPoints() {
         <div className="grid grid-cols-3 mb-6">
           <div className="card">
             <h3 className="card-title">Total Points Issued</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#10b981" }}>
+            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#047857" }}>
               {loading ? "..." : stats.totalIssued}
             </p>
           </div>
           <div className="card">
             <h3 className="card-title">Total Redeemed</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#e8890b" }}>
+            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#a25e07" }}>
               {loading ? "..." : stats.totalRedeemed}
             </p>
           </div>
           <div className="card">
             <h3 className="card-title">Pending Redemptions</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#f59e0b" }}>
+            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#b45309" }}>
               {loading ? "..." : stats.pendingRedemptions}
             </p>
           </div>
@@ -125,7 +125,7 @@ function RewardsPoints() {
                         <td style={tdStyle}>{tx.panelist_name || tx.panelist_email || tx.panelist_id || "-"}</td>
                         <td style={tdStyle}>
                           <span style={{
-                            fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                            fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                             backgroundColor: tx.type === "earned" ? "#d1fae5" : "#fff7ed",
                             color: tx.type === "earned" ? "#065f46" : "#c47209",
                           }}>
@@ -174,7 +174,7 @@ function RewardsPoints() {
                         <td style={tdStyle}>{r.method || "UPI"}</td>
                         <td style={tdStyle}>
                           <span style={{
-                            fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                            fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
                             backgroundColor: r.status === "completed" ? "#d1fae5" :
                               r.status === "pending" ? "#fef3c7" : "#fee2e2",
                             color: r.status === "completed" ? "#065f46" :

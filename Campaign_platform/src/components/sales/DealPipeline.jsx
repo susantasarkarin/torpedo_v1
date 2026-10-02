@@ -243,7 +243,7 @@ export default function DealPipeline({
         
         {/* Contact/Company */}
         {(deal.contact_name || deal.company) && (
-          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
             {deal.contact_name && (
               <span className="flex items-center gap-1">
                 <User className="w-3 h-3" />
@@ -261,7 +261,7 @@ export default function DealPipeline({
         
         {/* Expected close date */}
         {deal.expected_close_date && (
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-sm text-gray-400">
             <Calendar className="w-3 h-3" />
             {formatDate(deal.expected_close_date)}
           </div>
@@ -270,7 +270,7 @@ export default function DealPipeline({
         {/* Probability indicator */}
         {deal.probability != null && (
           <div className="mt-2">
-            <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <div className="flex justify-between text-sm text-gray-400 mb-1">
               <span>Probability</span>
               <span>{deal.probability}%</span>
             </div>

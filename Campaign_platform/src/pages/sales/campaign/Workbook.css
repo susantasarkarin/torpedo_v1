@@ -41,7 +41,7 @@
   background: #fff7ed;
   color: #c47209;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: capitalize;
 }
@@ -68,7 +68,7 @@
 }
 
 .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: #4b5563;
   text-transform: uppercase;
   margin-top: 0.25rem;
@@ -129,7 +129,7 @@
 
 .column-name small {
   color: #4b5563;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .column-state {
@@ -215,7 +215,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #4b5563;
 }
@@ -228,7 +228,7 @@
 
 .btn-sm {
   padding: 0.25rem 0.5rem !important;
-  font-size: 0.75rem !important;
+  font-size: 0.875rem !important;
   border-radius: 4px !important;
   cursor: pointer;
   border: 1px solid #d1d5db;
@@ -285,7 +285,7 @@
   border-top: 1px solid #e5e7eb;
   color: #059669;
   font-weight: 500;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .column-header.locked {
@@ -331,7 +331,7 @@
   background: #fff7ed;
   color: #c47209;
   border-radius: 3px;
-  font-size: 0.625rem;
+  font-size: 0.875rem;
   font-weight: 500;
   text-transform: uppercase;
 }
@@ -398,7 +398,7 @@
 }
 
 .override-indicator {
-  color: #f59e0b;
+  color: #b45309;
   font-weight: 600;
   font-size: 0.875rem;
   flex-shrink: 0;
@@ -408,8 +408,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  font-size: 0.65rem;
-  color: #9ca3af;
+  font-size: 0.875rem;
+  color: #6b6b6b;
   margin-top: 0.25rem;
 }
 
@@ -424,7 +424,7 @@
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   background: white;
   padding: 0.125rem 0.25rem;
   border-radius: 3px;
@@ -448,7 +448,7 @@
   position: absolute;
   bottom: -4px;
   right: -4px;
-  font-size: 0.625rem;
+  font-size: 0.875rem;
   padding: 0.125rem;
   background: white;
   border: 1px solid #e5e7eb;
@@ -536,7 +536,7 @@
 
 .detail-group label {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
   color: #4b5563;

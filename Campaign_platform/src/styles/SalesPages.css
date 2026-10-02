@@ -142,7 +142,7 @@
 }
 
 .sales-page .stat-label {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--sales-text-muted);
   margin-top: 4px;
 }
@@ -207,7 +207,7 @@
 .sales-page .data-table th {
   padding: 14px 16px;
   text-align: left;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--sales-text-muted);
   text-transform: uppercase;
@@ -254,7 +254,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -288,7 +288,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -324,7 +324,7 @@
   display: inline-block;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -338,7 +338,7 @@
 .sales-page .action-btn {
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   cursor: pointer;
   border: 1px solid var(--sales-border);
   background: white;
@@ -364,7 +364,7 @@
 .sales-page .action-btn-linkedin {
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   text-decoration: none;
   background: #0077b5;
   color: white;
@@ -487,7 +487,7 @@
   background: none;
   border: none;
   font-size: 2rem;
-  color: #9ca3af;
+  color: #6b6b6b;
   cursor: pointer;
   padding: 0;
   width: 32px;

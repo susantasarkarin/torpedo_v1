@@ -47,7 +47,7 @@
 }
 
 .info-card .label {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #666;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -57,7 +57,7 @@
 .info-card .value {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 /* Workflow Editor Layout */
@@ -129,7 +129,7 @@
 .step-number {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #e8890b;
+  color: #a25e07;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -156,7 +156,7 @@
 .step-btn:hover {
   border-color: #e8890b;
   background: #fff7ed;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .step-btn.danger {
@@ -203,7 +203,7 @@
   border: 1px solid #dde1e6;
   background: white;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: #666;
   cursor: pointer;
@@ -212,13 +212,13 @@
 
 .channel-btn:hover {
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .channel-btn.active {
   background: #fff7ed;
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .delay-input,
@@ -254,8 +254,8 @@
 }
 
 .no-branches {
-  color: #999;
-  font-size: 0.85rem;
+  color: #6b6b6b;
+  font-size: 0.875rem;
   margin: 0;
   padding: 0.75rem;
   background: #f8f9fa;
@@ -293,7 +293,7 @@
   color: #333;
   padding: 0.25rem 0.6rem;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -306,7 +306,7 @@
   border: 1px solid #ffc107;
   background: white;
   border-radius: 4px;
-  color: #ffc107;
+  color: #a16207;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -322,7 +322,7 @@
   padding: 0.4rem 0.5rem;
   border: 1px solid #dde1e6;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-family: inherit;
   width: 100%;
 }
@@ -341,7 +341,7 @@
   border: 1px dashed #ffc107;
   background: white;
   border-radius: 6px;
-  color: #f59e0b;
+  color: #b45309;
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
@@ -370,7 +370,7 @@
   border: 2px dashed #e8890b;
   background: white;
   border-radius: 8px;
-  color: #e8890b;
+  color: #a25e07;
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
@@ -385,7 +385,7 @@
 /* Step Arrow */
 .step-arrow {
   font-size: 1.5rem;
-  color: #e8890b;
+  color: #a25e07;
   margin: -0.5rem 0;
   animation: bounce 2s infinite;
 }
@@ -438,7 +438,7 @@
 .preview-toggle:hover {
   background: #fff7ed;
   border-color: #e8890b;
-  color: #e8890b;
+  color: #a25e07;
 }
 
 .preview-content {
@@ -470,7 +470,7 @@
 .sample-field .label {
   font-weight: 600;
   color: #666;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -495,7 +495,7 @@
   border: 1px solid #fde68a;
   border-radius: 6px;
   padding: 0.75rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   line-height: 1.6;
   color: #c47209;
 }
@@ -598,7 +598,7 @@
 }
 
 .workflow-tips li {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #15803d;
   padding-left: 1.2rem;
   position: relative;
@@ -608,7 +608,7 @@
   content: "✓";
   position: absolute;
   left: 0;
-  color: #22c55e;
+  color: #047857;
   font-weight: bold;
 }
 

@@ -38,20 +38,20 @@ function HealthBanner({ health, loading, onRefresh }) {
           {ok ? "Panel systems healthy" : `${problems.length} panel health issue${problems.length === 1 ? "" : "s"}`}
         </p>
         {!ok && (
-          <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", color: "#7f1d1d", fontSize: "0.8rem", lineHeight: 1.6 }}>
+          <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", color: "#7f1d1d", fontSize: "0.875rem", lineHeight: 1.6 }}>
             {problems.map((p, i) => (
               <li key={i}>{p.replace(/^\[panel-health\]\s*/, "")}</li>
             ))}
           </ul>
         )}
-        <p style={{ margin: "0.4rem 0 0", fontSize: "0.7rem", color: "#9ca3af" }}>
+        <p style={{ margin: "0.4rem 0 0", fontSize: "0.875rem", color: "#6b6b6b" }}>
           Checked {health.generated_at ? formatDateTime(health.generated_at) : "—"} · runs hourly
         </p>
       </div>
       <button
         onClick={onRefresh}
         style={{
-          padding: "0.35rem 0.75rem", fontSize: "0.75rem", fontWeight: 600, borderRadius: "6px",
+          padding: "0.35rem 0.75rem", fontSize: "0.875rem", fontWeight: 600, borderRadius: "6px",
           border: `1px solid ${ok ? "#6ee7b7" : "#fca5a5"}`, background: "#fff",
           color: ok ? "#065f46" : "#991b1b", cursor: "pointer", whiteSpace: "nowrap",
         }}
@@ -67,7 +67,7 @@ function StatCard({ label, value, sub, color }) {
     <div style={{ padding: "1.5rem", border: "1px solid #e5e7eb", borderRadius: "12px", backgroundColor: "#f9fafb" }}>
       <p style={{ fontSize: "0.875rem", color: "#4b5563", fontWeight: "600", marginBottom: "0.5rem" }}>{label}</p>
       <p style={{ fontSize: "2rem", fontWeight: "700", color: color || "#059669", marginBottom: "0.25rem" }}>{value}</p>
-      {sub && <p style={{ fontSize: "0.8rem", color: "#9ca3af" }}>{sub}</p>}
+      {sub && <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>{sub}</p>}
     </div>
   )
 }
@@ -316,19 +316,19 @@ function PanelDashboard() {
                       <div style={{ width: "100%", height: `${barHeight}px`, backgroundColor: "#e8890b", borderRadius: "4px 4px 0 0", transition: "all 0.2s", cursor: "pointer", minHeight: barHeight > 0 ? "4px" : "0" }}
                         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#c47209"; e.currentTarget.style.opacity = "0.8" }}
                         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#e8890b"; e.currentTarget.style.opacity = "1" }} />
-                      <span style={{ fontSize: "0.65rem", color: "#4b5563", textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stat._id}</span>
+                      <span style={{ fontSize: "0.875rem", color: "#4b5563", textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stat._id}</span>
                     </div>
                   )
                 })}
               </div>
               <div style={{ marginTop: "1rem", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
                 <div style={{ padding: "0.75rem", backgroundColor: "#d1fae5", borderRadius: "8px" }}>
-                  <p style={{ fontSize: "0.8rem", color: "#065f46", fontWeight: "600", marginBottom: "0.25rem" }}>Days with data: {dailyStats.length}</p>
-                  <p style={{ fontSize: "0.8rem", color: "#047857" }}>Avg/day: {dailyStats.length > 0 ? (dailyStats.reduce((sum, d) => sum + d.count, 0) / dailyStats.length).toFixed(0) : 0}</p>
+                  <p style={{ fontSize: "0.875rem", color: "#065f46", fontWeight: "600", marginBottom: "0.25rem" }}>Days with data: {dailyStats.length}</p>
+                  <p style={{ fontSize: "0.875rem", color: "#047857" }}>Avg/day: {dailyStats.length > 0 ? (dailyStats.reduce((sum, d) => sum + d.count, 0) / dailyStats.length).toFixed(0) : 0}</p>
                 </div>
                 <div style={{ padding: "0.75rem", backgroundColor: "#fff7ed", borderRadius: "8px" }}>
-                  <p style={{ fontSize: "0.8rem", color: "#c47209", fontWeight: "600", marginBottom: "0.25rem" }}>Peak day</p>
-                  <p style={{ fontSize: "0.8rem", color: "#c47209" }}>{dailyStats.length > 0 ? `${Math.max(...dailyStats.map(d => d.count || 0)).toLocaleString()} emails` : "N/A"}</p>
+                  <p style={{ fontSize: "0.875rem", color: "#c47209", fontWeight: "600", marginBottom: "0.25rem" }}>Peak day</p>
+                  <p style={{ fontSize: "0.875rem", color: "#c47209" }}>{dailyStats.length > 0 ? `${Math.max(...dailyStats.map(d => d.count || 0)).toLocaleString()} emails` : "N/A"}</p>
                 </div>
               </div>
             </div>
@@ -427,7 +427,7 @@ function PanelDashboard() {
             <h3 style={{ fontSize: "1rem", fontWeight: "700", color: "#1a1a1a", marginBottom: "0.5rem" }}>
               Stalled Segments &amp; Re-engagement
             </h3>
-            <p style={{ fontSize: "0.85rem", color: "#4b5563", marginBottom: "1rem" }}>
+            <p style={{ fontSize: "0.875rem", color: "#4b5563", marginBottom: "1rem" }}>
               Each segment has its own reminder sequence, capped at 2–3 emails ever with a
               multi-day gap. Sequences stop automatically when someone converts, unsubscribes or bounces.
             </p>
@@ -438,11 +438,11 @@ function PanelDashboard() {
                 const drip = dripStatus?.stages?.[stageKey]
                 return (
                   <div key={key} style={{ border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.1rem", background: "#fafafa" }}>
-                    <p style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: "600", marginBottom: "0.35rem" }}>{seg.label}</p>
+                    <p style={{ fontSize: "0.875rem", color: "#4b5563", fontWeight: "600", marginBottom: "0.35rem" }}>{seg.label}</p>
                     <p style={{ fontSize: "1.75rem", fontWeight: "700", color: "#d97706", marginBottom: "0.4rem" }}>{seg.count.toLocaleString()}</p>
-                    <p style={{ fontSize: "0.75rem", color: "#9ca3af", lineHeight: "1.5", marginBottom: "0.6rem" }}>{seg.description}</p>
+                    <p style={{ fontSize: "0.875rem", color: "#6b6b6b", lineHeight: "1.5", marginBottom: "0.6rem" }}>{seg.description}</p>
                     {drip && (
-                      <p style={{ fontSize: "0.72rem", color: "#4b5563", borderTop: "1px solid #e5e7eb", paddingTop: "0.5rem" }}>
+                      <p style={{ fontSize: "0.875rem", color: "#4b5563", borderTop: "1px solid #e5e7eb", paddingTop: "0.5rem" }}>
                         Reminders: max {drip.max_sends}, {drip.gap_days}-day gap · {drip.sent_in_window.toLocaleString()} sent in 30d
                       </p>
                     )}
@@ -460,18 +460,18 @@ function PanelDashboard() {
                 style={{ padding: "0.5rem 1rem", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "8px", cursor: dripRunning ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600", opacity: dripRunning ? 0.5 : 1 }}>
                 {dripRunning ? "Working…" : "Send reminders now"}
               </button>
-              <span style={{ fontSize: "0.78rem", color: "#9ca3af" }}>
+              <span style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>
                 Runs automatically every day at 11:30 IST.
               </span>
             </div>
 
             {dripMessage && (
-              <div style={{ marginTop: "0.9rem", padding: "0.75rem", borderRadius: "6px", background: "#f3f4f6", color: "#4a4a4a", fontSize: "0.85rem" }}>
+              <div style={{ marginTop: "0.9rem", padding: "0.75rem", borderRadius: "6px", background: "#f3f4f6", color: "#4a4a4a", fontSize: "0.875rem" }}>
                 {dripMessage}
               </div>
             )}
 
-            <p style={{ marginTop: "1rem", fontSize: "0.72rem", color: "#9ca3af" }}>
+            <p style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#6b6b6b" }}>
               Computed {funnel.generated_at ? formatDateTime(funnel.generated_at) : "—"}
               {funnel.cached ? " (cached)" : ` in ${funnel.compute_seconds}s`}
             </p>
@@ -524,7 +524,7 @@ function PanelDashboard() {
                   const colors = { bronze: "#f59e0b", silver: "#9ca3af", gold: "#eab308" }
                   return (
                     <div key={lvl} style={{ marginBottom: "0.75rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", color: "#4b5563", marginBottom: "0.25rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem", color: "#4b5563", marginBottom: "0.25rem" }}>
                         <span style={{ textTransform: "capitalize", fontWeight: "600" }}>{lvl}</span>
                         <span>{count} ({pct}%)</span>
                       </div>
@@ -539,7 +539,7 @@ function PanelDashboard() {
               <div style={{ border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.25rem" }}>
                 <p style={{ fontWeight: "700", color: "#1a1a1a", marginBottom: "1rem" }}>Signup Source</p>
                 {Object.keys(sfwOverview.sources || {}).length === 0 && (
-                  <p style={{ color: "#4b5563", fontSize: "0.85rem" }}>Not reported by the SFW panel API.</p>
+                  <p style={{ color: "#4b5563", fontSize: "0.875rem" }}>Not reported by the SFW panel API.</p>
                 )}
                 {Object.entries(sfwOverview.sources || {}).map(([src, count]) => {
                   const total = Object.values(sfwOverview.sources || {}).reduce((s, n) => s + n, 0)
@@ -547,7 +547,7 @@ function PanelDashboard() {
                   const colors = { organic: "#10b981", referral: "#e8890b", campaign: "#a855f7" }
                   return (
                     <div key={src} style={{ marginBottom: "0.75rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", color: "#4b5563", marginBottom: "0.25rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem", color: "#4b5563", marginBottom: "0.25rem" }}>
                         <span style={{ textTransform: "capitalize", fontWeight: "600" }}>{src || "unknown"}</span>
                         <span>{count} ({pct}%)</span>
                       </div>
@@ -580,7 +580,7 @@ function PanelDashboard() {
                       return (
                         <tr key={country} style={{ borderBottom: "1px solid #f3f4f6" }}>
                           <td style={{ padding: "0.75rem 1rem", fontWeight: "600", color: "#1a1a1a" }}>
-                            <span style={{ color: "#9ca3af", fontFamily: "monospace", marginRight: "0.5rem", fontSize: "0.75rem" }}>{country}</span>
+                            <span style={{ color: "#6b6b6b", fontFamily: "monospace", marginRight: "0.5rem", fontSize: "0.875rem" }}>{country}</span>
                             {countryName(country)}
                           </td>
                           <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: "#1a1a1a" }}>{total}</td>

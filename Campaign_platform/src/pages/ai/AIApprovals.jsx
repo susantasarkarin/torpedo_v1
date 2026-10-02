@@ -52,17 +52,17 @@ function PendingQueue() {
       {error && <div className="crm-error">{error}</div>}
 
       {!loading && items.length === 0 && !error && (
-        <div className="crm-empty"><CheckCircle2 size={28} style={{ color: "#34d399" }} /><div style={{ marginTop: "0.5rem" }}>Nothing pending. The AI queue is clear.</div></div>
+        <div className="crm-empty"><CheckCircle2 size={28} style={{ color: "#047857" }} /><div style={{ marginTop: "0.5rem" }}>Nothing pending. The AI queue is clear.</div></div>
       )}
 
       {items.map((item) => (
         <div key={item._id} className="crm-queue-item">
           <div className="crm-queue-item__head">
-            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#e8890b" }} /> {item.agent_name}</span>
+            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#a25e07" }} /> {item.agent_name}</span>
             <code className="crm-mono">{item.action_type}</code>
             <span className={`crm-badge risk-${item.risk}`}>{item.risk || "—"}</span>
             <span className="crm-badge">{item.autonomy_mode}</span>
-            <span className="crm-spacer crm-muted" style={{ fontSize: "0.72rem" }}>
+            <span className="crm-spacer crm-muted" style={{ fontSize: "0.875rem" }}>
               {item.created_at ? formatDateTime(item.created_at) : ""}
             </span>
           </div>
@@ -113,11 +113,11 @@ function DecisionLog() {
           {decisions.map((d) => (
             <tr key={d._id}>
               <td style={{ fontWeight: 600, color: "#1a1a1a" }}>{d.agent_name}</td>
-              <td>{d.decision}{d.reason && <span className="crm-muted" style={{ display: "block", fontSize: "0.72rem" }}>{d.reason}</span>}</td>
+              <td>{d.decision}{d.reason && <span className="crm-muted" style={{ display: "block", fontSize: "0.875rem" }}>{d.reason}</span>}</td>
               <td><span className={`crm-badge ${d.autonomy_mode}`}>{d.autonomy_mode}</span></td>
               <td>{d.confidence != null ? `${Math.round(d.confidence * 100)}%` : "—"}</td>
               <td><span className={`crm-badge ${d.status}`}>{d.status}</span></td>
-              <td className="crm-muted" style={{ fontSize: "0.72rem" }}>{d.created_at ? formatDateTime(d.created_at) : ""}</td>
+              <td className="crm-muted" style={{ fontSize: "0.875rem" }}>{d.created_at ? formatDateTime(d.created_at) : ""}</td>
             </tr>
           ))}
         </tbody>
@@ -136,7 +136,7 @@ export default function AIApprovals() {
   return (
     <div className="crm-page">
       <div className="crm-head__titles" style={{ marginBottom: "1.25rem" }}>
-        <ShieldAlert size={28} style={{ color: "#e8890b" }} />
+        <ShieldAlert size={28} style={{ color: "#a25e07" }} />
         <div>
           <h1 className="crm-title cx-page-title">AI Approvals</h1>
           <p className="crm-subtitle">Review and approve AI-proposed actions. Nothing here has run yet.</p>

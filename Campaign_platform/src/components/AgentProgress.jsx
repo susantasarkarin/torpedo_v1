@@ -75,22 +75,22 @@ const JobItem = ({ job, onDismiss }) => {
       <ProgressBar progress={job.progress || 0} status={job.status} />
       
       <div className="flex justify-between mt-2">
-        <span className="text-xs text-gray-500">
+        <span className="text-sm text-gray-500">
           {job.current_step || job.status}
         </span>
-        <span className="text-xs font-medium text-gray-700">
+        <span className="text-sm font-medium text-gray-700">
           {job.progress || 0}%
         </span>
       </div>
       
       {job.status === 'completed' && job.result && (
-        <div className="mt-2 text-xs text-green-600">
+        <div className="mt-2 text-sm text-green-600">
           ✓ {job.result.leads_generated || 0} leads generated
         </div>
       )}
       
       {job.status === 'failed' && job.error && (
-        <div className="mt-2 text-xs text-red-600">
+        <div className="mt-2 text-sm text-red-600">
           Error: {job.error}
         </div>
       )}
@@ -213,7 +213,7 @@ export default function AgentProgress() {
                 Agent Jobs
               </span>
               {hasActiveJobs && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded-full">
+                <span className="px-2 py-0.5 text-sm font-medium bg-orange-100 text-orange-700 rounded-full">
                   {activeJobs.length} active
                 </span>
               )}
@@ -247,7 +247,7 @@ export default function AgentProgress() {
           {/* Footer */}
           {activeJobs.length > 5 && (
             <div className="px-4 py-2 bg-gray-50 border-t text-center">
-              <span className="text-xs text-gray-500">
+              <span className="text-sm text-gray-500">
                 +{activeJobs.length - 5} more jobs running
               </span>
             </div>

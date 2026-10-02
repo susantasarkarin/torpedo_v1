@@ -8,7 +8,7 @@ function PrivacyModal({ open, onClose }) {
       <div style={{width:'90%',maxWidth:820,background:'white',borderRadius:16,padding:28,maxHeight:'86%',overflow:'auto',boxShadow:'0 30px 80px rgba(0,0,0,0.25)'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <img src="/newlogo.png" alt="Cogentix Research" style={{height:34}} />
+            <img src="/newlogo.png" alt="Cogentix Research" style={{height:58}} />
             <div>
               <h2 style={{margin:0,fontSize:22}}>Cogentix Research Privacy Policy</h2>
               <p style={{margin:0,color:'#6b7280',fontSize:13}}>Last updated: January 2026</p>

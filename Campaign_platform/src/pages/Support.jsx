@@ -323,7 +323,7 @@ export default function Support() {
               <p className="text-sm text-gray-500">Open</p>
               <p className="text-2xl font-bold text-cogentix-orange-600">{stats.open_tickets}</p>
             </div>
-            <Ticket className="w-8 h-8 text-cogentix-orange-500" />
+            <Ticket className="w-8 h-8 text-cogentix-orange-700" />
           </div>
         </Card>
         
@@ -384,7 +384,7 @@ export default function Support() {
         <div className="flex items-center gap-2">
           <span className="text-gray-400">{CATEGORY_ICONS[ticket.category] || '📋'}</span>
           <div>
-            <span className="font-mono text-xs text-gray-500">{ticket.ticket_number}</span>
+            <span className="font-mono text-sm text-gray-500">{ticket.ticket_number}</span>
             <p className="font-medium">{ticket.subject}</p>
           </div>
         </div>
@@ -741,10 +741,10 @@ export default function Support() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{comment.author_name || 'Agent'}</span>
                         {comment.is_internal && (
-                          <Badge className="bg-yellow-100 text-yellow-800 text-xs">Internal</Badge>
+                          <Badge className="bg-yellow-100 text-yellow-800 text-sm">Internal</Badge>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-sm text-gray-400">
                         {formatDateTime(comment.created_at)}
                       </span>
                     </div>

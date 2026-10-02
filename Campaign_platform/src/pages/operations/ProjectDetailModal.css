@@ -106,12 +106,12 @@
 }
 
 .tab-button:hover {
-  color: #e8890b;
+  color: #a25e07;
   background-color: #f0f0f0;
 }
 
 .tab-button.active {
-  color: #e8890b;
+  color: #a25e07;
   border-bottom-color: #e8890b;
   background-color: white;
 }
@@ -150,7 +150,7 @@
   display: block;
   font-weight: 600;
   color: #555;
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
@@ -165,7 +165,7 @@
 }
 
 .spec-item a {
-  color: #e8890b;
+  color: #a25e07;
   text-decoration: none;
   word-break: break-all;
   transition: color 0.3s ease;
@@ -307,7 +307,7 @@
 
 .financial-item span:first-child {
   color: #555;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .financial-item .value {
@@ -325,7 +325,7 @@
 }
 
 .financial-item .value.warning {
-  color: #ffc107;
+  color: #a16207;
 }
 
 .documents-summary {
