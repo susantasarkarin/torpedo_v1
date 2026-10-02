@@ -10,6 +10,7 @@ Posts     blog posts written here. A post for a WordPress site publishes there
 Media     uploaded images, video, PDFs and documents (25 MB each), kept on
           disk under MARKETING_MEDIA_DIR.
 """
+import html as _html
 import os
 import re
 import socket
@@ -77,10 +78,12 @@ def check_site(url: str) -> Dict[str, Any]:
     t = time.time()
     try:
         r = requests.get(url, timeout=15, headers={"User-Agent": "CogentixSiteMonitor/1.0"})
+        if (r.encoding or "").lower() in ("iso-8859-1", "latin-1", ""):  # no charset sent: don't mangle UTF-8
+            r.encoding = r.apparent_encoding or "utf-8"
         html = r.text[:200000]
         out.update({
             "status_code": r.status_code, "up": r.status_code < 400, "response_ms": int((time.time() - t) * 1000),
-            "title": (re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S) or [None, ""])[1].strip()[:200],
+            "title": _html.unescape((re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S) or [None, ""])[1].strip())[:200],
             "has_meta_description": bool(re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'][^"\']{10,}', html, re.I)),
             "wordpress": "/wp-content/" in html or "wp-json" in html,
         })
