@@ -447,38 +447,47 @@ function ProjectsPage() {
         )
       : [];
 
+    // What is required depends on the status (2026-10-02). Every project needs
+    // a name and a client. Only a LIVE project -- one sending respondents --
+    // needs the fieldwork set-up; a paused or closed one can be saved as it is.
+    // (400 projects created from won RFQs had none of it, so the old rule of
+    // "everything, always" meant they could not even be closed.)
+    const status = formData.projectStatus || "live";
+    const isLive = status === "live";
     const errors = [];
 
     if (!formData.projectName || !formData.projectName.trim()) {
       errors.push("Project Name is required");
     }
-    if (!formData.salesPerson || !formData.salesPerson.trim()) {
-      errors.push("Sales Person is required");
-    }
     if (!formData.client || !formData.client.trim()) {
       errors.push("Client is required");
     }
-    if (!formData.projectLaunchDate) {
-      errors.push("Project Launch Date is required");
+    if (isLive) {
+      if (!formData.salesPerson || !formData.salesPerson.trim()) {
+        errors.push("Sales Person is required for a live project");
+      }
+      if (!formData.projectLaunchDate) {
+        errors.push("Project Launch Date is required for a live project");
+      }
+      if (!normalizedLiveLink) {
+        errors.push("Live Link is required for a live project");
+      }
+      if (!selectedVendorNames.length) {
+        errors.push("At least one Vendor is required for a live project");
+      }
+      if (!toNumber(formData.totalCompletesRequired)) {
+        errors.push("Total Completes Required must be greater than 0 for a live project");
+      }
+      if (!toNumber(formData.loi)) {
+        errors.push("LOI (Length of Interview) must be greater than 0 for a live project");
+      }
+      if (!toNumber(formData.cpi)) {
+        errors.push("CPI (Cost Per Interview) must be greater than 0 for a live project");
+      }
     }
-    if (!formData.projectCloseDate) {
-      errors.push("Project Close Date is required");
-    }
-    if (!normalizedLiveLink) {
-      errors.push("Live Link is required");
-    }
-    if (!selectedVendorNames.length) {
-      errors.push("At least one Vendor is required");
-    }
-    if (!toNumber(formData.totalCompletesRequired)) {
-      errors.push("Total Completes Required is required and must be greater than 0");
-    }
-    if (!toNumber(formData.loi)) {
-      errors.push("LOI (Length of Interview) is required and must be greater than 0");
-    }
-    if (!toNumber(formData.cpi)) {
-      errors.push("CPI (Cost Per Interview) is required and must be greater than 0");
-    }
+    // closing a project dates it today unless a close date was entered
+    const closeDate = formData.projectCloseDate ||
+      (status === "close" ? new Date().toISOString().split("T")[0] : "");
 
     if (errors.length > 0) {
       setError("❌ " + errors.join("\n❌ "));
@@ -500,6 +509,7 @@ function ProjectsPage() {
       const vendor = vendors.find((v) => v.vendorName === vendorName);
       return applyDerivedFields({
         ...formData,
+        projectCloseDate: closeDate,
         liveLink: normalizedLiveLink,
         projectName: suffix
           ? `${formData.projectName} - ${vendorName}`
@@ -526,7 +536,8 @@ function ProjectsPage() {
             suffix: true,
           })),
         ]
-      : selectedVendorNames.map((vendorName) => ({
+      : (selectedVendorNames.length ? selectedVendorNames : [""]).map((vendorName) => ({
+          // no vendor yet (allowed unless live): one record without a vendor
           method: "POST",
           url: buildApiUrl(`/projects/`),
           vendorName,
@@ -870,7 +881,7 @@ function ProjectsPage() {
                 </div>
                 <div className="pp-form-row">
                   <div className="pp-field">
-                    <label>Sales Person <span className="pp-req">*</span></label>
+                    <label>Sales Person {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                     <input name="salesPerson" value={formData.salesPerson} onChange={handleChange} placeholder="Sales person name" />
                   </div>
                   <div className="pp-field">
@@ -901,11 +912,11 @@ function ProjectsPage() {
                 </div>
                 <div className="pp-form-row">
                   <div className="pp-field">
-                    <label>Launch Date <span className="pp-req">*</span></label>
+                    <label>Launch Date {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                     <input type="date" name="projectLaunchDate" value={formData.projectLaunchDate} onChange={handleChange} />
                   </div>
                   <div className="pp-field">
-                    <label>Close Date <span className="pp-req">*</span></label>
+                    <label>Close Date</label>
                     <input type="date" name="projectCloseDate" value={formData.projectCloseDate} onChange={handleChange} />
                   </div>
                 </div>
@@ -950,11 +961,11 @@ function ProjectsPage() {
                 </div>
                 <div className="pp-form-row">
                   <div className="pp-field">
-                    <label>Total Completes Required</label>
+                    <label>Total Completes Required {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                     <input name="totalCompletesRequired" value={formData.totalCompletesRequired} onChange={handleChange} placeholder="—" type="number" />
                   </div>
                   <div className="pp-field">
-                    <label>LOI (minutes)</label>
+                    <label>LOI (minutes) {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                     <input name="loi" value={formData.loi} onChange={handleChange} placeholder="—" type="number" />
                   </div>
                 </div>
@@ -964,7 +975,7 @@ function ProjectsPage() {
                     <input name="clientIR" value={formData.clientIR} onChange={handleChange} placeholder="—" type="number" />
                   </div>
                   <div className="pp-field">
-                    <label>CPI</label>
+                    <label>CPI {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                     <input name="cpi" value={formData.cpi} onChange={handleChange} placeholder="—" type="number" />
                   </div>
                 </div>
@@ -1011,7 +1022,7 @@ function ProjectsPage() {
               <fieldset className="pp-fieldset">
                 <legend>Survey Links</legend>
                 <div className="pp-field">
-                  <label>Live Link <span className="pp-req">*</span></label>
+                  <label>Live Link {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                   <input name="liveLink" value={formData.liveLink} onChange={handleChange} placeholder="https://survey.example.com/..." />
                 </div>
                 <div className="pp-field">
@@ -1040,7 +1051,7 @@ function ProjectsPage() {
                 {editingId ? (
                   <>
                     <div className="pp-field">
-                      <label>Vendor <span className="pp-req">*</span></label>
+                      <label>Vendor {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                       <select name="vendorName" value={formData.vendorName} onChange={handleVendorChange}>
                         <option value="">Select Vendor</option>
                         {vendors.map(v => (
@@ -1110,7 +1121,7 @@ function ProjectsPage() {
                 ) : (
                   <>
                     <div className="pp-field">
-                      <label>Vendors <span className="pp-req">*</span></label>
+                      <label>Vendors {(formData.projectStatus || "live") === "live" && <span className="pp-req">*</span>}</label>
                       <small className="pp-hint">
                         Select one or more vendors. Choosing more than one creates a separate project (with its own vendor-facing entry link) per vendor.
                       </small>
