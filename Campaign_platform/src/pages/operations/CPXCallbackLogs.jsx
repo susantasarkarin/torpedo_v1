@@ -6,6 +6,7 @@ import "./CPXCallbackLogs.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 
 export default function CPXCallbackLogs() {
   const navigate = useNavigate()
@@ -42,7 +43,7 @@ export default function CPXCallbackLogs() {
         params.append("success_filter", successFilter)
       }
 
-      const res = await fetch(buildApiUrl(`/api/cpx-callback-logs?${params}`), {
+      const res = await authFetch(buildApiUrl(`/api/cpx-callback-logs?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -113,7 +114,7 @@ export default function CPXCallbackLogs() {
 
     setClearing(true)
     try {
-      const res = await fetch(buildApiUrl(`/api/cpx-callback-logs`), {
+      const res = await authFetch(buildApiUrl(`/api/cpx-callback-logs`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

@@ -24,15 +24,28 @@ export const getCurrencyLocale = (code) => {
   return currency ? currency.locale : 'en-US';
 };
 
-export const formatCurrency = (amount, currencyCode = DEFAULT_CURRENCY) => {
-  const locale = getCurrencyLocale(currencyCode);
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: currencyCode,
-    maximumFractionDigits: currencyCode === 'JPY' ? 0 : 2,
-    minimumFractionDigits: currencyCode === 'JPY' ? 0 : 2,
-  }).format(amount || 0);
+/**
+ * The one way the admin app shows money (2026-10-02; 18 pages each had their
+ * own helper -- some US grouping, some Indian, 0 or 2 decimals, symbols glued
+ * on by hand). Each currency's own grouping (₹1,18,000 / $1,000), decimals
+ * only when the amount has them ($3.25, ₹1,18,000), "—" for no value.
+ */
+export const formatMoney = (value, currencyCode = DEFAULT_CURRENCY, { decimals } = {}) => {
+  if (value === null || value === undefined || value === '') return '—';
+  const amount = Number(value);
+  if (Number.isNaN(amount)) return '—';
+  const code = (currencyCode || DEFAULT_CURRENCY).toUpperCase();
+  const digits = decimals ?? (code === 'JPY' || Number.isInteger(amount) ? 0 : 2);
+  try {
+    return new Intl.NumberFormat(getCurrencyLocale(code), {
+      style: 'currency', currency: code, minimumFractionDigits: digits, maximumFractionDigits: digits,
+    }).format(amount);
+  } catch {
+    return `${code} ${amount.toLocaleString(undefined, { maximumFractionDigits: digits })}`;
+  }
 };
+
+export const formatCurrency = (amount, currencyCode = DEFAULT_CURRENCY) => formatMoney(amount || 0, currencyCode);
 
 export const formatCurrencyCompact = (amount, currencyCode = DEFAULT_CURRENCY) => {
   const symbol = getCurrencySymbol(currencyCode);

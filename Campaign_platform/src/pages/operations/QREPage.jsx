@@ -6,7 +6,7 @@ import {
   Download, ExternalLink, X, ChevronRight, Copy, Link,
 } from "lucide-react";
 import { qreApi } from "../../services/qreApi";
-import api from "../../utils/api";
+import api, { authFetch } from "../../utils/api";
 import MysteryShoppingDetail, { calcOverall } from "./MysteryShoppingTab";
 import { confirmAction } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
@@ -347,7 +347,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                               title="Generate a fresh field link for a new response"
                               onClick={async () => {
                                 try {
-                                  const res = await fetch("/api/mystery-shopping/public/new", { method: "POST" });
+                                  const res = await authFetch("/api/mystery-shopping/public/new", { method: "POST" });
                                   const data = await res.json();
                                   await navigator.clipboard.writeText(`${window.location.origin}/mystery-shopper/${data.id}`);
                                   showToast("New field link copied!");

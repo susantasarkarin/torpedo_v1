@@ -9,6 +9,7 @@ import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
 
 function PurchaseOrdersPage() {
   const navigate = useNavigate()
@@ -182,13 +183,7 @@ function PurchaseOrdersPage() {
     )
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const calculateSubtotal = () => {
     return formData.items.reduce((sum, item) => {

@@ -24,6 +24,7 @@ import {
 import "./ProjectDetail.css";
 import { buildApiUrl } from "../../config";
 import { notify } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -73,7 +74,7 @@ function ProjectDetail() {
       }
 
       try {
-        const res = await fetch(buildApiUrl(`/projects/`), {
+        const res = await authFetch(buildApiUrl(`/projects/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -109,7 +110,7 @@ function ProjectDetail() {
     const fetchVendors = async () => {
       try {
         const sessionId = localStorage.getItem("session_id");
-        const res = await fetch(buildApiUrl("/api/vendors/"), {
+        const res = await authFetch(buildApiUrl("/api/vendors/"), {
           headers: { "Content-Type": "application/json", Authorization: sessionId },
         });
         const data = await res.json();
@@ -124,7 +125,7 @@ function ProjectDetail() {
   useEffect(() => {
     if (!project?.surveyNo) return;
     const sessionId = localStorage.getItem("session_id");
-    fetch(buildApiUrl(`/api/traffic/project-stats?pid=${project.surveyNo}`), {
+    authFetch(buildApiUrl(`/api/traffic/project-stats?pid=${project.surveyNo}`), {
       headers: { Authorization: sessionId || "" },
     })
       .then((r) => r.ok ? r.json() : null)

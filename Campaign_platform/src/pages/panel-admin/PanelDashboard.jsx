@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
 import { formatDateTime } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -115,7 +116,7 @@ function PanelDashboard() {
     setHealthLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/health`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/health`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) setHealth(await res.json())
@@ -130,7 +131,7 @@ function PanelDashboard() {
     setFunnelLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(
+      const res = await authFetch(
         buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/funnel${refresh ? "?refresh=true" : ""}`),
         { headers: { Authorization: sessionId } },
       )
@@ -145,7 +146,7 @@ function PanelDashboard() {
   const fetchDripStatus = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/drip-status?days=30`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/drip-status?days=30`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) setDripStatus(await res.json())
@@ -161,7 +162,7 @@ function PanelDashboard() {
     setDripMessage("")
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/drips/run`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/drips/run`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({ dry_run: dryRun }),
@@ -191,7 +192,7 @@ function PanelDashboard() {
     setDailyLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/daily-stats?days=${days}`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/daily-stats?days=${days}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -214,7 +215,7 @@ function PanelDashboard() {
     setRegistrationLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/registrations-by-country`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/registrations-by-country`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -233,8 +234,8 @@ function PanelDashboard() {
     const sessionId = localStorage.getItem("session_id")
     try {
       const [ovRes, ctRes] = await Promise.all([
-        fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/sfwpanel-overview`), { headers: { Authorization: sessionId } }),
-        fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/sfwpanel-countries`), { headers: { Authorization: sessionId } }),
+        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/sfwpanel-overview`), { headers: { Authorization: sessionId } }),
+        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/sfwpanel-countries`), { headers: { Authorization: sessionId } }),
       ])
       if (ovRes.ok) setSfwOverview(await ovRes.json())
       if (ctRes.ok) { const d = await ctRes.json(); setSfwCountries(d.countries || []) }

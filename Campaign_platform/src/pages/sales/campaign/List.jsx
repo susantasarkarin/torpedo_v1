@@ -7,6 +7,7 @@ import "./List.css"
 import { API_BASE_URL } from "../../../config"
 import { buildApiUrl } from "../../../config"
 import { confirmAction, notify } from "../../../utils/notify"
+import { authFetch } from "../../../utils/api"
 
 
 function List() {
@@ -60,7 +61,7 @@ function List() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/lists/`), {
+      const res = await authFetch(buildApiUrl(`/lists/`), {
         headers: {
           "Content-Type": "application/json",
           "Authorization": sessionId,
@@ -100,7 +101,7 @@ useEffect(() => {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/contacts/${selectedList._id}`), {
+      const res = await authFetch(buildApiUrl(`/contacts/${selectedList._id}`), {
         headers: {
           "Content-Type": "application/json",
           "Authorization": sessionId,
@@ -143,7 +144,7 @@ useEffect(() => {
   }
 
   try {
-    const response = await fetch(buildApiUrl(`/create-list/`), {
+    const response = await authFetch(buildApiUrl(`/create-list/`), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -187,7 +188,7 @@ useEffect(() => {
   }
 
   try {
-    const res = await fetch(buildApiUrl(`/delete-list/${id}`), {
+    const res = await authFetch(buildApiUrl(`/delete-list/${id}`), {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

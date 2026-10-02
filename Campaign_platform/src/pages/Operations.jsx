@@ -12,6 +12,8 @@ import {
   Bar,
 } from "recharts";
 import { formatDate as fmtDate } from "../utils/format"
+import { formatMoney } from "../utils/currency"
+import { authFetch } from "../utils/api"
 import "./Operations.css";
 
 const token = () => localStorage.getItem("session_id");
@@ -91,8 +93,8 @@ function Operations() {
       const sessionToken = token();
       const authHeaders = sessionToken ? { Authorization: sessionToken } : {};
       const [activityResult, trafficStatsResult] = await Promise.allSettled([
-        fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
-        fetch(buildApiUrl(`/api/traffic/dashboard-stats?days=7`), { headers: authHeaders }),
+        authFetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
+        authFetch(buildApiUrl(`/api/traffic/dashboard-stats?days=7`), { headers: authHeaders }),
       ]);
 
       let loadedAnyDashboardData = false;
@@ -138,7 +140,7 @@ function Operations() {
 
   const fetchRFQs = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/api/rfq/?limit=100`), { headers: { Authorization: token() } });
+      const res = await authFetch(buildApiUrl(`/api/rfq/?limit=100`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setRfqs(data.rfqs || []);
@@ -155,7 +157,7 @@ function Operations() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() } });
+      const res = await authFetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() } });
       const data = await parseJsonIfPossible(res);
       if (res.ok && data) {
         setProjects(data.projects || []);
@@ -167,7 +169,7 @@ function Operations() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/accounts/`), { headers: { Authorization: token() } });
+      const res = await authFetch(buildApiUrl(`/api/operations/accounts/`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.accounts || []);
@@ -179,7 +181,7 @@ function Operations() {
 
   const fetchVendorEmails = async () => {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         buildApiUrl(`/api/inbox?category=vendor_communication&page_size=10`),
         { headers: { Authorization: token() } }
       );
@@ -194,11 +196,7 @@ function Operations() {
 
   // ==================== HELPERS ====================
 
-  const formatCurrency = (num, currency = "INR") => {
-    if (num === undefined || num === null) return "—";
-    const symbols = { USD: "$", INR: "₹", EUR: "€", GBP: "£" };
-    return `${symbols[currency] || ""}${Number(num).toLocaleString()}`;
-  };
+  const formatCurrency = (num, currency = "INR") => formatMoney(num, currency);
 
   const formatNumber = (num) => {
     if (num === undefined || num === null) return "—";

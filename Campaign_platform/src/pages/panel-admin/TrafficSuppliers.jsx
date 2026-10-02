@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -140,7 +141,7 @@ export default function TrafficSuppliers() {
     setLoading(true)
     setError("")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers`), {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
@@ -160,7 +161,7 @@ export default function TrafficSuppliers() {
     setSaving(true)
     setError("")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers`), {
         method: "POST",
         headers: { Authorization: sessionId, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -186,7 +187,7 @@ export default function TrafficSuppliers() {
   }
 
   const toggleStatus = async (s) => {
-    await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${s.slug}`), {
+    await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${s.slug}`), {
       method: "PATCH",
       headers: { Authorization: sessionId, "Content-Type": "application/json" },
       body: JSON.stringify({ status: s.status === "active" ? "paused" : "active" }),
@@ -196,7 +197,7 @@ export default function TrafficSuppliers() {
 
   const saveRates = async (slug, rows) => {
     setError("")
-    const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${slug}`), {
+    const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${slug}`), {
       method: "PATCH",
       headers: { Authorization: sessionId, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -216,7 +217,7 @@ export default function TrafficSuppliers() {
 
   const rotate = async (s) => {
     if (!(await confirmAction(`Rotate ${s.name}'s dashboard link?\n\nTheir current link stops working immediately and you will need to send them the new one.`))) return
-    await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${s.slug}/rotate-token`), {
+    await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${s.slug}/rotate-token`), {
       method: "POST",
       headers: { Authorization: sessionId },
     })

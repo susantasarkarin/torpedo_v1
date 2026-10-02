@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { CreditCard, Plus, Search, X, Loader2, ArrowDownCircle, ArrowUpCircle, TrendingUp, Upload, Download } from "lucide-react"
 import { API_BASE_URL } from "../../config"
-import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
+import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil, formatMoney } from "../../utils/currency"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
@@ -204,13 +204,7 @@ function PaymentsPage() {
     setShowModal(true)
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const paymentMethods = [
     { value: "bank_transfer", label: "Bank Transfer" },

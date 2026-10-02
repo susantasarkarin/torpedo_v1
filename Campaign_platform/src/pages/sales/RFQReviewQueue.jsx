@@ -4,6 +4,8 @@ import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { formatDateTime } from "../../utils/format"
+import { formatMoney as sharedFormatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 import "./RFQ.css"
 import "../../styles/SalesPages.css"
 
@@ -13,14 +15,7 @@ import "../../styles/SalesPages.css"
 // correctness on real data -- so a human reviews every proposed RFQ before
 // it becomes a real Opportunity (POST /rfq/review-queue/{id}/approve).
 
-function formatMoney(value, currency) {
-  if (value === null || value === undefined || value === "") return "—"
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD" }).format(value)
-  } catch {
-    return `${currency || ""} ${value}`
-  }
-}
+const formatMoney = (value, currency) => sharedFormatMoney(value, currency || "USD")
 
 function RFQReviewQueue() {
   const [items, setItems] = useState([])
@@ -37,7 +32,7 @@ function RFQReviewQueue() {
   const loadQueue = async () => {
     setLoading(true)
     try {
-      const response = await fetch(buildApiUrl("/api/rfq/review-queue?limit=100"), {
+      const response = await authFetch(buildApiUrl("/api/rfq/review-queue?limit=100"), {
         headers: authHeaders(),
       })
       if (response.ok) {
@@ -58,7 +53,7 @@ function RFQReviewQueue() {
     setActingOn(queueId)
     setMessage({ type: "", text: "" })
     try {
-      const response = await fetch(buildApiUrl(`/api/rfq/review-queue/${queueId}/approve`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/review-queue/${queueId}/approve`), {
         method: "POST",
         headers: authHeaders(),
       })
@@ -82,7 +77,7 @@ function RFQReviewQueue() {
     setActingOn(queueId)
     setMessage({ type: "", text: "" })
     try {
-      const response = await fetch(buildApiUrl(`/api/rfq/review-queue/${queueId}/reject`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/review-queue/${queueId}/reject`), {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),

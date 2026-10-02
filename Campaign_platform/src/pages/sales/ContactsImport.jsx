@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import Papa from "papaparse"
-import { API_BASE_URL as API_BASE } from "../../config"
+import { API_BASE_URL } from "../../config"
+import { authFetch } from "../../utils/api"
 
 // Database fields for contacts
 const DB_FIELDS = [
@@ -86,7 +87,7 @@ function ContactsImport() {
 
   const fetchLists = async () => {
     try {
-      const res = await fetch(`${API_BASE}/lists/`)
+      const res = await authFetch(`${API_BASE_URL}/lists/`)
       if (res.ok) {
         const data = await res.json()
         setLists(data)
@@ -191,7 +192,7 @@ function ContactsImport() {
       })
       
       // Send to backend
-      const res = await fetch(`${API_BASE}/upload-csv/`, {
+      const res = await authFetch(`${API_BASE_URL}/upload-csv/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contacts: transformedContacts }),

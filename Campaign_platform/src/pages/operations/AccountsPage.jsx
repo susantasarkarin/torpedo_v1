@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { API_BASE_URL as API_URL } from "../../config";
+import { API_BASE_URL } from "../../config";
 import "./AccountsPage.css";
 import { buildApiUrl } from "../../config"
 import { notify } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function AccountsPage() {
   const [accounts, setAccounts] = useState([]);
@@ -59,7 +60,7 @@ function AccountsPage() {
   const handleSyncFromClients = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/accounts/sync-from-clients`), {
+      const res = await authFetch(buildApiUrl(`/api/operations/accounts/sync-from-clients`), {
         method: "POST",
         headers: { Authorization: token },
       });
@@ -110,7 +111,7 @@ function AccountsPage() {
 
   const handleLinkToCustomer = async (accountId) => {
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/accounts/${accountId}/link-customer`), {
+      const res = await authFetch(buildApiUrl(`/api/operations/accounts/${accountId}/link-customer`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

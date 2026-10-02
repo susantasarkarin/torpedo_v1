@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { buildApiUrl } from "../../../config";
 import { formatDate } from "../../../utils/format"
+import { authFetch } from "../../../utils/api"
 
 const styles = {
   container: { padding: "24px", maxWidth: 1100, margin: "0 auto" },
@@ -76,14 +77,14 @@ export default function EmailPatterns() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/stats"), { headers });
+      const res = await authFetch(buildApiUrl("/email-patterns/stats"), { headers });
       if (res.ok) setStats(await res.json());
     } catch (e) { console.error(e); }
   }, []);
 
   const fetchPatterns = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/email-patterns/list?min_confidence=${minConf}&limit=200&sort_by=${sortBy}`), { headers });
+      const res = await authFetch(buildApiUrl(`/email-patterns/list?min_confidence=${minConf}&limit=200&sort_by=${sortBy}`), { headers });
       if (res.ok) {
         const data = await res.json();
         setPatterns(data.patterns || []);
@@ -101,7 +102,7 @@ export default function EmailPatterns() {
     if (!lookupDomain.trim()) return;
     setLookupLoading(true); setLookupResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl(`/email-patterns/${encodeURIComponent(lookupDomain.trim())}`), { headers });
+      const res = await authFetch(buildApiUrl(`/email-patterns/${encodeURIComponent(lookupDomain.trim())}`), { headers });
       if (res.ok) setLookupResult(await res.json());
       else setError("Lookup failed");
     } catch (e) { setError(e.message); }
@@ -112,7 +113,7 @@ export default function EmailPatterns() {
     if (!buildDomain.trim() || !buildName.trim()) return;
     setBuildLoading(true); setBuildResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl(`/email-patterns/build-email/${encodeURIComponent(buildDomain.trim())}/${encodeURIComponent(buildName.trim())}`), { headers });
+      const res = await authFetch(buildApiUrl(`/email-patterns/build-email/${encodeURIComponent(buildDomain.trim())}/${encodeURIComponent(buildName.trim())}`), { headers });
       if (res.ok) setBuildResult(await res.json());
       else setError("Build failed");
     } catch (e) { setError(e.message); }
@@ -122,7 +123,7 @@ export default function EmailPatterns() {
   const handleAnalyze = async () => {
     setAnalyzing(true); setAnalyzeResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/analyze-mail-pool?limit=5000&min_samples=3"), { method: "POST", headers });
+      const res = await authFetch(buildApiUrl("/email-patterns/analyze-mail-pool?limit=5000&min_samples=3"), { method: "POST", headers });
       if (res.ok) {
         const data = await res.json();
         setAnalyzeResult(data);
@@ -136,7 +137,7 @@ export default function EmailPatterns() {
   const handleScanAI = async () => {
     setScanningAI(true); setScanAIResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/scan-ai-database?limit=10000"), { method: "POST", headers });
+      const res = await authFetch(buildApiUrl("/email-patterns/scan-ai-database?limit=10000"), { method: "POST", headers });
       if (res.ok) {
         const data = await res.json();
         setScanAIResult(data);
@@ -150,7 +151,7 @@ export default function EmailPatterns() {
   const handleApplyToLeads = async () => {
     setApplying(true); setApplyResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/apply-to-bounced-and-missing?limit=2000"), { method: "POST", headers });
+      const res = await authFetch(buildApiUrl("/email-patterns/apply-to-bounced-and-missing?limit=2000"), { method: "POST", headers });
       if (res.ok) {
         const data = await res.json();
         setApplyResult(data);

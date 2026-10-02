@@ -8,6 +8,7 @@ import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
 
 // Estimate status options
 const ESTIMATE_STATUS_OPTIONS = [
@@ -357,13 +358,7 @@ function EstimatesPage() {
     setCurrentPage(1)
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const calculateSubtotal = () => {
     return formData.items.reduce((sum, item) => sum + item.quantity * item.rate, 0)

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
 import { formatDate } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -19,9 +20,9 @@ function RewardsPoints() {
     const sessionId = localStorage.getItem("session_id")
     try {
       const [statsRes, txRes, redemptionRes] = await Promise.all([
-        fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/stats/`), { headers: { Authorization: sessionId } }),
-        fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/`), { headers: { Authorization: sessionId } }),
-        fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/redemptions`), { headers: { Authorization: sessionId } }),
+        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/stats/`), { headers: { Authorization: sessionId } }),
+        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/`), { headers: { Authorization: sessionId } }),
+        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/redemptions`), { headers: { Authorization: sessionId } }),
       ])
 
       if (statsRes.ok) {

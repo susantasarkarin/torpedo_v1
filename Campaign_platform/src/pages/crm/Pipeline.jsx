@@ -8,15 +8,13 @@ import { Trophy, RefreshCw, Building2, Plus, Pencil, XCircle } from "lucide-reac
 import api from "../../utils/api";
 import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency";
 import "../../styles/crm-ui.css";
 
 const STAGE_ORDER = ["new", "rfq", "qualified", "proposal", "negotiation", "won", "lost"];
 const OPEN_STAGES = STAGE_ORDER.filter((s) => s !== "won" && s !== "lost");
 
-const fmtAmount = (n) =>
-  typeof n === "number" && !Number.isNaN(n)
-    ? n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 })
-    : "—";
+const fmtAmount = (n) => (typeof n === "number" && !Number.isNaN(n) ? formatMoney(n, "USD") : "—");
 
 export default function Pipeline() {
   const [opps, setOpps] = useState([]);

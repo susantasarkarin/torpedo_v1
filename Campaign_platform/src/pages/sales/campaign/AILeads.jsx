@@ -12,6 +12,7 @@ import "./AILeads.css";
 import { buildApiUrl } from "../../../config"
 import { confirmAction, notify } from "../../../utils/notify"
 import { formatDate } from "../../../utils/format"
+import { authFetch } from "../../../utils/api"
 
 // ============== FILTER OPTIONS ==============
 
@@ -295,7 +296,7 @@ function AILeads() {
       params.append("page", currentPage);
       params.append("limit", 100);
 
-      const res = await fetch(buildApiUrl(`/leads?${params.toString()}`), {
+      const res = await authFetch(buildApiUrl(`/leads?${params.toString()}`), {
         headers: { Authorization: sessionId },
       });
 
@@ -310,7 +311,7 @@ function AILeads() {
 
   const fetchRawLeads = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/raw`), {
+      const res = await authFetch(buildApiUrl(`/leads/raw`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) throw new Error("Failed to fetch raw leads");
@@ -323,7 +324,7 @@ function AILeads() {
 
   // Fetch ICP options for filter dropdown
   useEffect(() => {
-    fetch(buildApiUrl('/leads/icps'), { headers: { Authorization: sessionId } })
+    authFetch(buildApiUrl('/leads/icps'), { headers: { Authorization: sessionId } })
       .then(r => r.ok ? r.json() : { icps: [] })
       .then(d => setIcpOptions(d.icps || []))
       .catch(() => {});
@@ -331,7 +332,7 @@ function AILeads() {
 
   const fetchStatistics = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/statistics`), {
+      const res = await authFetch(buildApiUrl(`/leads/statistics`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) throw new Error("Failed to fetch statistics");
@@ -345,7 +346,7 @@ function AILeads() {
   // Fetch Gmail accounts
   const fetchGmailAccounts = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/gmail/accounts`), {
+      const res = await authFetch(buildApiUrl(`/leads/gmail/accounts`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) return;
@@ -359,7 +360,7 @@ function AILeads() {
   // Fetch Gmail segments with counts
   const fetchGmailSegments = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/gmail/segments`), {
+      const res = await authFetch(buildApiUrl(`/leads/gmail/segments`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) return;
@@ -373,7 +374,7 @@ function AILeads() {
   // Fetch Search Control status (global pause, circuit breaker, etc.)
   const fetchSearchControl = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/import/web-search/control`), {
+      const res = await authFetch(buildApiUrl(`/leads/import/web-search/control`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) return;
@@ -387,7 +388,7 @@ function AILeads() {
   // Fetch all web search jobs
   const fetchAllJobs = useCallback(async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/import/web-search/jobs?limit=20`), {
+      const res = await authFetch(buildApiUrl(`/leads/import/web-search/jobs?limit=20`), {
         headers: { Authorization: sessionId },
       });
       if (!res.ok) return;
@@ -405,7 +406,7 @@ function AILeads() {
     }
     setSearchControlLoading(true);
     try {
-      const res = await fetch(buildApiUrl(`/leads/import/web-search/stop-all`), {
+      const res = await authFetch(buildApiUrl(`/leads/import/web-search/stop-all`), {
         method: "POST",
         headers: { Authorization: sessionId },
       });
@@ -428,7 +429,7 @@ function AILeads() {
   const handlePauseSearch = async () => {
     setSearchControlLoading(true);
     try {
-      const res = await fetch(buildApiUrl(`/leads/import/web-search/control/pause`), {
+      const res = await authFetch(buildApiUrl(`/leads/import/web-search/control/pause`), {
         method: "POST",
         headers: { Authorization: sessionId },
       });
@@ -445,7 +446,7 @@ function AILeads() {
   const handleResumeSearch = async () => {
     setSearchControlLoading(true);
     try {
-      const res = await fetch(buildApiUrl(`/leads/import/web-search/control/resume`), {
+      const res = await authFetch(buildApiUrl(`/leads/import/web-search/control/resume`), {
         method: "POST",
         headers: { Authorization: sessionId },
       });
@@ -493,7 +494,7 @@ function AILeads() {
       setTimeout(async () => {
         try {
           const sid = localStorage.getItem("session_id");
-          const res = await fetch(buildApiUrl("/leads/bulk-classify"), {
+          const res = await authFetch(buildApiUrl("/leads/bulk-classify"), {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: sid },
           });
@@ -572,7 +573,7 @@ function AILeads() {
         // Try to load saved mapping first
         let savedMapping = null;
         try {
-          const res = await fetch(buildApiUrl(`/leads/import/csv/mapping?columns=${encodeURIComponent(columns.join(","))}`), {
+          const res = await authFetch(buildApiUrl(`/leads/import/csv/mapping?columns=${encodeURIComponent(columns.join(","))}`), {
             headers: { Authorization: sessionId },
           });
           if (res.ok) {
@@ -648,7 +649,7 @@ function AILeads() {
 
         // Save column mapping for future use
         try {
-          await fetch(buildApiUrl(`/leads/import/csv/mapping`), {
+          await authFetch(buildApiUrl(`/leads/import/csv/mapping`), {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: sessionId },
             body: JSON.stringify({ 
@@ -679,7 +680,7 @@ function AILeads() {
         const formData = new FormData();
         formData.append("file", blob, "import.csv");
         
-        res = await fetch(buildApiUrl(`/leads/import/csv`), {
+        res = await authFetch(buildApiUrl(`/leads/import/csv`), {
           method: "POST",
           headers: { Authorization: sessionId },
           body: formData,
@@ -697,7 +698,7 @@ function AILeads() {
 
           const csvPoll = setInterval(async () => {
             try {
-              const statusRes = await fetch(
+              const statusRes = await authFetch(
                 buildApiUrl(`/leads/import/csv/status/${csvResult.job_id}`),
                 { headers: { Authorization: sessionId } }
               );
@@ -756,7 +757,7 @@ function AILeads() {
         // Parse industries from comma-separated input
         const industries = webSearchIndustry ? webSearchIndustry.split(",").map(i => i.trim()).filter(Boolean) : [];
         
-        res = await fetch(buildApiUrl(`/leads/import/web-search`), {
+        res = await authFetch(buildApiUrl(`/leads/import/web-search`), {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: sessionId },
           body: JSON.stringify({
@@ -791,7 +792,7 @@ function AILeads() {
           // Start polling interval for status updates
           const pollInterval = setInterval(async () => {
             try {
-              const statusRes = await fetch(
+              const statusRes = await authFetch(
                 buildApiUrl(`/leads/import/web-search/status/${jobResult.job_id}`),
                 { headers: { Authorization: sessionId } }
               );
@@ -912,7 +913,7 @@ function AILeads() {
     }
     
     try {
-      const res = await fetch(buildApiUrl(`/vendor-leads/transfer-from-ai-database`), {
+      const res = await authFetch(buildApiUrl(`/vendor-leads/transfer-from-ai-database`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -948,7 +949,7 @@ function AILeads() {
     let failCount = 0;
     for (const id of ids) {
       try {
-        const res = await fetch(buildApiUrl(`/leads/${id}/move-to-contacts`), {
+        const res = await authFetch(buildApiUrl(`/leads/${id}/move-to-contacts`), {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: sessionId },
           body: JSON.stringify({ stage: "discovery_call" }),
@@ -977,7 +978,7 @@ function AILeads() {
     }
     
     try {
-      const res = await fetch(buildApiUrl(`/vendor-leads/bulk-transfer-from-ai-database`), {
+      const res = await authFetch(buildApiUrl(`/vendor-leads/bulk-transfer-from-ai-database`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1008,7 +1009,7 @@ function AILeads() {
       return;
     }
     try {
-      const res = await fetch(buildApiUrl(`/leads/bulk-service-type`), {
+      const res = await authFetch(buildApiUrl(`/leads/bulk-service-type`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1042,7 +1043,7 @@ function AILeads() {
     
     setDeletingAllLeads(true);
     try {
-      const res = await fetch(buildApiUrl(`/leads/all`), {
+      const res = await authFetch(buildApiUrl(`/leads/all`), {
         method: "DELETE",
         headers: { Authorization: sessionId },
       });
@@ -1071,7 +1072,7 @@ function AILeads() {
     setGmailImportProgress({ status: "running", progress: 0, extracted: 0, enriched: 0, duplicates: 0 });
     
     try {
-      const res = await fetch(buildApiUrl(`/leads/emails/extract`), {
+      const res = await authFetch(buildApiUrl(`/leads/emails/extract`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({
@@ -1123,7 +1124,7 @@ function AILeads() {
 
   const checkDiscoveryStatus = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/leads/discover/status`), {
+      const res = await authFetch(buildApiUrl(`/leads/discover/status`), {
         headers: { Authorization: sessionId }
       });
       if (res.ok) {
@@ -1146,7 +1147,7 @@ function AILeads() {
     
     try {
       // Use new direct discovery endpoint - finds contacts directly without Google CSE
-      const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
+      const res = await authFetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
@@ -1205,7 +1206,7 @@ function AILeads() {
     setDiscoveryError("");
     
     try {
-      const res = await fetch(buildApiUrl(`/leads/discover/contacts`), {
+      const res = await authFetch(buildApiUrl(`/leads/discover/contacts`), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
@@ -1261,7 +1262,7 @@ function AILeads() {
     setDiscoveryError("");
     
     try {
-      const res = await fetch(buildApiUrl(`/leads/discover/import`), {
+      const res = await authFetch(buildApiUrl(`/leads/discover/import`), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
@@ -1305,7 +1306,7 @@ function AILeads() {
     setClassifying(true);
     try {
       // When leadIds is null, classify ALL pending leads (no batch_size limit)
-      const res = await fetch(buildApiUrl(`/leads/classify`), {
+      const res = await authFetch(buildApiUrl(`/leads/classify`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({ lead_ids: leadIds }),
@@ -1330,7 +1331,7 @@ function AILeads() {
   const handleBulkICP = async () => {
     setClassifying(true);
     try {
-      const res = await fetch(buildApiUrl(`/leads/bulk-classify`), {
+      const res = await authFetch(buildApiUrl(`/leads/bulk-classify`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
       });
@@ -1708,7 +1709,7 @@ function AILeads() {
               if (!bulkIcpSegment) return;
               const ids = Array.from(selectedIds);
               try {
-                const res = await fetch(buildApiUrl('/leads/bulk-icp-tag'), {
+                const res = await authFetch(buildApiUrl('/leads/bulk-icp-tag'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', Authorization: sessionId },
                   body: JSON.stringify({ lead_ids: ids, icp_segment: bulkIcpSegment }),
@@ -2328,7 +2329,7 @@ function AILeads() {
                             style={{ backgroundColor: "#ef4444", color: "white", padding: "0.25rem 0.75rem" }}
                             onClick={async () => {
                               try {
-                                const res = await fetch(
+                                const res = await authFetch(
                                   buildApiUrl(`/leads/import/web-search/stop/${webSearchProgress.job_id}`),
                                   { method: "POST", headers: { Authorization: sessionId } }
                                 );

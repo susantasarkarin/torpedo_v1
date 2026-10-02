@@ -6,6 +6,7 @@ import "./CreateContacts.css"
 import { API_BASE_URL } from "../../../config"  // ✅ uses env variable
 import { buildApiUrl } from "../../../config"
 import { notify } from "../../../utils/notify"
+import { authFetch } from "../../../utils/api"
 
 function CreateContacts({ onBack, listName }) {
   const navigate = useNavigate()
@@ -84,7 +85,7 @@ function CreateContacts({ onBack, listName }) {
       throw new Error("No session")
     }
 
-    const res = await fetch(buildApiUrl(`${path}`), {
+    const res = await authFetch(buildApiUrl(`${path}`), {
       ...options,
       headers: {
         "Content-Type": "application/json",

@@ -132,7 +132,6 @@ const Settings = lazy(() => import("./pages/Settings"))
 const LogsPage = lazy(() => import("./pages/LogsPage"))
 
 // Projects Page
-const Projects = lazy(() => import("./pages/Projects"))
 
 // Support Page
 const Support = lazy(() => import("./pages/Support"))
@@ -331,7 +330,8 @@ function App() {
         <Route path="panel-admin/settings" element={<LazyPage><PanelSettings /></LazyPage>} />
 
         {/* Projects - Project Management */}
-        <Route path="projects" element={<LazyPage><Projects /></LazyPage>} />
+        {/* the old standalone Projects page duplicated Operations > Projects */}
+        <Route path="projects" element={<Navigate to="/admin/operations/projects" replace />} />
 
         {/* Support - Ticket Management */}
         <Route path="support" element={<LazyPage><Support /></LazyPage>} />

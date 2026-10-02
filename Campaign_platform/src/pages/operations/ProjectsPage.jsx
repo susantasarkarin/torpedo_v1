@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import "./ProjectsPage.css";
 import { buildApiUrl } from "../../config";
-import { fetchAllClients } from "../../utils/api"
+import { fetchAllClients, authFetch } from "../../utils/api"
 import { qreApi } from "../../services/qreApi";
 import { confirmAction, notify } from "../../utils/notify"
 
@@ -214,7 +214,7 @@ function ProjectsPage() {
 
     const fetchProjects = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/projects/`), {
+        const res = await authFetch(buildApiUrl(`/projects/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -238,7 +238,7 @@ function ProjectsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/api/vendors/`), {
+        const res = await authFetch(buildApiUrl(`/api/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -281,7 +281,7 @@ function ProjectsPage() {
 
     const fetchRfqs = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/api/rfq/?page=1&limit=200`), {
+        const res = await authFetch(buildApiUrl(`/api/rfq/?page=1&limit=200`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -332,7 +332,7 @@ function ProjectsPage() {
     if (!pids.length) return;
     const unique = [...new Set(pids)];
     Promise.all(unique.map(pid =>
-      fetch(buildApiUrl(`/api/traffic/project-stats?pid=${encodeURIComponent(pid)}`), {
+      authFetch(buildApiUrl(`/api/traffic/project-stats?pid=${encodeURIComponent(pid)}`), {
         headers: { Authorization: sessionId },
       })
         .then(r => (r.ok ? r.json() : null))
@@ -589,7 +589,7 @@ function ProjectsPage() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/projects/${id}`), {
+      const res = await authFetch(buildApiUrl(`/projects/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

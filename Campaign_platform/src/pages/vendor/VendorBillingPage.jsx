@@ -6,6 +6,8 @@ import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
+import { formatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 
 function VendorBillingPage() {
   const navigate = useNavigate()
@@ -39,7 +41,7 @@ function VendorBillingPage() {
       setLoading(true)
       
       // Fetch vendor invoices
-      const res = await fetch(buildApiUrl(`/vendor-invoices`))
+      const res = await authFetch(buildApiUrl(`/vendor-invoices`))
       
       if (res.ok) {
         const data = await res.json()
@@ -117,9 +119,7 @@ function VendorBillingPage() {
     return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "USD")
 
   const openCreate = () => {
     setEditingInvoice(null)
@@ -145,7 +145,7 @@ function VendorBillingPage() {
     if (!(await confirmAction("Are you sure you want to delete this invoice?"))) return
     
     try {
-      await fetch(buildApiUrl(`/vendor-invoices/${id}`), { method: "DELETE" })
+      await authFetch(buildApiUrl(`/vendor-invoices/${id}`), { method: "DELETE" })
       setInvoices(invoices.filter(i => i._id !== id))
     } catch (err) {
       console.error("Error deleting invoice:", err)

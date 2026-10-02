@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { buildApiUrl } from "../config"
 import { cancelPolling, pollOperation, OperationStatus } from "../utils/asyncOperations"
 import { formatDateTime } from "../utils/format"
+import { authFetch } from "../utils/api"
 import "./LogsPage.css"
 
 // Helper to get auth token - handles both storage methods
@@ -24,7 +25,7 @@ function LogsPage() {
       setError(null)
       const token = getAuthToken()
 
-      const response = await fetch(buildApiUrl(`/settings/logs?lines=${lines}`), {
+      const response = await authFetch(buildApiUrl(`/settings/logs?lines=${lines}`), {
         headers: { Authorization: token }
       })
 

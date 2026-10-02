@@ -8,7 +8,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { Save, CheckCircle, Copy, ExternalLink, Link } from "lucide-react";
-import api from "../../utils/api";
+import api, { authFetch } from "../../utils/api";
 
 // ─── Questionnaire schema (IDFC FIRST Bank Mystery Shopping) ─────────────────
 export const QUESTIONNAIRE = {
@@ -583,7 +583,7 @@ function MSExportTab() {
     setBusy(format);
     try {
       const token = localStorage.getItem("session_id") || "";
-      const res = await fetch(`/api/mystery-shopping/audits/export?format=${format}`, {
+      const res = await authFetch(`/api/mystery-shopping/audits/export?format=${format}`, {
         headers: { Authorization: token },
         credentials: "include",
       });
@@ -643,7 +643,7 @@ function MSLiveLinkTab() {
   const generate = async () => {
     setGenerating(true);
     try {
-      const res = await fetch("/api/mystery-shopping/public/new", { method: "POST" });
+      const res = await authFetch("/api/mystery-shopping/public/new", { method: "POST" });
       const data = await res.json();
       const url = `${window.location.origin}/mystery-shopper/${data.id}`;
       setLiveUrl(url);

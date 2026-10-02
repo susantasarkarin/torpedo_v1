@@ -6,6 +6,7 @@ import { API_BASE_URL, buildApiUrl } from "../config"
 import { cancelPolling, pollOperation } from "../utils/asyncOperations"
 import { confirmAction, notify } from "../utils/notify"
 import { formatDate as fmtDate, formatDateTime, formatTime, toDate } from "../utils/format"
+import { authFetch } from "../utils/api"
 import "./Settings.css"
 
 // Segment colors for labels - DEPRECATED: Now using AI categories
@@ -382,7 +383,7 @@ function MailPool() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/gmail/mail-pool/stats`), {
+      const res = await authFetch(buildApiUrl(`/gmail/mail-pool/stats`), {
         headers: { Authorization: sessionId },
         signal: AbortSignal.timeout(20000),
       })
@@ -442,7 +443,7 @@ function MailPool() {
           
           // Fetch signatures from Gmail API to get accurate signature data
           try {
-            const sigRes = await fetch(buildApiUrl(`/gmail-ws/signatures`), {
+            const sigRes = await authFetch(buildApiUrl(`/gmail-ws/signatures`), {
               headers: { Authorization: sessionId },
               signal: AbortSignal.timeout(8000),
             })
@@ -507,7 +508,7 @@ function MailPool() {
     const sessionId = localStorage.getItem("session_id")
     try {
       // First get the email to find its thread_id
-      const res = await fetch(buildApiUrl(`/gmail/mail-pool/emails/${emailId}`), {
+      const res = await authFetch(buildApiUrl(`/gmail/mail-pool/emails/${emailId}`), {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
@@ -517,7 +518,7 @@ function MailPool() {
         // If email has a thread_id, fetch all emails in the thread
         if (data.email.thread_id) {
           try {
-            const threadRes = await fetch(buildApiUrl(`/gmail/mail-pool/thread/${data.email.thread_id}`), {
+            const threadRes = await authFetch(buildApiUrl(`/gmail/mail-pool/thread/${data.email.thread_id}`), {
               headers: { Authorization: sessionId },
             })
             const threadData = await threadRes.json()
@@ -547,7 +548,7 @@ function MailPool() {
 
     setReviewLoading(true)
     try {
-      const res = await fetch(buildApiUrl(`/review-queue/pending?limit=100`), {
+      const res = await authFetch(buildApiUrl(`/review-queue/pending?limit=100`), {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
@@ -605,7 +606,7 @@ function MailPool() {
   const fetchContactInfo = async (email, name, company) => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`/gmail/mail-pool/contact?email=${encodeURIComponent(email)}`), {
+      const res = await authFetch(buildApiUrl(`/gmail/mail-pool/contact?email=${encodeURIComponent(email)}`), {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
@@ -686,7 +687,7 @@ function MailPool() {
       const signatureHtml = signatures[selectedAlias] || null
       
       // Use Gmail API endpoint (not IMAP/SMTP)
-      const res = await fetch(buildApiUrl(`/gmail-ws/send`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/send`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -742,7 +743,7 @@ function MailPool() {
 
     setRecategorizing(true)
     try {
-      const res = await fetch(buildApiUrl(`/email-sync/recategorize-all`), {
+      const res = await authFetch(buildApiUrl(`/email-sync/recategorize-all`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -812,7 +813,7 @@ function MailPool() {
         timeout: 600000,
         statusFetcher: async () => {
           const sessionId = localStorage.getItem("session_id")
-          const res = await fetch(buildApiUrl(`/email-sync/recategorize-status/${taskId}`), {
+          const res = await authFetch(buildApiUrl(`/email-sync/recategorize-status/${taskId}`), {
             headers: { Authorization: sessionId },
           })
           return res.json()
@@ -836,7 +837,7 @@ function MailPool() {
     if (!sessionId) { navigate("/admin/login"); return }
     setImporting(true); setImportResult(null)
     try {
-      const res = await fetch(buildApiUrl("/classified-gmail/batch/process?auto_move=true&limit=100"), {
+      const res = await authFetch(buildApiUrl("/classified-gmail/batch/process?auto_move=true&limit=100"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
       })
@@ -862,7 +863,7 @@ function MailPool() {
 
     setClassifying(true)
     try {
-      const res = await fetch(buildApiUrl(`/gmail/mail-pool/classify`), {
+      const res = await authFetch(buildApiUrl(`/gmail/mail-pool/classify`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -941,7 +942,7 @@ function MailPool() {
         timeout: 600000,
         statusFetcher: async () => {
           const sessionId = localStorage.getItem("session_id")
-          const res = await fetch(buildApiUrl(`/gmail/mail-pool/classify/status/${taskId}`), {
+          const res = await authFetch(buildApiUrl(`/gmail/mail-pool/classify/status/${taskId}`), {
             headers: { Authorization: sessionId },
           })
           return res.json()
@@ -1077,7 +1078,7 @@ function MailPool() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/email-sync/recategorize-all`), {
+      const res = await authFetch(buildApiUrl(`/email-sync/recategorize-all`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "../../config";
 import { confirmAction, notify } from "../../utils/notify"
 import { formatTime } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 import "./YieldManagement.css";
 
 const STATUS_COLORS = {
@@ -59,9 +60,9 @@ function YieldManagement() {
       if (statusFilter) params.set("status", statusFilter);
 
       const [survRes, buyRes, thrRes] = await Promise.all([
-        fetch(buildApiUrl(`/api/cint/yield-dashboard?${params}`)),
-        fetch(buildApiUrl("/api/cint/buyer-stats")),
-        fetch(buildApiUrl("/api/cint/yield-thresholds")),
+        authFetch(buildApiUrl(`/api/cint/yield-dashboard?${params}`)),
+        authFetch(buildApiUrl("/api/cint/buyer-stats")),
+        authFetch(buildApiUrl("/api/cint/yield-thresholds")),
       ]);
 
       if (!survRes.ok) throw new Error(`Yield dashboard: ${survRes.status}`);
@@ -101,7 +102,7 @@ function YieldManagement() {
 
     setActionPending(survey.survey_id);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         buildApiUrl(`/api/cint/surveys/${survey.survey_id}/yield-status`),
         {
           method: "PATCH",
@@ -121,7 +122,7 @@ function YieldManagement() {
   const handleSaveThresholds = async () => {
     setThresholdSaving(true);
     try {
-      const res = await fetch(buildApiUrl("/api/cint/yield-thresholds"), {
+      const res = await authFetch(buildApiUrl("/api/cint/yield-thresholds"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editThresholds),

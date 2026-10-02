@@ -8,6 +8,8 @@ import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 
 // Helper to get auth token - handles both storage methods
 const getAuthToken = () => localStorage.getItem("session_id") || sessionStorage.getItem("token")
@@ -144,7 +146,7 @@ function RFQ() {
   const loadStats = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/stats?direction=${direction}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/stats?direction=${direction}`), {
         headers: { Authorization: token }
       })
       
@@ -173,7 +175,7 @@ function RFQ() {
   const loadCustomers = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/customers/`), {
+      const response = await authFetch(buildApiUrl(`/finance/customers/`), {
         headers: { Authorization: token }
       })
       
@@ -254,7 +256,7 @@ function RFQ() {
     setSaving(true)
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: { 
           Authorization: token,
@@ -297,7 +299,7 @@ function RFQ() {
 
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: {
           Authorization: token,
@@ -332,7 +334,7 @@ function RFQ() {
     
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "DELETE",
         headers: { Authorization: token }
       })
@@ -369,7 +371,7 @@ function RFQ() {
     setCreating(true)
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -409,7 +411,7 @@ function RFQ() {
     
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/bulk-delete`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/bulk-delete`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -457,11 +459,11 @@ function RFQ() {
   // detected or set, specifically so an unpriced/uncurrencied RFQ doesn't
   // show a currency symbol nobody chose. Match that here: no currency means
   // no symbol, not a silent guess.
+  // unknown currency: the number alone, so a guess never shows as a currency
   const formatCurrency = (value, currency) => {
     if (!value && value !== 0) return "—"
-    const currencyInfo = CURRENCIES.find(c => c.code === currency)
-    if (!currencyInfo) return value.toLocaleString()
-    return `${currencyInfo.symbol}${value.toLocaleString()}`
+    if (!CURRENCIES.find(c => c.code === currency)) return Number(value).toLocaleString("en-IN")
+    return formatMoney(value, currency)
   }
 
   // Cost per interview/complete — value ÷ sample size. Not an extracted field;
@@ -480,7 +482,7 @@ function RFQ() {
   const loadRfqDetails = async (rfqId) => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         headers: { Authorization: token }
       })
       
@@ -501,7 +503,7 @@ function RFQ() {
       const body = {}
       body[field] = value
       
-      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
+      const response = await authFetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: { 
           Authorization: token,

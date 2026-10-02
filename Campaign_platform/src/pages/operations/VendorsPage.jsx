@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"; // adjust path if needed
 import "./VendorsPage.css";
 import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function VendorsPage() {
   const navigate = useNavigate(); // ✅ must be defined first
@@ -42,7 +43,7 @@ function VendorsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/api/vendors/`), {
+        const res = await authFetch(buildApiUrl(`/api/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -156,7 +157,7 @@ function VendorsPage() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/api/vendors/${id}`), {
+      const res = await authFetch(buildApiUrl(`/api/vendors/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

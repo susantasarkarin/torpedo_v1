@@ -7,10 +7,10 @@ import { RefreshCw, TrendingUp, GitMerge } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal } from "./CrmNav";
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency";
 import "../../styles/crm-ui.css";
 
-const fmt = (n) =>
-  typeof n === "number" ? n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "—";
+const fmt = (n) => (typeof n === "number" ? formatMoney(n, "USD") : "—");
 
 export default function CrmReports() {
   const [pipeline, setPipeline] = useState(null);

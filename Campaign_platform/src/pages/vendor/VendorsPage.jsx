@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function VendorsPage() {
   const navigate = useNavigate()
@@ -39,7 +40,7 @@ function VendorsPage() {
       setLoading(true)
       
       // Fetch unified vendors
-      const res = await fetch(buildApiUrl(`/vendors/unified`))
+      const res = await authFetch(buildApiUrl(`/vendors/unified`))
       
       if (res.ok) {
         const data = await res.json()
@@ -145,7 +146,7 @@ function VendorsPage() {
     if (!(await confirmAction("Are you sure you want to delete this vendor?"))) return
     
     try {
-      await fetch(buildApiUrl(`/vendors/${id}`), { method: "DELETE" })
+      await authFetch(buildApiUrl(`/vendors/${id}`), { method: "DELETE" })
       setVendors(vendors.filter(v => v._id !== id))
     } catch (err) {
       console.error("Error deleting vendor:", err)

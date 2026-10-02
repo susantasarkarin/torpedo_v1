@@ -6,6 +6,7 @@ import "./TrafficManagement.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 
 // Status badge color mapping
 const statusColors = {
@@ -51,7 +52,7 @@ export default function TrafficManagement() {
       if (statusFilter) params.append("status", statusFilter)
       if (search) params.append("search", search)
 
-      const res = await fetch(buildApiUrl(`/api/traffic/list?${params}`), {
+      const res = await authFetch(buildApiUrl(`/api/traffic/list?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -93,7 +94,7 @@ export default function TrafficManagement() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(buildApiUrl(`/api/traffic/stats`), {
+      const res = await authFetch(buildApiUrl(`/api/traffic/stats`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -179,7 +180,7 @@ export default function TrafficManagement() {
 
     setDeleting(true)
     try {
-      const res = await fetch(buildApiUrl(`/api/traffic/delete`), {
+      const res = await authFetch(buildApiUrl(`/api/traffic/delete`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -223,7 +224,7 @@ export default function TrafficManagement() {
       if (search) params.append("search", search)
       params.append("limit", "50000") // Max export limit
 
-      const res = await fetch(buildApiUrl(`/api/traffic/export/csv?${params}`), {
+      const res = await authFetch(buildApiUrl(`/api/traffic/export/csv?${params}`), {
         headers: {
           Authorization: sessionId,
         },

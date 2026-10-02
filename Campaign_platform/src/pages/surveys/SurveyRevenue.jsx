@@ -6,9 +6,10 @@ import { useEffect, useState } from "react";
 import { TrendingUp, RefreshCw, Clock } from "lucide-react";
 import api from "../../utils/api";
 import { formatDateTime } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
 import "../../styles/crm-ui.css";
 
-const fmtMoney = (n) => (typeof n === "number" && !Number.isNaN(n) ? `$${n.toFixed(2)}` : "—");
+const fmtMoney = (n) => (typeof n === "number" && !Number.isNaN(n) ? formatMoney(n, "USD", { decimals: 2 }) : "—");
 
 const BASIS_LABEL = {
   conversion_rate: "actual conversion",

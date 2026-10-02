@@ -7,6 +7,7 @@ import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 import { confirmAction, notify } from "../../utils/notify"
+import { formatMoney } from "../../utils/currency"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -350,13 +351,7 @@ function VendorsPage() {
     fetchVendors(1, ps, searchTerm)
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   // Export vendors to CSV
   const handleExportCSV = async () => {

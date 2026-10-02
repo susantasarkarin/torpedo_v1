@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../config"
 import { confirmAction } from "../utils/notify"
+import { authFetch } from "../utils/api"
 
 function UserManagement() {
     const [users, setUsers] = useState([])
@@ -41,7 +42,7 @@ function UserManagement() {
         setError(null)
         try {
             const token = getAuthToken()
-            const res = await fetch(buildApiUrl("/admin/users/"), {
+            const res = await authFetch(buildApiUrl("/admin/users/"), {
                 headers: { Authorization: token }
             })
 
@@ -64,7 +65,7 @@ function UserManagement() {
     const fetchRoles = async () => {
         try {
             const token = getAuthToken()
-            const res = await fetch(buildApiUrl("/admin/roles/"), {
+            const res = await authFetch(buildApiUrl("/admin/roles/"), {
                 headers: { Authorization: token }
             })
 
@@ -84,7 +85,7 @@ function UserManagement() {
         setSuccess(null)
         try {
             const token = getAuthToken()
-            const res = await fetch(buildApiUrl(`/admin/users/${userId}`), {
+            const res = await authFetch(buildApiUrl(`/admin/users/${userId}`), {
                 method: "DELETE",
                 headers: { Authorization: token }
             })
@@ -148,7 +149,7 @@ function UserManagement() {
 
         try {
             const token = getAuthToken()
-            const res = await fetch(buildApiUrl(`/admin/users/${resetPasswordUser.id}/reset-password`), {
+            const res = await authFetch(buildApiUrl(`/admin/users/${resetPasswordUser.id}/reset-password`), {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",

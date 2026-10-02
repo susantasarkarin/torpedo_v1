@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
 import { buildApiUrl } from "../../../config"
-import { fetchAllClients } from "../../../utils/api"
+import { fetchAllClients, authFetch } from "../../../utils/api"
 import { notify } from "../../../utils/notify"
 import { formatDateTime } from "../../../utils/format"
 // Temporarily disabled for debugging
@@ -75,7 +75,7 @@ export default function SurveyPool() {
     setCintEntryLink(null);
     
     try {
-      const response = await fetch(
+      const response = await authFetch(
         buildApiUrl(`/api/cint/entry-links/${surveyId}`),
         {
           headers: {
@@ -113,7 +113,7 @@ export default function SurveyPool() {
     const frontendBase = 'https://surveyfieldwork.com';
     
     try {
-      const response = await fetch(
+      const response = await authFetch(
         buildApiUrl(`/api/cint/entry-links/${surveyId}`),
         {
           method: 'POST',
@@ -206,7 +206,7 @@ export default function SurveyPool() {
     try {
       // Fetch CINT surveys (mounted at /api/cint in backend)
       const cintQuery = `/api/cint/surveys?page=1&page_size=1000&show_all=true`;
-      const cintResponse = await fetch(buildApiUrl(cintQuery), {
+      const cintResponse = await authFetch(buildApiUrl(cintQuery), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -256,7 +256,7 @@ export default function SurveyPool() {
   // Fetch traffic stats for all surveys
   const fetchTrafficStats = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/api/traffic/surveys-stats`), {
+      const response = await authFetch(buildApiUrl(`/api/traffic/surveys-stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -284,7 +284,7 @@ export default function SurveyPool() {
   // Fetch pool statistics
   const fetchPoolStats = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/api/survey-pool/stats`), {
+      const response = await authFetch(buildApiUrl(`/api/survey-pool/stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -306,7 +306,7 @@ export default function SurveyPool() {
     let cintResult = null;
     
     try {
-      const cintSyncResponse = await fetch(buildApiUrl(`/api/cint/sync-active-status`), {
+      const cintSyncResponse = await authFetch(buildApiUrl(`/api/cint/sync-active-status`), {
         method: 'POST',
         headers: {
           'Authorization': token,
@@ -365,7 +365,7 @@ export default function SurveyPool() {
     const surveyId = survey.survey_id || survey.id || survey._id;
     
     try {
-      const response = await fetch(buildApiUrl(`/api/survey-pool/toggle/${provider}/${surveyId}`), {
+      const response = await authFetch(buildApiUrl(`/api/survey-pool/toggle/${provider}/${surveyId}`), {
         method: 'POST',
         headers: {
           'Authorization': token,

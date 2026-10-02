@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 import "./campaign/AILeads.css"
 
 const BASKET_COLORS = {
@@ -86,7 +87,7 @@ function LeadStatusBadge({ lead, sessionId, onUpdated }) {
     if (newStatus === current) return
     setSaving(true)
     try {
-      const res = await fetch(buildApiUrl(`/leads/${lead._id}/status`), {
+      const res = await authFetch(buildApiUrl(`/leads/${lead._id}/status`), {
         method: "PATCH",
         headers: { Authorization: sessionId, "Content-Type": "application/json" },
         body: JSON.stringify({ lead_status: newStatus }),
@@ -147,7 +148,7 @@ function Leads() {
       if (source) params.set("source", source)
       if (leadStatus) params.set("lead_status", leadStatus)
 
-      const res = await fetch(buildApiUrl(`/leads?${params}`), {
+      const res = await authFetch(buildApiUrl(`/leads?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.status === 401) { localStorage.removeItem("session_id"); navigate("/login"); return }
@@ -170,7 +171,7 @@ function Leads() {
     setImportingRfqs(true)
     setImportResult(null)
     try {
-      const res = await fetch(buildApiUrl("/leads/import/from-rfqs"), {
+      const res = await authFetch(buildApiUrl("/leads/import/from-rfqs"), {
         method: "POST",
         headers: { Authorization: sessionId, "Content-Type": "application/json" },
         body: JSON.stringify({ skip_classification: true }),
@@ -190,7 +191,7 @@ function Leads() {
     if (!sessionId) return
     setSyncingReplies(true)
     try {
-      const res = await fetch(buildApiUrl("/api/cold-outreach/sync-replies-to-leads"), {
+      const res = await authFetch(buildApiUrl("/api/cold-outreach/sync-replies-to-leads"), {
         method: "POST",
         headers: { Authorization: sessionId },
       })

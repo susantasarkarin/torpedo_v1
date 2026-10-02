@@ -16,6 +16,8 @@ import {
   BarChart3
 } from "lucide-react"
 import { formatDateTime } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 
 // ============== COMPACT STYLES ==============
 const styles = {
@@ -325,13 +327,7 @@ const styles = {
 }
 
 // ============== HELPERS ==============
-const formatCurrency = (amount) => {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(amount || 0)
-}
+const formatCurrency = (amount) => formatMoney(amount || 0, "USD")
 
 const formatPercent = (value) => `${(value || 0).toFixed(1)}%`
 
@@ -585,7 +581,7 @@ export default function SalesDashboard() {
         role: role,
         target: target.toString()
       })
-      const response = await fetch(buildApiUrl(`/sales/dashboard?${params}`))
+      const response = await authFetch(buildApiUrl(`/sales/dashboard?${params}`))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setData(await response.json())
     } catch (err) {

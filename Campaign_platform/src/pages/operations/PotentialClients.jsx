@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
-import { fetchAllClients } from "../../utils/api"
+import { fetchAllClients, authFetch } from "../../utils/api"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import "./PotentialClients.css";
@@ -50,7 +50,7 @@ function PotentialClients() {
   // Load the shared roster from the backend (overwrites localStorage seed)
   const loadRosterFromBackend = async () => {
     try {
-      const res = await fetch(buildApiUrl("/api/operations/potential-clients/roster"), {
+      const res = await authFetch(buildApiUrl("/api/operations/potential-clients/roster"), {
         headers: { Authorization: token, "Content-Type": "application/json" },
       });
       if (res.ok) {
@@ -95,7 +95,7 @@ function PotentialClients() {
       }
       // Persist to backend (shared across all users/devices)
       if (token) {
-        fetch(buildApiUrl("/api/operations/potential-clients/roster"), {
+        authFetch(buildApiUrl("/api/operations/potential-clients/roster"), {
           method: "PUT",
           headers: { Authorization: token, "Content-Type": "application/json" },
           body: JSON.stringify({ clients: updated }),
@@ -109,7 +109,7 @@ function PotentialClients() {
     setError(null);
 
     try {
-      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=1000&show_all=true"), {
+      const cpxResponse = await authFetch(buildApiUrl("/cpx/surveys?page=1&page_size=1000&show_all=true"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
@@ -117,7 +117,7 @@ function PotentialClients() {
       });
 
       const cintQuery = "/api/cint/surveys?page=1&page_size=1000&show_all=true";
-      const cintResponse = await fetch(buildApiUrl(cintQuery), {
+      const cintResponse = await authFetch(buildApiUrl(cintQuery), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
@@ -243,7 +243,7 @@ function PotentialClients() {
   // Fetch enriched leads data
   const fetchEnrichedLeads = useCallback(async () => {
     try {
-      const response = await fetch(buildApiUrl("/api/operations/potential-clients/enriched?limit=500"), {
+      const response = await authFetch(buildApiUrl("/api/operations/potential-clients/enriched?limit=500"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
@@ -277,7 +277,7 @@ function PotentialClients() {
   const enrichCompany = async (companyName) => {
     setEnrichingCompany(companyName);
     try {
-      const response = await fetch(buildApiUrl("/api/operations/potential-clients/enrich"), {
+      const response = await authFetch(buildApiUrl("/api/operations/potential-clients/enrich"), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -316,7 +316,7 @@ function PotentialClients() {
 
     setAutoEnriching(true);
     try {
-      const response = await fetch(buildApiUrl("/api/operations/potential-clients/auto-enrich"), {
+      const response = await authFetch(buildApiUrl("/api/operations/potential-clients/auto-enrich"), {
         method: "POST",
         headers: {
           Authorization: token,

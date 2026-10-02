@@ -11,6 +11,7 @@ import "./Contacts.css"
 import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function Contacts() {
   const navigate = useNavigate();
@@ -76,7 +77,7 @@ function Contacts() {
           limit: String(recordsPerPage),
         });
         if (search) params.set("search", search);
-        const res = await fetch(buildApiUrl(`/leads?${params}`), {
+        const res = await authFetch(buildApiUrl(`/leads?${params}`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -220,7 +221,7 @@ function Contacts() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/contacts/${id}`), {
+      const res = await authFetch(buildApiUrl(`/contacts/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -256,7 +257,7 @@ function Contacts() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/contacts/bulk-delete`), {
+      const res = await authFetch(buildApiUrl(`/contacts/bulk-delete`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

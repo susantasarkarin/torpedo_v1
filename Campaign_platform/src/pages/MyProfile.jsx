@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import UserManagement from "../components/UserManagement"
 import { formatDate } from "../utils/format"
+import { authFetch } from "../utils/api"
 import "./Settings.css"
 
 function MyProfile() {
@@ -49,7 +50,7 @@ function MyProfile() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/api/profile/`), {
+      const res = await authFetch(buildApiUrl(`/api/profile/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -82,7 +83,7 @@ function MyProfile() {
   const fetchRoles = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`/admin/roles/`), {
+      const res = await authFetch(buildApiUrl(`/admin/roles/`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -121,7 +122,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(buildApiUrl(`/api/profile/update`), {
+      const res = await authFetch(buildApiUrl(`/api/profile/update`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -174,7 +175,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(buildApiUrl(`/api/profile/change-password`), {
+      const res = await authFetch(buildApiUrl(`/api/profile/change-password`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

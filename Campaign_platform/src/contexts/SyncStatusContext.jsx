@@ -15,6 +15,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import debounce from 'lodash/debounce';
 import { API_BASE_URL, buildApiUrl } from '../config';
+import { authFetch } from "../utils/api"
 
 // Storage key for localStorage
 const STORAGE_KEY = 'torpedo_sync_status';
@@ -336,7 +337,7 @@ export function SyncStatusProvider({ children }) {
   // Cancel a sync operation
   const cancelSync = useCallback(async (mailboxId) => {
     try {
-      const response = await fetch(buildApiUrl(`/gmail/sync/${encodeURIComponent(mailboxId)}/cancel`), {
+      const response = await authFetch(buildApiUrl(`/gmail/sync/${encodeURIComponent(mailboxId)}/cancel`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

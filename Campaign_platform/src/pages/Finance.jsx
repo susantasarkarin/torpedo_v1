@@ -5,6 +5,8 @@ import { useState, useEffect } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import { formatDateTime } from "../utils/format"
+import { formatMoney } from "../utils/currency"
+import { authFetch } from "../utils/api"
 import "./Finance.css"
 
 // Helper to get auth token - handles both storage methods
@@ -31,7 +33,7 @@ function Finance() {
     try {
       const token = getAuthToken()
 
-      const response = await fetch(buildApiUrl(`/finance/dashboard/summary`), {
+      const response = await authFetch(buildApiUrl(`/finance/dashboard/summary`), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
@@ -52,13 +54,7 @@ function Finance() {
     }
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const mockKpis = {
     revenue: { total_sales: 2450000, total_invoices: 45 },

@@ -13,6 +13,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "../../../config";
 import { formatTime } from "../../../utils/format"
+import { authFetch } from "../../../utils/api"
 import "./Workflow.css";
 
 const sessionId = localStorage.getItem("session_id") || "";
@@ -48,7 +49,7 @@ export default function Workflow() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(buildApiUrl("/leads/pipeline"), { headers: AUTH() });
+      const res = await authFetch(buildApiUrl("/leads/pipeline"), { headers: AUTH() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setStages(data.stages || []);
@@ -70,13 +71,13 @@ export default function Workflow() {
     setSyncResult(null);
     try {
       // 1. Scan for new bounces/replies
-      const scanRes = await fetch(buildApiUrl("/api/cold-outreach/scan-bounces-replies"), {
+      const scanRes = await authFetch(buildApiUrl("/api/cold-outreach/scan-bounces-replies"), {
         method: "POST", headers: AUTH(),
       });
       const scanData = await scanRes.json();
 
       // 2. Promote replied leads to CRM
-      const syncRes = await fetch(buildApiUrl("/api/cold-outreach/sync-replies-to-leads"), {
+      const syncRes = await authFetch(buildApiUrl("/api/cold-outreach/sync-replies-to-leads"), {
         method: "POST", headers: AUTH(),
       });
       const syncData = await syncRes.json();

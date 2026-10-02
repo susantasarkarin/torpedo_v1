@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { Link } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { formatDate } from "../../utils/format"
+import { formatMoney as sharedFormatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 import "./Accounts.css"
 import "../../styles/SalesPages.css"
 
@@ -16,18 +18,7 @@ const STATE_LABELS = {
   closed: "Closed",
 }
 
-const formatMoney = (value, currency = "INR") => {
-  const amount = Number(value || 0)
-  try {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount)
-  } catch {
-    return `${currency} ${amount.toLocaleString()}`
-  }
-}
+const formatMoney = (value, currency = "INR") => sharedFormatMoney(value || 0, currency)
 
 
 
@@ -52,7 +43,7 @@ function Accounts() {
       if (search) params.append("search", search)
       if (statusFilter) params.append("status", statusFilter)
 
-      const response = await fetch(buildApiUrl(`/sales/accounts?${params.toString()}`), {
+      const response = await authFetch(buildApiUrl(`/sales/accounts?${params.toString()}`), {
         headers: { Authorization: token },
       })
       if (!response.ok) throw new Error(`Failed to load accounts (${response.status})`)
@@ -77,7 +68,7 @@ function Accounts() {
     setOverview(null)
     try {
       const token = getAuthToken()
-      const response = await fetch(
+      const response = await authFetch(
         buildApiUrl(`/sales/accounts/${accountId}/overview`),
         { headers: { Authorization: token } }
       )

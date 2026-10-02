@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { buildApiUrl } from "../../config"
 import { notify } from "../../utils/notify"
+import { authFetch } from "../../utils/api"
 
 function CompanyDetail() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ function CompanyDetail() {
 
       setLoading(true);
       try {
-        const res = await fetch(buildApiUrl(`/contacts/`), {
+        const res = await authFetch(buildApiUrl(`/contacts/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../config"
+import { authFetch } from "../utils/api"
 
 const SEVERITY = {
   high: { bar: "#dc2626", bg: "#fef2f2", label: "Action needed" },
@@ -50,7 +51,7 @@ function Dashboard() {
     }
     const load = async () => {
       try {
-        const res = await fetch(buildApiUrl("/api/attention"), {
+        const res = await authFetch(buildApiUrl("/api/attention"), {
           headers: { "Content-Type": "application/json", Authorization: sessionId },
         })
         if (res.status === 401) {

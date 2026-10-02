@@ -6,6 +6,8 @@ import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
+import { formatMoney } from "../../utils/currency"
+import { authFetch } from "../../utils/api"
 
 function VendorPaymentsPage() {
   const navigate = useNavigate()
@@ -41,7 +43,7 @@ function VendorPaymentsPage() {
       setLoading(true)
       
       // Fetch vendor payments
-      const res = await fetch(buildApiUrl(`/vendor-payments`))
+      const res = await authFetch(buildApiUrl(`/vendor-payments`))
       
       if (res.ok) {
         const data = await res.json()
@@ -131,9 +133,7 @@ function VendorPaymentsPage() {
     return labels[method] || method
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "USD")
 
   const openCreate = () => {
     setEditingPayment(null)
@@ -161,7 +161,7 @@ function VendorPaymentsPage() {
     if (!(await confirmAction("Are you sure you want to delete this payment?"))) return
     
     try {
-      await fetch(buildApiUrl(`/vendor-payments/${id}`), { method: "DELETE" })
+      await authFetch(buildApiUrl(`/vendor-payments/${id}`), { method: "DELETE" })
       setPayments(payments.filter(p => p._id !== id))
     } catch (err) {
       console.error("Error deleting payment:", err)

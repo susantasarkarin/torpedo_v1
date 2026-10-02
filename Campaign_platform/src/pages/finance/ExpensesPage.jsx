@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../../config"
-import { DEFAULT_CURRENCY } from "../../utils/currency"
+import { DEFAULT_CURRENCY, formatMoney } from "../../utils/currency"
 import { Receipt, Search, Paperclip, Trash2, Loader2, Sparkles, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
@@ -154,13 +154,7 @@ function ExpensesPage() {
     }
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const filteredExpenses = expenses.filter((exp) => {
     const matchesSearch = exp.description?.toLowerCase().includes(searchTerm.toLowerCase())

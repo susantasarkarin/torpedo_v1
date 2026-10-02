@@ -3,6 +3,7 @@ import { buildApiUrl } from "../../config"
 import Papa from "papaparse"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
+import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -104,7 +105,7 @@ function PanelistManagement() {
   const fetchPromotionStatus = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promotion-status`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promotion-status`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) setPromotionStatus(await res.json())
@@ -118,7 +119,7 @@ function PanelistManagement() {
     setPromoteResult(null)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promote`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promote`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({}),
@@ -144,7 +145,7 @@ function PanelistManagement() {
   const fetchCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/countries`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/countries`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -159,7 +160,7 @@ function PanelistManagement() {
   const fetchLeadCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/countries`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/countries`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -182,7 +183,7 @@ function PanelistManagement() {
       if (leadSearch) params.append("search", leadSearch)
       if (countryFilter) params.append("country", countryFilter)
 
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/?${params}`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -209,7 +210,7 @@ function PanelistManagement() {
       if (countryFilter) params.append("country", countryFilter)
       params.append("status", "active")
 
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/with-email-status?${params}`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/with-email-status?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -295,7 +296,7 @@ function PanelistManagement() {
     const sessionId = localStorage.getItem("session_id")
 
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/upload-csv`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/upload-csv`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -335,7 +336,7 @@ function PanelistManagement() {
       }
       if (importRootKey.trim()) payload.root_key = importRootKey.trim()
 
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/import-link`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/import-link`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -369,7 +370,7 @@ function PanelistManagement() {
     setTestEmailResult(null)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/test-send`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/test-send`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({ to_email: testEmailAddress, first_name: testEmailName }),
@@ -393,7 +394,7 @@ function PanelistManagement() {
     try {
       const params = new URLSearchParams()
       if (countryFilter) params.append("country", countryFilter)
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/preview?${params}`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/preview?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -416,7 +417,7 @@ function PanelistManagement() {
       const body = {}
       if (countryFilter) body.country = countryFilter
 
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/send`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/send`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -466,7 +467,7 @@ function PanelistManagement() {
     const sr = overrides.search ?? sfwSearch
     try {
       const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 100), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}) })
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
       if (res.ok) {
         const data = await res.json()
         setSfwPanelists(data.panelists || [])
@@ -481,7 +482,7 @@ function PanelistManagement() {
     setSfwDetailLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists/${userId}`), { headers: { Authorization: sessionId } })
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists/${userId}`), { headers: { Authorization: sessionId } })
       if (res.ok) setSfwDetail(await res.json())
     } catch (err) { console.error("SFW detail error:", err) }
     finally { setSfwDetailLoading(false) }

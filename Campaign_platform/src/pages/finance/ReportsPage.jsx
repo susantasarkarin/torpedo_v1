@@ -11,6 +11,7 @@ import { Badge } from "../../components/ui/Badge"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import { formatDate } from "../../utils/format"
+import { formatMoney } from "../../utils/currency"
 
 // sidebar names -> this page's report ids (/admin/finance/reports/gst opens GST)
 const REPORT_FROM_URL = { gst: "gst-report", aging: "aging/receivables" }
@@ -141,13 +142,7 @@ function ReportsPage() {
     }
   }
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const reportTypes = [
     { id: "profit-loss", name: "Profit & Loss", icon: BarChart3 },

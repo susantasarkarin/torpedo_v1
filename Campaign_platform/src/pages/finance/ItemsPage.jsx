@@ -7,6 +7,7 @@ import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 import { confirmAction, notify } from "../../utils/notify"
+import { formatMoney } from "../../utils/currency"
 
 function ItemsPage() {
   const [items, setItems] = useState([])
@@ -147,13 +148,7 @@ function ItemsPage() {
 
   const filteredItems = items
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount || 0)
-  }
+  const formatCurrency = (amount) => formatMoney(amount || 0, "INR")
 
   const getStockStatus = (item) => {
     if (!item.track_inventory) return "not-tracked"

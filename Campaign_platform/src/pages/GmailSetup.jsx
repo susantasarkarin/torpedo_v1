@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import { confirmAction } from "../utils/notify"
 import { formatDateTime } from "../utils/format"
+import { authFetch } from "../utils/api"
 
 function GmailSetup() {
   const navigate = useNavigate()
@@ -44,7 +45,7 @@ function GmailSetup() {
     if (!auth) return
     
     try {
-      const res = await fetch(buildApiUrl(`/gmail-ws/config/status`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/config/status`), {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -63,7 +64,7 @@ function GmailSetup() {
     
     setLoading(true)
     try {
-      const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/mailboxes`), {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -98,7 +99,7 @@ function GmailSetup() {
     setMessage({ type: "info", text: "🤖 Starting AI classification of all downloaded emails..." })
     
     try {
-      const res = await fetch(buildApiUrl(`/gemini/classify-batch`), {
+      const res = await authFetch(buildApiUrl(`/gemini/classify-batch`), {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -136,7 +137,7 @@ function GmailSetup() {
       const fileContent = await serviceAccountFile.text()
       const credentials = JSON.parse(fileContent)
       
-      const res = await fetch(buildApiUrl(`/gmail-ws/config/service-account`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/config/service-account`), {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -178,7 +179,7 @@ function GmailSetup() {
     setMessage({ type: "info", text: `Connecting to ${newEmail}...` })
     
     try {
-      const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/mailboxes`), {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -242,7 +243,7 @@ function GmailSetup() {
     if (!(await confirmAction("Are you sure you want to remove this mailbox?"))) return
     
     try {
-      const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}`), {
         method: "DELETE",
         headers: { Authorization: auth }
       })
@@ -282,7 +283,7 @@ function GmailSetup() {
     
     try {
       // First, test connection to get total message count
-      const testRes = await fetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/test`), {
+      const testRes = await authFetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/test`), {
         method: "POST",
         headers: { Authorization: auth }
       })
@@ -306,7 +307,7 @@ function GmailSetup() {
       }
       
       // Start the sync (use full_sync for reliable download)
-      const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/sync`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/sync`), {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -421,7 +422,7 @@ function GmailSetup() {
     if (!auth) return
     
     try {
-      const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/test`), {
+      const res = await authFetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}/test`), {
         method: "POST",
         headers: { Authorization: auth }
       })
