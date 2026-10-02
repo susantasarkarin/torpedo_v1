@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Link } from "react-router-dom"
 import { buildApiUrl } from "../../config"
+import { formatDate } from "../../utils/format"
 import "./Accounts.css"
 import "../../styles/SalesPages.css"
 
@@ -28,11 +29,7 @@ const formatMoney = (value, currency = "INR") => {
   }
 }
 
-const formatDate = (value) => {
-  if (!value) return "—"
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString()
-}
+
 
 function Accounts() {
   const [accounts, setAccounts] = useState([])
@@ -106,7 +103,7 @@ function Accounts() {
       <div className="sales-page accounts-page">
         <div className="sales-page-header">
           <div>
-            <h1>Accounts</h1>
+            <h1 className="cx-page-title">Accounts</h1>
             <p className="sales-page-subtitle">
               Companies across sales, finance and operations
             </p>

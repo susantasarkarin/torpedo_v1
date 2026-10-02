@@ -19,6 +19,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { ActivityTimeline } from '../components/ui/ActivityTimeline';
 import { Table } from '../components/ui/Table';
 import api from '../utils/api';
+import { formatDate } from "../utils/format"
 
 const STATUS_COLORS = {
   planning: 'bg-gray-100 text-gray-800',
@@ -320,7 +321,7 @@ export default function Projects() {
         {project.target_end_date && (
           <div className="flex items-center gap-1">
             <Calendar className="w-4 h-4" />
-            <span>{new Date(project.target_end_date).toLocaleDateString()}</span>
+            <span>{formatDate(project.target_end_date)}</span>
           </div>
         )}
       </div>
@@ -576,7 +577,7 @@ export default function Projects() {
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Saving...' : selectedProject ? 'Update Project' : 'Create Project'}
+              {submitting ? 'Saving…' : selectedProject ? 'Update Project' : 'Create Project'}
             </Button>
           </div>
         </form>

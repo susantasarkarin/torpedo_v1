@@ -14,6 +14,7 @@ import { Modal } from '../ui/Modal';
 import { FormField } from '../ui/FormField';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import api from '../../utils/api';
+import { formatDate } from "../../utils/format"
 
 const PIPELINE_STAGES = [
   { id: 'qualification', label: 'Qualification', color: 'bg-gray-100 border-gray-300' },
@@ -262,7 +263,7 @@ export default function DealPipeline({
         {deal.expected_close_date && (
           <div className="flex items-center gap-1 text-xs text-gray-400">
             <Calendar className="w-3 h-3" />
-            {new Date(deal.expected_close_date).toLocaleDateString()}
+            {formatDate(deal.expected_close_date)}
           </div>
         )}
         
@@ -451,7 +452,7 @@ export default function DealPipeline({
                 <div>
                   <span className="text-gray-500">Expected Close:</span>
                   <p className="font-medium">
-                    {new Date(selectedDeal.expected_close_date).toLocaleDateString()}
+                    {formatDate(selectedDeal.expected_close_date)}
                   </p>
                 </div>
               )}

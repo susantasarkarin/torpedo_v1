@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import { fetchAllClients } from "../../utils/api"
+import { notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 import "./PotentialClients.css";
 
 const STORAGE_KEY = "potential_clients_v1";
@@ -297,11 +299,11 @@ function PotentialClients() {
         setShowEnrichmentPanel(true);
       } else {
         const errorData = await response.json();
-        alert(`Enrichment failed: ${errorData.detail || "Unknown error"}`);
+        notify(`Enrichment failed: ${errorData.detail || "Unknown error"}`);
       }
     } catch (err) {
       console.error("Error enriching company:", err);
-      alert(`Enrichment error: ${err.message}`);
+      notify(`Enrichment error: ${err.message}`);
     } finally {
       setEnrichingCompany(null);
     }
@@ -325,12 +327,12 @@ function PotentialClients() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(`Auto-enrichment complete!\nEnriched: ${data.enriched}\nRemaining: ${data.remaining}`);
+        notify(`Auto-enrichment complete!\nEnriched: ${data.enriched}\nRemaining: ${data.remaining}`);
         fetchEnrichedLeads();
       }
     } catch (err) {
       console.error("Error auto-enriching:", err);
-      alert(`Auto-enrichment error: ${err.message}`);
+      notify(`Auto-enrichment error: ${err.message}`);
     } finally {
       setAutoEnriching(false);
     }
@@ -358,7 +360,7 @@ function PotentialClients() {
     <div className="potential-clients-page">
       <div className="page-header">
         <div>
-          <h1>Potential Client</h1>
+          <h1 className="cx-page-title">Potential Client</h1>
           <p>Unique client names extracted from the Study Pool.</p>
         </div>
         <div className="header-actions">
@@ -371,7 +373,7 @@ function PotentialClients() {
             {autoEnriching ? "Auto Enriching..." : "Auto Enrich All"}
           </button>
           <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
+            {loading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
@@ -603,7 +605,7 @@ function PotentialClients() {
                 <span>Confidence: {Math.round((selectedClient.confidence_score || 0) * 100)}%</span>
                 <span>Source: {selectedClient.enrichment_source}</span>
                 {selectedClient.enriched_at && (
-                  <span>Updated: {new Date(selectedClient.enriched_at).toLocaleDateString()}</span>
+                  <span>Updated: {formatDate(selectedClient.enriched_at)}</span>
                 )}
               </div>
 
@@ -629,7 +631,7 @@ function PotentialClients() {
                 onClick={() => enrichCompany(selectedClient.company)}
                 disabled={enrichingCompany === selectedClient.company}
               >
-                {enrichingCompany === selectedClient.company ? "Refreshing..." : "Refresh Data"}
+                {enrichingCompany === selectedClient.company ? "Refreshing…" : "Refresh Data"}
               </button>
               <button className="close-modal-button" onClick={() => setShowEnrichmentPanel(false)}>
                 Close

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import { confirmAction } from "../utils/notify"
+import { formatDate } from "../utils/format"
 // Temporarily disabled for debugging
 // import { useSyncStatus } from "../contexts/SyncStatusContext"
 import "./Settings.css"
@@ -401,7 +403,7 @@ function Settings() {
   }
 
   const rollbackPrompt = async (promptKey, version) => {
-    if (!confirm(`Rollback to version ${version}?`)) return
+    if (!(await confirmAction(`Rollback to version ${version}?`))) return
     try {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/settings/ai-prompts/${promptKey}/rollback/${version}`), {
@@ -525,7 +527,7 @@ function Settings() {
   }
 
   const clearAiDatabase = async (status) => {
-    if (!confirm(`Clear all ${status || 'all'} companies from the database?`)) return
+    if (!(await confirmAction(`Clear all ${status || 'all'} companies from the database?`))) return
     try {
       const token = getAuthToken()
       const url = status ? buildApiUrl(`/leads/ai-database/clear?status=${status}`) : buildApiUrl(`/leads/ai-database/clear`)
@@ -614,7 +616,7 @@ function Settings() {
   // Delete signature
   const handleDeleteSignature = async () => {
     if (!selectedSignatureEmail) return
-    if (!confirm(`Delete signature for ${selectedSignatureEmail}?`)) return
+    if (!(await confirmAction(`Delete signature for ${selectedSignatureEmail}?`))) return
 
     setSavingSignature(true)
     try {
@@ -1175,7 +1177,7 @@ function Settings() {
   }
 
   const removeGmailAccount = async (accountEmail) => {
-    if (!window.confirm("Are you sure you want to remove this email account?")) {
+    if (!(await confirmAction("Are you sure you want to remove this email account?"))) {
       return
     }
 
@@ -1406,7 +1408,7 @@ function Settings() {
     return (
       <div className="settings-loading">
         <div className="spinner"></div>
-        <p>Loading settings...</p>
+        <p>Loading settings…</p>
       </div>
     )
   }
@@ -1439,8 +1441,8 @@ function Settings() {
       setBuLoading(false)
     }
   }
-  const selectBuUnit = (unit) => {
-    if (buDirty && !window.confirm("You have unsaved changes. Switch anyway?")) return
+  const selectBuUnit = async (unit) => {
+    if (buDirty && !(await confirmAction("You have unsaved changes. Switch anyway?"))) return
     setBuSelected(unit.slug)
     setBuContent(unit.content)
     setBuDirty(false)
@@ -1467,7 +1469,7 @@ function Settings() {
   }
   const deleteBuConfig = async () => {
     if (!buSelected) return
-    if (!window.confirm(`Delete "${buSelected}" permanently? This cannot be undone.`)) return
+    if (!(await confirmAction(`Delete "${buSelected}" permanently? This cannot be undone.`))) return
     setBuDeleting(true)
     try {
       const res = await fetch(`/api/sales-outreach/bu-configs/${buSelected}`, {
@@ -1513,7 +1515,7 @@ function Settings() {
   return (
     <div className="settings-container">
       <div className="settings-header">
-        <h1>Settings</h1>
+        <h1 className="cx-page-title">Settings</h1>
         <p className="settings-subtitle">Manage application configuration and survey filters</p>
       </div>
 
@@ -1727,7 +1729,7 @@ function Settings() {
 
               {/* Email Rate Limits Section */}
               <div className="settings-group">
-                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>Loading...</span>}</h3>
+                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>Loading…</span>}</h3>
 
                 <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
@@ -1805,7 +1807,7 @@ function Settings() {
                   disabled={saving}
                   style={{ marginTop: '0.5rem' }}
                 >
-                  {saving ? "Saving..." : "Save Rate Limits"}
+                  {saving ? "Saving…" : "Save Rate Limits"}
                 </button>
               </div>
 
@@ -1818,7 +1820,7 @@ function Settings() {
                     onClick={loadWorkspaceSignatures}
                     disabled={signaturesLoading}
                   >
-                    {signaturesLoading ? "Loading..." : "🔄 Import from Gmail"}
+                    {signaturesLoading ? "Loading…" : "🔄 Import from Gmail"}
                   </button>
                 </div>
 
@@ -1857,7 +1859,7 @@ function Settings() {
                 onClick={saveAllSettings}
                 disabled={saving}
               >
-                {saving ? "Saving..." : "Save All Settings"}
+                {saving ? "Saving…" : "Save All Settings"}
               </button>
             </div>
           </div>
@@ -2015,7 +2017,7 @@ function Settings() {
                 onClick={saveAllocationSettings}
                 disabled={saving}
               >
-                {saving ? "Saving..." : "Save Allocation Settings"}
+                {saving ? "Saving…" : "Save Allocation Settings"}
               </button>
             </div>
           </div>
@@ -2040,7 +2042,7 @@ function Settings() {
                 <h3>Business Units</h3>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <button className="refresh-button" onClick={loadBuConfigs} disabled={buLoading}>
-                    {buLoading ? "Loading..." : "↻ Refresh"}
+                    {buLoading ? "Loading…" : "↻ Refresh"}
                   </button>
                   <button className="save-button-small" onClick={() => setShowBuNewForm(v => !v)}>
                     + New Business Unit
@@ -2122,14 +2124,14 @@ function Settings() {
                             disabled={buDeleting}
                             style={{ color: "#dc2626" }}
                           >
-                            {buDeleting ? "Deleting..." : "Delete"}
+                            {buDeleting ? "Deleting…" : "Delete"}
                           </button>
                           <button
                             className="save-button-small"
                             onClick={saveBuConfig}
                             disabled={buSaving || !buDirty}
                           >
-                            {buSaving ? "Saving..." : "Save"}
+                            {buSaving ? "Saving…" : "Save"}
                           </button>
                         </div>
                       </div>
@@ -2171,7 +2173,7 @@ function Settings() {
 
             <div className="settings-grid">
               {aiPromptsLoading ? (
-                <p>Loading prompts...</p>
+                <p>Loading prompts…</p>
               ) : aiPrompts.length === 0 ? (
                 <p>No prompts found. Create one using the backend API or initialize defaults.</p>
               ) : (
@@ -2189,7 +2191,7 @@ function Settings() {
                     <p style={{ marginBottom: '0.5rem' }}><strong>Agent:</strong> {prompt.agent_type}</p>
                     <p style={{ color: '#666', fontSize: '0.9rem' }}>{prompt.description}</p>
                     <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#999' }}>
-                      Version: {prompt.version} • Updated: {new Date(prompt.updated_at).toLocaleDateString()}
+                      Version: {prompt.version} • Updated: {formatDate(prompt.updated_at)}
                     </div>
                   </div>
                 ))
@@ -2227,7 +2229,7 @@ function Settings() {
                         {testingPrompt ? "Testing..." : "🧪 Test Prompt"}
                       </button>
                       <button className="save-button" onClick={savePrompt} disabled={savingPrompt}>
-                        {savingPrompt ? "Saving..." : "💾 Save Changes"}
+                        {savingPrompt ? "Saving…" : "💾 Save Changes"}
                       </button>
                     </div>
                   </div>

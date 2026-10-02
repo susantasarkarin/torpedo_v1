@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react"
 import { buildApiUrl } from "../../config"
 import Papa from "papaparse"
+import { notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -280,7 +282,7 @@ function PanelistManagement() {
       },
       error: (err) => {
         console.error("CSV parse error:", err)
-        alert("Failed to parse CSV file. Please check the format.")
+        notify("Failed to parse CSV file. Please check the format.")
       },
     })
   }
@@ -554,7 +556,7 @@ function PanelistManagement() {
                 disabled={!csvData || uploading}
                 style={{ opacity: !csvData || uploading ? 0.5 : 1 }}
               >
-                {uploading ? "Uploading..." : "Upload"}
+                {uploading ? "Uploading…" : "Upload"}
               </button>
             </div>
 
@@ -637,7 +639,7 @@ function PanelistManagement() {
                   disabled={!importUrl.trim() || importingLink}
                   style={{ opacity: !importUrl.trim() || importingLink ? 0.5 : 1 }}
                 >
-                  {importingLink ? "Importing..." : "Import Link"}
+                  {importingLink ? "Importing…" : "Import Link"}
                 </button>
               </div>
 
@@ -761,7 +763,7 @@ function PanelistManagement() {
             </div>
 
             {leadLoading ? (
-              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading panelist leads...</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading panelist leads…</p>
             ) : panelLeads.length === 0 ? (
               <p style={{ color: "#4b5563", padding: "1rem 0" }}>No parsing-page mail IDs found.</p>
             ) : (
@@ -805,7 +807,7 @@ function PanelistManagement() {
                             </span>
                           </td>
                           <td style={tdStyle}>
-                            {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "-"}
+                            {lead.createdAt ? formatDate(lead.createdAt) : "-"}
                           </td>
                         </tr>
                       ))}
@@ -873,7 +875,7 @@ function PanelistManagement() {
             </div>
 
             {panelistLoading ? (
-              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading approved panelists...</p>
+              <p style={{ color: "#4b5563", padding: "1rem 0" }}>Loading approved panelists…</p>
             ) : panelists.length === 0 ? (
               <p style={{ color: "#4b5563", padding: "1rem 0" }}>No approved panelists found.</p>
             ) : (
@@ -950,10 +952,10 @@ function PanelistManagement() {
                               </span>
                             </td>
                             <td style={tdStyle}>
-                              {panelist.created_at ? new Date(panelist.created_at).toLocaleDateString() : "-"}
+                              {panelist.created_at ? formatDate(panelist.created_at) : "-"}
                             </td>
                             <td style={tdStyle}>
-                              {panelist.email_sent_date ? new Date(panelist.email_sent_date).toLocaleDateString() : "-"}
+                              {panelist.email_sent_date ? formatDate(panelist.email_sent_date) : "-"}
                             </td>
                             <td style={tdStyle}>
                               <span style={{
@@ -1288,7 +1290,7 @@ function PanelistManagement() {
                 disabled={testEmailLoading || !testEmailAddress.includes("@")}
                 style={{ opacity: testEmailLoading || !testEmailAddress.includes("@") ? 0.5 : 1 }}
               >
-                {testEmailLoading ? "Sending..." : "Send Test Email"}
+                {testEmailLoading ? "Sending…" : "Send Test Email"}
               </button>
             </div>
           </div>
@@ -1340,7 +1342,7 @@ function PanelistManagement() {
                     disabled={inviteLoading || inviteCount === 0}
                     style={{ background: "#059669", borderColor: "#059669", opacity: inviteLoading || inviteCount === 0 ? 0.5 : 1 }}
                   >
-                    {inviteLoading ? "Sending..." : `Send to ${inviteCount} Panelists`}
+                    {inviteLoading ? "Sending…" : `Send to ${inviteCount} Panelists`}
                   </button>
                 </div>
               </>

@@ -6,6 +6,7 @@ import CreateContacts from "./CreateContacts"
 import "./List.css"
 import { API_BASE_URL } from "../../../config"
 import { buildApiUrl } from "../../../config"
+import { confirmAction, notify } from "../../../utils/notify"
 
 
 function List() {
@@ -67,7 +68,7 @@ function List() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -107,7 +108,7 @@ useEffect(() => {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -152,7 +153,7 @@ useEffect(() => {
     });
 
     if (response.status === 401) {
-      alert("Session expired. Please login again.");
+      notify("Session expired. Please login again.");
       localStorage.removeItem("session_id");
       navigate("/login");
       return;
@@ -170,13 +171,13 @@ useEffect(() => {
     setLists((prev) => [...prev, data.list]);
   } catch (error) {
     console.error("Error saving list to database:", error);
-    alert(`Could not create list: ${error.message}`);
+    notify(`Could not create list: ${error.message}`);
   }
 };
 
 
   const handleDelete = async (id) => {
-  const confirmDelete = window.confirm("Are you sure you want to delete this list?");
+  const confirmDelete = (await confirmAction("Are you sure you want to delete this list?"));
   if (!confirmDelete) return;
 
   const sessionId = localStorage.getItem("session_id");
@@ -195,7 +196,7 @@ useEffect(() => {
     });
 
     if (res.status === 401) {
-      alert("Session expired. Please login again.");
+      notify("Session expired. Please login again.");
       localStorage.removeItem("session_id");
       navigate("/login");
       return;
@@ -205,7 +206,7 @@ useEffect(() => {
     setLists((prev) => prev.filter((l) => l._id !== id));
   } catch (err) {
     console.error("Delete failed:", err);
-    alert("Could not delete list. Please try again.");
+    notify("Could not delete list. Please try again.");
   }
 };
 
@@ -344,7 +345,7 @@ useEffect(() => {
             <button className="back-btn" onClick={() => setCurrentView("main")} style={{ color: "black" }}>
               ← Back to Lists
             </button>
-            <h1 className="form-title">Create New List</h1>
+            <h1 className="form-title cx-page-title">Create New List</h1>
           </div>
           <div className="form-content">
             <div className="form-group">

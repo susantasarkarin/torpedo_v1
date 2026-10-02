@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config"; // adjust path if needed
 import "./VendorsPage.css";
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
 
 function VendorsPage() {
   const navigate = useNavigate(); // ✅ must be defined first
@@ -49,7 +50,7 @@ function VendorsPage() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -118,7 +119,7 @@ function VendorsPage() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -147,7 +148,7 @@ function VendorsPage() {
 
   // 🔹 Delete Vendor
   const deleteVendor = async (id) => {
-    if (!window.confirm("Delete this vendor?")) return;
+    if (!(await confirmAction("Delete this vendor?"))) return;
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
       navigate("/login");
@@ -164,7 +165,7 @@ function VendorsPage() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -237,7 +238,7 @@ function VendorsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Vendors</h2>
+          <h2 className="cx-page-title" style={styles.title}>Vendors</h2>
           <p style={styles.subtitle}>Manage your survey vendors and their information</p>
         </div>
         <button style={styles.btnPrimary} onClick={openCreate}>
@@ -483,7 +484,7 @@ function VendorsPage() {
                 Cancel
               </button>
               <button style={styles.btnSave} onClick={saveVendor} disabled={loading}>
-                {loading ? "Saving..." : editingId ? "Save Changes" : "Add Vendor"}
+                {loading ? "Saving…" : editingId ? "Save Changes" : "Add Vendor"}
               </button>
             </div>
           </div>

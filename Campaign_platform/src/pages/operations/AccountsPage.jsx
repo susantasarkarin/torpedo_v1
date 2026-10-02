@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { API_BASE_URL as API_URL } from "../../config";
 import "./AccountsPage.css";
 import { buildApiUrl } from "../../config"
+import { notify } from "../../utils/notify"
 
 function AccountsPage() {
   const [accounts, setAccounts] = useState([]);
@@ -64,12 +65,12 @@ function AccountsPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        alert(`Synced ${data.synced} new accounts, skipped ${data.skipped} existing`);
+        notify(`Synced ${data.synced} new accounts, skipped ${data.skipped} existing`);
         fetchAccounts();
       }
     } catch (err) {
       console.error("Error syncing accounts:", err);
-      alert("Error syncing accounts");
+      notify("Error syncing accounts");
     } finally {
       setSyncing(false);
     }
@@ -99,11 +100,11 @@ function AccountsPage() {
         fetchAccounts();
       } else {
         const data = await res.json();
-        alert(data.detail || "Error saving account");
+        notify(data.detail || "Error saving account");
       }
     } catch (err) {
       console.error("Error saving account:", err);
-      alert("Error saving account");
+      notify("Error saving account");
     }
   };
 
@@ -120,11 +121,11 @@ function AccountsPage() {
 
       if (res.ok) {
         const data = await res.json();
-        alert(`Account linked to customer: ${data.customer_id}`);
+        notify(`Account linked to customer: ${data.customer_id}`);
         fetchAccounts();
       } else {
         const data = await res.json();
-        alert(data.detail || "Error linking account");
+        notify(data.detail || "Error linking account");
       }
     } catch (err) {
       console.error("Error linking account:", err);
@@ -178,7 +179,7 @@ function AccountsPage() {
     <div className="accounts-page">
       <div className="page-header">
         <div>
-          <h1>Unified Accounts</h1>
+          <h1 className="cx-page-title">Unified Accounts</h1>
           <p>Manage clients and customers across Operations and Finance</p>
         </div>
         <div className="header-actions">
@@ -187,7 +188,7 @@ function AccountsPage() {
             onClick={handleSyncFromClients}
             disabled={syncing}
           >
-            {syncing ? "Syncing..." : "🔄 Sync from Projects"}
+            {syncing ? "Syncing…" : "🔄 Sync from Projects"}
           </button>
           <button
             className="btn btn-primary"
@@ -224,7 +225,7 @@ function AccountsPage() {
       </div>
 
       {loading ? (
-        <div className="loading">Loading accounts...</div>
+        <div className="loading">Loading accounts…</div>
       ) : (
         <div className="accounts-table-container">
           <table className="accounts-table">

@@ -8,6 +8,8 @@ import { FileText, Plus, Search, Eye, Camera, X, Loader2, Trash2, CreditCard, Up
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 function BillsPage() {
   const navigate = useNavigate()
@@ -144,16 +146,16 @@ function BillsPage() {
         handleCloseModal()
       } else {
         const error = await response.json()
-        alert(error.detail || "Error creating bill")
+        notify(error.detail || "Error creating bill")
       }
     } catch (error) {
       console.error("Error creating bill:", error)
-      alert("Error creating bill")
+      notify("Error creating bill")
     }
   }
 
   const handleDeleteBill = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this bill?")) return
+    if (!(await confirmAction("Are you sure you want to delete this bill?"))) return
 
     try {
       const sessionId = localStorage.getItem("session_id")
@@ -198,7 +200,7 @@ function BillsPage() {
       }
     } catch (error) {
       console.error("Error exporting bills:", error)
-      alert("Failed to export bills")
+      notify("Failed to export bills")
     } finally {
       setExporting(false)
     }
@@ -223,15 +225,15 @@ function BillsPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Successfully imported ${result.imported} bills`)
+        notify(`Successfully imported ${result.imported} bills`)
         fetchBills()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing bills:", error)
-      alert("Failed to import bills")
+      notify("Failed to import bills")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -652,7 +654,7 @@ function BillsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Bills</h2>
+          <h2 className="cx-page-title" style={styles.title}>Bills</h2>
           <p style={styles.subtitle}>Manage vendor bills and payables</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -669,7 +671,7 @@ function BillsPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Create Bill
@@ -732,7 +734,7 @@ function BillsPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading bills...</p>
+            <p style={{ color: "#4b5563" }}>Loading bills…</p>
           </div>
         </div>
       ) : (
@@ -767,8 +769,8 @@ function BillsPage() {
                     </code>
                   </td>
                   <td style={styles.td}>{bill.vendor_name || "N/A"}</td>
-                  <td style={styles.td}>{new Date(bill.bill_date).toLocaleDateString("en-IN")}</td>
-                  <td style={styles.td}>{new Date(bill.due_date).toLocaleDateString("en-IN")}</td>
+                  <td style={styles.td}>{formatDate(bill.bill_date)}</td>
+                  <td style={styles.td}>{formatDate(bill.due_date)}</td>
                   <td style={{ ...styles.td, fontWeight: "600" }}>{formatCurrency(bill.total_amount)}</td>
                   <td
                     style={{

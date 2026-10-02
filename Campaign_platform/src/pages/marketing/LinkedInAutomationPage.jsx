@@ -13,6 +13,7 @@ import {
   PowerOff,
   Linkedin
 } from "lucide-react"
+import { confirmAction } from "../../utils/notify"
 import "./Marketing.css"
 
 function LinkedInAutomationPage() {
@@ -131,9 +132,9 @@ function LinkedInAutomationPage() {
 
   const deleteAccount = async (account) => {
     const accountId = account._id || account.id
-    const confirmed = window.confirm(
+    const confirmed = (await confirmAction(
       `Delete LinkedIn account "${account.account_name}"?`
-    )
+    ))
     if (!confirmed) {
       return
     }
@@ -155,7 +156,7 @@ function LinkedInAutomationPage() {
     return (
       <div className="marketing-dashboard">
         <div className="card">
-          <p className="card-description">Loading LinkedIn Automation...</p>
+          <p className="card-description">Loading LinkedIn Automation…</p>
         </div>
       </div>
     )
@@ -168,7 +169,7 @@ function LinkedInAutomationPage() {
           <Link to="/admin/marketing" className="p-2 hover:bg-gray-100 rounded-lg">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="flex items-center gap-2">
+          <h1 className="flex items-center gap-2 cx-page-title">
             <Linkedin size={22} />
             LinkedIn Automation
           </h1>

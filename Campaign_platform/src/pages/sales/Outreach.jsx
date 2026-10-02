@@ -28,6 +28,8 @@ import {
   addSuppression as addSuppressionApi,
   removeSuppression as removeSuppressionApi,
 } from "../../services/outreachService"
+import { confirmAction } from "../../utils/notify"
+import { formatDate, formatDateTime } from "../../utils/format"
 import "./campaign/AILeads.css"
 
 const spinKeyframes = `@keyframes spin { to { transform: rotate(360deg); } }`
@@ -267,7 +269,7 @@ function Outreach() {
   }
 
   const removeMailbox = async (mid) => {
-    if (!window.confirm("Remove this mailbox?")) return
+    if (!(await confirmAction("Remove this mailbox?"))) return
     await removeMailboxApi(mid)
     flash("Mailbox removed"); fetchAll()
   }
@@ -280,7 +282,7 @@ function Outreach() {
   }
 
   const removeSuppression = async (email) => {
-    if (!window.confirm(`Remove ${email} from suppression list?`)) return
+    if (!(await confirmAction(`Remove ${email} from suppression list?`))) return
     await removeSuppressionApi(email)
     flash(`${email} removed from suppression`); fetchSuppression(); fetchAll()
   }
@@ -310,7 +312,7 @@ function Outreach() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Cold Outreach</h1>
+          <h1 className="cx-page-title">Cold Outreach</h1>
           <p className="subtitle">
             {totalLeads.toLocaleString()} AI leads · 4-step sequences · {suppStats.total_suppressed.toLocaleString()} bounced addresses suppressed globally
           </p>
@@ -932,7 +934,7 @@ function LeadsByStatusPanel({ campaignId }) {
                     <td>{s.open_count || 0}</td>
                     <td>{s.click_count || 0}</td>
                     <td>{isReply ? <span style={{ color: "#e8890b" }}>✓ {s.reply_snippet ? s.reply_snippet.slice(0, 60) + "…" : "Yes"}</span> : "—"}</td>
-                    <td style={{ fontSize: "0.8rem", color: "#4b5563" }}>{s.created_at ? new Date(s.created_at).toLocaleString() : "—"}</td>
+                    <td style={{ fontSize: "0.8rem", color: "#4b5563" }}>{s.created_at ? formatDateTime(s.created_at) : "—"}</td>
                   </tr>
                 )
               })}
@@ -1070,7 +1072,7 @@ function SuppressionPanel({ suppList, suppTotal, suppSearch, setSuppSearch, manu
           {suppList.map(s => (
             <tr key={s.id || s.email}>
               <td style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{s.email}</td>
-              <td style={{ fontSize: "0.85rem" }}>{s.bounced_at ? new Date(s.bounced_at).toLocaleDateString() : "—"}</td>
+              <td style={{ fontSize: "0.85rem" }}>{s.bounced_at ? formatDate(s.bounced_at) : "—"}</td>
               <td><span style={{ padding: "2px 6px", background: "#fee2e2", color: "#dc2626", borderRadius: 4, fontSize: "0.75rem" }}>{s.reason || "bounce"}</span></td>
               <td><button onClick={() => onRemove(s.email)} style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: "0.8rem" }}>Undo</button></td>
             </tr>

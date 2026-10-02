@@ -10,6 +10,7 @@ import { getStageStyle as getPipelineStageStyle, getContactStages, getStageById 
 import "./Contacts.css"
 import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
 
 function Contacts() {
   const navigate = useNavigate();
@@ -82,7 +83,7 @@ function Contacts() {
           },
         });
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -180,7 +181,7 @@ function Contacts() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -210,7 +211,7 @@ function Contacts() {
 
   // Delete contact
   const deleteContact = async (id) => {
-    if (!window.confirm("Delete this contact?")) return;
+    if (!(await confirmAction("Delete this contact?"))) return;
 
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -228,7 +229,7 @@ function Contacts() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -246,7 +247,7 @@ function Contacts() {
   // Bulk delete contacts
   const bulkDeleteContacts = async () => {
     if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.length} selected contacts?`)) return;
+    if (!(await confirmAction(`Delete ${selectedIds.length} selected contacts?`))) return;
 
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -265,7 +266,7 @@ function Contacts() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -276,7 +277,7 @@ function Contacts() {
 
       setContacts((prev) => prev.filter((c) => !selectedIds.includes(c._id)));
       setSelectedIds([]);
-      alert(`✅ ${data.deleted_count} contacts deleted successfully!`);
+      notify(`✅ ${data.deleted_count} contacts deleted successfully!`);
     } catch (e) {
       setError(e.message || "Bulk delete failed");
     }
@@ -335,7 +336,7 @@ function Contacts() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Contacts</h1>
+          <h1 className="cx-page-title">Contacts</h1>
           <p className="subtitle">Manage and track your sales contacts through the pipeline</p>
         </div>
         <div className="header-actions">
@@ -347,8 +348,8 @@ function Contacts() {
           {contacts.length > 0 && contacts.some(c => !c.name && !c.firstName && !c.companyName) && (
             <button 
               className="btn btn-danger"
-              onClick={() => {
-                if (window.confirm('⚠️ Clear all old contacts that are missing the new fields? This cannot be undone!')) {
+              onClick={async () => {
+                if ((await confirmAction('⚠️ Clear all old contacts that are missing the new fields? This cannot be undone!'))) {
                   const oldContacts = contacts.filter(c => !c.name && !c.firstName && !c.companyName);
                   oldContacts.forEach(c => deleteContact(c._id));
                 }
@@ -357,6 +358,9 @@ function Contacts() {
               🗑️ Clear Old ({contacts.filter(c => !c.name && !c.firstName && !c.companyName).length})
             </button>
           )}
+          <button className="btn btn-secondary" onClick={() => navigate("/admin/sales/contacts/import")}>
+            Import
+          </button>
           <button className="btn btn-primary" onClick={openCreate}>
             + Add New Contact
           </button>
@@ -811,7 +815,7 @@ function Contacts() {
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowForm(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveContact} disabled={loading}>
-                {loading ? "Saving..." : (editingId ? "Update Contact" : "Add Contact")}
+                {loading ? "Saving…" : (editingId ? "Update Contact" : "Add Contact")}
               </button>
             </div>
           </div>

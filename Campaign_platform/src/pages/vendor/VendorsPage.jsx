@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction } from "../../utils/notify"
 
 function VendorsPage() {
   const navigate = useNavigate()
@@ -141,7 +142,7 @@ function VendorsPage() {
   }
 
   const deleteVendor = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this vendor?")) return
+    if (!(await confirmAction("Are you sure you want to delete this vendor?"))) return
     
     try {
       await fetch(buildApiUrl(`/vendors/${id}`), { method: "DELETE" })
@@ -154,7 +155,7 @@ function VendorsPage() {
   if (loading) {
     return (
       <div className="vendor-page">
-        <div className="loading-spinner">Loading vendors...</div>
+        <div className="loading-spinner">Loading vendors…</div>
       </div>
     )
   }
@@ -164,7 +165,7 @@ function VendorsPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Vendors</h1>
+          <h1 className="cx-page-title">Vendors</h1>
           <p className="subtitle">Manage your panel and billing vendors</p>
         </div>
         <div className="header-actions">

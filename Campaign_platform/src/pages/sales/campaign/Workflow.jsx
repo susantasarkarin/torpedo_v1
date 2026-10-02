@@ -12,6 +12,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "../../../config";
+import { formatTime } from "../../../utils/format"
 import "./Workflow.css";
 
 const sessionId = localStorage.getItem("session_id") || "";
@@ -103,14 +104,14 @@ export default function Workflow() {
       <div className="workflow-header-v2">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h1>🔄 Outreach Pipeline</h1>
+            <h1 className="cx-page-title">🔄 Outreach Pipeline</h1>
             <p>
               Full funnel from lead import through email prediction, SFW outreach, Cogentix
               outreach, and reply enrichment.
             </p>
             {lastRefresh && (
               <p style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: "0.25rem" }}>
-                Last refreshed: {lastRefresh.toLocaleTimeString()}
+                Last refreshed: {formatTime(lastRefresh)}
               </p>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
+import { formatTime } from "../../utils/format"
 import "./RateCard.css";
 
 // Auto-refresh interval (5 minutes)
@@ -84,10 +85,10 @@ function RateCard() {
     <div className="rate-card-page">
       <div className="page-header">
         <div>
-          <h1>Rate Card</h1>
+          <h1 className="cx-page-title">Rate Card</h1>
           <p>Based on all Cint study pool entries (active + inactive). Rates shown are the exact averages from the backend.</p>
           {lastRefresh && (
-            <p className="last-refresh">Last updated: {lastRefresh.toLocaleTimeString()} (auto-refreshes every 5 min)</p>
+            <p className="last-refresh">Last updated: {formatTime(lastRefresh)} (auto-refreshes every 5 min)</p>
           )}
           {rateCardData && (
             <p style={{fontSize: '12px', color: '#666'}}>
@@ -96,7 +97,7 @@ function RateCard() {
           )}
         </div>
         <button className="refresh-button" onClick={() => fetchRateCard()} disabled={loading}>
-          {loading ? "Refreshing..." : "Refresh"}
+          {loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
 
@@ -105,7 +106,7 @@ function RateCard() {
           <label>Country</label>
           <select value={countryFilter} onChange={(e) => handleCountryChange(e.target.value)}>
             {(!rateCardData?.countries || rateCardData.countries.length === 0) && (
-              <option value="">Loading...</option>
+              <option value="">Loading…</option>
             )}
             {rateCardData?.countries?.map((c) => (
               <option key={c} value={c}>{c}</option>

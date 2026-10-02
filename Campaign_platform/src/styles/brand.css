@@ -159,3 +159,116 @@ a:hover { color: var(--cx-primary-dark); }
 .btn-outline { background: transparent; color: var(--cx-primary); border: 2px solid var(--cx-primary);
   border-radius: var(--cx-radius-button); font-weight: 600; }
 .btn-outline:hover { background: var(--cx-accent-soft); }
+
+/* ===========================================================================
+ * Shared components -- one look on every page.
+ * 73 class names (.btn-primary, .modal-*, .status-badge, .empty-state, ...)
+ * were defined in 3-15 page stylesheets each; with the app's code-splitting,
+ * whichever page loaded last decided how they looked everywhere. `:not(#cx)`
+ * lifts the rules below over any page's own rule for the same class, so load
+ * order no longer matters. Only the look is set here (colour, corners, type);
+ * size and position stay with each page.
+ * ======================================================================== */
+
+/* page title: every page's main heading (tagged cx-page-title); !important
+   because most pages styled their title inline */
+.cx-page-title {
+  font-family: var(--cx-font) !important;
+  font-size: 1.75rem !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  color: var(--cx-black) !important;
+  letter-spacing: -0.01em !important;
+}
+:is(.page-header, .crm-head) :is(p, .page-subtitle, .crm-subtitle):not(#cx) { color: var(--cx-gray); }
+
+/* buttons */
+:is(.btn, .btn-primary, .btn-secondary, .btn-outline, .btn-danger, .btn-success, .btn-dark,
+    .crm-btn, .qre-btn, .action-btn, .toolbar-btn, .refresh-button, .save-button, .save-button-small,
+    .create-contacts-btn, .clear-btn, .pagination-btn, .btn-cancel):not(#cx) {
+  border-radius: var(--cx-radius-button);
+  font-family: var(--cx-font);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--cx-transition), border-color var(--cx-transition),
+              color var(--cx-transition), box-shadow var(--cx-transition);
+}
+:is(.btn-sm, .save-button-small):not(#cx) { font-size: 0.85rem; }
+:is(.btn-primary, .crm-btn--primary, .save-button, .save-button-small, .create-contacts-btn):not(#cx) {
+  background: var(--cx-primary); border: 1px solid var(--cx-primary); color: #fff;
+}
+:is(.btn-primary, .crm-btn--primary, .save-button, .save-button-small, .create-contacts-btn):not(#cx):hover:not(:disabled) {
+  background: var(--cx-primary-dark); border-color: var(--cx-primary-dark); color: #fff;
+}
+:is(.btn-secondary, .btn-cancel):not(#cx) { background: #fff; border: 1px solid #d6d6d6; color: var(--cx-black); }
+:is(.btn-secondary, .btn-cancel):not(#cx):hover:not(:disabled) { background: var(--cx-accent-soft); border-color: var(--cx-cream-dark); }
+.btn-outline:not(#cx) { background: transparent; border: 2px solid var(--cx-primary); color: var(--cx-primary); }
+.btn-outline:not(#cx):hover:not(:disabled) { background: var(--cx-accent-soft); }
+.btn-dark:not(#cx) { background: var(--cx-black); border: 1px solid var(--cx-black); color: #fff; }
+:is(.btn-danger, .crm-btn--danger):not(#cx) { background: var(--cx-danger); border: 1px solid var(--cx-danger); color: #fff; }
+:is(.btn-danger, .crm-btn--danger):not(#cx):hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+.btn-success:not(#cx) { background: var(--cx-success); border: 1px solid var(--cx-success); color: #fff; }
+.pagination-btn.active:not(#cx), .pagination-btn[aria-current="page"]:not(#cx) {
+  background: var(--cx-primary); border-color: var(--cx-primary); color: #fff;
+}
+:is(.btn, .btn-primary, .btn-secondary, .btn-danger, .crm-btn, .pagination-btn):disabled:not(#cx) { opacity: 0.55; cursor: not-allowed; }
+
+/* modals */
+.modal-overlay:not(#cx) { background: rgba(26, 26, 26, 0.55); }
+:is(.modal-content, .modal-container, .modal-box):not(#cx) {
+  background: #fff; border-radius: var(--cx-radius-card);
+  box-shadow: 0 24px 60px -12px rgba(26, 26, 26, 0.35);
+}
+.modal-header:not(#cx) { border-bottom: 1px solid var(--cx-border); }
+.modal-header :is(h2, h3, h4, .modal-title):not(#cx) {
+  font-family: var(--cx-font); font-size: 1.35rem; font-weight: 700; color: var(--cx-black); margin: 0;
+}
+.modal-footer:not(#cx) { border-top: 1px solid var(--cx-border); gap: 0.75rem; }
+.modal-close:not(#cx) {
+  background: transparent; border: none; color: var(--cx-gray); border-radius: var(--cx-radius-button);
+  cursor: pointer; line-height: 1;
+}
+.modal-close:not(#cx):hover { color: var(--cx-black); background: var(--cx-accent-soft); }
+
+/* badges: shape only -- each status keeps its own colour */
+.status-badge:not(#cx) {
+  display: inline-flex; align-items: center; border-radius: 999px; padding: 0.2rem 0.65rem;
+  font-family: var(--cx-font); font-size: var(--cx-badge); font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+
+/* stat cards */
+:is(.stat-card, .crm-card, .kpi-card):not(#cx) {
+  background: #fff; border: 1px solid var(--cx-border); border-radius: var(--cx-radius-card);
+  box-shadow: var(--cx-shadow-card); transition: box-shadow var(--cx-transition);
+}
+.stat-label:not(#cx) {
+  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--cx-gray);
+}
+.stat-value:not(#cx) { font-weight: 700; color: var(--cx-black); line-height: 1.2; }
+
+/* empty and loading states */
+.empty-state:not(#cx) { text-align: center; color: var(--cx-gray); }
+.empty-state :is(h3, h4):not(#cx) { color: var(--cx-black); font-weight: 700; }
+.empty-icon:not(#cx) { opacity: 0.75; }
+.loading-spinner:empty:not(#cx) {
+  width: 32px; height: 32px; margin: 1.5rem auto; border-radius: 50%;
+  border: 3px solid var(--cx-cream-dark); border-top-color: var(--cx-primary);
+  animation: cx-spin 0.8s linear infinite;
+}
+.loading-spinner:not(:empty):not(#cx) { text-align: center; color: var(--cx-gray); padding: 2rem 1rem; }
+@keyframes cx-spin { to { transform: rotate(360deg); } }
+
+/* form controls */
+:is(.form-group input:not([type="checkbox"]):not([type="radio"]), .form-group select, .form-group textarea,
+    .filter-select, .search-input):not(#cx) {
+  border: 1px solid #d6d6d6; border-radius: var(--cx-radius-button); font-family: var(--cx-font);
+  color: var(--cx-black); background-color: #fff;
+}
+:is(.form-group input, .form-group select, .form-group textarea, .filter-select, .search-input):not(#cx):focus {
+  outline: none; border-color: var(--cx-primary); box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.18);
+}
+.form-group label:not(#cx) { font-size: 0.9rem; font-weight: 500; color: var(--cx-black); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--cx-primary); }
+
+/* tables: one header style */
+:is(table th, .data-table th, .crm-table th):not(#cx) { color: var(--cx-gray); font-weight: 600; }

@@ -964,7 +964,7 @@ export default function MysteryShoppingDetail({ onBack }) {
           </button>
           <div className="qre-page-title-row">
             <span style={{ fontSize: "1.15rem" }}>🔍</span>
-            <h1 className="qre-page-title">
+            <h1 className="qre-page-title cx-page-title">
               Mystery Shopping Questionnaire — Branch Visit Audit
             </h1>
             <span className="qre-badge qre-badge-live">active</span>

@@ -241,7 +241,7 @@ function ContactsImport() {
           </svg>
           Back to Contacts
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">Import Contacts</h1>
+        <h1 className="text-2xl font-bold text-gray-900 cx-page-title">Import Contacts</h1>
         <p className="text-gray-600 mt-1">Upload a CSV file to import contacts into your lists</p>
       </div>
 
@@ -534,7 +534,7 @@ function ContactsImport() {
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     />
                   </svg>
-                  Importing...
+                  Importing…
                 </>
               ) : (
                 <>

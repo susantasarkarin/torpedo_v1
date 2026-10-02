@@ -9,6 +9,8 @@ import DOMPurify from "dompurify";
 import { API_BASE_URL } from "../../../config";
 import "./AILeadDetail.css";
 import { buildApiUrl } from "../../../config"
+import { notify } from "../../../utils/notify"
+import { formatDateTime } from "../../../utils/format"
 
 function AILeadDetail() {
   const { leadId } = useParams();
@@ -93,7 +95,7 @@ function AILeadDetail() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -187,13 +189,13 @@ function AILeadDetail() {
         const data = await res.json();
         setLead(data.lead || editFormData);
         setEditingSection(null);
-        alert("Lead updated successfully!");
+        notify("Lead updated successfully!");
       } else {
         const errData = await res.json();
-        alert(errData.detail || "Failed to save lead");
+        notify(errData.detail || "Failed to save lead");
       }
     } catch (e) {
-      alert("Failed to save lead: " + e.message);
+      notify("Failed to save lead: " + e.message);
     } finally {
       setSaving(false);
     }
@@ -226,13 +228,13 @@ function AILeadDetail() {
         setLead({ ...lead, lead_stage: newStage });
         setShowConvertModal(false);
         const stageLabel = LEAD_STAGE_OPTIONS.find(s => s.value === newStage)?.label || newStage;
-        alert(`Lead moved to ${stageLabel} successfully!`);
+        notify(`Lead moved to ${stageLabel} successfully!`);
       } else {
         const errData = await res.json();
-        alert(errData.detail || "Failed to convert lead");
+        notify(errData.detail || "Failed to convert lead");
       }
     } catch (e) {
-      alert("Failed to convert lead: " + e.message);
+      notify("Failed to convert lead: " + e.message);
     } finally {
       setConvertingStage(false);
     }
@@ -253,12 +255,12 @@ function AILeadDetail() {
   const handleSendEmail = async () => {
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId || !selectedAccount) {
-      alert("Please select an email account");
+      notify("Please select an email account");
       return;
     }
 
     if (!emailFormData.to || !emailFormData.subject) {
-      alert("Please fill in To and Subject fields");
+      notify("Please fill in To and Subject fields");
       return;
     }
 
@@ -285,15 +287,15 @@ function AILeadDetail() {
       });
 
       if (res.ok) {
-        alert("Email sent successfully!");
+        notify("Email sent successfully!");
         setShowEmailModal(false);
         fetchLead();
       } else {
         const errData = await res.json();
-        alert(errData.detail || "Failed to send email");
+        notify(errData.detail || "Failed to send email");
       }
     } catch (e) {
-      alert("Failed to send email: " + e.message);
+      notify("Failed to send email: " + e.message);
     } finally {
       setSendingEmail(false);
     }
@@ -309,15 +311,7 @@ function AILeadDetail() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "—";
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatDateTime(dateStr);
   };
 
   const getDaysSinceUpdate = (dateStr) => {
@@ -334,7 +328,7 @@ function AILeadDetail() {
       <div className="lead-detail-zoho">
         <div className="loading-state">
           <div className="spinner"></div>
-          <span>Loading lead details...</span>
+          <span>Loading lead details…</span>
         </div>
       </div>
     );
@@ -362,7 +356,7 @@ function AILeadDetail() {
         <div className="header-left">
           <button className="back-btn" onClick={() => navigate(-1)}>←</button>
           <div className="lead-identity">
-            <h1>{lead.name || `${lead.first_name || ""} ${lead.last_name || ""}`.trim() || "Unknown"}</h1>
+            <h1 className="cx-page-title">{lead.name || `${lead.first_name || ""} ${lead.last_name || ""}`.trim() || "Unknown"}</h1>
             <span className="company-tag">- {lead.company_name || "Unknown Company"}</span>
           </div>
           <button className="add-tags-btn">🏷️ Add Tags</button>
@@ -876,7 +870,7 @@ function AILeadDetail() {
             <div className="modal-footer">
               <button className="btn-secondary" onClick={() => setEditingSection(null)}>Cancel</button>
               <button className="btn-primary" onClick={handleSaveLead} disabled={saving}>
-                {saving ? "Saving..." : "Save Changes"}
+                {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>
@@ -1040,7 +1034,7 @@ function AILeadDetail() {
                   Schedule
                 </button>
                 <button className="send-btn-gmail" onClick={handleSendEmail} disabled={sendingEmail}>
-                  {sendingEmail ? "Sending..." : "Send"}
+                  {sendingEmail ? "Sending…" : "Send"}
                 </button>
               </div>
             </div>

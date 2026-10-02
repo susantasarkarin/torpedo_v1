@@ -11,6 +11,7 @@ import {
   BarChart,
   Bar,
 } from "recharts";
+import { formatDate as fmtDate } from "../utils/format"
 import "./Operations.css";
 
 const token = () => localStorage.getItem("session_id");
@@ -211,8 +212,7 @@ function Operations() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "—";
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    return fmtDate(dateStr);
   };
 
   const formatTimeAgo = (dateStr) => {
@@ -271,7 +271,7 @@ function Operations() {
       return (
         <div className="loading-container">
           <div className="loading-spinner"></div>
-          <p style={{ marginTop: "1rem", color: "#4b5563" }}>Loading dashboard...</p>
+          <p style={{ marginTop: "1rem", color: "#4b5563" }}>Loading dashboard…</p>
         </div>
       );
     }
@@ -1001,7 +1001,7 @@ function Operations() {
       {/* Header */}
       <div className="operations-header">
         <div className="operations-header-left">
-          <h1>⚙️ Operations Dashboard</h1>
+          <h1 className="cx-page-title">⚙️ Operations Dashboard</h1>
           <p>Manage RFQs, projects, accounts, and vendor communications</p>
         </div>
 

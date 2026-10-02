@@ -8,6 +8,8 @@ import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../ut
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 function PaymentsPage() {
   const navigate = useNavigate()
@@ -168,15 +170,15 @@ function PaymentsPage() {
       })
 
       if (response.ok) {
-        fetchAllData()
+        fetchPaginatedPayments(currentPage, recordsPerPage, searchTerm)
         handleCloseModal()
       } else {
         const error = await response.json()
-        alert(error.detail || "Error recording payment")
+        notify(error.detail || "Error recording payment")
       }
     } catch (error) {
       console.error("Error recording payment:", error)
-      alert("Error recording payment")
+      notify("Error recording payment")
     }
   }
 
@@ -280,7 +282,7 @@ function PaymentsPage() {
       }
     } catch (error) {
       console.error("Error exporting payments:", error)
-      alert("Failed to export payments")
+      notify("Failed to export payments")
     } finally {
       setExporting(false)
     }
@@ -304,15 +306,15 @@ function PaymentsPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Successfully imported ${result.imported} payments`)
-        fetchAllData()
+        notify(`Successfully imported ${result.imported} payments`)
+        fetchPaginatedPayments(currentPage, recordsPerPage, searchTerm)
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing payments:", error)
-      alert("Failed to import payments")
+      notify("Failed to import payments")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -325,7 +327,7 @@ function PaymentsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Payments</h2>
+          <h2 className="cx-page-title" style={styles.title}>Payments</h2>
           <p style={styles.subtitle}>Track payments received and made</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -342,7 +344,7 @@ function PaymentsPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={openModal}>
             + Record Payment
@@ -462,7 +464,7 @@ function PaymentsPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading payments...</p>
+            <p style={{ color: "#4b5563" }}>Loading payments…</p>
           </div>
         </div>
       ) : (
@@ -481,7 +483,7 @@ function PaymentsPage() {
             <tbody>
               {currentPayments.map((payment) => (
                 <tr key={payment._id} style={styles.tr}>
-                  <td style={styles.td}>{new Date(payment.payment_date).toLocaleDateString("en-IN")}</td>
+                  <td style={styles.td}>{formatDate(payment.payment_date)}</td>
                   <td style={{ ...styles.td, fontWeight: "500" }}>
                     {activeTab === "received" ? payment.customer_name : payment.vendor_name}
                   </td>

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction } from "../../utils/notify"
 
 function VendorBillingPage() {
   const navigate = useNavigate()
@@ -141,7 +142,7 @@ function VendorBillingPage() {
   }
 
   const deleteInvoice = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this invoice?")) return
+    if (!(await confirmAction("Are you sure you want to delete this invoice?"))) return
     
     try {
       await fetch(buildApiUrl(`/vendor-invoices/${id}`), { method: "DELETE" })
@@ -154,7 +155,7 @@ function VendorBillingPage() {
   if (loading) {
     return (
       <div className="vendor-page">
-        <div className="loading-spinner">Loading billing data...</div>
+        <div className="loading-spinner">Loading billing data…</div>
       </div>
     )
   }
@@ -164,7 +165,7 @@ function VendorBillingPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Billing</h1>
+          <h1 className="cx-page-title">Billing</h1>
           <p className="subtitle">Manage vendor invoices and billing records</p>
         </div>
         <div className="header-actions">

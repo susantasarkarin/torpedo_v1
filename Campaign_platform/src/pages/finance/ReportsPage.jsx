@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/Button"
 import { Badge } from "../../components/ui/Badge"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
+import { formatDate } from "../../utils/format"
 
 // sidebar names -> this page's report ids (/admin/finance/reports/gst opens GST)
 const REPORT_FROM_URL = { gst: "gst-report", aging: "aging/receivables" }
@@ -402,7 +403,7 @@ function ReportsPage() {
             }}
           >
             <div className="w-8 h-8 border-4 border-cogentix-navy-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-slate-600">Loading report...</p>
+            <p className="text-slate-600">Loading report…</p>
           </CardContent>
         </Card>
       )
@@ -527,12 +528,12 @@ function ReportsPage() {
       <Card style={styles.card}>
         <CardContent style={styles.cardContent}>
           <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-slate-900">
+            <h2 className="text-xl font-semibold text-slate-900 cx-page-title">
               {reportTypes.find((r) => r.id === activeReport)?.name}
             </h2>
             <Badge variant="blue">
-              {new Date(dateRange.start_date).toLocaleDateString("en-IN")} -{" "}
-              {new Date(dateRange.end_date).toLocaleDateString("en-IN")}
+              {formatDate(dateRange.start_date)} -{" "}
+              {formatDate(dateRange.end_date)}
             </Badge>
           </div>
         </CardContent>

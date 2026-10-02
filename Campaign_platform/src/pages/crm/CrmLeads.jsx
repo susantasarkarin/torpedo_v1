@@ -78,7 +78,7 @@ export default function CrmLeads() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">Leads</h1>
+          <h1 className="crm-title cx-page-title">Leads</h1>
           <p className="crm-subtitle">Canonical spine leads. Convert promotes to account + contact (+ opportunity).</p>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>

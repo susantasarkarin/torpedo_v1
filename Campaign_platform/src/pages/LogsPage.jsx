@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { buildApiUrl } from "../config"
 import { cancelPolling, pollOperation, OperationStatus } from "../utils/asyncOperations"
+import { formatDateTime } from "../utils/format"
 import "./LogsPage.css"
 
 // Helper to get auth token - handles both storage methods
@@ -111,8 +112,7 @@ function LogsPage() {
   const formatDate = (dateString) => {
     if (!dateString) return "N/A"
     try {
-      const date = new Date(dateString)
-      return date.toLocaleString()
+      return formatDateTime(dateString)
     } catch {
       return dateString
     }
@@ -129,7 +129,7 @@ function LogsPage() {
     <div className="logs-page">
       <div className="logs-header">
         <div>
-          <h1>Deployment Logs</h1>
+          <h1 className="cx-page-title">Deployment Logs</h1>
           <p className="logs-subtitle">View cron deployment logs</p>
         </div>
         <div className="logs-actions">
@@ -157,7 +157,7 @@ function LogsPage() {
           </div>
           <div className="logs-buttons">
             <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
-              {loading ? "Loading..." : "🔄 Refresh"}
+              {loading ? "Loading…" : "🔄 Refresh"}
             </button>
             <button onClick={handleClear} className="clear-btn">
               Clear View
@@ -201,7 +201,7 @@ function LogsPage() {
         {loading && logs.length === 0 ? (
           <div className="logs-loading">
             <div className="spinner"></div>
-            <p>Loading logs...</p>
+            <p>Loading logs…</p>
           </div>
         ) : logs.length === 0 ? (
           <div className="logs-empty">

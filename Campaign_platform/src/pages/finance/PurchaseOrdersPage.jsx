@@ -7,6 +7,8 @@ import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, 
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 function PurchaseOrdersPage() {
   const navigate = useNavigate()
@@ -243,7 +245,7 @@ function PurchaseOrdersPage() {
       }
     } catch (error) {
       console.error("Error exporting purchase orders:", error)
-      alert("Failed to export purchase orders")
+      notify("Failed to export purchase orders")
     } finally {
       setExporting(false)
     }
@@ -266,15 +268,15 @@ function PurchaseOrdersPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Successfully imported ${result.imported} purchase orders`)
+        notify(`Successfully imported ${result.imported} purchase orders`)
         fetchPurchaseOrders()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing purchase orders:", error)
-      alert("Failed to import purchase orders")
+      notify("Failed to import purchase orders")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -287,7 +289,7 @@ function PurchaseOrdersPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Purchase Orders</h2>
+          <h2 className="cx-page-title" style={styles.title}>Purchase Orders</h2>
           <p style={styles.subtitle}>Manage purchase orders to vendors</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -304,7 +306,7 @@ function PurchaseOrdersPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Create PO
@@ -375,7 +377,7 @@ function PurchaseOrdersPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading purchase orders...</p>
+            <p style={{ color: "#4b5563" }}>Loading purchase orders…</p>
           </div>
         </div>
       ) : (
@@ -409,9 +411,9 @@ function PurchaseOrdersPage() {
                     </code>
                   </td>
                   <td style={styles.td}>{po.vendor_name || "N/A"}</td>
-                  <td style={styles.td}>{new Date(po.order_date).toLocaleDateString("en-IN")}</td>
+                  <td style={styles.td}>{formatDate(po.order_date)}</td>
                   <td style={styles.td}>
-                    {po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString("en-IN") : "-"}
+                    {po.expected_delivery ? formatDate(po.expected_delivery) : "-"}
                   </td>
                   <td style={{ ...styles.td, fontWeight: "600" }}>{formatCurrency(po.total_amount)}</td>
                   <td style={styles.td}>{getStatusBadge(po.status)}</td>

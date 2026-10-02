@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { TrendingUp, RefreshCw, Clock } from "lucide-react";
 import api from "../../utils/api";
+import { formatDateTime } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 const fmtMoney = (n) => (typeof n === "number" && !Number.isNaN(n) ? `$${n.toFixed(2)}` : "—");
@@ -43,7 +44,7 @@ export default function SurveyRevenue() {
         <div className="crm-head__titles">
           <TrendingUp size={26} style={{ color: "#059669" }} />
           <div>
-            <h1 className="crm-title">Survey Revenue</h1>
+            <h1 className="crm-title cx-page-title">Survey Revenue</h1>
             <p className="crm-subtitle">Active surveys ranked by expected revenue per entrant (CPI × P(complete)).</p>
           </div>
         </div>
@@ -52,7 +53,7 @@ export default function SurveyRevenue() {
 
       {recommendedAt && (
         <p className="crm-muted" style={{ fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "0.25rem", marginBottom: "0.75rem" }}>
-          <Clock size={12} /> Last recommended {new Date(recommendedAt).toLocaleString()}
+          <Clock size={12} /> Last recommended {formatDateTime(recommendedAt)}
         </p>
       )}
 

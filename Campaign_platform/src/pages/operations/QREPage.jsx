@@ -8,6 +8,8 @@ import {
 import { qreApi } from "../../services/qreApi";
 import api from "../../utils/api";
 import MysteryShoppingDetail, { calcOverall } from "./MysteryShoppingTab";
+import { confirmAction } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 import "./QREPage.css";
 
 // ── Quota label & grouping map ───────────────────────────────────────────────
@@ -199,7 +201,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
 
   const deleteStudy = async (s) => {
     const label = s._type === "mystery_shopping" ? "mystery shopping audit" : "study";
-    if (!window.confirm(`Delete ${label} "${s.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete ${label} "${s.name}"? This cannot be undone.`))) return;
     try {
       if (s._type === "mystery_shopping") {
         await api.delete(`/api/mystery-shopping/audits/${s.id}`);
@@ -315,7 +317,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                           </code>
                         )}
                       </td>
-                      <td>{s.created_at ? new Date(s.created_at).toLocaleDateString("en-IN") : "—"}</td>
+                      <td>{s.created_at ? formatDate(s.created_at) : "—"}</td>
                       <td>
                         {isMS && msScore?.pct !== null && msScore?.pct !== undefined
                           ? (() => {
@@ -740,7 +742,7 @@ function QuotasTab({ studyId }) {
   };
 
   const resetAll = async () => {
-    if (!window.confirm("Reset ALL quota counters to zero? This cannot be undone.")) return;
+    if (!(await confirmAction("Reset ALL quota counters to zero? This cannot be undone."))) return;
     try {
       await qreApi.resetQuotas(studyId);
       showToast("All quotas reset to zero");
@@ -760,7 +762,7 @@ function QuotasTab({ studyId }) {
       `This will terminate all in-progress respondents who have already claimed a slot ` +
       `in the following full/over-achieved cells:\n\n${fullCells.join(", ")}\n\n` +
       `Their surveys will be ended immediately. Continue?`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmAction(msg))) return;
     setTerminating(true);
     setTerminateResult(null);
     try {
@@ -1124,7 +1126,7 @@ export default function QREPage() {
             </button>
             <div className="qre-page-title-row">
               <BarChart2 size={20} color="#e8890b" />
-              <h1 className="qre-page-title">{selectedStudy.name}</h1>
+              <h1 className="qre-page-title cx-page-title">{selectedStudy.name}</h1>
               <StatusBadge status={selectedStudy.status} />
             </div>
             {selectedStudy.client_name && (

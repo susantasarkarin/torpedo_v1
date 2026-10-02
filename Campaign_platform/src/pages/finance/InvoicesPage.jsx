@@ -8,6 +8,8 @@ import { FileText, Search, Eye, Download, Mail, Loader2, Trash2, Upload } from "
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 // Invoice status options
 const INVOICE_STATUS_OPTIONS = [
@@ -240,7 +242,7 @@ function InvoicesPage() {
       }
     } catch (error) {
       console.error("Error exporting invoices:", error)
-      alert("Failed to export invoices")
+      notify("Failed to export invoices")
     } finally {
       setExporting(false)
     }
@@ -270,15 +272,15 @@ function InvoicesPage() {
             message += `\n... and ${result.errors.length - 5} more`
           }
         }
-        alert(message)
+        notify(message)
         fetchInvoices()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing invoices:", error)
-      alert("Failed to import invoices")
+      notify("Failed to import invoices")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -311,7 +313,7 @@ function InvoicesPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Invoices</h2>
+          <h2 className="cx-page-title" style={styles.title}>Invoices</h2>
           <p style={styles.subtitle}>Manage sales invoices and customer payments</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -328,7 +330,7 @@ function InvoicesPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Create Invoice
@@ -398,7 +400,7 @@ function InvoicesPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading invoices...</p>
+            <p style={{ color: "#4b5563" }}>Loading invoices…</p>
           </div>
         </div>
       ) : (
@@ -433,8 +435,8 @@ function InvoicesPage() {
                     </code>
                   </td>
                   <td style={styles.td}>{invoice.customer_name || "N/A"}</td>
-                  <td style={styles.td}>{new Date(invoice.invoice_date).toLocaleDateString("en-IN")}</td>
-                  <td style={styles.td}>{new Date(invoice.due_date).toLocaleDateString("en-IN")}</td>
+                  <td style={styles.td}>{formatDate(invoice.invoice_date)}</td>
+                  <td style={styles.td}>{formatDate(invoice.due_date)}</td>
                   <td style={styles.td}>
                     <span style={styles.currencyBadge}>
                       {invoice.currency_code || "INR"}

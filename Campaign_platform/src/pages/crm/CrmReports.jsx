@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, TrendingUp, GitMerge } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal } from "./CrmNav";
+import { formatDate } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 const fmt = (n) =>
@@ -62,7 +63,7 @@ export default function CrmReports() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">Reports</h1>
+          <h1 className="crm-title cx-page-title">Reports</h1>
           <p className="crm-subtitle">Pipeline health, forecast and data quality.</p>
         </div>
         <button className="crm-btn" onClick={load}><RefreshCw size={15} /> Refresh</button>
@@ -172,7 +173,7 @@ export default function CrmReports() {
                 onChange={() => setPrimaryId(a._id)} />
               <span style={{ fontWeight: primaryId === a._id ? 700 : 400 }}>{a.name}</span>
               <span className="crm-muted" style={{ fontSize: "0.72rem" }}>
-                created {a.created_at ? new Date(a.created_at).toLocaleDateString() : "?"}
+                created {a.created_at ? formatDate(a.created_at) : "?"}
               </span>
             </label>
           ))}

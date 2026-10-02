@@ -3,6 +3,8 @@ import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
 import { buildApiUrl } from "../../../config"
 import { fetchAllClients } from "../../../utils/api"
+import { notify } from "../../../utils/notify"
+import { formatDateTime } from "../../../utils/format"
 // Temporarily disabled for debugging
 // import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
@@ -143,11 +145,11 @@ export default function SurveyPool() {
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error('Failed to create Cint entry link:', errorData);
-        alert(`Failed to create entry link: ${errorData.detail || response.statusText}`);
+        notify(`Failed to create entry link: ${errorData.detail || response.statusText}`);
       }
     } catch (err) {
       console.error('Error creating Cint entry link:', err);
-      alert('Error creating entry link. Please try again.');
+      notify('Error creating entry link. Please try again.');
     } finally {
       setCreatingEntryLink(false);
     }
@@ -340,7 +342,7 @@ export default function SurveyPool() {
       }
 
       if (!silent && cintResult?.success) {
-        alert(summaryLines.join('\n'));
+        notify(summaryLines.join('\n'));
       } else if (!cintResult) {
         setError('Failed to sync CINT surveys');
       }
@@ -533,20 +535,7 @@ export default function SurveyPool() {
     setSelectedSurvey(null);
   };
 
-  // Format date/time for display
-  const formatDateTime = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
+
 
   // Get survey name - for CINT show study number (survey_id), for CPX show survey_name
   const getSurveyName = (survey) => {
@@ -788,7 +777,7 @@ export default function SurveyPool() {
                   onClick={syncSurveys}
                   disabled={syncing}
                 >
-                  {syncing ? '🔄 Syncing...' : '🔄 Sync & Activate Surveys'}
+                  {syncing ? '🔄 Syncing…' : '🔄 Sync & Activate Surveys'}
                 </button>
                 <a 
                   href="/admin/settings" 
@@ -802,7 +791,7 @@ export default function SurveyPool() {
                 Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#e8890b' }}>Settings</a>.
                 {poolStats?.last_sync && (
                   <span className="last-sync">
-                    Last sync: {new Date(poolStats.last_sync).toLocaleString()}
+                    Last sync: {formatDateTime(poolStats.last_sync)}
                   </span>
                 )}
               </p>
@@ -827,7 +816,7 @@ export default function SurveyPool() {
       {loading && paginatedSurveys.length === 0 && !error && (
         <div className="survey-pool-loading">
           <div className="loading-spinner"></div>
-          <p>⏳ Loading surveys...</p>
+          <p>⏳ Loading surveys…</p>
         </div>
       )}
 
@@ -998,7 +987,7 @@ export default function SurveyPool() {
         <div className="survey-details-modal-overlay" onClick={closeDetailsModal}>
           <div className="survey-details-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>📋 Survey Details</h2>
+              <h2 className="cx-page-title">📋 Survey Details</h2>
               <button className="modal-close-btn" onClick={closeDetailsModal}>✕</button>
             </div>
             <div className="modal-body">
@@ -1194,7 +1183,7 @@ export default function SurveyPool() {
                     {loadingEntryLink ? (
                       <div style={{ padding: '12px', color: '#666', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span className="loading-spinner" style={{ width: '16px', height: '16px', border: '2px solid #e5e7eb', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
-                        Loading entry link...
+                        Loading entry link…
                       </div>
                     ) : cintEntryLink?.live_link ? (
                       <>
@@ -1284,7 +1273,7 @@ export default function SurveyPool() {
                                 fontWeight: '500'
                               }}
                             >
-                              {creatingEntryLink ? '⏳ Creating...' : '➕ Create Entry Link'}
+                              {creatingEntryLink ? '⏳ Creating…' : '➕ Create Entry Link'}
                             </button>
                           </div>
                           <p style={{ color: '#78716c', fontSize: '0.8rem', margin: 0, lineHeight: '1.4' }}>

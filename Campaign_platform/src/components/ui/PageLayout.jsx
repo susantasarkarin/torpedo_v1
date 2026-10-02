@@ -97,7 +97,7 @@ export function PageContent({
 /**
  * PageLoading - Unified loading state
  */
-export function PageLoading({ message = 'Loading...' }) {
+export function PageLoading({ message = 'Loading…' }) {
   return (
     <div className="flex flex-col items-center justify-center py-16">
       <div className="relative">

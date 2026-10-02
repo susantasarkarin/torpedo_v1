@@ -84,7 +84,7 @@ function UnifiedVendorsPage() {
   if (loading) {
     return (
       <div className="unified-vendors-page">
-        <div className="loading-spinner">Loading vendors...</div>
+        <div className="loading-spinner">Loading vendors…</div>
       </div>
     )
   }
@@ -93,7 +93,7 @@ function UnifiedVendorsPage() {
     <div className="unified-vendors-page">
       <div className="page-header">
         <div className="header-left">
-          <h1>📋 All Vendors</h1>
+          <h1 className="cx-page-title">📋 All Vendors</h1>
           <p className="page-subtitle">Unified view of all panel and billing vendors</p>
         </div>
         <div className="header-right">

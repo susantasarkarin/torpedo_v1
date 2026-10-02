@@ -445,7 +445,7 @@ function CustomersImport() {
 
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.title}>Import Customers</h1>
+        <h1 className="cx-page-title" style={styles.title}>Import Customers</h1>
         <p style={styles.subtitle}>Upload a CSV file to import customers into your database</p>
       </div>
 
@@ -722,7 +722,7 @@ function CustomersImport() {
                       animation: "spin 1s linear infinite",
                     }}
                   />
-                  Importing...
+                  Importing…
                 </>
               ) : (
                 <>

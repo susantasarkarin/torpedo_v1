@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { fetchAllClients } from "../../utils/api"
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
 
 // Helper functions to map between client UI format and customer API format
 const customerToClient = (customer) => ({
@@ -96,7 +97,7 @@ function ClientsPage() {
       setError("");
     } catch (e) {
       if (e.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -280,7 +281,7 @@ function ClientsPage() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -305,7 +306,7 @@ function ClientsPage() {
 
   // Delete client - now uses finance customers API
   const deleteClient = async (id) => {
-    if (!window.confirm("Delete this client?")) return;
+    if (!(await confirmAction("Delete this client?"))) return;
 
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -323,7 +324,7 @@ function ClientsPage() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -367,7 +368,7 @@ function ClientsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Clients</h2>
+          <h2 className="cx-page-title" style={styles.title}>Clients</h2>
           <p style={styles.subtitle}>Manage your survey clients and their information</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -654,7 +655,7 @@ function ClientsPage() {
                 Cancel
               </button>
               <button style={styles.btnSave} onClick={saveClient} disabled={loading}>
-                {loading ? "Saving..." : editingId ? "Save Changes" : "Add Client"}
+                {loading ? "Saving…" : editingId ? "Save Changes" : "Add Client"}
               </button>
             </div>
           </div>

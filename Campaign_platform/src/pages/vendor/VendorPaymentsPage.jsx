@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction } from "../../utils/notify"
 
 function VendorPaymentsPage() {
   const navigate = useNavigate()
@@ -157,7 +158,7 @@ function VendorPaymentsPage() {
   }
 
   const deletePayment = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this payment?")) return
+    if (!(await confirmAction("Are you sure you want to delete this payment?"))) return
     
     try {
       await fetch(buildApiUrl(`/vendor-payments/${id}`), { method: "DELETE" })
@@ -170,7 +171,7 @@ function VendorPaymentsPage() {
   if (loading) {
     return (
       <div className="vendor-page">
-        <div className="loading-spinner">Loading payments...</div>
+        <div className="loading-spinner">Loading payments…</div>
       </div>
     )
   }
@@ -180,7 +181,7 @@ function VendorPaymentsPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Payment</h1>
+          <h1 className="cx-page-title">Payment</h1>
           <p className="subtitle">Track and manage vendor payments</p>
         </div>
         <div className="header-actions">

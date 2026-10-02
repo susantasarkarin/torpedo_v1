@@ -6,6 +6,7 @@ import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download, Link2, Un
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { confirmAction, notify } from "../../utils/notify"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -148,14 +149,14 @@ function VendorsPage() {
       if (response.ok) {
         fetchVendors()
         setShowLinkModal(false)
-        alert("Vendor linked successfully!")
+        notify("Vendor linked successfully!")
       } else {
         const error = await response.json()
-        alert(error.detail || "Failed to link vendor")
+        notify(error.detail || "Failed to link vendor")
       }
     } catch (error) {
       console.error("Error linking vendor:", error)
-      alert("Failed to link vendor")
+      notify("Failed to link vendor")
     } finally {
       setLinking(false)
     }
@@ -163,7 +164,7 @@ function VendorsPage() {
 
   // Unlink vendor from panel vendor
   const handleUnlinkVendor = async (vendorId) => {
-    if (!window.confirm("Are you sure you want to unlink this vendor from the panel vendor?")) return
+    if (!(await confirmAction("Are you sure you want to unlink this vendor from the panel vendor?"))) return
     
     try {
       const response = await authFetch(
@@ -173,10 +174,10 @@ function VendorsPage() {
       
       if (response.ok) {
         fetchVendors()
-        alert("Vendor unlinked successfully!")
+        notify("Vendor unlinked successfully!")
       } else {
         const error = await response.json()
-        alert(error.detail || "Failed to unlink vendor")
+        notify(error.detail || "Failed to unlink vendor")
       }
     } catch (error) {
       console.error("Error unlinking vendor:", error)
@@ -281,7 +282,7 @@ function VendorsPage() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this vendor?")) return
+    if (!(await confirmAction("Are you sure you want to delete this vendor?"))) return
 
     try {
       const response = await authFetch(buildApiUrl(`/finance/vendors/${id}`), {
@@ -375,7 +376,7 @@ function VendorsPage() {
       }
     } catch (error) {
       console.error("Error exporting vendors:", error)
-      alert("Failed to export vendors")
+      notify("Failed to export vendors")
     } finally {
       setExporting(false)
     }
@@ -398,15 +399,15 @@ function VendorsPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Successfully imported ${result.imported} vendors`)
+        notify(`Successfully imported ${result.imported} vendors`)
         fetchVendors()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing vendors:", error)
-      alert("Failed to import vendors")
+      notify("Failed to import vendors")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -419,7 +420,7 @@ function VendorsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Vendors</h2>
+          <h2 className="cx-page-title" style={styles.title}>Vendors</h2>
           <p style={styles.subtitle}>Manage your vendor accounts</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -436,7 +437,7 @@ function VendorsPage() {
             disabled={importing}
           >
             <Upload style={{ width: "16px", height: "16px" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            {importing ? "Importing…" : "Import CSV"}
           </button>
           <button 
             style={styles.btnSecondary} 
@@ -444,7 +445,7 @@ function VendorsPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Add Vendor
@@ -503,7 +504,7 @@ function VendorsPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading vendors...</p>
+            <p style={{ color: "#4b5563" }}>Loading vendors…</p>
           </div>
         </div>
       ) : (
@@ -615,7 +616,7 @@ function VendorsPage() {
                   </td>
                 </tr>
               ))}
-              {paginatedVendors.length === 0 && filteredVendors.length === 0 && (
+              {paginatedVendors.length === 0 && (
                 <tr>
                   <td colSpan={8} style={styles.emptyState}>
                     <Building2 style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />

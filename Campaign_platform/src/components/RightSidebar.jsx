@@ -96,6 +96,13 @@ function RightSidebar() {
             </Link>
           </li>
 
+          <li className={`sidebar-item ${isActive("/admin/sales/agent-dashboard") || isActive("/admin/sales/agent-settings") || isActive("/admin/sales/company-upload") ? "active" : ""}`}>
+            <Link to="/admin/sales/agent-dashboard" className="sidebar-link">
+              <span className="sidebar-icon">🤖</span>
+              AI Agent
+            </Link>
+          </li>
+
         </ul>
       </nav>
     </aside>

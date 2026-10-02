@@ -19,6 +19,7 @@ import {
 import { useLeadAgent } from '../../contexts/LeadAgentContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/Card';
+import { confirmAction } from "../../utils/notify"
 
 // Agent definitions with icons and default prompts
 const AGENT_DEFINITIONS = {
@@ -253,7 +254,7 @@ export default function AgentSettings() {
   // Delete config
   const handleDelete = async () => {
     if (!selectedConfig?.config_id) return;
-    if (!confirm('Are you sure you want to delete this configuration?')) return;
+    if (!(await confirmAction('Are you sure you want to delete this configuration?'))) return;
     
     try {
       await deleteConfig(selectedConfig.config_id);
@@ -305,7 +306,7 @@ export default function AgentSettings() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Agent Settings</h1>
+            <h1 className="text-2xl font-bold text-gray-900 cx-page-title">Agent Settings</h1>
             <p className="text-gray-600">Configure your AI lead generation agents</p>
           </div>
           <div className="flex gap-3">

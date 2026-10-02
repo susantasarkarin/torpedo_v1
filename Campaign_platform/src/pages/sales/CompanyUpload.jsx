@@ -500,7 +500,7 @@ export default function CompanyUpload() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">Upload Companies</h1>
+          <h1 className="text-2xl font-bold text-gray-900 cx-page-title">Upload Companies</h1>
           <p className="text-gray-600">
             Upload a list of companies to find decision-makers and generate outreach
           </p>

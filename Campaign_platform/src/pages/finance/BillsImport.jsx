@@ -7,6 +7,7 @@ import Papa from "papaparse"
 import { ArrowLeft, Upload, Download, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet } from "lucide-react"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
+import { notify } from "../../utils/notify"
 
 // Database fields for bills
 const DB_FIELDS = [
@@ -395,7 +396,7 @@ function BillsImport() {
       })
       
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -452,7 +453,7 @@ function BillsImport() {
 
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.title}>Import Bills</h1>
+        <h1 className="cx-page-title" style={styles.title}>Import Bills</h1>
         <p style={styles.subtitle}>Upload a CSV file to import bills into your database</p>
       </div>
 
@@ -729,7 +730,7 @@ function BillsImport() {
                       animation: "spin 1s linear infinite",
                     }}
                   />
-                  Importing...
+                  Importing…
                 </>
               ) : (
                 <>

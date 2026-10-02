@@ -136,6 +136,10 @@ function Navbar({
               <span className="profile-menu-icon">📧</span>
               Gmail Settings
             </Link>
+            <Link to="/admin/support" className="profile-menu-item">
+              <span className="profile-menu-icon">🛟</span>
+              Help &amp; Support
+            </Link>
             <hr className="profile-menu-divider" />
             <button onClick={handleLogout} className="profile-menu-item logout">
               <span className="profile-menu-icon">🚪</span>

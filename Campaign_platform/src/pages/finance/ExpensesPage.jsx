@@ -1,12 +1,3 @@
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalRecords={totalExpenses}
-        pageSize={recordsPerPage}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handleRecordsPerPageChange}
-        loading={loading}
-      />
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -15,6 +6,8 @@ import { DEFAULT_CURRENCY } from "../../utils/currency"
 import { Receipt, Search, Paperclip, Trash2, Loader2, Sparkles, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 function ExpensesPage() {
   const [expenses, setExpenses] = useState([])
@@ -117,7 +110,7 @@ function ExpensesPage() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this expense?")) return
+    if (!(await confirmAction("Are you sure you want to delete this expense?"))) return
 
     try {
       const response = await authFetch(buildApiUrl(`/finance/expenses/${id}`), {
@@ -196,7 +189,7 @@ function ExpensesPage() {
       }
     } catch (error) {
       console.error("Error exporting expenses:", error)
-      alert("Failed to export expenses")
+      notify("Failed to export expenses")
     } finally {
       setExporting(false)
     }
@@ -219,15 +212,15 @@ function ExpensesPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Successfully imported ${result.imported} expenses`)
+        notify(`Successfully imported ${result.imported} expenses`)
         fetchExpenses()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing expenses:", error)
-      alert("Failed to import expenses")
+      notify("Failed to import expenses")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -240,7 +233,7 @@ function ExpensesPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Expenses</h2>
+          <h2 className="cx-page-title" style={styles.title}>Expenses</h2>
           <p style={styles.subtitle}>Track and manage business expenses</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -257,7 +250,7 @@ function ExpensesPage() {
             disabled={importing}
           >
             <Upload style={{ width: "16px", height: "16px" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            {importing ? "Importing…" : "Import CSV"}
           </button>
           <button 
             style={styles.btnSecondary} 
@@ -265,7 +258,7 @@ function ExpensesPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Record Expense
@@ -379,7 +372,7 @@ function ExpensesPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading expenses...</p>
+            <p style={{ color: "#4b5563" }}>Loading expenses…</p>
           </div>
         </div>
       ) : (
@@ -399,7 +392,7 @@ function ExpensesPage() {
             <tbody>
               {filteredExpenses.map((expense) => (
                 <tr key={expense._id} style={styles.tr}>
-                  <td style={styles.td}>{new Date(expense.expense_date).toLocaleDateString("en-IN")}</td>
+                  <td style={styles.td}>{formatDate(expense.expense_date)}</td>
                   <td style={{ ...styles.td, fontWeight: "500" }}>{expense.description}</td>
                   <td style={styles.td}>
                     <span style={{ ...styles.statusBadge, backgroundColor: "#e9d5ff", color: "#6b21a8" }}>

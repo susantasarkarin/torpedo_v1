@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { buildApiUrl } from "../../config"
+import { confirmAction } from "../../utils/notify"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -214,7 +215,7 @@ export default function TrafficSuppliers() {
   }
 
   const rotate = async (s) => {
-    if (!window.confirm(`Rotate ${s.name}'s dashboard link?\n\nTheir current link stops working immediately and you will need to send them the new one.`)) return
+    if (!(await confirmAction(`Rotate ${s.name}'s dashboard link?\n\nTheir current link stops working immediately and you will need to send them the new one.`))) return
     await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/suppliers/${s.slug}/rotate-token`), {
       method: "POST",
       headers: { Authorization: sessionId },
@@ -232,7 +233,7 @@ export default function TrafficSuppliers() {
     <div style={{ padding: "1.5rem", maxWidth: "1000px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
         <div>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>
+          <h2 className="cx-page-title" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>
           <p style={{ color: "#4b5563", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
             Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
             A signup counts as <strong>payable once the panelist completes their profile</strong> — the point they can be routed to a survey.

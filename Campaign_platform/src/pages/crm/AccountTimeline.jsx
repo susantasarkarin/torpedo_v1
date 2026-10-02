@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
+import { formatDate, formatDateTime } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 const ACTIVITY_ICONS = {
@@ -37,7 +38,7 @@ function ActivityRow({ act }) {
           </p>
         )}
         <span className="crm-muted" style={{ fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-          <Clock size={12} /> {act.created_at ? new Date(act.created_at).toLocaleString() : ""}
+          <Clock size={12} /> {act.created_at ? formatDateTime(act.created_at) : ""}
           {act.author ? ` · ${act.author}` : ""}
         </span>
       </div>
@@ -183,7 +184,7 @@ export default function AccountTimeline() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">Accounts</h1>
+          <h1 className="crm-title cx-page-title">Accounts</h1>
           <p className="crm-subtitle">360° view: profile, contacts, deals, tasks, and the full timeline.</p>
         </div>
       </div>
@@ -304,7 +305,7 @@ export default function AccountTimeline() {
                         {t.owner_id && <span className="crm-muted" style={{ fontSize: "0.72rem" }}>{t.owner_id}</span>}
                         {t.due_date && (
                           <span style={{ fontSize: "0.72rem", color: overdue ? "#b91c1c" : "#4b5563", fontWeight: overdue ? 700 : 400 }}>
-                            {new Date(t.due_date).toLocaleDateString()}
+                            {formatDate(t.due_date)}
                           </span>
                         )}
                       </div>

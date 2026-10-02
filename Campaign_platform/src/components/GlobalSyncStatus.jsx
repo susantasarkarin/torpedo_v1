@@ -76,7 +76,7 @@ const statusColors = {
 
 const statusLabels = {
   pending: 'Starting...',
-  connecting: 'Connecting...',
+  connecting: 'Connecting…',
   counting: 'Counting emails...',
   downloading: 'Downloading',
   processing: 'Processing',

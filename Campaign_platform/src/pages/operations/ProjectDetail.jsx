@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import "./ProjectDetail.css";
 import { buildApiUrl } from "../../config";
+import { notify } from "../../utils/notify"
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -80,7 +81,7 @@ function ProjectDetail() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/admin/login");
           return;
@@ -207,7 +208,7 @@ function ProjectDetail() {
       <div className="pd-topbar">
         <button onClick={() => navigate(-1)} className="pd-back-btn"><ArrowLeft size={14} /> Back</button>
         <div className="pd-topbar-main">
-          <h1 className="pd-title">{project.projectName}</h1>
+          <h1 className="pd-title cx-page-title">{project.projectName}</h1>
           <div className="pd-meta-chips">
             <StatusBadge status={project.projectStatus} />
             <span className="pd-chip"><ClipboardList size={12} /> #{project.surveyNo || "—"}</span>

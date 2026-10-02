@@ -6,6 +6,8 @@ import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
 import "../sales/campaign/AILeadDetail.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDateTime } from "../../utils/format"
 
 function VendorLeadsPage() {
   const navigate = useNavigate()
@@ -166,11 +168,7 @@ function VendorLeadsPage() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "-"
-    const date = new Date(dateStr)
-    if (isNaN(date.getTime())) return "-"
-    return date.toLocaleDateString("en-US", {
-      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
-    })
+    return formatDateTime(dateStr, "-")
   }
 
   const scrollToDetailSection = (sectionId) => {
@@ -196,7 +194,7 @@ function VendorLeadsPage() {
   }
 
   const deleteLead = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this lead?")) return
+    if (!(await confirmAction("Are you sure you want to delete this lead?"))) return
     
     try {
       const sessionId = localStorage.getItem("session_id")
@@ -234,11 +232,11 @@ function VendorLeadsPage() {
         fetchStats()
       } else {
         const err = await res.json()
-        alert(err.detail || "Failed to save lead")
+        notify(err.detail || "Failed to save lead")
       }
     } catch (err) {
       console.error("Error saving lead:", err)
-      alert("Failed to save lead")
+      notify("Failed to save lead")
     }
   }
 
@@ -264,25 +262,25 @@ function VendorLeadsPage() {
       
       if (res.ok) {
         const data = await res.json()
-        alert(`✅ Successfully converted to ${convertType === 'panel' ? 'Panel Vendor' : 'Billing Vendor'}!`)
+        notify(`✅ Successfully converted to ${convertType === 'panel' ? 'Panel Vendor' : 'Billing Vendor'}!`)
         setShowConvertModal(false)
         setConvertingLead(null)
         fetchLeads()
         fetchStats()
       } else {
         const err = await res.json()
-        alert(err.detail || "Failed to convert lead")
+        notify(err.detail || "Failed to convert lead")
       }
     } catch (err) {
       console.error("Error converting lead:", err)
-      alert("Failed to convert lead")
+      notify("Failed to convert lead")
     }
   }
 
   if (loading) {
     return (
       <div className="vendor-page">
-        <div className="loading-spinner">Loading vendor leads...</div>
+        <div className="loading-spinner">Loading vendor leads…</div>
       </div>
     )
   }
@@ -292,7 +290,7 @@ function VendorLeadsPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Vendor Leads</h1>
+          <h1 className="cx-page-title">Vendor Leads</h1>
           <p className="subtitle">Track and manage leads from your vendors</p>
         </div>
         <div className="header-actions">
@@ -621,7 +619,7 @@ function VendorLeadsPage() {
                   </div>
 
                   <div className="overview-content">
-                    {detailLoading && <p className="empty-state">Loading lead details...</p>}
+                    {detailLoading && <p className="empty-state">Loading lead details…</p>}
 
                     {/* Lead Information */}
                     <div className="info-section">
@@ -779,7 +777,7 @@ function VendorLeadsPage() {
                               ))
                             ) : (
                               <tr>
-                                <td colSpan="6" className="empty-state">{detailLoading ? "Loading emails..." : "No emails found"}</td>
+                                <td colSpan="6" className="empty-state">{detailLoading ? "Loading emails…" : "No emails found"}</td>
                               </tr>
                             )}
                           </tbody>

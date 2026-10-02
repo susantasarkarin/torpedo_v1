@@ -6,6 +6,8 @@ import { API_BASE_URL } from "../../config"
 import { FileText, Search, Pencil, Trash2, Loader2, Upload, Download, Plus, Eye } from "lucide-react"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 // Estimate status options
 const ESTIMATE_STATUS_OPTIONS = [
@@ -73,7 +75,7 @@ function EstimatesPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -194,7 +196,7 @@ function EstimatesPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -214,7 +216,7 @@ function EstimatesPage() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this estimate?")) return
+    if (!(await confirmAction("Are you sure you want to delete this estimate?"))) return
 
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) {
@@ -233,7 +235,7 @@ function EstimatesPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -422,7 +424,7 @@ function EstimatesPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -472,7 +474,7 @@ function EstimatesPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -484,7 +486,7 @@ function EstimatesPage() {
         if (result.errors?.length) {
           message += `\n\nErrors:\n${result.errors.join("\n")}`
         }
-        alert(message)
+        notify(message)
         fetchEstimates()
       } else {
         const errorData = await response.json().catch(() => ({}))
@@ -492,7 +494,7 @@ function EstimatesPage() {
       }
     } catch (error) {
       console.error("Error importing estimates:", error)
-      alert(error.message || "Failed to import estimates")
+      notify(error.message || "Failed to import estimates")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -514,7 +516,7 @@ function EstimatesPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Estimates</h2>
+          <h2 className="cx-page-title" style={styles.title}>Estimates</h2>
           <p style={styles.subtitle}>Create and manage sales estimates</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -527,7 +529,7 @@ function EstimatesPage() {
           </button>
           <button style={styles.btnSecondary} onClick={handleExportCSV} disabled={exporting}>
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={openAddModal}>
             <Plus style={{ width: "16px", height: "16px" }} />
@@ -610,7 +612,7 @@ function EstimatesPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading estimates...</p>
+            <p style={{ color: "#4b5563" }}>Loading estimates…</p>
           </div>
         </div>
       ) : (
@@ -657,11 +659,11 @@ function EstimatesPage() {
                   </td>
                   <td style={styles.td}>
                     {estimate.estimate_date
-                      ? new Date(estimate.estimate_date).toLocaleDateString("en-IN")
+                      ? formatDate(estimate.estimate_date)
                       : "-"}
                   </td>
                   <td style={styles.td}>
-                    {estimate.expiry_date ? new Date(estimate.expiry_date).toLocaleDateString("en-IN") : "-"}
+                    {estimate.expiry_date ? formatDate(estimate.expiry_date) : "-"}
                   </td>
                   <td style={styles.td}>
                     <span style={{ ...styles.statusBadge, ...getStatusVariant(estimate.status) }}>
@@ -706,9 +708,9 @@ function EstimatesPage() {
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalRecords={totalEstimates}
+        totalRecords={filteredEstimates.length}
         pageSize={recordsPerPage}
-        onPageChange={handlePageChange}
+        onPageChange={setCurrentPage}
         onPageSizeChange={handleRecordsPerPageChange}
         loading={loading}
       />

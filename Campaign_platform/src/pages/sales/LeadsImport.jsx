@@ -592,7 +592,7 @@ function LeadsImport() {
                 onClick={handleImport}
                 disabled={importing}
               >
-                {importing ? "⏳ Importing..." : "✅ Import Leads"}
+                {importing ? "⏳ Importing…" : "✅ Import Leads"}
               </button>
             </div>
           </div>
@@ -705,7 +705,7 @@ function LeadsImport() {
       </button>
       
       <div style={styles.header}>
-        <h1 style={styles.title}>📥 Import Leads</h1>
+        <h1 className="cx-page-title" style={styles.title}>📥 Import Leads</h1>
         <p style={styles.subtitle}>
           Bulk import leads from a CSV file with smart column mapping
         </p>

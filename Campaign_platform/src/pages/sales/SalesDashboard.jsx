@@ -15,6 +15,7 @@ import {
   Calendar,
   BarChart3
 } from "lucide-react"
+import { formatDateTime } from "../../utils/format"
 
 // ============== COMPACT STYLES ==============
 const styles = {
@@ -603,7 +604,7 @@ export default function SalesDashboard() {
       <div style={styles.page}>
         <div style={styles.loading}>
           <RefreshCw size={20} style={{ color: "#f97316" }} />
-          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "13px" }}>Loading...</span>
+          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "13px" }}>Loading…</span>
         </div>
       </div>
     )
@@ -635,7 +636,7 @@ export default function SalesDashboard() {
       {/* Header */}
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>Sales Dashboard</h1>
+          <h1 className="cx-page-title" style={styles.title}>Sales Dashboard</h1>
           <p style={styles.subtitle}>
             {role === "manager" ? "Manager View" : "Rep View"} • Conversion KPIs
           </p>
@@ -719,7 +720,7 @@ export default function SalesDashboard() {
 
       {/* Footer */}
       <div style={styles.footer}>
-        Updated: {data?.generated_at ? new Date(data.generated_at).toLocaleString() : "—"}
+        Updated: {data?.generated_at ? formatDateTime(data.generated_at) : "—"}
       </div>
     </div>
   )

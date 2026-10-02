@@ -214,7 +214,7 @@ function Leads() {
       {/* Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Sales Leads</h1>
+          <h1 className="cx-page-title">Sales Leads</h1>
           <p className="subtitle">{total.toLocaleString()} qualified leads (Gmail contacts &amp; outreach replies)</p>
         </div>
         <div className="header-actions">

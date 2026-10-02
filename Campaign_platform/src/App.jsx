@@ -150,6 +150,7 @@ const CrmReports = lazy(() => import("./pages/crm/CrmReports"))
 
 // Surveys
 const SurveyRevenue = lazy(() => import("./pages/surveys/SurveyRevenue"))
+import FeedbackHost from "./components/FeedbackHost"
 const NotFound = lazy(() => import("./pages/NotFound"))
 
 // Wrapper for lazy loaded pages with consistent loading state
@@ -161,6 +162,8 @@ const LazyPage = ({ children }) => (
 
 function App() {
   return (
+    <>
+    <FeedbackHost />
     <Routes>
       {/* Default: when you run app locally, go to admin login */}
       <Route path="/" element={<Navigate to="/admin/login" replace />} />
@@ -354,6 +357,7 @@ function App() {
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   )
 }
 

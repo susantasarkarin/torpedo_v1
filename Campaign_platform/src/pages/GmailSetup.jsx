@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import { confirmAction } from "../utils/notify"
+import { formatDateTime } from "../utils/format"
 
 function GmailSetup() {
   const navigate = useNavigate()
@@ -237,7 +239,7 @@ function GmailSetup() {
     const auth = getAuthHeader()
     if (!auth) return
     
-    if (!confirm("Are you sure you want to remove this mailbox?")) return
+    if (!(await confirmAction("Are you sure you want to remove this mailbox?"))) return
     
     try {
       const res = await fetch(buildApiUrl(`/gmail-ws/mailboxes/${mailboxId}`), {
@@ -274,7 +276,7 @@ function GmailSetup() {
         total: 0, 
         synced: 0, 
         percent: 0, 
-        message: "Checking mailbox..." 
+        message: "Checking mailbox…" 
       }
     }))
     
@@ -443,7 +445,7 @@ function GmailSetup() {
     <div style={styles.container}>
       <div style={styles.card}>
         <div style={styles.header}>
-          <h1 style={styles.title}>📧 Gmail Workspace Integration</h1>
+          <h1 className="cx-page-title" style={styles.title}>📧 Gmail Workspace Integration</h1>
           <p style={styles.subtitle}>
             Connect Google Workspace mailboxes using Service Account delegation
           </p>
@@ -584,7 +586,7 @@ function GmailSetup() {
           </div>
           
           {loading ? (
-            <div style={styles.loading}>Loading...</div>
+            <div style={styles.loading}>Loading…</div>
           ) : !configStatus?.configured ? (
             <div style={styles.empty}>
               <p>Configure service account first to add mailboxes.</p>
@@ -623,7 +625,7 @@ function GmailSetup() {
                       </span>
                       {mailbox.last_sync_at && (
                         <span style={styles.metaItem}>
-                          🔄 Last sync: {new Date(mailbox.last_sync_at).toLocaleString()}
+                          🔄 Last sync: {formatDateTime(mailbox.last_sync_at)}
                         </span>
                       )}
                       {mailbox.sync_error && (
@@ -683,7 +685,7 @@ function GmailSetup() {
                       onClick={() => handleSync(mailbox.id)}
                       disabled={isSyncing || isChecking}
                     >
-                      {isSyncing ? "⏳ Syncing..." : isChecking ? "⏳ Checking..." : "🔄 Sync"}
+                      {isSyncing ? "⏳ Syncing…" : isChecking ? "⏳ Checking…" : "🔄 Sync"}
                     </button>
                     <button
                       style={styles.disconnectBtn}
@@ -752,7 +754,7 @@ function GmailSetup() {
                 onClick={handleUploadServiceAccount}
                 disabled={uploading || !serviceAccountFile}
               >
-                {uploading ? "Uploading..." : "Upload & Configure"}
+                {uploading ? "Uploading…" : "Upload & Configure"}
               </button>
               <button
                 style={styles.modalCancelBtn}

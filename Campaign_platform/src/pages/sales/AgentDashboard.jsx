@@ -18,6 +18,7 @@ import {
 import { useLeadAgent } from '../../contexts/LeadAgentContext';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { formatTime } from "../../utils/format"
 
 // Status badge component
 const StatusBadge = ({ status }) => {
@@ -106,7 +107,7 @@ export default function AgentDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">AI Agent Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900 cx-page-title">AI Agent Dashboard</h1>
             <p className="text-gray-600">Monitor and control your lead generation agents</p>
           </div>
           <div className="flex gap-3">
@@ -247,7 +248,7 @@ export default function AgentDashboard() {
                     </div>
                     <ProgressBar progress={job.progress || 0} />
                     <div className="flex justify-between mt-2 text-sm text-gray-600">
-                      <span>{job.current_step || 'Processing...'}</span>
+                      <span>{job.current_step || 'Processing…'}</span>
                       <span>{job.progress || 0}%</span>
                     </div>
                   </div>
@@ -317,7 +318,7 @@ export default function AgentDashboard() {
                           {job.result?.leads_generated || '-'}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500">
-                          {job.started_at ? new Date(job.started_at).toLocaleTimeString() : '-'}
+                          {job.started_at ? formatTime(job.started_at) : '-'}
                         </td>
                         <td className="px-4 py-3">
                           <button className="text-orange-600 hover:text-orange-700">

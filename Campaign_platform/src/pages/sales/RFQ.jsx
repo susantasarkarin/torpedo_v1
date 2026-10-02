@@ -6,6 +6,8 @@ import { Link } from "react-router-dom"
 import "./RFQ.css"
 import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction } from "../../utils/notify"
+import { formatDate } from "../../utils/format"
 
 // Helper to get auth token - handles both storage methods
 const getAuthToken = () => localStorage.getItem("session_id") || sessionStorage.getItem("token")
@@ -326,7 +328,7 @@ function RFQ() {
   }
 
   const deleteRFQ = async (rfqId) => {
-    if (!window.confirm("Are you sure you want to delete this RFQ?")) return
+    if (!(await confirmAction("Are you sure you want to delete this RFQ?"))) return
     
     try {
       const token = localStorage.getItem("session_id")
@@ -403,7 +405,7 @@ function RFQ() {
   // Bulk delete RFQs
   const bulkDeleteRFQs = async () => {
     if (selectedIds.length === 0) return
-    if (!window.confirm(`Delete ${selectedIds.length} selected RFQs?`)) return
+    if (!(await confirmAction(`Delete ${selectedIds.length} selected RFQs?`))) return
     
     try {
       const token = localStorage.getItem("session_id")
@@ -529,10 +531,7 @@ function RFQ() {
   // so every click, status change, value edit, and delete silently 404'd —
   // this is why RFQ rows looked unclickable. opportunity_id is always the
   // real _id and is always present.
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "—"
-    return new Date(dateStr).toLocaleDateString()
-  }
+
 
   const getStatusColor = (status) => {
     const colors = {
@@ -719,7 +718,7 @@ function RFQ() {
         {loading ? (
           <div className="rfq-loading">
             <div className="spinner"></div>
-            <span>Loading RFQs...</span>
+            <span>Loading RFQs…</span>
           </div>
         ) : rfqs.length === 0 ? (
           <div className="rfq-empty">
@@ -1478,7 +1477,7 @@ function RFQ() {
                 onClick={handleConversion}
                 disabled={converting}
               >
-                {converting ? 'Creating...' : `Create ${convertType === "estimate" ? "Estimate" : "Invoice"}`}
+                {converting ? 'Creating…' : `Create ${convertType === "estimate" ? "Estimate" : "Invoice"}`}
               </button>
             </div>
           </div>
@@ -1680,7 +1679,7 @@ function RFQ() {
                 Cancel
               </button>
               <button className="btn btn-primary" onClick={createRfq} disabled={creating}>
-                {creating ? "Creating..." : "Create RFQ"}
+                {creating ? "Creating…" : "Create RFQ"}
               </button>
             </div>
           </div>

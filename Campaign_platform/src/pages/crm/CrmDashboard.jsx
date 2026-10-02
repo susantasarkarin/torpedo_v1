@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav from "./CrmNav";
+import { formatDateTime } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 const CARDS = [
@@ -92,7 +93,7 @@ export default function CrmDashboard() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">CRM Dashboard</h1>
+          <h1 className="crm-title cx-page-title">CRM Dashboard</h1>
           <p className="crm-subtitle">Canonical accounts, contacts, leads and opportunities.</p>
         </div>
       </div>
@@ -165,7 +166,7 @@ export default function CrmDashboard() {
                   {a.subject || a.description || "—"}
                 </span>
                 <span className="crm-muted" style={{ fontSize: "0.75rem" }}>
-                  {a.created_at ? new Date(a.created_at).toLocaleString() : ""}
+                  {a.created_at ? formatDateTime(a.created_at) : ""}
                 </span>
               </div>
             ))

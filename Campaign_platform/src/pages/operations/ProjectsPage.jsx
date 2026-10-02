@@ -10,6 +10,7 @@ import "./ProjectsPage.css";
 import { buildApiUrl } from "../../config";
 import { fetchAllClients } from "../../utils/api"
 import { qreApi } from "../../services/qreApi";
+import { confirmAction, notify } from "../../utils/notify"
 
 function ProjectsPage() {
   const navigate = useNavigate();
@@ -221,7 +222,7 @@ function ProjectsPage() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -245,7 +246,7 @@ function ProjectsPage() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -269,7 +270,7 @@ function ProjectsPage() {
         setClients(activeClients);
       } catch (err) {
         if (err.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -288,7 +289,7 @@ function ProjectsPage() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -544,7 +545,7 @@ function ProjectsPage() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -579,7 +580,7 @@ function ProjectsPage() {
 
   // 🔹 Delete Project
   const deleteProject = async (id) => {
-    if (!window.confirm("Delete this project?")) return;
+    if (!(await confirmAction("Delete this project?"))) return;
 
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -597,7 +598,7 @@ function ProjectsPage() {
       });
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.");
+        notify("Session expired. Please login again.");
         localStorage.removeItem("session_id");
         navigate("/login");
         return;
@@ -648,7 +649,7 @@ function ProjectsPage() {
         <div className="pp-header-left">
           <div className="pp-title-row">
             <FolderOpen size={22} className="pp-title-icon" />
-            <h2 className="pp-title">Projects</h2>
+            <h2 className="pp-title cx-page-title">Projects</h2>
           </div>
           <div className="pp-stat-pills">
             <span className="pp-pill">{projects.length} Total</span>
@@ -1130,7 +1131,7 @@ function ProjectsPage() {
             <div className="pp-modal-footer">
               <button className="pp-btn-cancel" onClick={() => setShowForm(false)}>Cancel</button>
               <button className="pp-btn-save" onClick={saveProject} disabled={loading}>
-                {loading ? "Saving..." : editingId ? "Update" : "Create"}
+                {loading ? "Saving…" : editingId ? "Update" : "Create"}
               </button>
             </div>
           </div>

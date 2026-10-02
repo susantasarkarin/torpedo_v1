@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import "../styles/login.css"
 import api, { APIError } from "../utils/api"
+import { notify } from "../utils/notify"
 
 function Login() {
   const navigate = useNavigate()
@@ -26,7 +27,7 @@ function Login() {
         error instanceof APIError
           ? error.message
           : (error?.message || "Login failed")
-      alert("❌ Login failed: " + message)
+      notify("❌ Login failed: " + message)
       setIsLoading(false)
     }
   }

@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "../../config";
+import { confirmAction, notify } from "../../utils/notify"
+import { formatTime } from "../../utils/format"
 import "./YieldManagement.css";
 
 const STATUS_COLORS = {
@@ -95,7 +97,7 @@ function YieldManagement() {
       action === "deactivate"
         ? `Deactivate survey ${survey.survey_id} (${survey.account_name})? Traffic will stop immediately.`
         : `Activate survey ${survey.survey_id} (${survey.account_name})?`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirmAction(confirmMsg))) return;
 
     setActionPending(survey.survey_id);
     try {
@@ -110,7 +112,7 @@ function YieldManagement() {
       if (!res.ok) throw new Error(`API ${res.status}`);
       await fetchData();
     } catch (err) {
-      alert(`Action failed: ${err.message}`);
+      notify(`Action failed: ${err.message}`);
     } finally {
       setActionPending(null);
     }
@@ -128,7 +130,7 @@ function YieldManagement() {
       setThresholds(editThresholds);
       setShowThresholds(false);
     } catch (err) {
-      alert(`Save failed: ${err.message}`);
+      notify(`Save failed: ${err.message}`);
     } finally {
       setThresholdSaving(false);
     }
@@ -159,7 +161,7 @@ function YieldManagement() {
       {/* Header */}
       <div className="yield-header">
         <div>
-          <h1>Yield Management</h1>
+          <h1 className="cx-page-title">Yield Management</h1>
           <p>
             Cint survey performance &amp; traffic routing control &mdash; ranked by functional
             conversion
@@ -168,7 +170,7 @@ function YieldManagement() {
         <div className="yield-header-actions">
           {lastRefresh && (
             <span className="last-refresh">
-              Updated {lastRefresh.toLocaleTimeString()}
+              Updated {formatTime(lastRefresh)}
             </span>
           )}
           <button className="btn-secondary" onClick={() => setShowThresholds(true)}>

@@ -50,7 +50,7 @@ function VendorDashboard() {
   if (loading) {
     return (
       <div className="vendor-page">
-        <div className="loading-spinner">Loading...</div>
+        <div className="loading-spinner">Loading…</div>
       </div>
     )
   }
@@ -60,7 +60,7 @@ function VendorDashboard() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>Dashboard</h1>
+          <h1 className="cx-page-title">Dashboard</h1>
           <p className="subtitle">Vendor management overview and quick actions</p>
         </div>
         <div className="header-actions">

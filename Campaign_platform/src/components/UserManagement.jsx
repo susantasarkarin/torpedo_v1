@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../config"
+import { confirmAction } from "../utils/notify"
 
 function UserManagement() {
     const [users, setUsers] = useState([])
@@ -77,7 +78,7 @@ function UserManagement() {
     }
 
     const handleDelete = async (userId) => {
-        if (!confirm("Are you sure you want to deactivate this user?")) return
+        if (!(await confirmAction("Are you sure you want to deactivate this user?"))) return
 
         setError(null)
         setSuccess(null)
@@ -301,7 +302,7 @@ function UserManagement() {
             </div>
 
             {loading ? (
-                <p>Loading users...</p>
+                <p>Loading users…</p>
             ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>

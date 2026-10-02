@@ -19,6 +19,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { ActivityTimeline } from '../components/ui/ActivityTimeline';
 import { Table } from '../components/ui/Table';
 import api from '../utils/api';
+import { formatDate, formatDateTime } from "../utils/format"
 
 const STATUS_COLORS = {
   open: 'bg-cogentix-orange-100 text-cogentix-orange-800',
@@ -412,7 +413,7 @@ export default function Support() {
         {getSLAIndicator(ticket)}
       </td>
       <td className="px-4 py-3 text-sm text-gray-500">
-        {new Date(ticket.created_at).toLocaleDateString()}
+        {formatDate(ticket.created_at)}
       </td>
       <td className="px-4 py-3">
         <Button 
@@ -650,7 +651,7 @@ export default function Support() {
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Creating...' : 'Create Ticket'}
+              {submitting ? 'Creating…' : 'Create Ticket'}
             </Button>
           </div>
         </form>
@@ -673,7 +674,7 @@ export default function Support() {
             {/* Header */}
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-xl font-semibold">{selectedTicket.subject}</h2>
+                <h2 className="text-xl font-semibold cx-page-title">{selectedTicket.subject}</h2>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge className={STATUS_COLORS[selectedTicket.status]}>
                     {selectedTicket.status?.replace(/_/g, ' ')}
@@ -744,7 +745,7 @@ export default function Support() {
                         )}
                       </div>
                       <span className="text-xs text-gray-400">
-                        {new Date(comment.created_at).toLocaleString()}
+                        {formatDateTime(comment.created_at)}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600">{comment.content}</p>

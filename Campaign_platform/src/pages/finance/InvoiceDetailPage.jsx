@@ -6,6 +6,7 @@ import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import { formatCurrency } from "../../utils/currency"
 import { ArrowLeft, FileText, Loader2 } from "lucide-react"
+import { formatDate } from "../../utils/format"
 
 const statusColors = {
   draft:   { background: "#f3f4f6", color: "#4a4a4a" },
@@ -27,7 +28,7 @@ function badge(status) {
 
 function fmt(dateStr) {
   if (!dateStr) return "—"
-  try { return new Date(dateStr).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) }
+  try { return formatDate(dateStr) }
   catch { return dateStr }
 }
 
@@ -78,7 +79,7 @@ export default function InvoiceDetailPage() {
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <FileText size={24} color="#e8890b" />
             <div>
-              <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#111" }}>
+              <h2 className="cx-page-title" style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#111" }}>
                 {invoice.invoice_number || "—"}
               </h2>
               <p style={{ margin: 0, color: "#4b5563", fontSize: "0.85rem" }}>Invoice</p>

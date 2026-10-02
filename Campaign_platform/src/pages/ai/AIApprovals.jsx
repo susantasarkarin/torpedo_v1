@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { CheckCircle2, XCircle, RefreshCw, Bot, ShieldAlert, ListChecks, History } from "lucide-react";
 import api from "../../utils/api";
+import { formatDateTime } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 function PendingQueue() {
@@ -62,7 +63,7 @@ function PendingQueue() {
             <span className={`crm-badge risk-${item.risk}`}>{item.risk || "—"}</span>
             <span className="crm-badge">{item.autonomy_mode}</span>
             <span className="crm-spacer crm-muted" style={{ fontSize: "0.72rem" }}>
-              {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+              {item.created_at ? formatDateTime(item.created_at) : ""}
             </span>
           </div>
           {item.payload && <pre className="crm-pre">{JSON.stringify(item.payload, null, 2)}</pre>}
@@ -116,7 +117,7 @@ function DecisionLog() {
               <td><span className={`crm-badge ${d.autonomy_mode}`}>{d.autonomy_mode}</span></td>
               <td>{d.confidence != null ? `${Math.round(d.confidence * 100)}%` : "—"}</td>
               <td><span className={`crm-badge ${d.status}`}>{d.status}</span></td>
-              <td className="crm-muted" style={{ fontSize: "0.72rem" }}>{d.created_at ? new Date(d.created_at).toLocaleString() : ""}</td>
+              <td className="crm-muted" style={{ fontSize: "0.72rem" }}>{d.created_at ? formatDateTime(d.created_at) : ""}</td>
             </tr>
           ))}
         </tbody>
@@ -137,7 +138,7 @@ export default function AIApprovals() {
       <div className="crm-head__titles" style={{ marginBottom: "1.25rem" }}>
         <ShieldAlert size={28} style={{ color: "#e8890b" }} />
         <div>
-          <h1 className="crm-title">AI Approvals</h1>
+          <h1 className="crm-title cx-page-title">AI Approvals</h1>
           <p className="crm-subtitle">Review and approve AI-proposed actions. Nothing here has run yet.</p>
         </div>
       </div>

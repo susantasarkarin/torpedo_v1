@@ -7,6 +7,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Trophy, RefreshCw, Building2, Plus, Pencil, XCircle } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
+import { formatDate } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 const STAGE_ORDER = ["new", "rfq", "qualified", "proposal", "negotiation", "won", "lost"];
@@ -110,7 +111,7 @@ export default function Pipeline() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">Opportunity Pipeline</h1>
+          <h1 className="crm-title cx-page-title">Opportunity Pipeline</h1>
           <p className="crm-subtitle">
             {loading ? "Loading…" : `${opps.length} opportunities · open value ${fmtAmount(totalValue)}`}
           </p>
@@ -145,7 +146,7 @@ export default function Pipeline() {
                     {o.owner && <div className="crm-muted" style={{ fontSize: "0.7rem" }}>owner: {o.owner}</div>}
                     {o.expected_close_date && (
                       <div className="crm-muted" style={{ fontSize: "0.7rem" }}>
-                        close: {new Date(o.expected_close_date).toLocaleDateString()}
+                        close: {formatDate(o.expected_close_date)}
                       </div>
                     )}
                     {o.loss_reason && (

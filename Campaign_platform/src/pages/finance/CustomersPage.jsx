@@ -7,6 +7,7 @@ import { Users, Search, Pencil, Trash2, FileText, Loader2, Upload, Download } fr
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { confirmAction, notify } from "../../utils/notify"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -200,7 +201,7 @@ function CustomersPage() {
       })
       
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -319,7 +320,7 @@ function CustomersPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -339,7 +340,7 @@ function CustomersPage() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this customer?")) return
+    if (!(await confirmAction("Are you sure you want to delete this customer?"))) return
 
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) {
@@ -358,7 +359,7 @@ function CustomersPage() {
       })
 
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -465,7 +466,7 @@ function CustomersPage() {
       })
       
       if (response.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/admin/login")
         return
@@ -503,7 +504,7 @@ function CustomersPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Customers</h2>
+          <h2 className="cx-page-title" style={styles.title}>Customers</h2>
           <p style={styles.subtitle}>Manage your customer accounts</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -527,7 +528,7 @@ function CustomersPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={openAddModal}>
             + Add Customer
@@ -588,7 +589,7 @@ function CustomersPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading customers...</p>
+            <p style={{ color: "#4b5563" }}>Loading customers…</p>
           </div>
         </div>
       ) : (

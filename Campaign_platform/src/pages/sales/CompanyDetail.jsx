@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { buildApiUrl } from "../../config"
+import { notify } from "../../utils/notify"
 
 function CompanyDetail() {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ function CompanyDetail() {
         });
 
         if (res.status === 401) {
-          alert("Session expired. Please login again.");
+          notify("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
@@ -84,7 +85,7 @@ function CompanyDetail() {
           >
             ← Back to Accounts
           </button>
-          <h2 style={styles.title}>{decodeURIComponent(companyName)}</h2>
+          <h2 className="cx-page-title" style={styles.title}>{decodeURIComponent(companyName)}</h2>
           <p style={styles.subtitle}>People from this company</p>
         </div>
       </div>
@@ -92,7 +93,7 @@ function CompanyDetail() {
       {error && <div style={styles.errorAlert}>{error}</div>}
 
       {loading ? (
-        <div style={styles.loadingText}>Loading contacts...</div>
+        <div style={styles.loadingText}>Loading contacts…</div>
       ) : contacts.length === 0 ? (
         <div style={styles.emptyState}>
           <p>No contacts found for this company</p>

@@ -66,6 +66,18 @@ function OperationsSidebar() {
             </Link>
           </li>
 
+          <li className={`sidebar-item ${isActive("/admin/surveys/revenue") ? "active" : ""}`}>
+            <Link to="/admin/surveys/revenue" className="sidebar-link">
+              <span className="sidebar-icon">💰</span> Survey Revenue
+            </Link>
+          </li>
+
+          <li className={`sidebar-item ${isActive("/admin/logs") ? "active" : ""}`}>
+            <Link to="/admin/logs" className="sidebar-link">
+              <span className="sidebar-icon">🧾</span> System Logs
+            </Link>
+          </li>
+
           {/* Traffic Group */}
           <li className="sidebar-group">
             <div 

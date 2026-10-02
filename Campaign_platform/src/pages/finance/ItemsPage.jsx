@@ -6,6 +6,7 @@ import { Package, Search, Pencil, Trash2, Loader2, Wrench, Upload, Download } fr
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
+import { confirmAction, notify } from "../../utils/notify"
 
 function ItemsPage() {
   const [items, setItems] = useState([])
@@ -92,7 +93,7 @@ function ItemsPage() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this item?")) return
+    if (!(await confirmAction("Are you sure you want to delete this item?"))) return
 
     try {
       const response = await authFetch(buildApiUrl(`/finance/items/${id}`), {
@@ -201,7 +202,7 @@ function ItemsPage() {
       }
     } catch (error) {
       console.error("Error exporting items:", error)
-      alert("Failed to export items")
+      notify("Failed to export items")
     } finally {
       setExporting(false)
     }
@@ -231,15 +232,15 @@ function ItemsPage() {
             message += `\n... and ${result.errors.length - 5} more`
           }
         }
-        alert(message)
+        notify(message)
         fetchItems()
       } else {
         const error = await response.json()
-        alert(`Import failed: ${error.detail}`)
+        notify(`Import failed: ${error.detail}`)
       }
     } catch (error) {
       console.error("Error importing items:", error)
-      alert("Failed to import items")
+      notify("Failed to import items")
     } finally {
       setImporting(false)
       if (fileInputRef.current) {
@@ -252,7 +253,7 @@ function ItemsPage() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Estimates</h2>
+          <h2 className="cx-page-title" style={styles.title}>Estimates</h2>
           <p style={styles.subtitle}>Manage products and services for estimates</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
@@ -269,7 +270,7 @@ function ItemsPage() {
             disabled={importing}
           >
             <Upload style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            {importing ? "Importing…" : "Import CSV"}
           </button>
           <button 
             style={styles.btnSecondary} 
@@ -277,7 +278,7 @@ function ItemsPage() {
             disabled={exporting}
           >
             <Download style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
           <button style={styles.btnPrimary} onClick={() => setShowModal(true)}>
             + Add Item
@@ -325,7 +326,7 @@ function ItemsPage() {
                 color: "#e8890b",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading items...</p>
+            <p style={{ color: "#4b5563" }}>Loading items…</p>
           </div>
         </div>
       ) : (

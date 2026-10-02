@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import { cancelPolling, pollOperation } from "../utils/asyncOperations"
+import { confirmAction, notify } from "../utils/notify"
+import { formatDate as fmtDate, formatDateTime, formatTime, toDate } from "../utils/format"
 import "./Settings.css"
 
 // Segment colors for labels - DEPRECATED: Now using AI categories
@@ -591,11 +593,11 @@ function MailPool() {
           pending_review: Math.max(0, (prev.pending_review || 0) - 1)
         }))
       } else {
-        alert(`Failed to ${action}: ${data.message || "Unknown error"}`)
+        notify(`Failed to ${action}: ${data.message || "Unknown error"}`)
       }
     } catch (e) {
       console.error(`Error ${action}ing review item:`, e)
-      alert(`Error: ${e.message}`)
+      notify(`Error: ${e.message}`)
     }
   }
 
@@ -666,7 +668,7 @@ function MailPool() {
   const [sending, setSending] = useState(false)
   const handleSendEmail = async () => {
     if (!composeData.to || !composeData.subject) {
-      alert("Please fill in recipient and subject")
+      notify("Please fill in recipient and subject")
       return
     }
 
@@ -707,17 +709,17 @@ function MailPool() {
       const data = await res.json()
       
       if (data.success) {
-        alert("Email sent successfully!")
+        notify("Email sent successfully!")
         setShowCompose(false)
         setComposeData({ to: "", subject: "", body: "", replyTo: null })
         // Refresh emails to show sent email
         fetchEmails(1)
       } else {
-        alert(`Failed to send: ${data.detail || data.error || "Unknown error"}`)
+        notify(`Failed to send: ${data.detail || data.error || "Unknown error"}`)
       }
     } catch (e) {
       console.error("Error sending email:", e)
-      alert(`Error sending email: ${e.message}`)
+      notify(`Error sending email: ${e.message}`)
     } finally {
       setSending(false)
     }
@@ -734,7 +736,7 @@ function MailPool() {
       return
     }
 
-    if (!confirm(`This will re-categorize all emails using ${useAi ? 'AI' : 'keyword-based'} classification. Continue?`)) {
+    if (!(await confirmAction(`This will re-categorize all emails using ${useAi ? 'AI' : 'keyword-based'} classification. Continue?`))) {
       return
     }
 
@@ -763,15 +765,15 @@ function MailPool() {
           status: "running",
           processed: 0
         })
-        alert(`Started re-categorization of ${data.total_emails} emails. Check status in the console or refresh page.`)
+        notify(`Started re-categorization of ${data.total_emails} emails. Check status in the console or refresh page.`)
         // Start polling for status
         startRecategorizePolling(data.task_id)
       } else {
-        alert(`Failed to start re-categorization: ${data.message || "Unknown error"}`)
+        notify(`Failed to start re-categorization: ${data.message || "Unknown error"}`)
       }
     } catch (e) {
       console.error("Error starting re-categorization:", e)
-      alert(`Error: ${e.message}`)
+      notify(`Error: ${e.message}`)
     } finally {
       setRecategorizing(false)
     }
@@ -793,7 +795,7 @@ function MailPool() {
         },
         onComplete: (status) => {
           setRecategorizeStatus(status)
-          alert(`Re-categorization completed! Processed ${status.processed} emails.`)
+          notify(`Re-categorization completed! Processed ${status.processed} emails.`)
           fetchEmails(1)
         },
         onError: (error) => {
@@ -854,7 +856,7 @@ function MailPool() {
       return
     }
 
-    if (!confirm(`Start AI classification?\n\n• Tier 1: Fast classification of all emails\n• Tier 2: Deep analysis of client/vendor emails${runTier2 ? ' (enabled)' : ' (disabled)'}\n\nContinue?`)) {
+    if (!(await confirmAction(`Start AI classification?\n\n• Tier 1: Fast classification of all emails\n• Tier 2: Deep analysis of client/vendor emails${runTier2 ? ' (enabled)' : ' (disabled)'}\n\nContinue?`))) {
       return
     }
 
@@ -877,7 +879,7 @@ function MailPool() {
       
       if (data.success) {
         if (data.total === 0) {
-          alert("All emails are already classified!")
+          notify("All emails are already classified!")
           setClassifying(false)
           return
         }
@@ -887,15 +889,15 @@ function MailPool() {
           status: "running",
           processed: 0
         })
-        alert(`Started AI classification of ${data.total_emails} emails.`)
+        notify(`Started AI classification of ${data.total_emails} emails.`)
         startClassifyPolling(data.task_id)
       } else {
-        alert(`Failed: ${data.message || "Unknown error"}`)
+        notify(`Failed: ${data.message || "Unknown error"}`)
         setClassifying(false)
       }
     } catch (e) {
       console.error("Error starting classification:", e)
-      alert(`Error: ${e.message}`)
+      notify(`Error: ${e.message}`)
       setClassifying(false)
     }
   }
@@ -916,7 +918,7 @@ function MailPool() {
         },
         onComplete: (status) => {
           setClassifyStatus(status)
-          alert(`AI classification completed!\n\n• Processed: ${status.processed}\n• Tier 1 only: ${status.tier1_only || 0}\n• Tier 2 analyzed: ${status.tier2_analyzed || 0}\n• Errors: ${status.errors || 0}`)
+          notify(`AI classification completed!\n\n• Processed: ${status.processed}\n• Tier 1 only: ${status.tier1_only || 0}\n• Tier 2 analyzed: ${status.tier2_analyzed || 0}\n• Errors: ${status.errors || 0}`)
           setClassifying(false)
           fetchEmails(1)
         },
@@ -925,7 +927,7 @@ function MailPool() {
           if (failedStatus) {
             setClassifyStatus(failedStatus)
             if (failedStatus.status === "failed") {
-              alert(`Classification failed: ${failedStatus.error || "Unknown error"}`)
+              notify(`Classification failed: ${failedStatus.error || "Unknown error"}`)
             }
           }
           setClassifying(false)
@@ -1033,7 +1035,7 @@ function MailPool() {
   // Download attachment
   const handleDownloadAttachment = (attachment) => {
     if (!attachment.data) {
-      alert("Attachment data not available. This may be a large file or from an older sync.")
+      notify("Attachment data not available. This may be a large file or from an older sync.")
       return
     }
     
@@ -1058,7 +1060,7 @@ function MailPool() {
       window.URL.revokeObjectURL(url)
     } catch (e) {
       console.error("Error downloading attachment:", e)
-      alert("Failed to download attachment: " + e.message)
+      notify("Failed to download attachment: " + e.message)
     }
   }
 
@@ -1070,7 +1072,7 @@ function MailPool() {
       return
     }
 
-    if (!confirm(`Re-categorize all emails for this mailbox using ${useAi ? 'AI' : 'keywords'}?`)) {
+    if (!(await confirmAction(`Re-categorize all emails for this mailbox using ${useAi ? 'AI' : 'keywords'}?`))) {
       return
     }
 
@@ -1092,14 +1094,14 @@ function MailPool() {
       const data = await res.json()
       
       if (data.success) {
-        alert(`Started re-categorization of ${data.total_emails} emails for this mailbox.`)
+        notify(`Started re-categorization of ${data.total_emails} emails for this mailbox.`)
         startRecategorizePolling(data.task_id)
       } else {
-        alert(`Failed: ${data.message || "Unknown error"}`)
+        notify(`Failed: ${data.message || "Unknown error"}`)
       }
     } catch (e) {
       console.error("Error:", e)
-      alert(`Error: ${e.message}`)
+      notify(`Error: ${e.message}`)
     }
   }
 
@@ -1158,17 +1160,18 @@ function MailPool() {
   const formatDate = (dateStr) => {
     if (!dateStr) return ""
     try {
-      const date = new Date(dateStr)
+      const date = toDate(dateStr)
+      if (!date) return ""
       const now = new Date()
       const isToday = date.toDateString() === now.toDateString()
       const isThisYear = date.getFullYear() === now.getFullYear()
       
       if (isToday) {
-        return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+        return formatTime(date)
       } else if (isThisYear) {
-        return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+        return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
       } else {
-        return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })
+        return fmtDate(date)
       }
     } catch {
       return dateStr
@@ -1179,16 +1182,7 @@ function MailPool() {
   const formatFullDate = (dateStr) => {
     if (!dateStr) return ""
     try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString("en-US", { 
-        weekday: "short", 
-        month: "short", 
-        day: "numeric", 
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true
-      })
+      return formatDateTime(dateStr)
     } catch {
       return dateStr
     }
@@ -1216,7 +1210,7 @@ function MailPool() {
     return (
       <div style={styles.loadingContainer}>
         <div style={{ fontSize: "2rem", marginBottom: "1rem" }}>📧</div>
-        Loading emails...
+        Loading emails…
       </div>
     )
   }
@@ -1350,7 +1344,7 @@ function MailPool() {
       <div style={styles.mainContent}>
         {/* Header with Account Dropdown */}
         <div style={styles.header}>
-          <h1 style={styles.headerTitle}>📬 Mail Pool</h1>
+          <h1 className="cx-page-title" style={styles.headerTitle}>📬 Mail Pool</h1>
           <div style={styles.headerRight}>
             <select
               value={filterAccount}
@@ -1416,7 +1410,7 @@ function MailPool() {
 
             {reviewLoading ? (
               <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
-                Loading review queue...
+                Loading review queue…
               </div>
             ) : reviewQueue.length === 0 ? (
               <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
@@ -1583,7 +1577,7 @@ function MailPool() {
                   onClick={handleProcessAndImport}
                   disabled={importing}
                 >
-                  {importing ? "⏳ Importing..." : "📥 Process & Import to Leads"}
+                  {importing ? "⏳ Importing…" : "📥 Process & Import to Leads"}
                 </button>
                 {importResult && (
                   <span style={{fontSize: "0.75rem", color: "#166534", marginLeft: "8px"}}>
@@ -1618,7 +1612,7 @@ function MailPool() {
               {emailsLoading ? (
                 <div style={{ padding: "40px", textAlign: "center", color: "#4b5563" }}>
                   <div style={{ fontSize: "1.5rem", marginBottom: "8px" }}>📧</div>
-                  Loading emails...
+                  Loading emails…
                 </div>
               ) : emails.length > 0 ? emails.map((email) => (
                 <div 
@@ -2170,7 +2164,7 @@ function MailPool() {
               onClick={handleSendEmail}
               disabled={sending}
             >
-              {sending ? "Sending..." : "Send"}
+              {sending ? "Sending…" : "Send"}
             </button>
             <button style={styles.composeToolBtn}>📎</button>
             <button style={styles.composeToolBtn}>🔗</button>

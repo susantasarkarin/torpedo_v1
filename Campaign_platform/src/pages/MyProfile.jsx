@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import UserManagement from "../components/UserManagement"
+import { formatDate } from "../utils/format"
 import "./Settings.css"
 
 function MyProfile() {
@@ -201,26 +202,15 @@ function MyProfile() {
     }
   }
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "N/A"
-    try {
-      return new Date(dateStr).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    } catch {
-      return dateStr
-    }
-  }
+
 
   if (loading) {
     return (
       <div className="settings-container">
         <div className="settings-header">
-          <h1>👤 My Profile</h1>
+          <h1 className="cx-page-title">👤 My Profile</h1>
         </div>
-        <div style={{ padding: "2rem", textAlign: "center" }}>Loading...</div>
+        <div style={{ padding: "2rem", textAlign: "center" }}>Loading…</div>
       </div>
     )
   }
@@ -392,7 +382,7 @@ function MyProfile() {
                     onClick={saveProfile}
                     disabled={saving}
                   >
-                    {saving ? "Saving..." : "💾 Save Changes"}
+                    {saving ? "Saving…" : "💾 Save Changes"}
                   </button>
                 </div>
               </div>

@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, Plus, CheckSquare } from "lucide-react";
 import api from "../../utils/api";
 import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
+import { formatDate } from "../../utils/format"
 import "../../styles/crm-ui.css";
 
 export default function CrmTasks() {
@@ -67,7 +68,7 @@ export default function CrmTasks() {
       <CrmNav />
       <div className="crm-head">
         <div>
-          <h1 className="crm-title">Tasks</h1>
+          <h1 className="crm-title cx-page-title">Tasks</h1>
           <p className="crm-subtitle">Assignable to-dos across the CRM. Overdue items are highlighted.</p>
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -114,7 +115,7 @@ export default function CrmTasks() {
                 {t.owner_id && <span className="crm-badge">{t.owner_id}</span>}
                 {t.due_date && (
                   <span style={{ fontSize: "0.75rem", fontWeight: overdue ? 700 : 400, color: overdue ? "#b91c1c" : "#4b5563" }}>
-                    {new Date(t.due_date).toLocaleDateString()}{overdue ? " · overdue" : ""}
+                    {formatDate(t.due_date)}{overdue ? " · overdue" : ""}
                   </span>
                 )}
               </div>

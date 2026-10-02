@@ -15,7 +15,8 @@ import { useState, useEffect } from "react"
 function getSectionFromPath(pathname) {
   if (pathname.startsWith("/admin/sales")) return "sales"
   if (pathname.startsWith("/admin/finance")) return "finance"
-  if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs") return "operations"
+  if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs" ||
+      pathname.startsWith("/admin/surveys")) return "operations"
   if (pathname.startsWith("/admin/vendor")) return "vendor"
   if (pathname.startsWith("/admin/marketing")) return "marketing"
   if (pathname.startsWith("/admin/panel-admin")) return "panel-admin"

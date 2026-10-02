@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
+import { formatDate } from "../../utils/format"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -101,7 +102,7 @@ function RewardsPoints() {
         {activeTab === "transactions" && (
           <div>
             {loading ? (
-              <p style={{ color: "#4b5563" }}>Loading transactions...</p>
+              <p style={{ color: "#4b5563" }}>Loading transactions…</p>
             ) : transactions.length === 0 ? (
               <p style={{ color: "#4b5563" }}>No transactions found.</p>
             ) : (
@@ -134,7 +135,7 @@ function RewardsPoints() {
                         <td style={tdStyle}>{tx.description || "-"}</td>
                         <td style={tdStyle}>{tx.status || "completed"}</td>
                         <td style={tdStyle}>
-                          {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : "-"}
+                          {tx.created_at ? formatDate(tx.created_at) : "-"}
                         </td>
                       </tr>
                     ))}
@@ -149,7 +150,7 @@ function RewardsPoints() {
         {activeTab === "redemptions" && (
           <div>
             {loading ? (
-              <p style={{ color: "#4b5563" }}>Loading redemption requests...</p>
+              <p style={{ color: "#4b5563" }}>Loading redemption requests…</p>
             ) : redemptions.length === 0 ? (
               <p style={{ color: "#4b5563" }}>No redemption requests found.</p>
             ) : (
@@ -182,7 +183,7 @@ function RewardsPoints() {
                           </span>
                         </td>
                         <td style={tdStyle}>
-                          {r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}
+                          {r.created_at ? formatDate(r.created_at) : "-"}
                         </td>
                       </tr>
                     ))}

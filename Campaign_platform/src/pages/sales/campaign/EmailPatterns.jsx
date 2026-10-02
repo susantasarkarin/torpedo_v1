@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { buildApiUrl } from "../../../config";
+import { formatDate } from "../../../utils/format"
 
 const styles = {
   container: { padding: "24px", maxWidth: 1100, margin: "0 auto" },
@@ -158,11 +159,11 @@ export default function EmailPatterns() {
     setApplying(false);
   };
 
-  if (loading) return <div style={styles.container}><p>Loading...</p></div>;
+  if (loading) return <div style={styles.container}><p>Loading…</p></div>;
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.title}>📧 Email Pattern Discovery</h2>
+      <h2 className="cx-page-title" style={styles.title}>📧 Email Pattern Discovery</h2>
 
       {/* Stats */}
       {stats && (
@@ -188,7 +189,7 @@ export default function EmailPatterns() {
             onClick={handleAnalyze}
             disabled={analyzing}
           >
-            {analyzing ? "Analyzing..." : "Run Analysis"}
+            {analyzing ? "Analyzing…" : "Run Analysis"}
           </button>
         </div>
         {analyzeResult && (
@@ -360,7 +361,7 @@ export default function EmailPatterns() {
                       </div>
                     </td>
                     <td style={styles.td}>{p.sample_count}</td>
-                    <td style={styles.td}><span style={{ color: "#999", fontSize: 12 }}>{p.last_updated ? new Date(p.last_updated).toLocaleDateString() : "—"}</span></td>
+                    <td style={styles.td}><span style={{ color: "#999", fontSize: 12 }}>{p.last_updated ? formatDate(p.last_updated) : "—"}</span></td>
                   </tr>
                 );
               })}

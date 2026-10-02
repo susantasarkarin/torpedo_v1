@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import "./CreateContacts.css"
 import { API_BASE_URL } from "../../../config"  // ✅ uses env variable
 import { buildApiUrl } from "../../../config"
+import { notify } from "../../../utils/notify"
 
 function CreateContacts({ onBack, listName }) {
   const navigate = useNavigate()
@@ -78,7 +79,7 @@ function CreateContacts({ onBack, listName }) {
   async function apiFetch(path, options = {}) {
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) {
-      alert("Session expired. Please login again.")
+      notify("Session expired. Please login again.")
       navigate("/login")
       throw new Error("No session")
     }
@@ -93,7 +94,7 @@ function CreateContacts({ onBack, listName }) {
     })
 
     if (res.status === 401) {
-      alert("Session expired. Please login again.")
+      notify("Session expired. Please login again.")
       localStorage.removeItem("session_id")
       navigate("/login")
       throw new Error("Session expired")
@@ -299,7 +300,7 @@ function CreateContacts({ onBack, listName }) {
             <span className="breadcrumb-separator">/</span>
             <span className="breadcrumb-current">Manual Form</span>
           </div>
-          <h1 className="page-title">Add Contact Manually</h1>
+          <h1 className="page-title cx-page-title">Add Contact Manually</h1>
           <p className="page-description">Fill out the form to add a new contact to your list</p>
         </div>
 

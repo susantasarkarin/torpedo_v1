@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import { buildApiUrl } from "../../config"
+import { formatDateTime } from "../../utils/format"
 import "./RFQ.css"
 import "../../styles/SalesPages.css"
 
@@ -159,7 +160,7 @@ function RFQReviewQueue() {
                       <td>{payload.ir ?? "—"}</td>
                       <td>{payload.sample_size ?? "—"}</td>
                       <td>{item.model_confidence || "—"}</td>
-                      <td>{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td>
+                      <td>{item.created_at ? formatDateTime(item.created_at) : "—"}</td>
                       <td>
                         <button
                           className="btn btn-primary"

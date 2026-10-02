@@ -10,6 +10,8 @@ import { API_BASE_URL } from "../../../config";
 import Papa from "papaparse";
 import "./AILeads.css";
 import { buildApiUrl } from "../../../config"
+import { confirmAction, notify } from "../../../utils/notify"
+import { formatDate } from "../../../utils/format"
 
 // ============== FILTER OPTIONS ==============
 
@@ -398,7 +400,7 @@ function AILeads() {
 
   // Emergency stop all jobs
   const handleStopAllJobs = async () => {
-    if (!confirm("🚨 EMERGENCY STOP: This will stop ALL running web search jobs. Continue?")) {
+    if (!(await confirmAction("🚨 EMERGENCY STOP: This will stop ALL running web search jobs. Continue?"))) {
       return;
     }
     setSearchControlLoading(true);
@@ -408,7 +410,7 @@ function AILeads() {
         headers: { Authorization: sessionId },
       });
       const data = await res.json();
-      alert(data.message || "All jobs stopped");
+      notify(data.message || "All jobs stopped");
       fetchSearchControl();
       fetchAllJobs();
       if (window.webSearchPollInterval) {
@@ -416,7 +418,7 @@ function AILeads() {
       }
       setWebSearchProgress(null);
     } catch (err) {
-      alert("Failed to stop jobs: " + err.message);
+      notify("Failed to stop jobs: " + err.message);
     } finally {
       setSearchControlLoading(false);
     }
@@ -713,7 +715,7 @@ function AILeads() {
                   fetchRawLeads();
                   fetchStatistics();
                   if (s.status === "completed") {
-                    alert(`✅ Import complete! Imported ${s.total_imported} leads (${s.total_duplicates} duplicates skipped).`);
+                    notify(`✅ Import complete! Imported ${s.total_imported} leads (${s.total_duplicates} duplicates skipped).`);
                   }
                   resetImportModal();
                 }
@@ -728,7 +730,7 @@ function AILeads() {
         }
 
         // Small file — synchronous result already available
-        alert(csvResult.message || `Imported ${csvResult.imported} leads`);
+        notify(csvResult.message || `Imported ${csvResult.imported} leads`);
         resetImportModal();
         fetchRawLeads();
         fetchStatistics();
@@ -826,11 +828,11 @@ function AILeads() {
                   fetchSearchControl(); // Refresh control panel status
                   
                   if (status.status === "completed") {
-                    alert(`✅ Search completed! Imported ${status.total_imported} leads, found ${status.emails_found} emails.`);
+                    notify(`✅ Search completed! Imported ${status.total_imported} leads, found ${status.emails_found} emails.`);
                   } else if (status.status === "stopped") {
-                    alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
+                    notify(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
                   } else if (status.status === "api_error") {
-                    alert(`🔴 API Error: Check your Google CSE/Anthropic API keys in Settings. Imported ${status.total_imported} leads before error.`);
+                    notify(`🔴 API Error: Check your Google CSE/Anthropic API keys in Settings. Imported ${status.total_imported} leads before error.`);
                   } else if (status.status === "paused") {
                     // Don't alert for paused - user can see in control panel
                   }
@@ -857,7 +859,7 @@ function AILeads() {
       }
 
       const result = resultData;
-      alert(result.message || `Imported ${result.imported} leads`);
+      notify(result.message || `Imported ${result.imported} leads`);
       resetImportModal();
       fetchRawLeads();
       fetchStatistics();
@@ -905,7 +907,7 @@ function AILeads() {
 
   // Transfer lead to Vendor Leads
   const handleTransferToVendorLeads = async (leadId) => {
-    if (!window.confirm("Transfer this lead to Vendor Leads for qualification?")) {
+    if (!(await confirmAction("Transfer this lead to Vendor Leads for qualification?"))) {
       return;
     }
     
@@ -925,10 +927,10 @@ function AILeads() {
       }
       
       const result = await res.json();
-      alert(`✅ Lead transferred to Vendor Leads successfully!`);
+      notify(`✅ Lead transferred to Vendor Leads successfully!`);
       fetchLeads();
     } catch (err) {
-      alert("Error: " + err.message);
+      notify("Error: " + err.message);
     }
   };
 
@@ -936,10 +938,10 @@ function AILeads() {
   const handleBulkTransferToContacts = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) {
-      alert("Please select leads to transfer");
+      notify("Please select leads to transfer");
       return;
     }
-    if (!window.confirm(`Transfer ${ids.length} lead(s) to Contacts (discovery_call stage)?`)) {
+    if (!(await confirmAction(`Transfer ${ids.length} lead(s) to Contacts (discovery_call stage)?`))) {
       return;
     }
     let successCount = 0;
@@ -957,7 +959,7 @@ function AILeads() {
         failCount++;
       }
     }
-    alert(`✅ ${successCount} lead(s) moved to Contacts${failCount > 0 ? `, ${failCount} failed` : ""}.`);
+    notify(`✅ ${successCount} lead(s) moved to Contacts${failCount > 0 ? `, ${failCount} failed` : ""}.`);
     setSelectedIds(new Set());
     fetchLeads();
   };
@@ -966,11 +968,11 @@ function AILeads() {
   const handleBulkTransferToVendorLeads = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) {
-      alert("Please select leads to transfer");
+      notify("Please select leads to transfer");
       return;
     }
     
-    if (!window.confirm(`Transfer ${ids.length} lead(s) to Vendor Leads for qualification?`)) {
+    if (!(await confirmAction(`Transfer ${ids.length} lead(s) to Vendor Leads for qualification?`))) {
       return;
     }
     
@@ -990,11 +992,11 @@ function AILeads() {
       }
       
       const result = await res.json();
-      alert(`\u2705 ${result.transferred_count} lead(s) transferred to Vendor Leads!`);
+      notify(`\u2705 ${result.transferred_count} lead(s) transferred to Vendor Leads!`);
       setSelectedIds(new Set());
       fetchLeads();
     } catch (err) {
-      alert("Error: " + err.message);
+      notify("Error: " + err.message);
     }
   };
 
@@ -1002,7 +1004,7 @@ function AILeads() {
   const handleBulkServiceType = async (serviceType) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) {
-      alert("Please select leads first");
+      notify("Please select leads first");
       return;
     }
     try {
@@ -1019,22 +1021,22 @@ function AILeads() {
         throw new Error(error.detail || "Failed to update service type");
       }
       const result = await res.json();
-      alert(`\u2705 ${result.updated_count} lead(s) tagged as "${serviceType}"`);
+      notify(`\u2705 ${result.updated_count} lead(s) tagged as "${serviceType}"`);
       setSelectedIds(new Set());
       fetchLeads();
     } catch (err) {
-      alert("Error: " + err.message);
+      notify("Error: " + err.message);
     }
   };
 
   // Delete all leads
   const handleDeleteAllLeads = async () => {
-    if (!window.confirm("⚠️ WARNING: This will delete ALL leads from the database!\n\nAre you absolutely sure you want to delete ALL leads? This action cannot be undone.")) {
+    if (!(await confirmAction("⚠️ WARNING: This will delete ALL leads from the database!\n\nAre you absolutely sure you want to delete ALL leads? This action cannot be undone."))) {
       return;
     }
     
     // Double confirmation for safety
-    if (!window.confirm("🚨 FINAL CONFIRMATION 🚨\n\nYou are about to delete ALL leads including:\n• Web Search leads\n• CSV imports\n• Email imports\n• All classified leads\n\nClick OK to proceed with deletion.")) {
+    if (!(await confirmAction("🚨 FINAL CONFIRMATION 🚨\n\nYou are about to delete ALL leads including:\n• Web Search leads\n• CSV imports\n• Email imports\n• All classified leads\n\nClick OK to proceed with deletion."))) {
       return;
     }
     
@@ -1051,12 +1053,12 @@ function AILeads() {
       }
       
       const result = await res.json();
-      alert(`✅ ${result.message}`);
+      notify(`✅ ${result.message}`);
       fetchRawLeads();
       fetchLeads();
       fetchStatistics();
     } catch (err) {
-      alert("Error: " + err.message);
+      notify("Error: " + err.message);
     } finally {
       setDeletingAllLeads(false);
     }
@@ -1171,7 +1173,7 @@ function AILeads() {
       setDiscoveryStep(2);
       
       // Show success message
-      alert(`✅ Discovered ${data.contacts_found} contacts. ${data.leads_imported} leads auto-imported. Cost: ${data.cost_estimate}`);
+      notify(`✅ Discovered ${data.contacts_found} contacts. ${data.leads_imported} leads auto-imported. Cost: ${data.cost_estimate}`);
     } catch (err) {
       setDiscoveryError(err.message);
     } finally {
@@ -1276,7 +1278,7 @@ function AILeads() {
       }
       
       const data = await res.json();
-      alert(`Successfully imported ${data.imported} contacts!`);
+      notify(`Successfully imported ${data.imported} contacts!`);
       resetImportModal();
       fetchLeads();
       fetchRawLeads();
@@ -1311,7 +1313,7 @@ function AILeads() {
 
       if (!res.ok) throw new Error("Classification failed");
       const result = await res.json();
-      alert(result.message);
+      notify(result.message);
 
       setTimeout(() => {
         fetchLeads();
@@ -1319,7 +1321,7 @@ function AILeads() {
         fetchStatistics();
       }, 2000);
     } catch (err) {
-      alert("Classification error: " + err.message);
+      notify("Classification error: " + err.message);
     } finally {
       setClassifying(false);
     }
@@ -1334,10 +1336,10 @@ function AILeads() {
       });
       if (!res.ok) throw new Error("Bulk ICP classify failed");
       const result = await res.json();
-      alert(result.message);
+      notify(result.message);
       setTimeout(() => { fetchLeads(); fetchStatistics(); }, 1500);
     } catch (err) {
-      alert("ICP classify error: " + err.message);
+      notify("ICP classify error: " + err.message);
     } finally {
       setClassifying(false);
     }
@@ -1429,7 +1431,7 @@ function AILeads() {
       <div className="ai-leads-page">
         <div className="loading-container">
           <div className="loading-spinner"></div>
-          <span>Loading leads...</span>
+          <span>Loading leads…</span>
         </div>
       </div>
     );
@@ -1440,7 +1442,7 @@ function AILeads() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>🤖 AI Database</h1>
+          <h1 className="cx-page-title">🤖 AI Database</h1>
           <p className="subtitle">Import, classify, and manage LinkedIn leads with AI</p>
         </div>
         <div className="header-actions">
@@ -1638,7 +1640,7 @@ function AILeads() {
           disabled={deletingAllLeads}
           style={{ marginLeft: "auto", backgroundColor: "#dc2626", color: "white" }}
         >
-          {deletingAllLeads ? "⏳ Deleting..." : "🗑️ Delete All Leads"}
+          {deletingAllLeads ? "⏳ Deleting…" : "🗑️ Delete All Leads"}
         </button>
       </div>
 
@@ -1653,7 +1655,7 @@ function AILeads() {
               const currentDisplayLeads = getDisplayLeads();
               const selectedLeads = currentDisplayLeads.filter(l => selectedIds.has(l._id));
               if (selectedLeads.length === 0) {
-                alert("No leads found. Please ensure selected leads are from the current tab.");
+                notify("No leads found. Please ensure selected leads are from the current tab.");
                 return;
               }
               navigate("/admin/sales/campaign/workflow", {
@@ -1713,11 +1715,11 @@ function AILeads() {
                 });
                 const result = await res.json();
                 if (!res.ok) throw new Error(result.detail || 'Failed');
-                alert(`\u2705 ${result.updated_count} lead(s) tagged as "${bulkIcpSegment}"`);
+                notify(`\u2705 ${result.updated_count} lead(s) tagged as "${bulkIcpSegment}"`);
                 setSelectedIds(new Set());
                 setBulkIcpSegment("");
                 fetchLeads();
-              } catch (err) { alert('Error: ' + err.message); }
+              } catch (err) { notify('Error: ' + err.message); }
             }}
           >
             Apply
@@ -1894,7 +1896,7 @@ function AILeads() {
                             </a>
                           </td>
                           <td>{lead.location || "-"}</td>
-                          <td>{lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</td>
+                          <td>{lead.added_on ? formatDate(lead.added_on) : "-"}</td>
                           <td><span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></td>
                           <td>{lead.company_domain || "-"}</td>
                           <td>
@@ -1938,7 +1940,7 @@ function AILeads() {
                                 <h4>Role Details</h4>
                                 <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
                                 <p><strong>Persona:</strong> {lead.persona_label || lead.persona || "-"}</p>
-                                <p><strong>Added On:</strong> {lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</p>
+                                <p><strong>Added On:</strong> {lead.added_on ? formatDate(lead.added_on) : "-"}</p>
                               </div>
                               <div className="detail-group">
                                 <h4>Classification</h4>
@@ -2318,7 +2320,7 @@ function AILeads() {
                           {webSearchProgress.status === "completed" && "✅ "}
                           {webSearchProgress.status === "stopped" && "⏹️ "}
                           {webSearchProgress.status === "api_error" ? "API Error" : 
-                           (webSearchProgress.status?.charAt(0).toUpperCase() + webSearchProgress.status?.slice(1) || "Processing...")}
+                           (webSearchProgress.status?.charAt(0).toUpperCase() + webSearchProgress.status?.slice(1) || "Processing…")}
                         </div>
                         {webSearchProgress.job_id && webSearchProgress.status === "running" && (
                           <button
@@ -2650,7 +2652,7 @@ function AILeads() {
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
                         <span style={{ fontWeight: "600" }}>
-                          {gmailImportProgress.status === "running" ? "🔄 Processing..." : "✅ Complete"}
+                          {gmailImportProgress.status === "running" ? "🔄 Processing…" : "✅ Complete"}
                         </span>
                         <span style={{ color: "#4b5563" }}>{gmailImportProgress.progress || 0}%</span>
                       </div>
@@ -2721,7 +2723,7 @@ function AILeads() {
               </button>
               {importMethod !== "gmail" && (
                 <button className="btn btn-primary" onClick={handleImport} disabled={importing || (importMethod === "csv" && csvImportProgress?.status === "running")}>
-                  {importing ? "⏳ Importing..." : "📥 Import Leads"}
+                  {importing ? "⏳ Importing…" : "📥 Import Leads"}
                 </button>
               )}
             </div>

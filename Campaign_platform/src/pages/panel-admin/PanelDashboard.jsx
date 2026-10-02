@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
+import { formatDateTime } from "../../utils/format"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -43,7 +44,7 @@ function HealthBanner({ health, loading, onRefresh }) {
           </ul>
         )}
         <p style={{ margin: "0.4rem 0 0", fontSize: "0.7rem", color: "#9ca3af" }}>
-          Checked {health.generated_at ? new Date(health.generated_at).toLocaleString() : "—"} · runs hourly
+          Checked {health.generated_at ? formatDateTime(health.generated_at) : "—"} · runs hourly
         </p>
       </div>
       <button
@@ -301,7 +302,7 @@ function PanelDashboard() {
             </select>
           </div>
           {dailyLoading ? (
-            <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>Loading daily statistics...</p>
+            <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>Loading daily statistics…</p>
           ) : dailyStats.length === 0 ? (
             <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>No data available</p>
           ) : (
@@ -336,7 +337,7 @@ function PanelDashboard() {
         <div>
           <h3 style={{ fontSize: "1.125rem", fontWeight: "700", color: "#1a1a1a", marginBottom: "1rem" }}>Panelists Registered by Country</h3>
           {registrationLoading ? (
-            <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>Loading registration statistics...</p>
+            <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>Loading registration statistics…</p>
           ) : sortedCountries.length === 0 ? (
             <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>No registrations yet</p>
           ) : (
@@ -470,7 +471,7 @@ function PanelDashboard() {
             )}
 
             <p style={{ marginTop: "1rem", fontSize: "0.72rem", color: "#9ca3af" }}>
-              Computed {funnel.generated_at ? new Date(funnel.generated_at).toLocaleString() : "—"}
+              Computed {funnel.generated_at ? formatDateTime(funnel.generated_at) : "—"}
               {funnel.cached ? " (cached)" : ` in ${funnel.compute_seconds}s`}
             </p>
           </>

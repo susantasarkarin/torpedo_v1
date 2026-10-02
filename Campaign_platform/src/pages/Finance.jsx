@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import { formatDateTime } from "../utils/format"
 import "./Finance.css"
 
 // Helper to get auth token - handles both storage methods
@@ -94,7 +95,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingSpinner}></div>
-        <p style={styles.loadingText}>Loading Finance Dashboard...</p>
+        <p style={styles.loadingText}>Loading Finance Dashboard…</p>
       </div>
     )
   }
@@ -158,7 +159,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h2 style={styles.title}>Finance Dashboard</h2>
+          <h2 className="cx-page-title" style={styles.title}>Finance Dashboard</h2>
           <p style={styles.subtitle}>AI-Augmented Financial Management System</p>
         </div>
         <div style={styles.headerActions}>
@@ -238,7 +239,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
                     <div style={styles.activityDetails}>
                       <p style={styles.activityTitle}>{activity.title}</p>
                       <p style={styles.activityDescription}>{activity.description}</p>
-                      <p style={styles.activityTime}>{new Date(activity.timestamp).toLocaleString("en-IN")}</p>
+                      <p style={styles.activityTime}>{formatDateTime(activity.timestamp)}</p>
                     </div>
                     <div style={styles.activityAmount}>
                       <p

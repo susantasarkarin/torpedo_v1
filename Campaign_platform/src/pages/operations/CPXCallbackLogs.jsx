@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./CPXCallbackLogs.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDateTime } from "../../utils/format"
 
 export default function CPXCallbackLogs() {
   const navigate = useNavigate()
@@ -48,7 +50,7 @@ export default function CPXCallbackLogs() {
       })
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/login")
         return
@@ -87,7 +89,7 @@ export default function CPXCallbackLogs() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "N/A"
-    return new Date(dateStr).toLocaleString()
+    return formatDateTime(dateStr)
   }
 
   const handleRefresh = () => {
@@ -99,7 +101,7 @@ export default function CPXCallbackLogs() {
   }
 
   const handleClearLogs = async () => {
-    if (!window.confirm("Are you sure you want to clear all callback logs?")) {
+    if (!(await confirmAction("Are you sure you want to clear all callback logs?"))) {
       return
     }
 
@@ -121,14 +123,14 @@ export default function CPXCallbackLogs() {
 
       if (res.ok) {
         const data = await res.json()
-        alert(`Cleared ${data.deleted_count} logs`)
+        notify(`Cleared ${data.deleted_count} logs`)
         fetchLogs()
       } else {
         const data = await res.json()
         throw new Error(data.detail || "Failed to clear logs")
       }
     } catch (e) {
-      alert("Error clearing logs: " + e.message)
+      notify("Error clearing logs: " + e.message)
     } finally {
       setClearing(false)
     }
@@ -138,7 +140,7 @@ export default function CPXCallbackLogs() {
     <div className="cpx-logs-container">
       <div className="cpx-logs-header">
         <div>
-          <h1>📊 CPX Callback Logs</h1>
+          <h1 className="cx-page-title">📊 CPX Callback Logs</h1>
           <p>Monitor incoming CPX survey callbacks and redirects</p>
         </div>
         <div className="header-actions">
@@ -146,7 +148,7 @@ export default function CPXCallbackLogs() {
             {clearing ? "⏳ Clearing..." : "🗑️ Clear Logs"}
           </button>
           <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
-            {loading ? "⏳ Loading..." : "🔄 Refresh"}
+            {loading ? "⏳ Loading…" : "🔄 Refresh"}
           </button>
         </div>
       </div>
@@ -205,7 +207,7 @@ export default function CPXCallbackLogs() {
       {loading && logs.length === 0 ? (
         <div className="cpx-logs-loading">
           <div className="loading-spinner"></div>
-          <p>Loading callback logs...</p>
+          <p>Loading callback logs…</p>
         </div>
       ) : logs.length === 0 ? (
         <div className="cpx-logs-empty">

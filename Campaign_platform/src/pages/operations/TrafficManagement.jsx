@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./TrafficManagement.css"
 import { buildApiUrl } from "../../config"
+import { confirmAction, notify } from "../../utils/notify"
+import { formatDateTime } from "../../utils/format"
 
 // Status badge color mapping
 const statusColors = {
@@ -57,7 +59,7 @@ export default function TrafficManagement() {
       })
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/login")
         return
@@ -132,7 +134,7 @@ export default function TrafficManagement() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "N/A"
-    return new Date(dateStr).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+    return formatDateTime(dateStr)
   }
 
   const handleRefresh = () => {
@@ -165,7 +167,7 @@ export default function TrafficManagement() {
   const handleDeleteSelected = async () => {
     if (selectedIds.length === 0) return
 
-    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} record(s)?`)) {
+    if (!(await confirmAction(`Are you sure you want to delete ${selectedIds.length} record(s)?`))) {
       return
     }
 
@@ -187,7 +189,7 @@ export default function TrafficManagement() {
       })
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/login")
         return
@@ -196,12 +198,12 @@ export default function TrafficManagement() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Failed to delete records")
 
-      alert(`Successfully deleted ${data.deleted_count} record(s)`)
+      notify(`Successfully deleted ${data.deleted_count} record(s)`)
       setSelectedIds([])
       fetchRecords()
       fetchStats()
     } catch (e) {
-      alert("Error deleting records: " + e.message)
+      notify("Error deleting records: " + e.message)
     } finally {
       setDeleting(false)
     }
@@ -228,7 +230,7 @@ export default function TrafficManagement() {
       })
 
       if (res.status === 401) {
-        alert("Session expired. Please login again.")
+        notify("Session expired. Please login again.")
         localStorage.removeItem("session_id")
         navigate("/login")
         return
@@ -250,7 +252,7 @@ export default function TrafficManagement() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (e) {
-      alert("Export failed: " + e.message)
+      notify("Export failed: " + e.message)
     }
   }
 
@@ -258,7 +260,7 @@ export default function TrafficManagement() {
     <div className="traffic-management-container">
       <div className="traffic-header">
         <div>
-          <h1>🚦 Traffic Management</h1>
+          <h1 className="cx-page-title">🚦 Traffic Management</h1>
           <p>Monitor and track survey traffic records</p>
         </div>
         <div className="header-actions">
@@ -266,7 +268,7 @@ export default function TrafficManagement() {
             📥 Export CSV
           </button>
           <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
-            {loading ? "⏳ Loading..." : "🔄 Refresh"}
+            {loading ? "⏳ Loading…" : "🔄 Refresh"}
           </button>
         </div>
       </div>
@@ -312,7 +314,7 @@ export default function TrafficManagement() {
               disabled={deleting}
               className="delete-selected-btn"
             >
-              {deleting ? "⏳ Deleting..." : `🗑️ Delete (${selectedIds.length})`}
+              {deleting ? "⏳ Deleting…" : `🗑️ Delete (${selectedIds.length})`}
             </button>
           )}
           <select
@@ -349,7 +351,7 @@ export default function TrafficManagement() {
       {loading && records.length === 0 ? (
         <div className="traffic-loading">
           <div className="loading-spinner"></div>
-          <p>Loading traffic records...</p>
+          <p>Loading traffic records…</p>
         </div>
       ) : records.length === 0 ? (
         <div className="traffic-empty">
