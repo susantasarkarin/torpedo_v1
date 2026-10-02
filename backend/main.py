@@ -1435,6 +1435,11 @@ except Exception as e:
         f"loaded application. Original error: {e}"
     ) from e
 
+# --- Marketing: websites, blog posts, media library ---
+from routers import marketing_site as marketing_site_router
+app.include_router(marketing_site_router.router)
+print("✅ Marketing websites/media router included")
+
 # --- Support/Tickets Router ---
 try:
     from routers import support as support_router
@@ -4016,7 +4021,7 @@ def _validate_project_links(project_data: Dict[str, Any]) -> None:
             )
 
 
-@app.post("/projects/")
+@app.post("/projects/", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def create_project(project_data: Dict[str, Any] = Body(...)):
     try:
         # Validate required fields
@@ -4059,7 +4064,7 @@ async def get_projects_no_slash():
     """Alias for /projects/ - GET projects"""
     return await get_projects()
 
-@app.post("/projects")
+@app.post("/projects", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
     """Alias for /projects/ - POST project"""
     return await create_project(project_data=project_data)
@@ -4079,7 +4084,7 @@ async def get_project_by_id(project_id: str):
     doc["_id"] = str(doc["_id"])
     return {"project": doc}
 
-@app.put("/projects/{project_id}")
+@app.put("/projects/{project_id}", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:
         project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
@@ -4095,7 +4100,7 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
 
-@app.delete("/projects/{project_id}")
+@app.delete("/projects/{project_id}", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def delete_project(project_id: str):
     """
     Soft delete a project with cascade validation.

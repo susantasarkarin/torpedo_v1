@@ -429,3 +429,42 @@ async def get_mail_ai_stats() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error computing mail AI stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- the local model's mail sorting, on demand -------------------------------
+# Gmail Setup's "Run AI classification" and Mail Pool's "re-categorize with
+# AI" called a removed Gemini route and an OpenAI path (no key, and only the
+# local model may be used). They now start one pass of the local categorizer
+# (app/services/mail_categorizer.py, the same job the scheduler runs).
+import threading as _threading
+
+_categorize_lock = _threading.Lock()
+_categorize_state: Dict[str, Any] = {"running": False}
+
+
+@router.post("/categorize-now")
+async def categorize_now(request: Request) -> Dict[str, Any]:
+    if not request.headers.get("Authorization"):
+        raise HTTPException(status_code=401, detail="Missing session token")
+    if not _categorize_lock.acquire(blocking=False):
+        return {"started": False, "running": True, "message": "Sorting is already running"}
+
+    def _run():
+        _categorize_state.update(running=True, started_at=datetime.utcnow(), error=None)
+        try:
+            from app.services.mail_categorizer import run_scheduled_cycle
+            _categorize_state["result"] = run_scheduled_cycle()
+        except Exception as e:  # reported through /categorize-now/status
+            _categorize_state["error"] = str(e)[:300]
+            logger.warning("categorize-now failed: %s", e)
+        finally:
+            _categorize_state.update(running=False, finished_at=datetime.utcnow())
+            _categorize_lock.release()
+
+    _threading.Thread(target=_run, daemon=True).start()
+    return {"started": True, "message": "Sorting started with the local model"}
+
+
+@router.get("/categorize-now/status")
+async def categorize_now_status() -> Dict[str, Any]:
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in _categorize_state.items()}

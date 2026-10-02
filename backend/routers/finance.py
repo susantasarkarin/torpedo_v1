@@ -4266,3 +4266,155 @@ def record_invoice_followup(invoice_id: str, payload: Dict[str, Any] = Body(defa
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Actions behind the Finance row buttons that used to do nothing (2026-10-02)
+# ---------------------------------------------------------------------------
+_CLOSED_INVOICE = {"paid", "void", "draft", "cancelled", "canceled", "written_off"}
+
+
+def _customer_or_404(customer_id: str) -> Dict[str, Any]:
+    try:
+        doc = customers_collection.find_one({"_id": ObjectId(customer_id)})
+    except Exception:
+        doc = None
+    if not doc:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return doc
+
+
+def _pending_invoices(customer_id: str) -> List[Dict[str, Any]]:
+    from app.services import finance_automation as fa
+    ids = [customer_id]
+    try:
+        ids.append(ObjectId(customer_id))
+    except Exception:
+        pass
+    out = []
+    for inv in invoices_collection.find({"customer_id": {"$in": ids}, "is_deleted": {"$ne": True}}):
+        if str(inv.get("status") or "").lower() not in _CLOSED_INVOICE and fa._balance(inv) > 0:
+            out.append(inv)
+    return out
+
+
+@router.get("/customers/{customer_id}/statement")
+def customer_statement(customer_id: str):
+    """The customer's statement of unpaid invoices, as on today (printable HTML)."""
+    from app.services import finance_automation as fa
+    customer = _customer_or_404(customer_id)
+    name = customer.get("company_name") or customer.get("name") or "Client"
+    invs = _pending_invoices(customer_id)
+    st = fa.statement_html(name, invs, datetime.utcnow())
+    return {**st, "customer_name": name, "count": len(invs), "to": fa.statement_recipient(finance_db, customer)}
+
+
+@router.post("/customers/{customer_id}/statement/draft")
+def customer_statement_draft(customer_id: str):
+    """The same statement as a Gmail DRAFT to the client's billing contact."""
+    from app.services import finance_automation as fa
+    st = customer_statement(customer_id)
+    if not st["count"]:
+        raise HTTPException(status_code=400, detail="No unpaid invoices for this customer")
+    if not st["to"]:
+        raise HTTPException(status_code=400, detail="No billing email on file for this customer")
+    res = fa._draft([st["to"]], st["subject"], st["plain"])
+    if not res.get("success"):
+        raise HTTPException(status_code=502, detail=f"Could not create the draft: {res.get('error')}")
+    return {"to": st["to"], "draft_id": res.get("draft_id"), "count": st["count"]}
+
+
+@router.post("/invoices/{invoice_id}/email-draft")
+def invoice_email_draft(invoice_id: str):
+    """A Gmail DRAFT to the client's billing contact with the invoice details.
+    The official PDF lives in Zoho Books, so a person attaches it and sends."""
+    from app.services import finance_automation as fa
+    try:
+        inv = invoices_collection.find_one({"_id": ObjectId(invoice_id)})
+    except Exception:
+        inv = None
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    customer = {}
+    if inv.get("customer_id"):
+        try:
+            customer = customers_collection.find_one({"_id": ObjectId(str(inv["customer_id"]))}) or {}
+        except Exception:
+            customer = {}
+    to = fa.statement_recipient(finance_db, customer) if customer else None
+    if not to:
+        raise HTTPException(status_code=400, detail="No billing email on file for this invoice's customer")
+    name = customer.get("company_name") or customer.get("name") or "there"
+    cur = inv.get("currency_code") or inv.get("currency") or ""
+    num = inv.get("invoice_number") or invoice_id
+    lines = [f"Dear {name},", "", f"Please find attached invoice {num}.", "",
+             f"Invoice date: {(fa._as_dt(inv.get('invoice_date')) or datetime.utcnow()).strftime('%d %b %Y')}"]
+    due = fa._as_dt(inv.get("due_date"))
+    if due:
+        lines.append(f"Due date: {due.strftime('%d %b %Y')}")
+    lines.append(f"Amount: {cur} {float(inv.get('total_amount') or inv.get('total') or 0):,.2f}")
+    if fa._balance(inv) and fa._balance(inv) != float(inv.get("total_amount") or 0):
+        lines.append(f"Balance due: {cur} {fa._balance(inv):,.2f}")
+    if inv.get("po_reference"):
+        lines.append(f"PO reference: {inv['po_reference']}")
+    lines += ["", "Please let us know if you need anything else to process the payment.", "", "Best regards,", "Accounts"]
+    res = fa._draft([to], f"Invoice {num}", "\n".join(lines))
+    if not res.get("success"):
+        raise HTTPException(status_code=502, detail=f"Could not create the draft: {res.get('error')}")
+    now = datetime.utcnow()
+    invoices_collection.update_one({"_id": inv["_id"]}, {
+        "$push": {"followups": {"at": now, "channel": "email", "note": f"Invoice email drafted to {to}", "by": "user"}},
+        "$set": {"last_followup_at": now, "updated_at": now}})
+    return {"to": to, "draft_id": res.get("draft_id")}
+
+
+@router.get("/reports/{report_type:path}")
+def finance_report(report_type: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """P&L, balance sheet, cash flow, GST and aging (the Reports page asked for
+    these and none existed). Amounts in INR; see app/services/finance_reports.py."""
+    from app.services.finance_reports import REPORTS
+    fn = REPORTS.get(report_type.strip("/"))
+    if not fn:
+        raise HTTPException(status_code=404, detail=f"Unknown report: {report_type}")
+    return fn(finance_db, start_date, end_date)
+
+
+_RECEIPT_TYPES = ("image/", "application/pdf")
+
+
+@router.post("/expenses/{expense_id}/receipt")
+async def upload_expense_receipt(expense_id: str, file: UploadFile = File(...)):
+    """Attach a receipt (image or PDF, up to 10 MB). Stored apart from the
+    expense so lists stay light; re-uploading replaces it."""
+    import base64
+    try:
+        oid = ObjectId(expense_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if not expenses_collection.find_one({"_id": oid}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="Expense not found")
+    mime = file.content_type or "application/octet-stream"
+    if not mime.startswith(_RECEIPT_TYPES):
+        raise HTTPException(status_code=400, detail="Receipts must be an image or a PDF")
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Receipt too large (max 10 MB)")
+    now = datetime.utcnow()
+    meta = {"filename": file.filename or "receipt", "mime_type": mime, "size_bytes": len(data), "uploaded_at": now}
+    finance_db["expense_receipts"].replace_one(
+        {"expense_id": expense_id}, {"expense_id": expense_id, **meta, "content_b64": base64.b64encode(data).decode()},
+        upsert=True)
+    expenses_collection.update_one({"_id": oid}, {"$set": {"receipt": meta, "updated_at": now}})
+    return {"ok": True, **meta}
+
+
+@router.get("/expenses/{expense_id}/receipt")
+def get_expense_receipt(expense_id: str):
+    import base64
+    from fastapi.responses import Response
+    doc = finance_db["expense_receipts"].find_one({"expense_id": expense_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="No receipt attached")
+    name = (doc.get("filename") or "receipt").replace('"', "")
+    return Response(content=base64.b64decode(doc["content_b64"]), media_type=doc.get("mime_type") or "application/octet-stream",
+                    headers={"Content-Disposition": f'inline; filename="{name}"'})

@@ -182,3 +182,6 @@ gmail_config/temp_*/
 gmail_config/**/token.json
 backend/leads_export/
 *.token.json
+
+# marketing media library files (stored on the server)
+backend/uploads/

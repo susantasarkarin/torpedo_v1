@@ -130,7 +130,8 @@
   box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
 }
 
-.pp-per-page {
+.pp-per-page,
+.pp-status-filter {
   padding: 0.5rem 0.75rem;
   border: 1px solid #e5e7eb;
   border-radius: 8px;

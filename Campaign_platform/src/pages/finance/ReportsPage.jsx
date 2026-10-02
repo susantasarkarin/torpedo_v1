@@ -345,6 +345,46 @@ function ReportsPage() {
     )
   }
 
+  const renderCashFlow = () => {
+    if (!reportData || !Array.isArray(reportData.months)) return null
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card style={styles.card}><CardContent style={styles.cardContent}>
+            <h4 className="text-sm text-slate-500 mb-2">Money in</h4>
+            <p className="text-2xl font-bold text-green-700">{formatCurrency(reportData.inflow)}</p>
+          </CardContent></Card>
+          <Card style={styles.card}><CardContent style={styles.cardContent}>
+            <h4 className="text-sm text-slate-500 mb-2">Money out</h4>
+            <p className="text-2xl font-bold text-red-700">{formatCurrency(reportData.outflow)}</p>
+          </CardContent></Card>
+          <Card style={styles.card}><CardContent style={styles.cardContent}>
+            <h4 className="text-sm text-slate-500 mb-2">Net cash flow</h4>
+            <p className={`text-2xl font-bold ${(reportData.net || 0) >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(reportData.net)}</p>
+          </CardContent></Card>
+        </div>
+        <Card style={styles.card}><CardContent style={styles.cardContent}>
+          <table className="w-full text-left">
+            <thead><tr>
+              <th className="py-2">Month</th><th className="py-2 text-right">In</th>
+              <th className="py-2 text-right">Out</th><th className="py-2 text-right">Net</th>
+            </tr></thead>
+            <tbody>
+              {reportData.months.map((m) => (
+                <tr key={m.month} className="border-t border-gray-100">
+                  <td className="py-2">{new Date(m.month + "-01").toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</td>
+                  <td className="py-2 text-right">{formatCurrency(m.inflow)}</td>
+                  <td className="py-2 text-right">{formatCurrency(m.outflow)}</td>
+                  <td className={`py-2 text-right font-semibold ${m.net >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(m.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent></Card>
+      </div>
+    )
+  }
+
   const renderGSTReport = () => {
     if (!reportData) return null
 
@@ -434,6 +474,8 @@ function ReportsPage() {
         return renderAgingReport()
       case "gst-report":
         return renderGSTReport()
+      case "cash-flow":
+        return renderCashFlow()
       default:
         return (
           <Card style={styles.card}>
@@ -536,6 +578,14 @@ function ReportsPage() {
 
       {/* Report Content */}
       {renderReport()}
+      {!loading && reportData?.basis && (
+        <p style={{ marginTop: "1rem", color: "#4b5563" }}>
+          All amounts in INR. {reportData.basis}.
+          {reportData.fx_rates && Object.keys(reportData.fx_rates).length > 0 && (
+            <> Other currencies converted at {Object.entries(reportData.fx_rates).map(([c, r]) => `${c} ${r}`).join(", ")} (set FINANCE_FX_RATES to change).</>
+          )}
+        </p>
+      )}
     </div>
   )
 }

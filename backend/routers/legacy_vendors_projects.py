@@ -84,7 +84,7 @@ async def delete_vendor(vendor_id: str):
 # Project routes
 # ---------------------------------------------------------------------------
 
-@router.post("/projects/")
+@router.post("/projects/", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def create_project(project_data: Dict[str, Any] = Body(...)):
     try:
         if not project_data.get("projectName") or not project_data["projectName"].strip():
@@ -116,12 +116,12 @@ async def get_projects_no_slash():
     return await get_projects()
 
 
-@router.post("/projects")
+@router.post("/projects", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
     return await create_project(project_data=project_data)
 
 
-@router.put("/projects/{project_id}")
+@router.put("/projects/{project_id}", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:
         project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
@@ -131,7 +131,7 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
         raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
 
 
-@router.delete("/projects/{project_id}")
+@router.delete("/projects/{project_id}", dependencies=[Depends(verify_session)])  # login required (2026-10-02)
 async def delete_project(project_id: str):
     """Soft delete a project with cascade validation."""
     try:

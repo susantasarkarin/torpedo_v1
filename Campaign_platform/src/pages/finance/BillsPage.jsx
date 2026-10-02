@@ -14,6 +14,10 @@ import { formatDate } from "../../utils/format"
 function BillsPage() {
   const navigate = useNavigate()
   const [showModal, setShowModal] = useState(false)
+  // record a payment against one bill (the credit-card button)
+  const [paying, setPaying] = useState(null)
+  const [payForm, setPayForm] = useState({})
+  const [paySaving, setPaySaving] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [bills, setBills] = useState([])
@@ -791,7 +795,13 @@ function BillsPage() {
                           <Eye style={{ width: "16px", height: "16px" }} />
                         </button>
                       </Link>
-                      <button style={styles.btnEdit} disabled aria-label="Record payment (not available yet)" title="Record payment — not available yet">
+                      <button style={styles.btnEdit} aria-label="Record payment" title="Record payment"
+                              disabled={!(bill.balance_due > 0)}
+                              onClick={() => {
+                                setPaying(bill)
+                                setPayForm({ amount: bill.balance_due ?? bill.total_amount ?? "", payment_date: new Date().toISOString().split("T")[0],
+                                             payment_method: "bank_transfer", reference_number: "" })
+                              }}>
                         <CreditCard style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>
@@ -820,6 +830,77 @@ function BillsPage() {
         onPageSizeChange={handleRecordsPerPageChange}
         loading={loading}
       />
+
+      {paying && (
+        <div style={styles.modal} onClick={() => setPaying(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Record payment — {paying.bill_number}</h3>
+            </div>
+            <div style={styles.modalBody}>
+              <p style={{ marginTop: 0 }}>{paying.vendor_name || "Vendor"} · balance {formatCurrency(paying.balance_due)}</p>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Amount</label>
+                <input style={styles.input} type="number" min="0" step="0.01" value={payForm.amount}
+                       onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Payment date</label>
+                <input style={styles.input} type="date" value={payForm.payment_date}
+                       onChange={(e) => setPayForm({ ...payForm, payment_date: e.target.value })} />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Method</label>
+                <select style={styles.input} value={payForm.payment_method}
+                        onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })}>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="upi">UPI</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="card">Card</option>
+                  <option value="cash">Cash</option>
+                  <option value="paypal">PayPal</option>
+                </select>
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Reference (UTR / cheque no.)</label>
+                <input style={styles.input} value={payForm.reference_number}
+                       onChange={(e) => setPayForm({ ...payForm, reference_number: e.target.value })} />
+              </div>
+            </div>
+            <div style={styles.modalFooter}>
+              <button style={styles.btnSecondary} onClick={() => setPaying(null)}>Cancel</button>
+              <button style={styles.btnPrimary} disabled={paySaving || !(parseFloat(payForm.amount) > 0)}
+                      onClick={async () => {
+                        setPaySaving(true)
+                        try {
+                          const res = await authFetch(buildApiUrl(`/finance/payments/made/`), {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              payment_type: "made", vendor_id: paying.vendor_id, bill_id: paying._id,
+                              amount: parseFloat(payForm.amount), currency_code: paying.currency_code || DEFAULT_CURRENCY,
+                              payment_date: payForm.payment_date, payment_method: payForm.payment_method,
+                              reference_number: payForm.reference_number,
+                            }),
+                          })
+                          if (!res.ok) {
+                            const err = await res.json().catch(() => ({}))
+                            notify(err.detail || "Could not record the payment", "error")
+                            return
+                          }
+                          notify(`Payment of ${formatCurrency(parseFloat(payForm.amount))} recorded against ${paying.bill_number}`, "success")
+                          setPaying(null)
+                          fetchBills(currentPage, recordsPerPage, searchTerm, statusFilter)
+                        } finally {
+                          setPaySaving(false)
+                        }
+                      }}>
+                {paySaving ? "Saving…" : "Record payment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

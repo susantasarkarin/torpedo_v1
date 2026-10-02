@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import { formatCurrency } from "../../utils/currency"
@@ -37,6 +37,17 @@ export default function InvoiceDetailPage() {
   const navigate = useNavigate()
   const [invoice, setInvoice] = useState(null)
   const [loading, setLoading] = useState(true)
+  // ?print=1 (the Download button): print once the invoice is on screen, so
+  // the browser's "Save as PDF" gives a copy
+  const [searchParams] = useSearchParams()
+  const printMode = searchParams.get("print") === "1"
+  useEffect(() => {
+    if (printMode && !loading && invoice) {
+      const t = setTimeout(() => window.print(), 400)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [printMode, loading, invoice])
   const [error, setError] = useState("")
 
   useEffect(() => {

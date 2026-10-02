@@ -63,6 +63,7 @@ export default function AgentDashboard() {
   } = useLeadAgent();
   
   const [quickRunOpen, setQuickRunOpen] = useState(false);
+  const [openJobId, setOpenJobId] = useState(null);
   const [quickRunType, setQuickRunType] = useState('all');
 
   // Fetch data on mount
@@ -297,7 +298,8 @@ export default function AgentDashboard() {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {jobs.slice(0, 20).map((job) => (
-                      <tr key={job.job_id} className="hover:bg-gray-50">
+                      <React.Fragment key={job.job_id}>
+                      <tr className="hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <code className="text-sm text-gray-600">
                             {job.job_id.slice(0, 8)}...
@@ -321,11 +323,29 @@ export default function AgentDashboard() {
                           {job.started_at ? formatTime(job.started_at) : '-'}
                         </td>
                         <td className="px-4 py-3">
-                          <button className="text-orange-600 hover:text-orange-700" disabled aria-label="Open (not available yet)" title="Open — not available yet">
-                            <ChevronRight className="w-4 h-4" />
+                          <button className="text-orange-600 hover:text-orange-700" aria-label="Show details" title="Show details"
+                                  onClick={() => setOpenJobId(openJobId === job.job_id ? null : job.job_id)}>
+                            <ChevronRight className={`w-4 h-4 transition-transform ${openJobId === job.job_id ? 'rotate-90' : ''}`} />
                           </button>
                         </td>
                       </tr>
+                      {openJobId === job.job_id && (
+                        <tr className="bg-gray-50">
+                          <td colSpan={7} className="px-4 py-3 text-sm text-gray-700">
+                            <div className="grid gap-1 sm:grid-cols-2">
+                              <div><b>Job</b> {job.job_id}</div>
+                              <div><b>Status</b> {job.status}{job.progress != null ? ` · ${job.progress}%` : ''}</div>
+                              {job.started_at && <div><b>Started</b> {formatTime(job.started_at)}</div>}
+                              {job.completed_at && <div><b>Finished</b> {formatTime(job.completed_at)}</div>}
+                              {Object.entries(job.result || {}).filter(([, v]) => v !== null && typeof v !== 'object').map(([k, v]) => (
+                                <div key={k}><b>{k.replace(/_/g, ' ')}</b> {String(v)}</div>
+                              ))}
+                              {job.error && <div className="sm:col-span-2 text-red-700"><b>Error</b> {String(job.error)}</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

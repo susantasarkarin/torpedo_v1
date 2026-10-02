@@ -741,9 +741,11 @@ function MailPool() {
       return
     }
 
+    if (useAi) { await runLocalSort(); return }
+
     setRecategorizing(true)
     try {
-      const res = await authFetch(buildApiUrl(`/email-sync/recategorize-all`), {
+      const res = await authFetch(buildApiUrl(`/api/v1/email-sync/recategorize-all`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -813,7 +815,7 @@ function MailPool() {
         timeout: 600000,
         statusFetcher: async () => {
           const sessionId = localStorage.getItem("session_id")
-          const res = await authFetch(buildApiUrl(`/email-sync/recategorize-status/${taskId}`), {
+          const res = await authFetch(buildApiUrl(`/api/v1/email-sync/recategorize-status/${taskId}`), {
             headers: { Authorization: sessionId },
           })
           return res.json()
@@ -822,6 +824,16 @@ function MailPool() {
     ).catch(() => {
       // Error state is handled in onError callback
     })
+  }
+
+  // "AI" sorting runs the local model's categorizer (the old AI path called
+  // OpenAI, which has no key and is not allowed); keywords use email-sync
+  const runLocalSort = async () => {
+    const res = await authFetch(buildApiUrl("/api/mail/categorize-now"), { method: "POST" })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { notify(data.detail || "Could not start sorting", "error"); return }
+    notify(data.started ? "Sorting started with the local AI model — categories update as it works through the mail."
+                        : (data.message || "Sorting is already running"), data.started ? "success" : "info")
   }
 
   // AI Classification state
@@ -1076,9 +1088,10 @@ function MailPool() {
     if (!(await confirmAction(`Re-categorize all emails for this mailbox using ${useAi ? 'AI' : 'keywords'}?`))) {
       return
     }
+    if (useAi) { await runLocalSort(); return }
 
     try {
-      const res = await authFetch(buildApiUrl(`/email-sync/recategorize-all`), {
+      const res = await authFetch(buildApiUrl(`/api/v1/email-sync/recategorize-all`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

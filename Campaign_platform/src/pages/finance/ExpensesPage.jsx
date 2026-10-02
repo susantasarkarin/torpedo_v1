@@ -19,6 +19,29 @@ function ExpensesPage() {
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef(null)
+  // receipts (the paperclip): upload when none, open when attached
+  const receiptInputRef = useRef(null)
+  const [receiptFor, setReceiptFor] = useState(null)
+
+  const openReceipt = async (expense) => {
+    const res = await authFetch(buildApiUrl(`/finance/expenses/${expense._id}/receipt`))
+    if (!res.ok) { notify("Could not open the receipt", "error"); return }
+    const url = URL.createObjectURL(await res.blob())
+    window.open(url, "_blank", "noopener")
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  }
+
+  const uploadReceipt = async (file) => {
+    const expense = receiptFor
+    setReceiptFor(null)
+    if (!file || !expense) return
+    const body = new FormData()
+    body.append("file", file)
+    const res = await authFetch(buildApiUrl(`/finance/expenses/${expense._id}/receipt`), { method: "POST", body })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) { notify(`Receipt attached to ${expense.expense_number || "the expense"}`, "success"); fetchExpenses() }
+    else notify(data.detail || "Could not attach the receipt", "error")
+  }
   const [formData, setFormData] = useState({
     description: "",
     amount: 0,
@@ -225,6 +248,8 @@ function ExpensesPage() {
 
   return (
     <div style={styles.container}>
+      <input ref={receiptInputRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }}
+             onChange={(e) => { uploadReceipt(e.target.files?.[0]); e.target.value = "" }} />
       <div style={styles.header}>
         <div>
           <h2 className="cx-page-title" style={styles.title}>Expenses</h2>
@@ -404,7 +429,14 @@ function ExpensesPage() {
                   </td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      <button style={styles.btnEdit} disabled aria-label="Attach receipt (not available yet)" title="Attach receipt — not available yet">
+                      <button style={styles.btnEdit}
+                              aria-label={expense.receipt ? "View receipt" : "Attach receipt"}
+                              title={expense.receipt ? `View receipt (${expense.receipt.filename})` : "Attach receipt (image or PDF)"}
+                              onClick={() => {
+                                if (expense.receipt) { openReceipt(expense); return }
+                                setReceiptFor(expense)
+                                receiptInputRef.current?.click()
+                              }}>
                         <Paperclip style={{ width: "16px", height: "16px" }} />
                       </button>
                       <button style={styles.btnDelete} onClick={() => handleDelete(expense._id)}>

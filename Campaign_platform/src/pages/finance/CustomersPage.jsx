@@ -8,6 +8,7 @@ import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 import { confirmAction, notify } from "../../utils/notify"
+import DOMPurify from "dompurify"
 import { formatMoney } from "../../utils/currency"
 
 // GST Treatment options
@@ -42,6 +43,29 @@ function CustomersPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [showModal, setShowModal] = useState(false)
+  // statement of unpaid invoices for one customer (the document button)
+  const [statement, setStatement] = useState(null)
+  const [statementBusy, setStatementBusy] = useState(false)
+
+  const openStatement = async (customer) => {
+    setStatement({ customer, loading: true })
+    const res = await authFetch(buildApiUrl(`/finance/customers/${customer._id}/statement`))
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { setStatement(null); notify(data.detail || "Could not load the statement", "error"); return }
+    setStatement({ customer, ...data })
+  }
+
+  const draftStatement = async () => {
+    setStatementBusy(true)
+    try {
+      const res = await authFetch(buildApiUrl(`/finance/customers/${statement.customer._id}/statement/draft`), { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) notify(`Statement drafted in Gmail for ${data.to}`, "success")
+      else notify(data.detail || "Could not create the draft", "error")
+    } finally {
+      setStatementBusy(false)
+    }
+  }
   const [editingCustomer, setEditingCustomer] = useState(null)
   const [formErrors, setFormErrors] = useState({})
   const [exporting, setExporting] = useState(false)
@@ -683,7 +707,7 @@ function CustomersPage() {
                       <button style={styles.btnEdit} onClick={() => handleEdit(customer)}>
                         <Pencil style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit} disabled aria-label="Statement (not available yet)" title="Statement — not available yet">
+                      <button style={styles.btnEdit} aria-label="Statement" title="Statement of unpaid invoices" onClick={() => openStatement(customer)}>
                         <FileText style={{ width: "16px", height: "16px" }} />
                       </button>
                       <button style={styles.btnDelete} onClick={() => handleDelete(customer._id)}>
@@ -716,6 +740,37 @@ function CustomersPage() {
         onPageSizeChange={handleRecordsPerPageChange}
         loading={loading}
       />
+
+      {statement && (
+        <div style={styles.modal} onClick={() => setStatement(null)}>
+          <div style={{ ...styles.modalContent, maxWidth: "900px" }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Statement — {statement.customer_name || statement.customer.company_name || statement.customer.name}</h3>
+              <button onClick={() => setStatement(null)} style={styles.closeBtn} aria-label="Close">×</button>
+            </div>
+            <div style={styles.modalBody}>
+              {statement.loading ? <p>Loading…</p> : statement.count === 0 ? <p>No unpaid invoices for this customer.</p> : (
+                <>
+                  <p style={{ marginTop: 0 }}>{statement.count} unpaid invoice(s) · total outstanding <b>{statement.total}</b>
+                    {statement.to ? <> · billing contact {statement.to}</> : <> · <b>no billing email on file</b></>}</p>
+                  <div id="cx-statement" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(statement.html || "") }} />
+                </>
+              )}
+            </div>
+            {!statement.loading && statement.count > 0 && (
+              <div style={styles.modalFooter}>
+                <button style={styles.btnSecondary} onClick={() => {
+                  const w = window.open("", "_blank", "noopener")
+                  if (w) { w.document.write(`<title>${statement.subject || "Statement"}</title>` + DOMPurify.sanitize(statement.html || "")); w.document.close(); w.print() }
+                }}>Print</button>
+                <button style={styles.btnPrimary} disabled={statementBusy || !statement.to} onClick={draftStatement}>
+                  {statementBusy ? "Creating…" : "Create email draft"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

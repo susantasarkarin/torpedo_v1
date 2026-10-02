@@ -3767,6 +3767,8 @@ def sync_outreach_replies_to_leads():
 
 
 
+# the route decorator had gone missing: the Outreach page's per-status lead list 404'd
+@router.get("/campaigns/{campaign_id}/leads-by-status")
 def get_leads_by_status(
     campaign_id: str,
     status: str = Query("all", description="Filter: all|opened|not_opened|bounced|replied|sent"),

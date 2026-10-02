@@ -113,8 +113,6 @@ const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard"))
 const UnifiedVendorsPage = lazy(() => import("./pages/vendor/UnifiedVendorsPage"))
 const VendorLeadsPage = lazy(() => import("./pages/vendor/VendorLeadsPage"))
 const VendorVendorsPage = lazy(() => import("./pages/vendor/VendorsPage"))
-const VendorBillingPage = lazy(() => import("./pages/vendor/VendorBillingPage"))
-const VendorPaymentsPage = lazy(() => import("./pages/vendor/VendorPaymentsPage"))
 
 // Profile Page
 const MyProfile = lazy(() => import("./pages/MyProfile"))
@@ -151,6 +149,8 @@ const CrmReports = lazy(() => import("./pages/crm/CrmReports"))
 const SurveyRevenue = lazy(() => import("./pages/surveys/SurveyRevenue"))
 import FeedbackHost from "./components/FeedbackHost"
 const NotFound = lazy(() => import("./pages/NotFound"))
+const MarketingWebsites = lazy(() => import("./pages/marketing/MarketingWebsites"))
+const MarketingMedia = lazy(() => import("./pages/marketing/MarketingMedia"))
 
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
@@ -253,6 +253,8 @@ function App() {
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />
         <Route path="marketing/linkedin" element={<LazyPage><LinkedInAutomationPage /></LazyPage>} />
+        <Route path="marketing/websites" element={<LazyPage><MarketingWebsites /></LazyPage>} />
+        <Route path="marketing/media" element={<LazyPage><MarketingMedia /></LazyPage>} />
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />
@@ -315,8 +317,10 @@ function App() {
         <Route path="vendor" element={<LazyPage><VendorDashboard /></LazyPage>} />
         <Route path="vendor/leads" element={<LazyPage><VendorLeadsPage /></LazyPage>} />
         <Route path="vendor/all" element={<LazyPage><VendorVendorsPage /></LazyPage>} />
-        <Route path="vendor/billing" element={<LazyPage><VendorBillingPage /></LazyPage>} />
-        <Route path="vendor/payments" element={<LazyPage><VendorPaymentsPage /></LazyPage>} />
+        {/* Vendor billing and payments are Finance bills and payments made -- the
+            old vendor pages were unconnected mock-ups showing demo data */}
+        <Route path="vendor/billing" element={<LazyPage><BillsPage /></LazyPage>} />
+        <Route path="vendor/payments" element={<LazyPage><PaymentsPage defaultTab="made" /></LazyPage>} />
         <Route path="vendor/reports" element={<div style={{ padding: "2rem" }}>Vendor Reports (Coming Soon)</div>} />
 
         {/* HR */}

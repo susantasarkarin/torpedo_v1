@@ -99,17 +99,15 @@ function GmailSetup() {
     setMessage({ type: "info", text: "🤖 Starting AI classification of all downloaded emails..." })
     
     try {
-      const res = await authFetch(buildApiUrl(`/gemini/classify-batch`), {
+      // the local model's mail sorting (Gemini was removed; only the local model is used)
+      const res = await authFetch(buildApiUrl(`/api/mail/categorize-now`), {
         method: "POST",
-        headers: { 
-          Authorization: auth,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ limit: 100, extract_leads: true })
+        headers: { Authorization: auth },
       })
-      
+
       if (res.ok) {
-        setMessage({ type: "success", text: "✅ AI classification started! Emails are being processed in the background." })
+        const data = await res.json().catch(() => ({}))
+        setMessage({ type: "success", text: data.started ? "✅ Sorting started with the local AI model — emails are processed in the background." : (data.message || "Sorting is already running") })
       } else {
         const err = await res.json()
         setMessage({ type: "error", text: err.detail || "Classification failed to start" })

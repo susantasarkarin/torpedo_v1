@@ -7,7 +7,7 @@ import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, 
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
-import { notify } from "../../utils/notify"
+import { confirmAction, notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import { formatMoney } from "../../utils/currency"
 
@@ -20,6 +20,43 @@ function PurchaseOrdersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [showModal, setShowModal] = useState(false)
+  const [viewing, setViewing] = useState(null) // the PO shown read-only
+
+  const refreshPOs = () => fetchPurchaseOrders(currentPage, recordsPerPage, searchTerm, statusFilter)
+
+  const approvePO = async (po) => {
+    if (!(await confirmAction(`Approve purchase order ${po.po_number}?`, { title: "Approve PO", confirmText: "Approve" }))) return
+    const res = await authFetch(buildApiUrl(`/finance/purchase-orders/${po._id}`), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "approved", approved_at: new Date().toISOString() }),
+    })
+    if (res.ok) { notify(`${po.po_number} approved`, "success"); refreshPOs() }
+    else notify("Could not approve the purchase order", "error")
+  }
+
+  const convertPOToBill = async (po) => {
+    if (!(await confirmAction(`Create a bill from purchase order ${po.po_number} (${po.vendor_name || "vendor"})?`,
+                              { title: "Convert to bill", confirmText: "Create bill" }))) return
+    const today = new Date().toISOString().split("T")[0]
+    const res = await authFetch(buildApiUrl(`/finance/bills/`), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vendor_id: po.vendor_id, vendor_name: po.vendor_name, bill_date: today,
+        items: (po.items || []).map(({ item_id, description, quantity, rate, tax_rate }) =>
+          ({ item_id, description, quantity, rate, tax_rate })),
+        currency_code: po.currency_code, po_id: po._id, po_number: po.po_number,
+        notes: `Created from purchase order ${po.po_number}`,
+      }),
+    })
+    const bill = await res.json().catch(() => ({}))
+    if (!res.ok) { notify(bill.detail || "Could not create the bill", "error"); return }
+    await authFetch(buildApiUrl(`/finance/purchase-orders/${po._id}`), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "billed", bill_id: bill._id || bill.id || null }),
+    })
+    notify(`Bill ${bill.bill_number || ""} created from ${po.po_number}`, "success")
+    refreshPOs()
+  }
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -414,13 +451,15 @@ function PurchaseOrdersPage() {
                   <td style={styles.td}>{getStatusBadge(po.status)}</td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      <button style={styles.btnEdit} disabled aria-label="View (not available yet)" title="View — not available yet">
+                      <button style={styles.btnEdit} aria-label="View" title="View" onClick={() => setViewing(po)}>
                         <Eye style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit} disabled aria-label="Convert to bill (not available yet)" title="Convert to bill — not available yet">
+                      <button style={styles.btnEdit} aria-label="Convert to bill" title={po.status === "billed" ? "Already billed" : "Convert to bill"}
+                              disabled={po.status === "billed"} onClick={() => convertPOToBill(po)}>
                         <FileText style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit} disabled aria-label="Approve (not available yet)" title="Approve — not available yet">
+                      <button style={styles.btnEdit} aria-label="Approve" title={["approved", "received", "billed"].includes(po.status) ? "Already approved" : "Approve"}
+                              disabled={["approved", "received", "billed"].includes(po.status)} onClick={() => approvePO(po)}>
                         <CheckCircle style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>
@@ -449,6 +488,42 @@ function PurchaseOrdersPage() {
         onPageSizeChange={handleRecordsPerPageChange}
         loading={loading}
       />
+
+      {viewing && (
+        <div style={styles.modal} onClick={() => setViewing(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Purchase order {viewing.po_number}</h3>
+              <button onClick={() => setViewing(null)} style={styles.closeBtn} aria-label="Close">×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <p style={{ margin: "0 0 0.25rem" }}><b>Vendor:</b> {viewing.vendor_name || "—"}</p>
+              <p style={{ margin: "0 0 0.25rem" }}><b>Order date:</b> {formatDate(viewing.order_date)}
+                {viewing.expected_delivery ? <> · <b>Expected:</b> {formatDate(viewing.expected_delivery)}</> : null}</p>
+              <p style={{ margin: "0 0 1rem" }}><b>Status:</b> {viewing.status || "draft"}</p>
+              <table style={styles.table}>
+                <thead><tr>
+                  <th style={styles.th}>Item</th><th style={styles.th}>Qty</th><th style={styles.th}>Rate</th>
+                  <th style={styles.th}>Tax %</th><th style={styles.th}>Amount</th>
+                </tr></thead>
+                <tbody>
+                  {(viewing.items || []).map((it, i) => (
+                    <tr key={i}>
+                      <td style={styles.td}>{it.description || it.name || "—"}</td>
+                      <td style={styles.td}>{it.quantity}</td>
+                      <td style={styles.td}>{formatCurrency(it.rate)}</td>
+                      <td style={styles.td}>{it.tax_rate ?? 0}</td>
+                      <td style={styles.td}>{formatCurrency((it.quantity || 0) * (it.rate || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ textAlign: "right", fontWeight: 600 }}>Total: {formatCurrency(viewing.total_amount)}</p>
+              {viewing.notes ? <p><b>Notes:</b> {viewing.notes}</p> : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

@@ -22,6 +22,8 @@ function ProjectsPage() {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  // Status filter (owner, 2026-10-02): opens on Live
+  const [statusFilter, setStatusFilter] = useState("live");
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
@@ -623,13 +625,16 @@ function ProjectsPage() {
   // 🔹 Search filter
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter((p) =>
+    const byStatus = statusFilter === "all"
+      ? projects
+      : projects.filter((p) => (p.projectStatus || "close") === statusFilter);
+    if (!q) return byStatus;
+    return byStatus.filter((p) =>
       ["projectName", "client", "salesPerson", "surveyNo", "vendorName"].some(
         (field) => String(p[field] || "").toLowerCase().includes(q)
       )
     );
-  }, [projects, search]);
+  }, [projects, search, statusFilter]);
 
   const totalPages = Math.ceil(filtered.length / recordsPerPage);
   const startIdx = (currentPage - 1) * recordsPerPage;
@@ -688,6 +693,17 @@ function ProjectsPage() {
             placeholder="Search projects, clients, vendors..."
           />
         </div>
+        <select
+          className="pp-status-filter"
+          aria-label="Status"
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+        >
+          <option value="live">Status: Live ({projects.filter(p => p.projectStatus === "live").length})</option>
+          <option value="pause">Status: Paused ({projects.filter(p => p.projectStatus === "pause").length})</option>
+          <option value="close">Status: Closed ({projects.filter(p => (p.projectStatus || "close") === "close").length})</option>
+          <option value="all">Status: All ({projects.length})</option>
+        </select>
         <select
           className="pp-per-page"
           value={recordsPerPage}

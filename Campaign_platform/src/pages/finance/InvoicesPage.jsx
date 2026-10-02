@@ -8,7 +8,7 @@ import { FileText, Search, Eye, Download, Mail, Loader2, Trash2, Upload } from "
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
-import { notify } from "../../utils/notify"
+import { confirmAction, notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 
 // Invoice status options
@@ -455,10 +455,18 @@ function InvoicesPage() {
                           <Eye style={{ width: "16px", height: "16px" }} />
                         </button>
                       </Link>
-                      <button style={styles.btnEdit} disabled aria-label="Download (not available yet)" title="Download — not available yet">
+                      <button style={styles.btnEdit} aria-label="Download / print" title="Download (print or save as PDF)"
+                              onClick={() => window.open(`/admin/finance/invoices/${invoice._id}?print=1`, "_blank", "noopener")}>
                         <Download style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnEdit} disabled aria-label="Email (not available yet)" title="Email — not available yet">
+                      <button style={styles.btnEdit} aria-label="Email to client" title="Create an email draft to the client"
+                              onClick={async () => {
+                                if (!(await confirmAction(`Create a Gmail draft of invoice ${invoice.invoice_number} to the client's billing contact? You review it, attach the PDF from Zoho and send.`, { title: "Email invoice", confirmText: "Create draft" }))) return
+                                const res = await authFetch(buildApiUrl(`/finance/invoices/${invoice._id}/email-draft`), { method: "POST" })
+                                const data = await res.json().catch(() => ({}))
+                                if (res.ok) notify(`Draft created in Gmail for ${data.to}`, "success")
+                                else notify(data.detail || "Could not create the draft", "error")
+                              }}>
                         <Mail style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>

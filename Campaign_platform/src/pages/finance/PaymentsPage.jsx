@@ -11,9 +11,9 @@ import Pagination from "../../components/ui/Pagination"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 
-function PaymentsPage() {
+function PaymentsPage({ defaultTab = "received" }) {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState("received")
+  const [activeTab, setActiveTab] = useState(defaultTab)
   const [paymentsReceived, setPaymentsReceived] = useState([])
   const [paymentsMade, setPaymentsMade] = useState([])
   const [customers, setCustomers] = useState([])

@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom"
 // Unknown /admin/* addresses land here, inside the app's layout. They used
 // to fall through to the catch-all, which sent people to the login page --
 // a dead sidebar link looked like being logged out.
-const NOT_BUILT = ["/admin/marketing/websites", "/admin/marketing/media"]
+const NOT_BUILT = []
 
 export default function NotFound() {
   const { pathname } = useLocation()

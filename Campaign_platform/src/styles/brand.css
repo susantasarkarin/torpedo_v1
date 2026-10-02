@@ -278,3 +278,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--cx-primary); }
 
 /* buttons for features not built yet (they used to do nothing when clicked) */
 button:disabled[title$="not available yet"] { opacity: 0.4; cursor: not-allowed; }
+
+/* printing a page (e.g. an invoice via Download): just the content */
+@media print {
+  .top-navbar, .sidebar, .operations-sidebar, .right-sidebar, .finance-sidebar, .vendor-sidebar,
+  .marketing-sidebar, .panel-sidebar, [class*="-sidebar"], .cx-no-print { display: none !important; }
+  .main-content, .content-area, main { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  body { background: #fff; }
+}
