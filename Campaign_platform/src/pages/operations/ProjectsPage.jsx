@@ -505,10 +505,14 @@ function ProjectsPage() {
     // own entryLink, and a suffixed project name when it's one of several
     // vendor-specific records — mirrors the manual "_VendorName" convention
     // already used for split projects.
-    const buildVendorForm = (vendorName, suffix) => {
+    const buildVendorForm = (vendorName, suffix, isNewRecord) => {
       const vendor = vendors.find((v) => v.vendorName === vendorName);
+      // A new sibling record must not inherit the edited project's identity:
+      // the server assigns _id and surveyNo (and the entry link's pid follows).
+      // eslint-disable-next-line no-unused-vars
+      const { _id, surveyNo, createdAt, updatedAt, ...baseForm } = formData;
       return applyDerivedFields({
-        ...formData,
+        ...(isNewRecord ? baseForm : formData),
         projectCloseDate: closeDate,
         liveLink: normalizedLiveLink,
         projectName: suffix
@@ -547,7 +551,7 @@ function ProjectsPage() {
     try {
       const savedProjects = [];
       for (const op of operations) {
-        const preparedForm = buildVendorForm(op.vendorName, op.suffix);
+        const preparedForm = buildVendorForm(op.vendorName, op.suffix, op.method === "POST");
         const payload = {
           ...preparedForm,
           vendorCompleteRD: normalizeList(preparedForm.vendorCompleteRD),

@@ -4034,8 +4034,19 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
 
         _validate_project_links(project_data)
 
+        # Adding a vendor to an existing project POSTs a copy of that project's
+        # form. Its _id used to be inserted verbatim as a *string* _id (a phantom
+        # twin that edits never reach, and the next copy 500s on duplicate key),
+        # and its entryLink kept the old project's pid. Server owns these fields.
+        for server_field in ("_id", "id", "surveyNo", "createdAt", "updatedAt",
+                             "is_deleted", "deleted_at", "merged_into"):
+            project_data.pop(server_field, None)
+
         project_data["surveyNo"] = generate_survey_no()
         project_data["createdAt"] = datetime.utcnow()
+        entry_link = project_data.get("entryLink")
+        if isinstance(entry_link, str) and "pid=" in entry_link:
+            project_data["entryLink"] = re.sub(r"pid=[^&]*", f"pid={project_data['surveyNo']}", entry_link)
         result = projects_collection.insert_one(project_data)
         project_data["_id"] = str(result.inserted_id)
         return {"message": "Project created successfully", "project": project_data}
