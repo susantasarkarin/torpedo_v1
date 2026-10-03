@@ -92,6 +92,7 @@ class FakeDatabase(dict):
 def env(monkeypatch):
     monkeypatch.setenv("META_PIXEL_ID", PIXEL_ID)
     monkeypatch.delenv("META_PIXEL_ENABLED", raising=False)
+    monkeypatch.delenv("AD_PIXEL_FIRE_ON_TERMINATE", raising=False)
     database = FakeDatabase()
     url_params = database["url_parameters"]
     monkeypatch.setattr(traffic, "get_async_url_parameters_collection", lambda: url_params)
@@ -217,6 +218,17 @@ def test_malformed_rid_rejected_safely(env, bad_rid):
     assert resp.status_code == 302 and resp.headers["location"] == "/adpixel"  # rid never echoed
     assert client.get("/api/adpixel", params={"rid": bad_rid}).json() == {"pixel": None}
     assert database["ad_pixel_fires"].docs == []
+
+
+def test_terminate_fires_only_with_testing_switch(env, monkeypatch):
+    client, url_params, _ = env
+    rid = _add_record(url_params, traffic_source="meta")
+    client.get("/surveyterminate", params={"rid": rid}, follow_redirects=False)
+
+    assert _pixel(client, rid) is None  # default: terminates never fire
+    monkeypatch.setenv("AD_PIXEL_FIRE_ON_TERMINATE", "true")
+    assert _pixel(client, rid)["event_id"] == f"complete_{rid}"
+    assert _pixel(client, rid) is None  # still once only
 
 
 def test_terminate_unchanged_for_ad_traffic(env):

@@ -159,6 +159,19 @@ async def _find_ad_record(collection, rid: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _firing_statuses() -> set:
+    """
+    Record statuses that may fire the pixel. COMPLETE only, unless
+    AD_PIXEL_FIRE_ON_TERMINATE is on — a TEMPORARY setup-testing switch
+    (2026-10-03): terminates also fire, so the pixel can be checked end to end
+    without a real complete. Turn it off once Meta shows SurveyComplete.
+    """
+    statuses = {"COMPLETE"}
+    if _truthy(os.getenv("AD_PIXEL_FIRE_ON_TERMINATE", "false")):
+        statuses.add("TERMINATED")
+    return statuses
+
+
 async def claim_pixel_fire(collection, rid: str) -> Optional[Dict[str, Any]]:
     """
     Run every server-side check and, if they pass, atomically stamp
@@ -171,7 +184,8 @@ async def claim_pixel_fire(collection, rid: str) -> Optional[Dict[str, Any]]:
     record = await _find_ad_record(collection, rid)
     # Only a completion recorded by /surveycomplete counts — /adpixel is public,
     # so a RID seen mid-survey must not be able to fire a conversion.
-    if not record or record.get("ad_pixel_fired_at") or record.get("status") != "COMPLETE":
+    statuses = _firing_statuses()
+    if not record or record.get("ad_pixel_fired_at") or record.get("status") not in statuses:
         return None
 
     platform = record.get("traffic_source")
@@ -184,7 +198,7 @@ async def claim_pixel_fire(collection, rid: str) -> Optional[Dict[str, Any]]:
     now = datetime.utcnow()
     claimed = await collection.find_one_and_update(
         {"_id": record["_id"], "ad_pixel_fired_at": {"$exists": False},
-         "traffic_source": platform, "status": "COMPLETE"},
+         "traffic_source": platform, "status": {"$in": sorted(statuses)}},
         {"$set": {"ad_pixel_fired_at": now, "ad_pixel_platform": platform}},
     )
     if not claimed:
