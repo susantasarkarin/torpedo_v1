@@ -25,6 +25,7 @@ function VendorsPage() {
     vendorEmail: "",
     vendorVariable: "",
     vendorType: "Panel",
+    adPlatform: "",
     status: "Active",
     completeRD: [],
     terminateRD: [],
@@ -80,6 +81,10 @@ function VendorsPage() {
     }
     if (!formData.vendorType || !formData.vendorType.trim()) {
       setError("❌ Vendor Type is required");
+      return;
+    }
+    if (formData.vendorType === "Paid Ads" && !formData.adPlatform) {
+      setError("❌ Choose the ad platform for a Paid Ads vendor");
       return;
     }
     if (!formData.status || !formData.status.trim()) {
@@ -195,6 +200,7 @@ function VendorsPage() {
       vendorEmail: v.vendorEmail || "",
       vendorVariable: v.vendorVariable || "",
       vendorType: v.vendorType || "Panel",
+      adPlatform: v.adPlatform || "",
       status: v.status || "Active",
       completeRD: Array.isArray(v.completeRD)
         ? v.completeRD
@@ -311,7 +317,7 @@ function VendorsPage() {
                         v.vendorType === 'Affiliate' ? styles.typeAffiliate : 
                         styles.typeAPI)
                   }}>
-                    {v.vendorType}
+                    {v.vendorType}{v.vendorType === "Paid Ads" && v.adPlatform ? ` · ${v.adPlatform}` : ""}
                   </span>
                 </td>
                 <td style={styles.td}>
@@ -424,8 +430,30 @@ function VendorsPage() {
                       <option>Panel</option>
                       <option>DIY Platform</option>
                       <option>API</option>
+                      <option>Paid Ads</option>
                     </select>
                   </div>
+
+                  {formData.vendorType === "Paid Ads" && (
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Ad Platform <span style={styles.required}>*</span></label>
+                      <select
+                        style={styles.select}
+                        name="adPlatform"
+                        value={formData.adPlatform}
+                        onChange={e => setFormData({ ...formData, adPlatform: e.target.value })}
+                      >
+                        <option value="">Select…</option>
+                        <option value="meta">Meta (Facebook / Instagram)</option>
+                        <option value="google_ads">Google Ads</option>
+                        <option value="tiktok">TikTok</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <small style={{ color: "#6b7280", fontSize: 12 }}>
+                        Paid Ads respondents are asked for name, email, phone and panel consent on the landing page.
+                      </small>
+                    </div>
+                  )}
                 </div>
 
                 <div style={styles.formGroup}>

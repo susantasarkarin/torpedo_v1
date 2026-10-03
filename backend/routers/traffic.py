@@ -40,6 +40,7 @@ from services.ad_tracking import (
     is_ad_platform,
 )
 from services import respondent_quality as sfw_quality
+from services import survey_routing
 from services.respondent_quality import entry_quality_fields
 from session_state import verify_session
 
@@ -421,6 +422,23 @@ def _replace_live_link_respondent(live_link: str, sfwid: str, client_variable: s
             replaced = True
 
     return rebuilt if replaced else link
+
+
+async def _build_project_entry_link(project_doc: Dict[str, Any], rid: str) -> tuple:
+    """(client live link with this RID injected, client variable used)."""
+    try:
+        client_variable = await asyncio.wait_for(
+            _resolve_project_client_variable_async(project_doc), timeout=4.0
+        )
+    except asyncio.TimeoutError:
+        print("[warn] Client variable lookup timed out — proceeding without it")
+        client_variable = ""
+    base_live_link = project_doc.get("liveLink") or project_doc.get("clientLink") or ""
+    return _replace_live_link_respondent(base_live_link, rid, client_variable), client_variable
+
+
+async def _routing_entry_link(project_doc: Dict[str, Any], rid: str) -> str:
+    return (await _build_project_entry_link(project_doc, rid))[0]
 
 
 async def _resolve_vendor_async(vendor_id: Any) -> Optional[Dict[str, Any]]:
@@ -1886,6 +1904,8 @@ async def _handle_project_survey_callback(
         "complete":  ("COMPLETE",    "completeRD"),
         "terminate": ("TERMINATED",  "terminateRD"),
         "quotafull": ("OVERQUOTA",   "quotaFullRD"),
+        # client says fraud / quality: final, never re-routed
+        "security":  ("SECURITY_TERMINATED", "terminateRD"),
     }
     new_status, rd_field = status_map[outcome]
     fallback_url = f"{FRONTEND_URL}/thankyou" if outcome == "complete" else f"{FRONTEND_URL}/survey-error"
@@ -1945,6 +1965,23 @@ async def _handle_project_survey_callback(
                     sfw_quality.score_completion(async_url_collection, traffic_record, project_doc), timeout=2.0)
             except Exception as q_err:
                 print(f"[warn] SFW completion scoring skipped for {rid}: {q_err}")
+
+        # Routing: a complete stops; terminate / quota-full may go on to the next
+        # eligible survey (security terminates and SFW blocks never do).
+        if traffic_record.get("routingSessionId"):
+            try:
+                if new_status == "COMPLETE":
+                    await survey_routing.close_attempt(async_url_collection.database,
+                                                       traffic_record["routingSessionId"], rid, new_status, final=True)
+                else:
+                    next_link = await asyncio.wait_for(survey_routing.next_attempt(
+                        async_url_collection, get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS),
+                        {**traffic_record, "status": new_status}, new_status, _routing_entry_link), timeout=6.0)
+                    if next_link:
+                        print(f"[ok] Routing {rid} after {new_status} -> next survey")
+                        return RedirectResponse(url=next_link)
+            except Exception as r_err:
+                print(f"[warn] Routing after {new_status} failed for {rid}: {r_err}")
 
         # 3. Resolve vendor redirect URL
         vendor_id = traffic_record.get("vendorId")
@@ -2096,6 +2133,7 @@ async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=
         "settings": {"enabled": sfw_quality.is_enabled(), "enforced": sfw_quality.is_enforced(),
                      "blockBelow": sfw_quality._threshold("SFW_BLOCK_BELOW", 40),
                      "reviewBelow": sfw_quality._threshold("SFW_REVIEW_BELOW", 70)},
+        "prescreen": await _prescreen_stats(col, str(survey_no)),
         # SFW-B is live; SFW-Q (answer quality) and SFW-H (history/outcome) are not built yet
         "scores": {"B": {"label": "Behaviour", "field": "sfwScore", "status": "live"},
                    "Q": {"label": "Answer quality", "field": "sfwQ", "status": "not_built"},
@@ -2103,6 +2141,29 @@ async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=
         "bands": {b["_id"]: {"entries": b["entries"], "completes": b["completes"]} for b in bands},
         "flags": {f["_id"]: f["n"] for f in flags},
         "flagged": flagged,
+    }
+
+
+async def _prescreen_stats(col, survey_no: str) -> Dict[str, Any]:
+    """Pre-screen qualification rate for one project, plus respondents routed in / out."""
+    rows = await col.aggregate([
+        {"$match": {"prescreen.surveyNo": survey_no}},
+        {"$group": {"_id": "$prescreen.passed", "n": {"$sum": 1}}},
+    ]).to_list(length=5)
+    reasons = await col.aggregate([
+        {"$match": {"prescreen.surveyNo": survey_no, "prescreen.passed": False}},
+        {"$unwind": "$prescreen.reasons"},
+        {"$group": {"_id": "$prescreen.reasons", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}}, {"$limit": 15},
+    ]).to_list(length=15)
+    passed = next((r["n"] for r in rows if r["_id"] is True), 0)
+    failed = next((r["n"] for r in rows if r["_id"] is False), 0)
+    return {
+        "checked": passed + failed, "passed": passed, "failed": failed,
+        "rate": round(passed / (passed + failed), 4) if passed + failed else None,
+        "failReasons": {r["_id"]: r["n"] for r in reasons},
+        "routedIn": await col.count_documents({"routedFrom": {"$exists": True}, "assignedSurveyId": survey_no}),
+        "routedOut": await col.count_documents({"routedFrom": survey_no}),
     }
 
 
@@ -2163,6 +2224,53 @@ async def sfw_client_rejects(survey_no: str, body: Dict[str, Any] = Body(...),
         default_reason=str(body.get("reason") or ""), uploaded_by=str(username or ""), client=client_name)
 
 
+@router.get("/api/routing/landing")
+async def routing_landing_config(request: Request):
+    """
+    What the landing page (/takesurvey) must ask: qualification questions for the
+    entry project (and, with routing on, for other live surveys in the visitor's
+    country) and, for Paid Ads traffic only, the PII + panel-consent form.
+    """
+    qp = dict(request.query_params)
+    country = survey_routing.norm_country(request.headers.get("CF-IPCountry") or qp.get("cc") or "")
+    projects: list = []
+    pid = str(qp.get("pid") or "").strip()
+    if pid:
+        project = await _resolve_live_project_async(pid)
+        if project:
+            projects.append(project)
+    if survey_routing.routing_enabled() and (pid or str(qp.get("route", "")).lower() in {"1", "true", "yes"}):
+        try:
+            projects += await survey_routing.routable_projects(
+                get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS), country)
+        except Exception as e:
+            print(f"[warn] routing landing lookup failed: {e}")
+
+    vendor = None
+    if qp.get("vid"):
+        try:
+            vendor = await asyncio.wait_for(_resolve_vendor_async(qp["vid"]), timeout=3.0)
+        except Exception:
+            vendor = None
+    paid = survey_routing.is_paid_ads(vendor, derive_traffic_source(qp))
+    return JSONResponse(content={
+        "country": country,
+        "questions": survey_routing.questions_for(projects),
+        "paidAds": paid,
+        "pii": {"required": paid, "consentText": survey_routing.PII_CONSENT_TEXT,
+                "policyUrl": survey_routing.privacy_policy_url()} if paid else {"required": False},
+    }, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/routing/question-library", dependencies=[Depends(verify_session)])
+async def routing_question_library():
+    """Reusable qualification questions for the project form."""
+    return {"questions": survey_routing.QUESTION_LIBRARY,
+            "routingEnabled": survey_routing.routing_enabled(),
+            "countryRoutingEnabled": survey_routing.country_routing_enabled(),
+            "maxAttempts": survey_routing.max_attempts()}
+
+
 @router.get("/api/adpixel/landing")
 async def ad_pixel_landing(request: Request):
     """
@@ -2206,6 +2314,15 @@ async def survey_terminate_callback(
 ):
     """Callback when respondent is terminated from an adhoc project survey."""
     return await _handle_project_survey_callback(request, _extract_rid(request, rid), "terminate")
+
+
+@router.get("/surveysecurity")
+async def survey_security_callback(
+    request: Request,
+    rid: str = Query(None, description="Traffic record ID (SFWID)"),
+):
+    """Client terminated the respondent for fraud / quality (not a screen-out). Never re-routed."""
+    return await _handle_project_survey_callback(request, _extract_rid(request, rid), "security")
 
 
 @router.get("/surveyquotafull")
@@ -2752,6 +2869,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
+        # Router link: no pid; Torpedo qualifies the respondent and picks the survey
+        is_router_flow = (
+            api_flag == "false" and not project_number
+            and str(params.get("route", "")).strip().lower() in {"1", "true", "yes"}
+        )
         enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "false").strip().lower() in {
             "1", "true", "yes", "on"
         }
@@ -2852,6 +2974,23 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             return ""
 
         user_email = _extract_user_email(data, params)
+
+        # Qualification answers (routing engine) and Paid Ads PII. Paid Ads respondents
+        # must give name, email, phone and panel consent; nobody else is asked for PII.
+        ad_fields["qualificationAnswers"] = survey_routing.clean_answers(data.get("qualification"))
+        entry_vendor = None
+        if vendor_id:
+            try:
+                entry_vendor = await asyncio.wait_for(_resolve_vendor_async(vendor_id), timeout=3.0)
+            except Exception as v_err:
+                print(f"[warn] vendor lookup for PII check failed: {v_err}")
+        if survey_routing.is_paid_ads(entry_vendor, ad_fields.get("traffic_source")):
+            pii, pii_error = survey_routing.clean_pii(data.get("pii"))
+            if pii_error:
+                raise HTTPException(status_code=400, detail=pii_error)
+            user_email = pii.pop("email")  # stored as `email`: the panel-lead promotion picks it up
+            ad_fields.update(pii)
+            ad_fields["paidAds"] = True
         if user_email:
             print(f"ðŸ“§ User email: {user_email}")
 
@@ -3005,68 +3144,123 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ===============================================================================
         # CASE 1: PROJECT-BASED (ADHOC) FLOW (api=false & pid=<project_number>)
         # ===============================================================================
-        if is_project_adhoc_flow and traffic_id:
-            print(f"ðŸ”€ Strategy: PROJECT-BASED (ADHOC). PID={project_number}, SFWID={traffic_id}")
-            
-            project_doc = await _resolve_live_project_async(project_number)
-            if project_doc:
-                try:
-                    client_variable = await asyncio.wait_for(
-                        _resolve_project_client_variable_async(project_doc), timeout=4.0
-                    )
-                except asyncio.TimeoutError:
-                    print("[warn] Client variable lookup timed out — proceeding without it")
-                    client_variable = ""
-                base_live_link = project_doc.get("liveLink") or project_doc.get("clientLink") or ""
-                
-                if base_live_link:
-                    entry_link = _replace_live_link_respondent(base_live_link, traffic_id, client_variable)
-                    survey_id = project_doc.get("surveyNo") or project_number
-                    allocation_success = True
-                    actual_provider = "PROJECT"
-                    
-                    # Update traffic record with project info
-                    await async_url_collection.update_one(
-                        {"_id": ObjectId(traffic_id)},
-                        {"$set": {
-                            "status": "INCOMPLETE",
-                            "assignedSurveyId": str(survey_id),
-                            "redirectUrl": entry_link,
-                            "surveySource": "PROJECT",
-                            "projectId": str(project_doc.get("_id")),
-                            "client_variable": client_variable,
-                            "updatedAt": datetime.utcnow().isoformat(),
-                        }}
-                    )
-                    print(f"[ok] PROJECT allocation success: survey {survey_id}")
+        if (is_project_adhoc_flow or is_router_flow) and traffic_id:
+            projects_col = get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS)
+            record = await async_url_collection.find_one({"_id": ObjectId(traffic_id)}) or {}
+            ip_country = survey_routing.norm_country(record.get("cfIpCountry") or country_code)
+            answers = record.get("qualificationAnswers") or {}
+            profile = record.get("profilingData") or {}
+            project_doc = None
+            target = None        # the project this respondent is sent to
+            route_reason = ""    # entry_link | prescreen_fail | country | router_link
+            prescreen = None
 
-                    # SFW quality score (fail-open: a scoring problem never blocks entry)
-                    if sfw_quality.is_enabled():
-                        try:
-                            quality = await asyncio.wait_for(
-                                sfw_quality.score_entry(async_url_collection, ObjectId(traffic_id), project_doc),
-                                timeout=3.0,
-                            )
-                        except Exception as q_err:
-                            quality = None
-                            print(f"[warn] SFW scoring skipped for {traffic_id}: {q_err}")
-                        if quality:
-                            print(f"SFW score {traffic_id}: {quality['sfwScore']} {quality['sfwBand']} {quality['sfwFlags']}")
-                        if quality and quality["sfwBand"] == "block" and sfw_quality.is_enforced():
-                            allocation_success = False
-                            entry_link = None
-                            allocation_error = "No survey available"  # never says why
-                            await async_url_collection.update_one(
-                                {"_id": ObjectId(traffic_id)},
-                                {"$set": {"status": "SFW_BLOCKED", "redirectUrl": None}},
-                            )
-                else:
+            if is_project_adhoc_flow:
+                print(f"Strategy: PROJECT-BASED (ADHOC). PID={project_number}, SFWID={traffic_id}")
+                project_doc = await _resolve_live_project_async(project_number)
+                if not project_doc:
+                    allocation_error = f"Live project not found for number: {project_number}"
+                elif not (project_doc.get("liveLink") or project_doc.get("clientLink")):
                     allocation_error = "Project has no live link configured."
+                else:
+                    project_cc = survey_routing.norm_country(project_doc.get("countryCode"))
+                    country_ok = not (survey_routing.country_routing_enabled()
+                                      and project_cc and ip_country and project_cc != ip_country)
+                    qual_ok, reasons = survey_routing.evaluate(project_doc, answers, profile)
+                    if survey_routing.project_qualification(project_doc)["enabled"] or not country_ok:
+                        prescreen = {"surveyNo": str(project_doc.get("surveyNo")), "passed": country_ok and qual_ok,
+                                     "reasons": ([] if country_ok else ["country"]) + reasons,
+                                     "country": ip_country, "at": datetime.utcnow()}
+                    if country_ok and qual_ok:
+                        target, route_reason = project_doc, "entry_link"
+                    elif survey_routing.routing_enabled():
+                        route_reason = "prescreen_fail" if country_ok else "country"
+                    else:
+                        allocation_error = "No survey available"
+            elif not survey_routing.routing_enabled():
+                allocation_error = "No survey available"  # router links need SURVEY_ROUTING_ENABLED
             else:
-                allocation_error = f"Live project not found for number: {project_number}"
-            
+                print(f"Strategy: ROUTER. country={ip_country}, SFWID={traffic_id}")
+                route_reason = "router_link"
+
+            if prescreen:
+                await async_url_collection.update_one({"_id": ObjectId(traffic_id)}, {"$set": {"prescreen": prescreen}})
+
+            # Router link, or the entry project didn't fit: next eligible survey in this country
+            if target is None and route_reason in ("prescreen_fail", "country", "router_link"):
+                try:
+                    candidates = await asyncio.wait_for(survey_routing.eligible_projects(
+                        async_url_collection, projects_col, record, ip_country,
+                        [str(project_number)] if project_number else []), timeout=5.0)
+                except Exception as r_err:
+                    candidates = []
+                    print(f"[warn] routing lookup failed for {traffic_id}: {r_err}")
+                if candidates:
+                    target = candidates[0]
+                else:
+                    allocation_error = "No survey available"
+
+            if target is not None:
+                survey_id = str(target.get("surveyNo") or project_number)
+                entry_link, client_variable = await _build_project_entry_link(target, traffic_id)
+                allocation_success = True
+                actual_provider = "PROJECT"
+                update_fields = {
+                    "status": "INCOMPLETE",
+                    "assignedSurveyId": survey_id,
+                    "redirectUrl": entry_link,
+                    "surveySource": "PROJECT",
+                    "projectId": str(target.get("_id")),
+                    "client_variable": client_variable,
+                    "updatedAt": datetime.utcnow().isoformat(),
+                }
+                if route_reason != "entry_link":
+                    # counted under the survey they actually entered
+                    update_fields.update({"params.pid": survey_id, "params.api": "false",
+                                          "routedFrom": str(project_number or "router"),
+                                          "entryPid": str(project_number or ""), "routingAttempt": 1})
+                session_id = None
+                if survey_routing.routing_enabled():
+                    session_id = await survey_routing.start_session(async_url_collection.database, record, ip_country)
+                    update_fields["routingSessionId"] = session_id
+                await async_url_collection.update_one({"_id": ObjectId(traffic_id)}, {"$set": update_fields})
+                if session_id:
+                    await survey_routing.record_attempt(async_url_collection.database, session_id,
+                                                        traffic_id, survey_id, route_reason)
+                print(f"[ok] PROJECT allocation success: survey {survey_id} ({route_reason})")
+
+                # SFW quality score (fail-open: a scoring problem never blocks entry)
+                if sfw_quality.is_enabled():
+                    try:
+                        quality = await asyncio.wait_for(
+                            sfw_quality.score_entry(async_url_collection, ObjectId(traffic_id), target),
+                            timeout=3.0,
+                        )
+                    except Exception as q_err:
+                        quality = None
+                        print(f"[warn] SFW scoring skipped for {traffic_id}: {q_err}")
+                    if quality:
+                        print(f"SFW score {traffic_id}: {quality['sfwScore']} {quality['sfwBand']} {quality['sfwFlags']}")
+                    if quality and quality["sfwBand"] == "block" and sfw_quality.is_enforced():
+                        allocation_success = False
+                        entry_link = None
+                        allocation_error = "No survey available"  # never says why
+                        await async_url_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {"status": "SFW_BLOCKED", "redirectUrl": None}},
+                        )
+                        if session_id:
+                            await survey_routing.close_attempt(async_url_collection.database, session_id,
+                                                               traffic_id, "SFW_BLOCKED", final=True)
+            elif route_reason or prescreen:
+                await async_url_collection.update_one(
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": {"status": "NOT_ROUTED", "notRoutedReason": route_reason or "prescreen_fail",
+                              "updatedAt": datetime.utcnow().isoformat()}},
+                )
+
             if not allocation_success:
-                print(f"âŒ PROJECT allocation failed: {allocation_error}")
+                print(f"PROJECT allocation failed: {allocation_error}")
 
         # ===============================================================================
         # CASE 2: CPX/CINT FLOW (Standard API flow)

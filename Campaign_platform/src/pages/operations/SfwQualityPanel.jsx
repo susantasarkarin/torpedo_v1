@@ -133,6 +133,36 @@ export default function SfwQualityPanel({ surveyNo }) {
         ))}
       </div>
 
+      {data.prescreen && (data.prescreen.checked > 0 || data.prescreen.routedIn > 0 || data.prescreen.routedOut > 0) && (
+        <div className="sfwq-prescreen">
+          <div className="sfwq-subtitle">Pre-screen &amp; routing</div>
+          <div className="sfwq-bands">
+            <div className="sfwq-band sfwq-band-good">
+              <span className="sfwq-band-label">Qualification rate</span>
+              <span className="sfwq-band-value">{pct(data.prescreen.rate)}</span>
+              <span className="sfwq-band-sub">{data.prescreen.passed} of {data.prescreen.checked} checked</span>
+            </div>
+            <div className="sfwq-band sfwq-band-unscored">
+              <span className="sfwq-band-label">Routed in</span>
+              <span className="sfwq-band-value">{data.prescreen.routedIn}</span>
+              <span className="sfwq-band-sub">from other surveys / router</span>
+            </div>
+            <div className="sfwq-band sfwq-band-unscored">
+              <span className="sfwq-band-label">Routed out</span>
+              <span className="sfwq-band-value">{data.prescreen.routedOut}</span>
+              <span className="sfwq-band-sub">sent to other surveys</span>
+            </div>
+          </div>
+          {Object.keys(data.prescreen.failReasons || {}).length > 0 && (
+            <div className="sfwq-flags">
+              {Object.entries(data.prescreen.failReasons).map(([reason, n]) => (
+                <span key={reason} className="sfwq-flag">Failed: {reason.replace(/_/g, " ")} <b>{n}</b></span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {traffic && (
         <div className="sfwq-traffic">
           <div className="sfwq-subtitle">Traffic quality</div>

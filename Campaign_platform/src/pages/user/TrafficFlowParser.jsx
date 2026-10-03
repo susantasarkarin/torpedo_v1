@@ -223,6 +223,10 @@ export default function TrafficFlowParser() {
   const [birthdayYear, setBirthdayYear] = useState("");
   const [gender, setGender] = useState("");
   const [profileError, setProfileError] = useState("");
+  // Survey routing: questions to ask (per project / country) and, for Paid Ads only, PII + panel consent
+  const [landing, setLanding] = useState(null);
+  const [answers, setAnswers] = useState({});
+  const [pii, setPii] = useState({ firstName: "", lastName: "", email: "", phone: "", consent: false });
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const currentTransIdRef = useRef(null);
   
@@ -252,6 +256,11 @@ export default function TrafficFlowParser() {
     const parsedParams = {};
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
+
+    fetch(buildApiUrl(`/api/routing/landing${window.location.search}`), { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((cfg) => cfg && setLanding(cfg))
+      .catch(() => {}); // no config = today's form (DOB + gender only)
 
     // Ad clicks: load the platform's base pixel (PageView) so the ad platform
     // sees the visit and sets its first-party cookie (_fbp) before /api/store.
@@ -352,6 +361,34 @@ export default function TrafficFlowParser() {
       setProfileError("Please select your gender");
       return;
     }
+    const unanswered = (landing?.questions || []).find((q) => !answers[q.id]);
+    if (unanswered) {
+      isClickProcessingRef.current = false;
+      setProfileError(`Please answer: ${unanswered.text}`);
+      return;
+    }
+    if (landing?.pii?.required) {
+      if (!pii.firstName.trim() || !pii.lastName.trim()) {
+        isClickProcessingRef.current = false;
+        setProfileError("Please enter your first and last name");
+        return;
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(pii.email.trim())) {
+        isClickProcessingRef.current = false;
+        setProfileError("Please enter a valid email address");
+        return;
+      }
+      if (!/^\+?[0-9 ()-]{7,20}$/.test(pii.phone.trim())) {
+        isClickProcessingRef.current = false;
+        setProfileError("Please enter a valid phone number");
+        return;
+      }
+      if (!pii.consent) {
+        isClickProcessingRef.current = false;
+        setProfileError("Please agree to join the panel to continue");
+        return;
+      }
+    }
     setProfileError("");
 
     setLoading(true);
@@ -434,6 +471,9 @@ export default function TrafficFlowParser() {
           // Meta Pixel cookies (if the pixel has set them on our domain)
           fbp: readCookie("_fbp"),
           fbc: readCookie("_fbc"),
+          // Survey routing: qualification answers; PII only for Paid Ads traffic
+          qualification: answers,
+          ...(landing?.pii?.required ? { pii: { ...pii, email: pii.email.trim(), phone: pii.phone.trim() } } : {}),
           // SFW quality score inputs
           sfwVisitorId: getSfwVisitorId(),
           botSignals: getBotSignals(),
@@ -541,7 +581,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender]);
+  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -681,6 +721,75 @@ export default function TrafficFlowParser() {
             </label>
           </div>
         </div>
+
+        {/* Qualification questions (survey routing) */}
+        {(landing?.questions || []).map((q) => (
+          <div key={q.id} style={{ margin: "20px 0", textAlign: "left" }}>
+            <label htmlFor={`q-${q.id}`} style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+              {q.text} <span style={{ color: "#c00" }}>*</span>
+            </label>
+            <select
+              id={`q-${q.id}`}
+              value={answers[q.id] || ""}
+              onChange={(e) => {
+                setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
+                if (profileError) setProfileError("");
+              }}
+              style={{ width: "100%", boxSizing: "border-box", padding: "12px 16px", fontSize: "16px", border: "1px solid #ccc", borderRadius: "8px", outline: "none" }}
+            >
+              <option value="">Select…</option>
+              {q.options.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+
+        {/* Paid Ads only: contact details + panel consent */}
+        {landing?.pii?.required && (
+          <div style={{ margin: "20px 0", textAlign: "left" }}>
+            <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+              Your details <span style={{ color: "#c00" }}>*</span>
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px" }}>
+              {[
+                { key: "firstName", label: "First name", type: "text", auto: "given-name" },
+                { key: "lastName", label: "Last name", type: "text", auto: "family-name" },
+                { key: "email", label: "Email", type: "email", auto: "email" },
+                { key: "phone", label: "Phone", type: "tel", auto: "tel" },
+              ].map((f) => (
+                <input
+                  key={f.key}
+                  type={f.type}
+                  autoComplete={f.auto}
+                  aria-label={f.label}
+                  placeholder={f.label}
+                  value={pii[f.key]}
+                  onChange={(e) => {
+                    setPii((prev) => ({ ...prev, [f.key]: e.target.value }));
+                    if (profileError) setProfileError("");
+                  }}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 16px", fontSize: "16px", border: "1px solid #ccc", borderRadius: "8px", outline: "none" }}
+                />
+              ))}
+            </div>
+            <label style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginTop: "12px", fontSize: "14px", color: "#444", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={pii.consent}
+                onChange={(e) => {
+                  setPii((prev) => ({ ...prev, consent: e.target.checked }));
+                  if (profileError) setProfileError("");
+                }}
+                style={{ marginTop: "3px", width: "18px", height: "18px", flexShrink: 0 }}
+              />
+              <span>
+                {landing.pii.consentText}{" "}
+                <a href={landing.pii.policyUrl} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* Show profile validation error */}
         {profileError && (

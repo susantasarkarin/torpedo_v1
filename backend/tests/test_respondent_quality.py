@@ -77,11 +77,26 @@ class FakeCollection:
         n = sum(1 for d in self.docs if _matches(d, flt))
         return min(n, limit) if limit else n
 
-    async def update_one(self, flt, update, upsert=False):
+    async def update_one(self, flt, update, upsert=False, array_filters=None):
         def apply(d):
-            d.update(update.get("$set", {}))
+            for k, v in update.get("$set", {}).items():
+                if ".$[" in k:  # "attempts.$[a].outcome" with array_filters [{"a.rid": x}]
+                    field, _, rest = k.partition(".$[")
+                    name, _, sub = rest.partition("].")
+                    cond = {key.split(".", 1)[1]: val for f in (array_filters or []) for key, val in f.items()
+                            if key.startswith(name + ".")}
+                    for el in d.get(field, []):
+                        if _matches(el, cond):
+                            el[sub] = v
+                elif "." in k and k.split(".")[0] in d and isinstance(d[k.split(".")[0]], dict):
+                    d[k.split(".")[0]][k.split(".", 1)[1]] = v
+                else:
+                    d[k] = v
             for k, v in update.get("$push", {}).items():
                 d.setdefault(k, []).append(v)
+            for k, v in update.get("$addToSet", {}).items():
+                if v not in d.setdefault(k, []):
+                    d[k].append(v)
         for d in self.docs:
             if _matches(d, flt):
                 apply(d)

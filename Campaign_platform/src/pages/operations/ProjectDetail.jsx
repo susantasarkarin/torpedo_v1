@@ -310,6 +310,9 @@ function ProjectDetail() {
               <UrlRow label="Complete" url={project.completePage} fieldKey="completePage" icon={CheckCircle} />
               <UrlRow label="Terminate" url={project.terminatePage} fieldKey="terminatePage" icon={Target} />
               <UrlRow label="Quota Full" url={project.quotaFullPage} fieldKey="quotaFullPage" icon={Users} />
+              {project.securityTerminatePage && (
+                <UrlRow label="Security Terminate" url={project.securityTerminatePage} fieldKey="securityTerminatePage" icon={Target} />
+              )}
             </div>
           </div>
         </div>

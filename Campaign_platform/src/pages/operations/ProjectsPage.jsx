@@ -11,6 +11,7 @@ import { buildApiUrl } from "../../config";
 import { fetchAllClients, authFetch } from "../../utils/api"
 import { qreApi } from "../../services/qreApi";
 import { confirmAction, notify } from "../../utils/notify"
+import QualificationEditor from "./QualificationEditor";
 
 function ProjectsPage() {
   const navigate = useNavigate();
@@ -55,7 +56,11 @@ function ProjectsPage() {
     completePage: "",
     terminatePage: "",
     quotaFullPage: "",
+    securityTerminatePage: "",
     countryCode: "",
+    qualification: { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], custom: [] },
+    routingEnabled: false,
+    routingPriority: "",
     vendorName: "",
     vendorId: "",
     vendorNames: [],
@@ -117,6 +122,8 @@ function ProjectsPage() {
       completePage: `${base}/surveycomplete?rid={RID}`,
       terminatePage: `${base}/surveyterminate?rid={RID}`,
       quotaFullPage: `${base}/surveyquotafull?rid={RID}`,
+      // for the client's fraud / quality terminates: never re-routed to another survey
+      securityTerminatePage: `${base}/surveysecurity?rid={RID}`,
     };
   };
 
@@ -939,6 +946,8 @@ function ProjectsPage() {
                 </div>
               </fieldset>
 
+              <QualificationEditor formData={formData} setFormData={setFormData} />
+
               {/* RFQ */}
               <fieldset className="pp-fieldset">
                 <legend>RFQ Details</legend>
@@ -1047,6 +1056,13 @@ function ProjectsPage() {
                   <input className="pp-readonly" name="quotaFullPage" value={formData.quotaFullPage} readOnly />
                   <small className="pp-hint">Auto-generated from survey provider format.</small>
                 </div>
+                {formData.securityTerminatePage && (
+                  <div className="pp-field">
+                    <label>Security Terminate URL</label>
+                    <input className="pp-readonly" name="securityTerminatePage" value={formData.securityTerminatePage} readOnly />
+                    <small className="pp-hint">Give this to the client for fraud / quality terminates. Those respondents are never routed to another survey.</small>
+                  </div>
+                )}
               </fieldset>
 
               {/* Vendor */}
