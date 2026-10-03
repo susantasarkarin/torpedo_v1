@@ -256,6 +256,15 @@ def test_security_terminate_is_final(env, monkeypatch):
     assert len([d for d in url_col.docs if d.get("routingAttempt")]) == 1  # no new attempt
 
 
+def test_security_via_terminate_type_param(env, monkeypatch):
+    """The URL clients get: /surveyterminate?rid=..&type=security (nginx already proxies it)."""
+    client, url_col, db, rid1 = _routed_start(env, monkeypatch)
+    resp = client.get("/surveyterminate", params={"rid": rid1, "type": "security"}, follow_redirects=False)
+    assert resp.headers["location"].startswith("https://vendor.example/term")
+    assert url_col.docs[0]["status"] == "SECURITY_TERMINATED"
+    assert len([d for d in url_col.docs if d.get("routingAttempt")]) == 1
+
+
 def test_no_more_eligible_surveys_ends_at_vendor(env, monkeypatch):
     client, _, _, rid1 = _routed_start(env, monkeypatch, n_projects=1)
     resp = client.get("/surveyterminate", params={"rid": rid1}, follow_redirects=False)

@@ -2312,8 +2312,14 @@ async def survey_terminate_callback(
     request: Request,
     rid: str = Query(None, description="Traffic record ID (SFWID)"),
 ):
-    """Callback when respondent is terminated from an adhoc project survey."""
-    return await _handle_project_survey_callback(request, _extract_rid(request, rid), "terminate")
+    """
+    Callback when respondent is terminated from an adhoc project survey.
+    `&type=security` marks a client fraud / quality terminate (final, never re-routed);
+    this path is already proxied by nginx, unlike /surveysecurity.
+    """
+    is_security = str(request.query_params.get("type", "")).strip().lower() in {"security", "fraud", "quality"}
+    return await _handle_project_survey_callback(
+        request, _extract_rid(request, rid), "security" if is_security else "terminate")
 
 
 @router.get("/surveysecurity")

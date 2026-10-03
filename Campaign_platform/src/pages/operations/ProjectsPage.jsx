@@ -123,7 +123,7 @@ function ProjectsPage() {
       terminatePage: `${base}/surveyterminate?rid={RID}`,
       quotaFullPage: `${base}/surveyquotafull?rid={RID}`,
       // for the client's fraud / quality terminates: never re-routed to another survey
-      securityTerminatePage: `${base}/surveysecurity?rid={RID}`,
+      securityTerminatePage: `${base}/surveyterminate?rid={RID}&type=security`,
     };
   };
 

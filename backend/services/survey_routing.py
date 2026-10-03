@@ -15,7 +15,7 @@ Kept separate from SFW scoring (services/respondent_quality.py):
 Re-routing rules (after the client's redirect):
   COMPLETE                 stop
   TERMINATED / OVERQUOTA   next eligible survey, until attempts run out
-  SECURITY_TERMINATED      stop (client fraud/quality terminate: /surveysecurity)
+  SECURITY_TERMINATED      stop (client fraud/quality terminate: /surveyterminate?...&type=security)
   SFW_BLOCKED              never routed
 
 Project fields (email_automation.projects), all optional; absent = today's behaviour:
