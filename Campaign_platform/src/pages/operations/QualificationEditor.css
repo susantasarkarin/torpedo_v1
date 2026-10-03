@@ -25,3 +25,11 @@
 }
 .qe-routing { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
 .qe-priority { max-width: 200px; margin-top: 6px; }
+
+/* Question bank */
+.qe-custom-title { font-size: 13px; color: #123056; }
+.qe-warn { color: #b45309; font-size: 12px; }
+.qe-bank-row { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.qe-bank-select {
+  flex: 1 1 260px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px;
+}

@@ -54,12 +54,15 @@ def test_questions_for_dedupes_across_projects():
     assert [q["id"] for q in qs] == ["employment", "q_uniform01"]
 
 
-def test_clean_pii():
-    assert r.clean_pii({"firstName": "A", "lastName": "B", "email": "a@b.co", "phone": "+91 98765 43210"})[1]
-    pii, err = r.clean_pii({"firstName": "Asha", "lastName": "Rao", "email": "Asha@Example.com",
-                            "phone": "+91 98765 43210", "consent": True})
-    assert err == "" and pii["email"] == "asha@example.com" and pii["panelConsent"]["given"] is True
-    assert pii["panelConsent"]["policyUrl"].startswith("https://")
+def test_clean_pii_separates_verification_and_panel_consent():
+    base = {"firstName": "Asha", "lastName": "Rao", "email": "Asha@Example.com", "phone": "+91 98765 43210"}
+    assert r.clean_pii(base)[1]  # verification consent is required
+    pii, err = r.clean_pii({**base, "verifyConsent": True})
+    assert err == "" and pii["contactEmail"] == "asha@example.com"
+    assert "email" not in pii and pii["panelConsent"]["given"] is False  # no panel invite without opt-in
+    joined, _ = r.clean_pii({**base, "verifyConsent": True, "panelConsent": True})
+    assert joined["email"] == "asha@example.com" and joined["panelConsent"]["given"] is True
+    assert joined["verifyConsent"]["text"] == r.VERIFY_CONSENT_TEXT and joined["panelConsent"]["policyUrl"].startswith("https://")
 
 
 # --- wiring ----------------------------------------------------------------------
@@ -118,6 +121,7 @@ def test_pid_link_without_criteria_is_unchanged(env):
     assert out["allocation_success"] and out["survey_id"] == "80419"
     rec = url_col.docs[0]
     assert rec["assignedSurveyId"] == "80419" and "prescreen" not in rec and "routingSessionId" not in rec
+    assert rec["entryType"] == "pid_link"  # panel / vendor link to one project, tracked by pid
 
 
 def test_pid_link_prescreen_pass(env):
@@ -150,6 +154,7 @@ def test_pid_link_prescreen_fail_routes_to_next_eligible(env, monkeypatch):
     assert out["allocation_success"] and out["survey_id"] == "70001"
     rec = url_col.docs[0]
     assert (rec["assignedSurveyId"], rec["params"]["pid"], rec["routedFrom"], rec["entryPid"]) == ("70001", "70001", "80419", "80419")
+    assert rec["entryType"] == "rerouted_prescreen"
     session = db["routing_sessions"].docs[0]
     assert session["tried"] == ["70001"] and session["attempts"][0]["reason"] == "prescreen_fail"
 
@@ -182,6 +187,8 @@ def test_router_link_priority_full_and_already_entered(env, monkeypatch):
     url_col.docs.append({"_id": ObjectId(), "assignedSurveyId": "2", "sfwVisitorId": "visitor-0001", "status": "TERMINATED"})
     out = _store(client, route=True).json()
     assert out["survey_id"] == "3"
+    rec = url_col.docs[-1]
+    assert (rec["entryType"], rec["routedFrom"], rec["vendorId"], rec["respondentId"]) == ("router_link", "router", "5068", "v-1")
 
 
 def test_router_link_off_without_switch(env):
@@ -197,11 +204,14 @@ def test_paid_ads_requires_pii_and_consent(env):
     assert resp.status_code == 400 and "name" in resp.json()["detail"]
     no_consent = {"firstName": "Asha", "lastName": "Rao", "email": "asha@example.com", "phone": "+15551234567"}
     assert _store(client, pid="65806", vid="5725", rid="ad-1", pii=no_consent).status_code == 400
-    ok = _store(client, pid="65806", vid="5725", rid="ad-1", pii={**no_consent, "consent": True})
+    ok = _store(client, pid="65806", vid="5725", rid="ad-1", pii={**no_consent, "verifyConsent": True})
     assert ok.json()["allocation_success"]
     rec = url_col.docs[-1]
-    assert (rec["email"], rec["firstName"], rec["phone"], rec["paidAds"]) == ("asha@example.com", "Asha", "+15551234567", True)
-    assert rec["panelConsent"]["given"] is True
+    assert (rec["contactEmail"], rec["firstName"], rec["phone"], rec["paidAds"]) == ("asha@example.com", "Asha", "+15551234567", True)
+    assert not rec.get("email") and rec["panelConsent"]["given"] is False  # not mailed as a panel lead
+    _store(client, pid="65806", vid="5725", rid="ad-2", visitor="visitor-0002",
+           pii={**no_consent, "verifyConsent": True, "panelConsent": True})
+    assert url_col.docs[-1]["email"] == "asha@example.com"  # opted in -> panel-lead promotion
 
 
 def test_non_paid_traffic_never_asked_for_pii(env):
@@ -228,6 +238,7 @@ def test_terminate_routes_to_next_then_stops_after_three(env, monkeypatch):
     rid2 = resp.headers["location"].split("rid=")[1]
     attempt2 = next(d for d in url_col.docs if str(d["_id"]) == rid2)
     assert (attempt2["routingAttempt"], attempt2["routedFrom"], attempt2["respondentId"]) == (2, "101", "v-1")
+    assert attempt2["entryType"] == "rerouted_after_terminated"
 
     resp = client.get("/surveyquotafull", params={"rid": rid2}, follow_redirects=False)
     assert resp.headers["location"].startswith("https://client.example/103?rid=")
@@ -280,4 +291,39 @@ def test_landing_config(env, monkeypatch):
     assert cfg["country"] == "US" and [q["id"] for q in cfg["questions"]] == ["employment", "q_uniform01"]
     assert cfg["pii"] == {"required": False}
     paid = client.get("/api/routing/landing", params={"pid": "80419", "vid": "5725"}).json()
-    assert paid["pii"]["required"] is True and "panel" in paid["pii"]["consentText"]
+    assert paid["pii"]["required"] is True
+    assert paid["pii"]["verifyText"] == r.VERIFY_CONSENT_TEXT and "Optional" in paid["pii"]["panelText"]
+
+
+# --- question bank ---------------------------------------------------------------
+
+def test_question_bank_create_use_and_archive(env, monkeypatch):
+    client, url_col, projects, db = env
+    r.invalidate_bank()
+    bad = client.post("/api/routing/questions", json={"text": "Uniform?", "options": ["Yes"]})
+    assert bad.status_code == 400  # needs two options
+    q = client.post("/api/routing/questions", json={"text": "Do you wear a uniform at work?", "options": ["Yes", "No", "Yes"]}).json()
+    assert q["id"].startswith("q_") and q["options"] == ["Yes", "No"]
+    assert db["qualification_questions"].docs[0]["createdBy"] == "test-user"
+
+    # two projects reuse the same bank question with their own qualifying answers
+    projects.docs.append(_project("80419", qualification={"enabled": True, "bank": [{"id": q["id"], "qualifying": ["Yes"]}]}))
+    projects.docs.append(_project("80420", qualification={"enabled": True, "bank": [{"id": q["id"], "qualifying": ["No"]}]}))
+    cfg = client.get("/api/routing/landing", params={"pid": "80419", "vid": "5068"}, headers={"CF-IPCountry": "US"}).json()
+    assert [x["text"] for x in cfg["questions"]] == ["Do you wear a uniform at work?"]
+    assert _store(client, answers={q["id"]: "Yes"}).json()["allocation_success"] is True
+    assert _store(client, rid="v-2", visitor="visitor-0002", answers={q["id"]: "No"}).json()["allocation_success"] is False
+    assert _store(client, pid="80420", rid="v-3", visitor="visitor-0003", answers={q["id"]: "No"}).json()["allocation_success"] is True
+
+    lib = client.get("/api/routing/question-library").json()
+    assert [b["id"] for b in lib["bank"]] == [q["id"]]
+    client.put(f"/api/routing/questions/{q['id']}", json={"active": False})
+    archived = client.get("/api/routing/question-library").json()["bank"][0]
+    assert archived["active"] is False
+    # archived questions keep working for projects that already use them
+    assert _store(client, rid="v-4", visitor="visitor-0004", answers={q["id"]: "Yes"}).json()["allocation_success"] is True
+
+
+def test_unknown_bank_reference_is_ignored():
+    p = _project("1", qualification={"enabled": True, "bank": [{"id": "q_missing123", "qualifying": ["Yes"]}]})
+    assert r.evaluate(p, {}, PROFILE_40, bank={}) == (True, [])

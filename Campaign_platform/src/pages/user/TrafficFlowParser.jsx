@@ -226,7 +226,7 @@ export default function TrafficFlowParser() {
   // Survey routing: questions to ask (per project / country) and, for Paid Ads only, PII + panel consent
   const [landing, setLanding] = useState(null);
   const [answers, setAnswers] = useState({});
-  const [pii, setPii] = useState({ firstName: "", lastName: "", email: "", phone: "", consent: false });
+  const [pii, setPii] = useState({ firstName: "", lastName: "", email: "", phone: "", verifyConsent: false, panelConsent: false });
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const currentTransIdRef = useRef(null);
   
@@ -383,9 +383,9 @@ export default function TrafficFlowParser() {
         setProfileError("Please enter a valid phone number");
         return;
       }
-      if (!pii.consent) {
+      if (!pii.verifyConsent) {
         isClickProcessingRef.current = false;
-        setProfileError("Please agree to join the panel to continue");
+        setProfileError("Please agree to the use of your details for verification to continue");
         return;
       }
     }
@@ -773,21 +773,28 @@ export default function TrafficFlowParser() {
                 />
               ))}
             </div>
-            <label style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginTop: "12px", fontSize: "14px", color: "#444", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={pii.consent}
-                onChange={(e) => {
-                  setPii((prev) => ({ ...prev, consent: e.target.checked }));
-                  if (profileError) setProfileError("");
-                }}
-                style={{ marginTop: "3px", width: "18px", height: "18px", flexShrink: 0 }}
-              />
-              <span>
-                {landing.pii.consentText}{" "}
-                <a href={landing.pii.policyUrl} target="_blank" rel="noopener noreferrer">Privacy policy</a>
-              </span>
-            </label>
+            {[
+              { key: "verifyConsent", text: landing.pii.verifyText, required: true },
+              { key: "panelConsent", text: landing.pii.panelText, required: false },
+            ].map((c) => (
+              <label key={c.key} style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginTop: "12px", fontSize: "14px", color: "#444", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={pii[c.key]}
+                  onChange={(e) => {
+                    setPii((prev) => ({ ...prev, [c.key]: e.target.checked }));
+                    if (profileError) setProfileError("");
+                  }}
+                  style={{ marginTop: "3px", width: "18px", height: "18px", flexShrink: 0 }}
+                />
+                <span>
+                  {c.text}{c.required && <span style={{ color: "#c00" }}> *</span>}
+                </span>
+              </label>
+            ))}
+            <p style={{ fontSize: "13px", color: "#666", margin: "8px 0 0" }}>
+              <a href={landing.pii.policyUrl} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+            </p>
           </div>
         )}
 

@@ -8,24 +8,55 @@ const GENDERS = [
   { value: "f", label: "Female" },
 ];
 
-const EMPTY_QUAL = { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], custom: [] };
+const EMPTY_QUAL = { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], bank: [], custom: [] };
 
-const newQuestionId = () => `q_${Math.random().toString(36).slice(2, 10)}`;
+const authHeaders = (extra = {}) => ({ Authorization: localStorage.getItem("session_id") || "", ...extra });
 
 // Project-level qualification criteria + routing settings (survey routing engine).
 // Value lives on the project: formData.qualification, formData.routingEnabled, formData.routingPriority.
 export default function QualificationEditor({ formData, setFormData }) {
   const [library, setLibrary] = useState(null);
+  const [pick, setPick] = useState("");
+  const [draft, setDraft] = useState(null); // {text, options} while creating a bank question
+  const [bankError, setBankError] = useState("");
   const qual = { ...EMPTY_QUAL, ...(formData.qualification || {}) };
 
-  useEffect(() => {
-    authFetch(buildApiUrl("/api/routing/question-library"), {
-      headers: { Authorization: localStorage.getItem("session_id") || "" },
-    })
+  const loadLibrary = () =>
+    authFetch(buildApiUrl("/api/routing/question-library"), { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setLibrary(d))
       .catch(() => {});
-  }, []);
+
+  useEffect(() => { loadLibrary(); }, []);
+
+  const bankById = Object.fromEntries((library?.bank || []).map((q) => [q.id, q]));
+  const usedIds = new Set(qual.bank.map((b) => b.id));
+
+  const addFromBank = (id) => {
+    const q = bankById[id];
+    if (!q || usedIds.has(id)) return;
+    setQual({ bank: [...qual.bank, { id, qualifying: [] }] });
+    setPick("");
+  };
+
+  const saveDraft = async () => {
+    setBankError("");
+    const options = (draft?.optionsText || "").split(",").map((o) => o.trim()).filter(Boolean);
+    try {
+      const res = await authFetch(buildApiUrl("/api/routing/questions"), {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ text: draft?.text || "", options }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.detail || "Could not save the question");
+      await loadLibrary();
+      setQual({ bank: [...qual.bank, { id: out.id, qualifying: [] }] });
+      setDraft(null);
+    } catch (err) {
+      setBankError(err.message);
+    }
+  };
 
   const setQual = (patch) => setFormData((prev) => ({
     ...prev,
@@ -37,11 +68,6 @@ export default function QualificationEditor({ formData, setFormData }) {
     setQual({ [field]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] });
   };
 
-  const updateCustom = (index, patch) => {
-    const custom = [...qual.custom];
-    custom[index] = { ...custom[index], ...patch };
-    setQual({ custom });
-  };
 
   const libQuestion = (id) => library?.questions?.find((q) => q.id === id);
 
@@ -99,53 +125,82 @@ export default function QualificationEditor({ formData, setFormData }) {
           })}
 
           <div className="qe-group">
-            <span className="qe-group-label">Study-specific questions</span>
-            {qual.custom.map((q, i) => (
-              <div key={q.id} className="qe-custom">
+            <span className="qe-group-label">
+              Questions from the question bank <small>(create once, reuse in any project)</small>
+            </span>
+            {qual.bank.map((ref, i) => {
+              const q = bankById[ref.id];
+              if (!q) return null;
+              return (
+                <div key={ref.id} className="qe-custom">
+                  <strong className="qe-custom-title">
+                    {q.text}{q.active === false ? " (archived)" : ""}
+                  </strong>
+                  <div className="qe-custom-qualifying">
+                    <span>Qualifying answers:</span>
+                    {q.options.map((o) => (
+                      <label key={o} className="qe-chip">
+                        <input
+                          type="checkbox"
+                          checked={(ref.qualifying || []).includes(o)}
+                          onChange={() => {
+                            const bank = [...qual.bank];
+                            const chosen = ref.qualifying || [];
+                            bank[i] = { ...ref, qualifying: chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o] };
+                            setQual({ bank });
+                          }}
+                        />
+                        {o}
+                      </label>
+                    ))}
+                  </div>
+                  {!(ref.qualifying || []).length && (
+                    <small className="qe-warn">Tick at least one qualifying answer, or this question is ignored.</small>
+                  )}
+                  <button type="button" className="qe-link" onClick={() => setQual({ bank: qual.bank.filter((_, j) => j !== i) })}>
+                    Remove from this project
+                  </button>
+                </div>
+              );
+            })}
+
+            <div className="qe-bank-row">
+              <select value={pick} onChange={(e) => addFromBank(e.target.value)} className="qe-bank-select">
+                <option value="">+ Add a question from the bank…</option>
+                {(library?.bank || [])
+                  .filter((q) => q.active !== false && !usedIds.has(q.id))
+                  .map((q) => (
+                    <option key={q.id} value={q.id}>{q.text}</option>
+                  ))}
+              </select>
+              {!draft && (
+                <button type="button" className="qe-add" onClick={() => setDraft({ text: "", optionsText: "Yes, No" })}>
+                  + Create new question
+                </button>
+              )}
+            </div>
+
+            {draft && (
+              <div className="qe-custom">
                 <input
                   className="qe-custom-text"
                   placeholder="Question, e.g. Do you wear a uniform at work?"
-                  value={q.text}
-                  onChange={(e) => updateCustom(i, { text: e.target.value })}
+                  value={draft.text}
+                  onChange={(e) => setDraft({ ...draft, text: e.target.value })}
                 />
                 <input
                   className="qe-custom-options"
                   placeholder="Answer options, comma-separated, e.g. Yes, No"
-                  value={(q.options || []).join(", ")}
-                  onChange={(e) => {
-                    const options = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
-                    updateCustom(i, { options, qualifying: (q.qualifying || []).filter((o) => options.includes(o)) });
-                  }}
+                  value={draft.optionsText}
+                  onChange={(e) => setDraft({ ...draft, optionsText: e.target.value })}
                 />
-                <div className="qe-custom-qualifying">
-                  <span>Qualifying answers:</span>
-                  {(q.options || []).map((o) => (
-                    <label key={o} className="qe-chip">
-                      <input
-                        type="checkbox"
-                        checked={(q.qualifying || []).includes(o)}
-                        onChange={() => updateCustom(i, {
-                          qualifying: (q.qualifying || []).includes(o)
-                            ? q.qualifying.filter((x) => x !== o)
-                            : [...(q.qualifying || []), o],
-                        })}
-                      />
-                      {o}
-                    </label>
-                  ))}
+                {bankError && <small className="qe-warn">{bankError}</small>}
+                <div className="qe-bank-row">
+                  <button type="button" className="qe-add" onClick={saveDraft}>Save to question bank</button>
+                  <button type="button" className="qe-link" onClick={() => { setDraft(null); setBankError(""); }}>Cancel</button>
                 </div>
-                <button type="button" className="qe-link" onClick={() => setQual({ custom: qual.custom.filter((_, j) => j !== i) })}>
-                  Remove question
-                </button>
               </div>
-            ))}
-            <button
-              type="button"
-              className="qe-add"
-              onClick={() => setQual({ custom: [...qual.custom, { id: newQuestionId(), text: "", options: ["Yes", "No"], qualifying: ["Yes"] }] })}
-            >
-              + Add question
-            </button>
+            )}
           </div>
         </div>
       )}

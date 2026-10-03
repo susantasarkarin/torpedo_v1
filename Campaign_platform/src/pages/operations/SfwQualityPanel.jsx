@@ -37,6 +37,7 @@ const BANDS = [
 
 const DIMENSIONS = [
   { key: "vendor", label: "Vendor" },
+  { key: "entry", label: "Entry" },
   { key: "source", label: "Source" },
   { key: "campaign", label: "Meta campaign" },
   { key: "adset", label: "Ad set" },

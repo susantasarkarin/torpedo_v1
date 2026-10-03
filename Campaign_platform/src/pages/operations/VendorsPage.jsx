@@ -8,6 +8,11 @@ import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
 import { authFetch } from "../../utils/api"
 
+// Router link: no pid; Torpedo qualifies the respondent and picks the survey.
+// Panel / single-project traffic keeps using the project's pid entry link.
+const routerLinkFor = (vid) =>
+  `${window.location.origin}/takesurvey?api=false&route=1&vid=${vid}&cc=[%CC%]&rid=[%RID%]`;
+
 function VendorsPage() {
   const navigate = useNavigate(); // ✅ must be defined first
   const [vendors, setVendors] = useState([]);
@@ -394,6 +399,30 @@ function VendorsPage() {
                     placeholder={!editingId ? "Will be auto-generated" : ""}
                   />
                 </div>
+
+                {editingId && formData.vid && (
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Router link (no pid)</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input style={{ ...styles.input, backgroundColor: "#f3f4f6" }} value={routerLinkFor(formData.vid)} readOnly />
+                      <button
+                        type="button"
+                        style={{ ...styles.input, width: "auto", cursor: "pointer" }}
+                        onClick={() => {
+                          navigator.clipboard?.writeText(routerLinkFor(formData.vid));
+                          notify("Router link copied");
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <small style={{ color: "#6b7280", fontSize: 12 }}>
+                      For sources that don't target one project: Torpedo qualifies each respondent and routes them to an
+                      eligible live survey in their country. Replace [%CC%] / [%RID%] with this vendor's own macros.
+                      Your panel and single-project traffic keep using each project's entry link (with pid).
+                    </small>
+                  </div>
+                )}
 
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Vendor Name <span style={styles.required}>*</span></label>

@@ -414,6 +414,9 @@ async def apply_client_rejects(
 
 _DIMENSIONS = {
     "vendor": "$vendorId",
+    # pid_link (panel / vendor link to one project), router_link, rerouted_*; older records
+    # predate entryType and are pid links
+    "entry": {"$ifNull": ["$entryType", "pid_link"]},
     "source": {"$ifNull": ["$traffic_source", "unknown"]},
     "campaign": {"$ifNull": ["$adTracking.campaign_name", "$adTracking.campaign_id"]},
     "adset": {"$ifNull": ["$adTracking.adset_name", "$adTracking.adset_id"]},

@@ -20,9 +20,18 @@ Re-routing rules (after the client's redirect):
 
 Project fields (email_automation.projects), all optional; absent = today's behaviour:
   qualification: {enabled, ageMin, ageMax, genders[], employment[], occupation[],
-                  custom: [{id, text, options[], qualifying[]}]}
+                  bank: [{id, qualifying[]}],          questions from the shared question bank
+                  custom: [{id, text, options[], qualifying[]}]}   (legacy inline questions)
   routingEnabled: bool     may receive routed respondents
   routingPriority: int     lower = offered first
+
+Question bank (email_automation.qualification_questions): reusable study questions
+  {_id: "q_<id>", text, options[], active, createdAt, createdBy}. Create once, use in any
+  project. Archived questions stay evaluable for projects that already use them.
+
+Entry tracking (url_parameters.entryType): pid_link (panel / vendor link to one project),
+  router_link (no pid), rerouted_prescreen, rerouted_country, rerouted_after_terminated /
+  rerouted_after_overquota.
 
 Switches (backend/.env):
   SURVEY_ROUTING_ENABLED   router links + re-routing after terminate / quota (default off)
@@ -78,12 +87,17 @@ QUESTION_LIBRARY: List[Dict[str, Any]] = [
 _LIBRARY = {q["id"]: q for q in QUESTION_LIBRARY}
 _CUSTOM_ID = re.compile(r"^q_[A-Za-z0-9_]{3,40}$")
 
-PII_CONSENT_VERSION = "2026-10-03"
-PII_CONSENT_TEXT = (
-    "I agree to join the SurveyFieldwork panel. SurveyFieldwork may use my name, email "
-    "and phone number to verify my participation and to invite me to future paid surveys. "
+PII_CONSENT_VERSION = "2026-10-03b"
+# Two separate purposes, two separate ticks (DPDP: consent must be specific and freely given).
+VERIFY_CONSENT_TEXT = (
+    "I agree that SurveyFieldwork may use my name, email and phone number to verify my "
+    "participation in this survey and to contact me about it."
+)
+PANEL_CONSENT_TEXT = (
+    "Optional: I'd like to join the SurveyFieldwork panel and be invited to future paid surveys. "
     "I can unsubscribe or ask for my data to be deleted at any time."
 )
+PII_CONSENT_TEXT = VERIFY_CONSENT_TEXT  # kept for callers of the old single-consent name
 
 
 def _truthy(value: Optional[str]) -> bool:
@@ -128,15 +142,69 @@ def _int_or_none(value: Any) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Question bank
+# ---------------------------------------------------------------------------
+
+_BANK_CACHE: Dict[str, Any] = {"until": 0.0, "bank": {}}
+
+
+def new_question_id() -> str:
+    return f"q_{ObjectId()}"
+
+
+def clean_bank_question(raw: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+    raw = raw if isinstance(raw, dict) else {}
+    text = str(raw.get("text") or "").strip()
+    options = []
+    for o in raw.get("options") or []:
+        o = str(o).strip()[:120]
+        if o and o not in options:
+            options.append(o)
+    if not text:
+        return None, "Question text is required"
+    if len(options) < 2:
+        return None, "Give at least two answer options"
+    return {"text": text[:300], "options": options[:20]}, ""
+
+
+async def load_bank(projects_db, force: bool = False) -> Dict[str, Dict[str, Any]]:
+    """All bank questions (incl. archived) by id, cached 60 s."""
+    if not force and _BANK_CACHE["until"] > time.time():
+        return _BANK_CACHE["bank"]
+    docs = await projects_db["qualification_questions"].find({}).to_list(length=1000)
+    bank = {str(d["_id"]): {"id": str(d["_id"]), "text": d.get("text", ""), "options": d.get("options") or [],
+                            "active": d.get("active", True)} for d in docs}
+    _BANK_CACHE.update(until=time.time() + 60, bank=bank)
+    return bank
+
+
+def invalidate_bank() -> None:
+    _BANK_CACHE["until"] = 0.0
+
+
+# ---------------------------------------------------------------------------
 # Qualification
 # ---------------------------------------------------------------------------
 
-def project_qualification(project: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Normalised qualification config; defensive because projects are free-form documents."""
+def project_qualification(project: Optional[Dict[str, Any]], bank: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Normalised qualification config; defensive because projects are free-form documents.
+    Bank references are resolved to {id, text, options, qualifying} like inline questions.
+    """
     raw = (project or {}).get("qualification") or {}
     if not isinstance(raw, dict):
         raw = {}
     custom = []
+    for ref in raw.get("bank") or []:
+        if not isinstance(ref, dict):
+            continue
+        question = (bank or {}).get(str(ref.get("id") or ""))
+        if not question:
+            continue  # unknown id: ignored rather than failing everyone
+        qualifying = [o for o in _str_list(ref.get("qualifying")) if o in question["options"]]
+        if qualifying:
+            custom.append({"id": question["id"], "text": question["text"],
+                           "options": list(question["options"]), "qualifying": qualifying})
     for q in raw.get("custom") or []:
         if not isinstance(q, dict):
             continue
@@ -158,11 +226,12 @@ def project_qualification(project: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def questions_for(projects: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]] = None,
+                  limit: int = 8) -> List[Dict[str, Any]]:
     """Landing-page questions the given projects' enabled criteria need (deduplicated)."""
     out, seen = [], set()
     for project in projects:
-        qual = project_qualification(project)
+        qual = project_qualification(project, bank)
         if not qual["enabled"]:
             continue
         for lib_id in ("employment", "occupation"):
@@ -187,9 +256,10 @@ def age_on(profile: Dict[str, Any], today: Optional[date] = None) -> Optional[in
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
 
-def evaluate(project: Dict[str, Any], answers: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def evaluate(project: Dict[str, Any], answers: Dict[str, Any], profile: Dict[str, Any],
+             bank: Optional[Dict[str, Any]] = None) -> Tuple[bool, List[str]]:
     """(qualifies, reasons it failed). A project without enabled criteria always qualifies."""
-    qual = project_qualification(project)
+    qual = project_qualification(project, bank)
     if not qual["enabled"]:
         return True, []
     answers = answers or {}
@@ -247,7 +317,12 @@ def is_paid_ads(vendor: Optional[Dict[str, Any]], traffic_source: Optional[str])
 
 
 def clean_pii(raw: Any) -> Tuple[Optional[Dict[str, Any]], str]:
-    """(pii fields to store, error). Name, email, phone and consent are all required."""
+    """
+    (pii fields to store, error). Name, email, phone and the verification consent are
+    required; joining the panel is a separate, optional consent. Only panel joiners get
+    `email` (which the daily panelist-lead promotion turns into a panel invite);
+    everyone's address is kept as `contactEmail` for verification.
+    """
     raw = raw if isinstance(raw, dict) else {}
     first = str(raw.get("firstName") or "").strip()[:80]
     last = str(raw.get("lastName") or "").strip()[:80]
@@ -259,15 +334,20 @@ def clean_pii(raw: Any) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "Please enter a valid email address."
     if not _PHONE.match(phone):
         return None, "Please enter a valid phone number."
-    if raw.get("consent") is not True:
-        return None, "Please agree to join the panel to continue."
-    return {
-        "firstName": first, "lastName": last,
-        "email": email,  # picked up by the daily panelist-lead promotion (double opt-in invite)
-        "phone": phone,
-        "panelConsent": {"given": True, "at": datetime.utcnow(), "version": PII_CONSENT_VERSION,
-                         "text": PII_CONSENT_TEXT, "policyUrl": privacy_policy_url()},
-    }, ""
+    if raw.get("verifyConsent") is not True and raw.get("consent") is not True:
+        return None, "Please agree to the use of your details for verification to continue."
+    now = datetime.utcnow()
+    joins_panel = raw.get("panelConsent") is True
+    fields = {
+        "firstName": first, "lastName": last, "contactEmail": email, "phone": phone,
+        "verifyConsent": {"given": True, "at": now, "version": PII_CONSENT_VERSION,
+                          "text": VERIFY_CONSENT_TEXT, "policyUrl": privacy_policy_url()},
+        "panelConsent": {"given": joins_panel, "at": now, "version": PII_CONSENT_VERSION,
+                         "text": PANEL_CONSENT_TEXT, "policyUrl": privacy_policy_url()},
+    }
+    if joins_panel:
+        fields["email"] = email  # picked up by the daily panelist-lead promotion (double opt-in invite)
+    return fields, ""
 
 
 # ---------------------------------------------------------------------------
@@ -326,12 +406,13 @@ async def eligible_projects(
     """Eligible routable projects for this respondent, in priority order."""
     answers = record.get("qualificationAnswers") or {}
     profile = record.get("profilingData") or {}
+    bank = await load_bank(projects_col.database)
     out = []
     for project in await routable_projects(projects_col, country):
         survey_no = str(project.get("surveyNo") or "")
         if not survey_no or survey_no in exclude:
             continue
-        ok, _ = evaluate(project, answers, profile)
+        ok, _ = evaluate(project, answers, profile, bank)
         if not ok or await is_full(url_col, project) or await _already_in(url_col, record, survey_no):
             continue
         out.append(project)
@@ -346,7 +427,8 @@ _COPY_FIELDS = (
     "vendorId", "respondentId", "countryCode", "geoIpCountry", "cfIpCountry", "cfIpTor", "clientIp",
     "ipSource", "userAgent", "deviceFingerprint", "panelId", "profilingData", "qualificationAnswers",
     "traffic_source", "adTracking", "sfwVisitorId", "sfwSignals", "sfwScore", "sfwBand", "sfwFlags",
-    "sfwQ", "sfwH", "firstName", "lastName", "phone", "routingSessionId",
+    "sfwQ", "sfwH", "firstName", "lastName", "phone", "contactEmail", "verifyConsent", "panelConsent",
+    "paidAds", "routingSessionId",
 )
 
 
@@ -380,7 +462,7 @@ BuildLink = Callable[[Dict[str, Any], str], Awaitable[str]]
 
 
 async def create_attempt(url_col, base: Dict[str, Any], project: Dict[str, Any], build_link: BuildLink,
-                         attempt_no: int, routed_from: str) -> Tuple[str, str]:
+                         attempt_no: int, routed_from: str, entry_type: str = "rerouted") -> Tuple[str, str]:
     """New traffic record (new RID) for the next survey, copying the respondent's identity."""
     survey_no = str(project["surveyNo"])
     doc = {k: base[k] for k in _COPY_FIELDS if k in base}
@@ -391,7 +473,7 @@ async def create_attempt(url_col, base: Dict[str, Any], project: Dict[str, Any],
         "_id": ObjectId(), "params": params, "status": "INCOMPLETE", "createdAt": now, "updatedAt": now,
         "timestamp": now.isoformat(), "surveySource": "PROJECT", "assignedSurveyId": survey_no,
         "projectId": str(project.get("_id")), "routingAttempt": attempt_no, "routedFrom": routed_from,
-        "url": base.get("url"),
+        "entryType": entry_type, "url": base.get("url"),
     })
     rid = str(doc["_id"])
     doc["redirectUrl"] = await build_link(project, rid)
@@ -423,6 +505,7 @@ async def next_attempt(url_col, projects_col, record: Dict[str, Any], outcome: s
         await close_attempt(db, session_id, rid, outcome, final=True)
         return None
     project = candidates[0]
-    new_rid, link = await create_attempt(url_col, record, project, build_link, attempts + 1, str(record.get("assignedSurveyId")))
+    new_rid, link = await create_attempt(url_col, record, project, build_link, attempts + 1,
+                                         str(record.get("assignedSurveyId")), f"rerouted_after_{outcome.lower()}")
     await record_attempt(db, session_id, new_rid, str(project["surveyNo"]), f"after_{outcome.lower()}")
     return link

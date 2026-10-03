@@ -2252,23 +2252,65 @@ async def routing_landing_config(request: Request):
             vendor = await asyncio.wait_for(_resolve_vendor_async(qp["vid"]), timeout=3.0)
         except Exception:
             vendor = None
+    try:
+        bank = await survey_routing.load_bank(get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database)
+    except Exception:
+        bank = {}
     paid = survey_routing.is_paid_ads(vendor, derive_traffic_source(qp))
     return JSONResponse(content={
         "country": country,
-        "questions": survey_routing.questions_for(projects),
+        "questions": survey_routing.questions_for(projects, bank),
         "paidAds": paid,
-        "pii": {"required": paid, "consentText": survey_routing.PII_CONSENT_TEXT,
+        "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,
+                "panelText": survey_routing.PANEL_CONSENT_TEXT,
                 "policyUrl": survey_routing.privacy_policy_url()} if paid else {"required": False},
     }, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/routing/question-library", dependencies=[Depends(verify_session)])
 async def routing_question_library():
-    """Reusable qualification questions for the project form."""
+    """Built-in questions + the shared question bank, for the project form."""
+    bank = await survey_routing.load_bank(get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database, force=True)
     return {"questions": survey_routing.QUESTION_LIBRARY,
+            "bank": sorted(bank.values(), key=lambda q: q["text"].lower()),
             "routingEnabled": survey_routing.routing_enabled(),
             "countryRoutingEnabled": survey_routing.country_routing_enabled(),
             "maxAttempts": survey_routing.max_attempts()}
+
+
+@router.post("/api/routing/questions")
+async def routing_create_question(body: Dict[str, Any] = Body(...), username: str = Depends(verify_session)):
+    """Add a reusable study question (text + answer options) to the question bank."""
+    question, error = survey_routing.clean_bank_question(body)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    doc = {"_id": survey_routing.new_question_id(), **question, "active": True,
+           "createdAt": datetime.utcnow(), "createdBy": str(username or "")}
+    await get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database["qualification_questions"].insert_one(doc)
+    survey_routing.invalidate_bank()
+    return {"id": doc["_id"], "text": doc["text"], "options": doc["options"], "active": True}
+
+
+@router.put("/api/routing/questions/{question_id}")
+async def routing_update_question(question_id: str, body: Dict[str, Any] = Body(...),
+                                  username: str = Depends(verify_session)):
+    """Edit a bank question's text / options, or archive it (active=false)."""
+    col = get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database["qualification_questions"]
+    current = await col.find_one({"_id": question_id})
+    if not current:
+        raise HTTPException(status_code=404, detail="Question not found")
+    update: Dict[str, Any] = {"updatedAt": datetime.utcnow(), "updatedBy": str(username or "")}
+    if "text" in body or "options" in body:
+        question, error = survey_routing.clean_bank_question(
+            {"text": body.get("text", current.get("text")), "options": body.get("options", current.get("options"))})
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        update.update(question)
+    if "active" in body:
+        update["active"] = bool(body["active"])
+    await col.update_one({"_id": question_id}, {"$set": update})
+    survey_routing.invalidate_bank()
+    return {"id": question_id, **{k: v for k, v in update.items() if k in ("text", "options", "active")}}
 
 
 @router.get("/api/adpixel/landing")
@@ -2994,7 +3036,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             pii, pii_error = survey_routing.clean_pii(data.get("pii"))
             if pii_error:
                 raise HTTPException(status_code=400, detail=pii_error)
-            user_email = pii.pop("email")  # stored as `email`: the panel-lead promotion picks it up
+            # `email` (what the panel-lead promotion mails) only for panel opt-ins;
+            # everyone's address is kept as contactEmail
+            user_email = pii.pop("email", "")
             ad_fields.update(pii)
             ad_fields["paidAds"] = True
         if user_email:
@@ -3156,6 +3200,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             ip_country = survey_routing.norm_country(record.get("cfIpCountry") or country_code)
             answers = record.get("qualificationAnswers") or {}
             profile = record.get("profilingData") or {}
+            try:
+                bank = await survey_routing.load_bank(projects_col.database)
+            except Exception as b_err:
+                bank = {}
+                print(f"[warn] question bank load failed: {b_err}")
             project_doc = None
             target = None        # the project this respondent is sent to
             route_reason = ""    # entry_link | prescreen_fail | country | router_link
@@ -3172,8 +3221,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     project_cc = survey_routing.norm_country(project_doc.get("countryCode"))
                     country_ok = not (survey_routing.country_routing_enabled()
                                       and project_cc and ip_country and project_cc != ip_country)
-                    qual_ok, reasons = survey_routing.evaluate(project_doc, answers, profile)
-                    if survey_routing.project_qualification(project_doc)["enabled"] or not country_ok:
+                    qual_ok, reasons = survey_routing.evaluate(project_doc, answers, profile, bank)
+                    if survey_routing.project_qualification(project_doc, bank)["enabled"] or not country_ok:
                         prescreen = {"surveyNo": str(project_doc.get("surveyNo")), "passed": country_ok and qual_ok,
                                      "reasons": ([] if country_ok else ["country"]) + reasons,
                                      "country": ip_country, "at": datetime.utcnow()}
@@ -3219,6 +3268,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     "projectId": str(target.get("_id")),
                     "client_variable": client_variable,
                     "updatedAt": datetime.utcnow().isoformat(),
+                    # how they arrived: panel/vendor pid link, router link, or re-routed at entry
+                    "entryType": {"entry_link": "pid_link", "router_link": "router_link",
+                                  "prescreen_fail": "rerouted_prescreen",
+                                  "country": "rerouted_country"}.get(route_reason, route_reason),
                 }
                 if route_reason != "entry_link":
                     # counted under the survey they actually entered
