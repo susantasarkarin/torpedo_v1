@@ -3,7 +3,7 @@ Traffic Flow API Router
 Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
 """
-from fastapi import APIRouter, HTTPException, Request, Query, Body
+from fastapi import APIRouter, HTTPException, Request, Query, Body, Depends
 from fastapi.responses import RedirectResponse, JSONResponse, Response
 from pymongo.collection import Collection
 from bson import ObjectId
@@ -39,6 +39,9 @@ from services.ad_tracking import (
     get_platform_config,
     is_ad_platform,
 )
+from services import respondent_quality as sfw_quality
+from services.respondent_quality import entry_quality_fields
+from session_state import verify_session
 
 # URL validation utility for redirect safety
 try:
@@ -1931,6 +1934,18 @@ async def _handle_project_survey_callback(
             {"$set": update_fields},
         )
 
+        # SFW speeder check on completion (flag only; fail-open)
+        if is_complete and sfw_quality.is_enabled() and traffic_record.get("surveySource") == "PROJECT":
+            try:
+                project_doc = None
+                if traffic_record.get("projectId"):
+                    project_doc = await get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).find_one(
+                        {"_id": ObjectId(traffic_record["projectId"])}, {"loi": 1})
+                await asyncio.wait_for(
+                    sfw_quality.score_completion(async_url_collection, traffic_record, project_doc), timeout=2.0)
+            except Exception as q_err:
+                print(f"[warn] SFW completion scoring skipped for {rid}: {q_err}")
+
         # 3. Resolve vendor redirect URL
         vendor_id = traffic_record.get("vendorId")
         respondent_id = traffic_record.get("respondentId", "")
@@ -2049,6 +2064,54 @@ async def survey_complete_callback(
 ):
     """Callback when respondent completes an adhoc project survey."""
     return await _handle_project_survey_callback(request, _extract_rid(request, rid), "complete")
+
+
+@router.get("/api/sfw/projects/{survey_no}/quality", dependencies=[Depends(verify_session)])
+async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=0, le=500)):
+    """SFW quality for one project: entries/completes per band, flag counts, latest flagged."""
+    col = get_async_url_parameters_collection()
+    match = {"params.pid": str(survey_no), "params.api": "false"}  # params_pid_api index
+    bands = await col.aggregate([
+        {"$match": match},
+        {"$group": {"_id": {"$ifNull": ["$sfwBand", "unscored"]}, "entries": {"$sum": 1},
+                    "completes": {"$sum": {"$cond": [{"$eq": ["$status", "COMPLETE"]}, 1, 0]}}}},
+    ]).to_list(length=10)
+    flags = await col.aggregate([
+        {"$match": {**match, "sfwFlags.0": {"$exists": True}}},
+        {"$unwind": "$sfwFlags"},
+        {"$group": {"_id": "$sfwFlags", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+    ]).to_list(length=50)
+    flagged = await col.find(
+        {**match, "sfwBand": {"$in": ["block", "review"]}},
+        {"respondentId": 1, "vendorId": 1, "status": 1, "sfwScore": 1, "sfwBand": 1, "sfwFlags": 1,
+         "createdAt": 1, "clientIp": 1, "clientRejected": 1},
+    ).sort("createdAt", -1).limit(flagged_limit).to_list(length=flagged_limit)
+    for doc in flagged:
+        doc["_id"] = str(doc["_id"])
+        if isinstance(doc.get("createdAt"), datetime):
+            doc["createdAt"] = doc["createdAt"].isoformat() + "Z"
+    return {
+        "surveyNo": str(survey_no),
+        "settings": {"enabled": sfw_quality.is_enabled(), "enforced": sfw_quality.is_enforced(),
+                     "blockBelow": sfw_quality._threshold("SFW_BLOCK_BELOW", 40),
+                     "reviewBelow": sfw_quality._threshold("SFW_REVIEW_BELOW", 70)},
+        "bands": {b["_id"]: {"entries": b["entries"], "completes": b["completes"]} for b in bands},
+        "flags": {f["_id"]: f["n"] for f in flags},
+        "flagged": flagged,
+    }
+
+
+@router.post("/api/sfw/projects/{survey_no}/client-rejects", dependencies=[Depends(verify_session)])
+async def sfw_client_rejects(survey_no: str, body: Dict[str, Any] = Body(...)):
+    """Client reconciliation: mark rejected respondents (our RID/SFWID or the vendor respondent id)."""
+    ids = body.get("ids") or []
+    if isinstance(ids, str):
+        ids = re.split(r"[\s,;]+", ids)
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="Send ids: a list of RIDs or respondent IDs")
+    return await sfw_quality.apply_client_rejects(
+        get_async_url_parameters_collection(), str(survey_no), ids, str(body.get("reason") or ""))
 
 
 @router.get("/api/adpixel/landing")
@@ -2692,8 +2755,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         client_user_agent = data.get('userAgent') or request.headers.get("User-Agent") or ""
         print(f"ðŸ“± User-Agent: {client_user_agent[:80]}..." if len(client_user_agent) > 80 else f"ðŸ“± User-Agent: {client_user_agent}")
         
-        # Ad attribution (utm_*, campaign/adset/ad ids, fbclid, _fbp/_fbc) + traffic_source
-        ad_fields = extract_ad_tracking(params, data, dict(request.cookies))
+        # Ad attribution (utm_*, campaign/adset/ad ids, fbclid, _fbp/_fbc) + traffic_source,
+        # plus SFW quality inputs (our visitor cookie id, browser bot signals)
+        ad_fields = {
+            **extract_ad_tracking(params, data, dict(request.cookies)),
+            **entry_quality_fields(data),
+        }
 
         # Extract device fingerprint from client
         device_fingerprint = data.get('deviceFingerprint', '')
@@ -2915,6 +2982,27 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         }}
                     )
                     print(f"[ok] PROJECT allocation success: survey {survey_id}")
+
+                    # SFW quality score (fail-open: a scoring problem never blocks entry)
+                    if sfw_quality.is_enabled():
+                        try:
+                            quality = await asyncio.wait_for(
+                                sfw_quality.score_entry(async_url_collection, ObjectId(traffic_id), project_doc),
+                                timeout=3.0,
+                            )
+                        except Exception as q_err:
+                            quality = None
+                            print(f"[warn] SFW scoring skipped for {traffic_id}: {q_err}")
+                        if quality:
+                            print(f"SFW score {traffic_id}: {quality['sfwScore']} {quality['sfwBand']} {quality['sfwFlags']}")
+                        if quality and quality["sfwBand"] == "block" and sfw_quality.is_enforced():
+                            allocation_success = False
+                            entry_link = None
+                            allocation_error = "No survey available"  # never says why
+                            await async_url_collection.update_one(
+                                {"_id": ObjectId(traffic_id)},
+                                {"$set": {"status": "SFW_BLOCKED", "redirectUrl": None}},
+                            )
                 else:
                     allocation_error = "Project has no live link configured."
             else:

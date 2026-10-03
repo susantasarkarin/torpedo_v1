@@ -172,6 +172,26 @@ function readCookie(name) {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
+// SFW quality: our own long-lived visitor id (cookie, mirrored in localStorage so
+// clearing one keeps the other). Recognises re-entries; never leaves our domain.
+const SFW_VISITOR_KEY = "sfw_vid";
+function getSfwVisitorId() {
+  let id = readCookie(SFW_VISITOR_KEY);
+  try { id = id || localStorage.getItem(SFW_VISITOR_KEY); } catch { /* storage blocked */ }
+  if (!id || !/^[A-Za-z0-9-]{8,64}$/.test(id)) id = generateTransId();
+  document.cookie = `${SFW_VISITOR_KEY}=${id}; Max-Age=34560000; Path=/; SameSite=Lax; Secure`;
+  try { localStorage.setItem(SFW_VISITOR_KEY, id); } catch { /* storage blocked */ }
+  return id;
+}
+
+function getBotSignals() {
+  return {
+    webdriver: Boolean(navigator.webdriver),
+    headlessUA: /HeadlessChrome/i.test(navigator.userAgent || ""),
+    languages: (navigator.languages || []).length,
+  };
+}
+
 function extractEmailFromParams(params = {}) {
   const candidateKeys = [
     "email",
@@ -414,6 +434,9 @@ export default function TrafficFlowParser() {
           // Meta Pixel cookies (if the pixel has set them on our domain)
           fbp: readCookie("_fbp"),
           fbc: readCookie("_fbc"),
+          // SFW quality score inputs
+          sfwVisitorId: getSfwVisitorId(),
+          botSignals: getBotSignals(),
           email: extractEmailFromParams(urlParams),
           userAgent: navigator.userAgent,
           // IP data from server-side prefetch (fast) or fallback

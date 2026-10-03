@@ -22,6 +22,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import "./ProjectDetail.css";
+import SfwQualityPanel from "./SfwQualityPanel";
 import { buildApiUrl } from "../../config";
 import { notify } from "../../utils/notify"
 import { authFetch } from "../../utils/api"
@@ -313,6 +314,8 @@ function ProjectDetail() {
           </div>
         </div>
       </div>
+
+      <SfwQualityPanel surveyNo={project.surveyNo} />
     </div>
   );
 }
