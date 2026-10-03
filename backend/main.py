@@ -2261,6 +2261,20 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Lead email builder scheduled (20 min)")
 
+            def _inhouse_verify_job():
+                try:
+                    from pymongo import MongoClient as _MC
+                    from leads.inhouse_verifier import score_outreach_leads
+                    r = score_outreach_leads(_MC(os.getenv("MONGO_URI", "mongodb://localhost:27017/")), apply=True)
+                    print(f"[InhouseVerify] {r['counts']}")
+                except Exception as e:
+                    print(f"[InhouseVerify] Error: {e}")
+
+            scheduler.add_job(_inhouse_verify_job, CronTrigger(hour=3, minute=0),  # 08:30 IST
+                              id="inhouse_verify", name="Outreach addresses: in-house verdict -> sendable",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ In-house address verification scheduled (03:00 UTC)")
+
             def _backlog_drain_job():
                 try:
                     from leads.backlog_drain import drain

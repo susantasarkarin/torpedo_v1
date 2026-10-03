@@ -18,8 +18,11 @@ us. This module turns that into a verdict:
   unknown   no evidence either way
 
 It records the verdict (verification_status "inhouse:<verdict>" plus the
-evidence) and never sets `sendable` -- whether "likely" is good enough to
-send to is the owner's decision, and sending is off for now.
+evidence) and sets `sendable` from it (owner policy 2026-10-03): valid and
+likely are sendable, invalid and risky are not, unknown is left as it was.
+`sendable` only marks an address as fit to mail; bulk sending stays blocked
+by the compliance gate (unsubscribe URL + real postal address) and the
+owner's pause.
 """
 import re
 from collections import Counter, defaultdict
@@ -30,6 +33,8 @@ PATTERN_MIN = 2
 RISKY_BOUNCE_RATE = 0.30
 MIN_DOMAIN_SENDS = 5
 BOUNCE_GRACE_DAYS = 3
+SENDABLE_VERDICTS = frozenset({"valid", "likely"})
+NOT_SENDABLE_VERDICTS = frozenset({"invalid", "risky"})
 
 _NONALPHA = re.compile(r"[^a-z]")
 
@@ -135,7 +140,7 @@ def verify(email: str, name: str, ev: Evidence) -> Dict[str, Any]:
 def score_outreach_leads(client, statuses: Iterable[str] = ("not_started", "skipped_gate"),
                          apply: bool = False) -> Dict[str, Any]:
     """Verdict for every outreach row in these states. Writes only with
-    apply=True, and never touches `sendable`."""
+    apply=True; `sendable` follows SENDABLE_VERDICTS / NOT_SENDABLE_VERDICTS."""
     ev = Evidence(client)
     col = client["torpedo"]["outreach_leads_v2"]
     counts: Counter = Counter()
@@ -147,9 +152,13 @@ def score_outreach_leads(client, statuses: Iterable[str] = ("not_started", "skip
         if len(samples[r["verdict"]]) < 4:
             samples[r["verdict"]].append(f"{lead.get('email')} — {r['why']}")
         if apply:
-            col.update_one({"_id": lead["_id"]}, {"$set": {
-                "inhouse_verification": {**r, "at": now},
-                "verification_status_inhouse": f"inhouse:{r['verdict']}"}})
+            upd = {"inhouse_verification": {**r, "at": now},
+                   "verification_status_inhouse": f"inhouse:{r['verdict']}"}
+            if r["verdict"] in SENDABLE_VERDICTS:
+                upd["sendable"] = True
+            elif r["verdict"] in NOT_SENDABLE_VERDICTS:
+                upd["sendable"] = False
+            col.update_one({"_id": lead["_id"]}, {"$set": upd})
     return {"counts": dict(counts), "samples": dict(samples),
             "evidence": {"delivered": len(ev.delivered), "bounced": len(ev.bounced),
                          "wrote_to_us": len(ev.wrote_to_us), "domains_with_patterns": len(ev.patterns)}}

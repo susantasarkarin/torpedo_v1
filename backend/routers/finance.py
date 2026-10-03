@@ -493,7 +493,9 @@ async def get_customers(
     import asyncio as _asyncio
     try:
         def _fetch():
-            query = {}
+            # Hidden records (merged into a billing profile, moved to leads or
+            # vendors by the company-master clean-up) stay out of every list.
+            query = {"is_deleted": {"$ne": True}}
             if origin == "clients":
                 query["source"] = {"$nin": NON_CLIENT_SOURCES}
             if search:
@@ -737,8 +739,8 @@ def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
 def export_customers_csv():
     """Export all customers to CSV format"""
     try:
-        customers = list(customers_collection.find().sort("name", 1))
-        
+        customers = list(customers_collection.find({"is_deleted": {"$ne": True}}).sort("name", 1))
+
         output = io.StringIO()
         fieldnames = [
             "name", "customer_type", "company_name", "email", "phone", 
