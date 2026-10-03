@@ -259,14 +259,18 @@ async def score_entry(collection, record_id, project_doc: Optional[Dict[str, Any
             flags.append("visitor_velocity")
 
     # 5. Geography: IP country vs project country
+    # Country source, most trusted first: Cloudflare's CF-IPCountry (server-side),
+    # IPQualityScore, then the browser-reported geoIpCountry.
     project_cc = _norm_country((project_doc or {}).get("countryCode"))
-    ip_cc = _norm_country(record.get("geoIpCountry"))
     intel = await _ip_intel(collection.database, record.get("clientIp") or "")
-    if intel and intel.get("country_code"):
-        ip_cc = _norm_country(intel["country_code"])
+    ip_cc = (_norm_country(record.get("cfIpCountry"))
+             or _norm_country((intel or {}).get("country_code"))
+             or _norm_country(record.get("geoIpCountry")))
     if project_cc and ip_cc and project_cc != ip_cc:
         flags.append("geo_mismatch")
     flags.extend(_ip_intel_flags(intel))
+    if record.get("cfIpTor") and "tor" not in flags:
+        flags.append("tor")
 
     # 6. History across all projects
     if strong:

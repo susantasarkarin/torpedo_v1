@@ -182,6 +182,14 @@ def test_bots_geo_and_velocity(col):
     assert {"bot_webdriver", "bot_headless", "bot_no_languages", "geo_mismatch", "ip_velocity"} <= flags
 
 
+def test_cloudflare_country_wins_and_tor(col):
+    # browser says IN, Cloudflare says US -> mismatch against an IN project
+    out = _score(col, _rec(col, cfIpCountry="US", geoIpCountry="IN"))
+    assert "geo_mismatch" in out["sfwFlags"]
+    assert "geo_mismatch" not in _score(col, _rec(col, cfIpCountry="IN", geoIpCountry="US"))["sfwFlags"]
+    assert "tor" in _score(col, _rec(col, cfIpTor=True))["sfwFlags"]
+
+
 def test_prior_client_reject_counts_everywhere(col):
     _rec(col, sfwVisitorId="visitor-0002", assignedSurveyId="111", clientRejected=True)
     out = _score(col, _rec(col, sfwVisitorId="visitor-0002"))
@@ -248,6 +256,17 @@ def app_env(monkeypatch, col):
     app.include_router(traffic.router)
     app.dependency_overrides[verify_session] = lambda: True
     return TestClient(app), col, database
+
+
+def test_store_records_cloudflare_country(app_env, monkeypatch):
+    client, col, _ = app_env
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    client.post("/api/store", headers={"CF-IPCountry": "SG"}, json={
+        "params": {"api": "false", "pid": "65806", "vid": "5725", "cc": "IN", "rid": "cf1"},
+        "clientIp": "1.2.3.4", "sfwVisitorId": "visitor-cf01",
+        "birthday_day": 4, "birthday_month": 5, "birthday_year": 1990, "gender": "male"})
+    rec = next(d for d in col.docs if d.get("respondentId") == "cf1")
+    assert rec["cfIpCountry"] == "SG" and "geo_mismatch" in rec["sfwFlags"]
 
 
 def _store(client, visitor="visitor-0001", rid="r1"):

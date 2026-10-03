@@ -2761,6 +2761,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             **extract_ad_tracking(params, data, dict(request.cookies)),
             **entry_quality_fields(data),
         }
+        # Country of the connecting IP as Cloudflare sees it (server-side, not
+        # browser-supplied). The traffic service never stored geoIpCountry, so the
+        # SFW geo check had nothing to compare against.
+        cf_country = normalize_country_code(request.headers.get("CF-IPCountry") or "")
+        if cf_country and cf_country not in {"XX", "T1"}:  # XX unknown, T1 Tor
+            ad_fields["cfIpCountry"] = cf_country
+        elif cf_country == "T1":
+            ad_fields["cfIpTor"] = True
 
         # Extract device fingerprint from client
         device_fingerprint = data.get('deviceFingerprint', '')
