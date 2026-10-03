@@ -78,12 +78,18 @@ class FakeCollection:
         return min(n, limit) if limit else n
 
     async def update_one(self, flt, update, upsert=False):
+        def apply(d):
+            d.update(update.get("$set", {}))
+            for k, v in update.get("$push", {}).items():
+                d.setdefault(k, []).append(v)
         for d in self.docs:
             if _matches(d, flt):
-                d.update(update.get("$set", {}))
+                apply(d)
                 return
         if upsert:
-            self.docs.append({**flt, **update.get("$set", {})})
+            doc = {**flt, **update.get("$setOnInsert", {})}
+            apply(doc)
+            self.docs.append(doc)
 
     async def find_one_and_update(self, flt, update, upsert=False, return_document=False):
         for d in self.docs:
@@ -227,12 +233,65 @@ def test_speeder_on_completion(col):
     assert "speeder" not in asyncio.run(q.score_completion(col, slow, {"loi": "15"}))["sfwFlags"]
 
 
-def test_client_rejects_by_rid_or_respondent_id(col):
-    a = _rec(col, respondentId="vendor-a")
-    b = _rec(col, respondentId="vendor-b")
-    out = asyncio.run(q.apply_client_rejects(col, "65806", [str(a["_id"]), "vendor-b", "nope"], "straightliner"))
+def test_parse_reject_lines():
+    text = "6ac0aebf4d720f1b25ec43db, straight-lining in grid Q12, and speeding\nad-1\tfailed attention check\n  \nx1 x2 x3\nr9;Duplicate (same IP)"
+    assert q.parse_reject_lines(text) == [
+        {"id": "6ac0aebf4d720f1b25ec43db", "reason": "straight-lining in grid Q12, and speeding"},
+        {"id": "ad-1", "reason": "failed attention check"},
+        {"id": "x1", "reason": ""}, {"id": "x2", "reason": ""}, {"id": "x3", "reason": ""},
+        {"id": "r9", "reason": "Duplicate (same IP)"},
+    ]
+
+
+def test_client_rejects_are_outcomes_not_score_changes(col):
+    a = _rec(col, respondentId="vendor-a", sfwScore=85, sfwBand="good", status="COMPLETE",
+             adTracking={"campaign_id": "c1"}, traffic_source="meta")
+    b = _rec(col, respondentId="vendor-b", sfwScore=55, sfwBand="review")
+    out = asyncio.run(q.apply_client_rejects(
+        col, "65806",
+        [{"id": str(a["_id"]), "reason": "Straight-lined Q12 grid"}, {"id": "vendor-b", "reason": ""},
+         {"id": "nope", "reason": "x"}],
+        default_reason="Quality", uploaded_by="ops-user", client="Hansa"))
     assert out["matched"] == 2 and out["unmatched"] == ["nope"]
-    assert all(d["clientRejected"] and d["sfwScore"] == 0 and d["sfwBand"] == "block" for d in (a, b))
+    # SFW-B untouched: rejects must stay an independent outcome
+    assert (a["sfwScore"], a["sfwBand"], b["sfwScore"]) == (85, "good", 55)
+    assert a["clientRejected"] and a["clientRejectReason"] == "Straight-lined Q12 grid"
+    assert b["clientRejectReason"] == "Quality"  # default only where the line had no reason
+
+    hist = {d["_id"]: d for d in col.database["client_rejects"].docs}
+    ra = hist[a["_id"]]
+    assert (ra["surveyNo"], ra["client"], ra["vendorId"], ra["sfwBAtReject"], ra["statusAtReject"]) == \
+        ("65806", "Hansa", "5725", 85, "COMPLETE")
+    assert ra["reasonCategory"] is None and ra["adTracking"] == {"campaign_id": "c1"}
+    assert ra["history"][0]["uploadedBy"] == "ops-user"
+    batch = col.database["client_reject_batches"].docs[0]
+    assert (batch["submitted"], batch["matched"], batch["unmatched"]) == (3, 2, ["nope"])
+
+
+def test_reupload_keeps_history(col):
+    a = _rec(col, respondentId="vendor-a")
+    asyncio.run(q.apply_client_rejects(col, "65806", [{"id": "vendor-a", "reason": "first"}]))
+    asyncio.run(q.apply_client_rejects(col, "65806", [{"id": "vendor-a", "reason": "second"}]))
+    rec = col.database["client_rejects"].docs
+    assert len(rec) == 1 and rec[0]["reason"] == "second"
+    assert [h["reason"] for h in rec[0]["history"]] == ["first", "second"]
+    assert a["clientRejectReason"] == "second"
+
+
+def test_rates():
+    row = q._with_rates({"_id": "5725", "entries": 200, "completes": 40, "terminates": 150, "overquota": 0,
+                         "sfwBlocked": 0, "scored": 100, "flagged": 25, "review": 10, "block": 5,
+                         "avgSfwB": 88.333, "rejects": 4})
+    assert (row["key"], row["completeRate"], row["flagRate"], row["reviewRate"], row["blockRate"],
+            row["rejectRate"], row["avgSfwB"]) == ("5725", 0.2, 0.25, 0.1, 0.05, 0.1, 88.3)
+    assert q._with_rates({"_id": None, "entries": 0, "completes": 0, "scored": 0, "flagged": 0,
+                          "review": 0, "block": 0, "avgSfwB": None, "rejects": 0})["rejectRate"] is None
+
+
+def test_scored_records_carry_q_and_h_placeholders(col):
+    doc = _rec(col, sfwVisitorId="visitor-0003")
+    _score(col, doc)
+    assert "sfwQ" in col.docs[-1] and col.docs[-1]["sfwQ"] is None and col.docs[-1]["sfwH"] is None
 
 
 # --- wiring ------------------------------------------------------------------
@@ -254,7 +313,7 @@ def app_env(monkeypatch, col):
 
     app = FastAPI()
     app.include_router(traffic.router)
-    app.dependency_overrides[verify_session] = lambda: True
+    app.dependency_overrides[verify_session] = lambda: "test-user"
     return TestClient(app), col, database
 
 
@@ -322,6 +381,8 @@ def test_quality_endpoint_and_rejects(app_env, monkeypatch):
     rec = next(d for d in col.docs if d.get("respondentId") == "good-one")
     rec["params"] = {"pid": "65806", "api": "false"}
 
-    out = client.post("/api/sfw/projects/65806/client-rejects", json={"ids": "good-one, missing-id"}).json()
+    out = client.post("/api/sfw/projects/65806/client-rejects",
+                      json={"text": "good-one, Speeder per client QC\nmissing-id"}).json()
     assert out["matched"] == 1 and out["unmatched"] == ["missing-id"]
-    assert rec["clientRejected"] is True and rec["sfwBand"] == "block"
+    assert rec["clientRejected"] is True and rec["clientRejectReason"] == "Speeder per client QC"
+    assert rec["sfwBand"] == "good"  # outcome recorded, behaviour score untouched

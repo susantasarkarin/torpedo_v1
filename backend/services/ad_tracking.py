@@ -56,7 +56,13 @@ _UTM_SOURCE_ALIASES = {
 # Click IDs identify the platform even when UTMs are missing.
 _CLICK_ID_SOURCES = (("fbclid", "meta"), ("gclid", "google_ads"), ("ttclid", "tiktok"))
 
-_AD_PARAM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "campaign_id", "adset_id", "ad_id", "placement")
+# Raw ids (campaign_id/adset_id/ad_id) and the human-readable names Meta can
+# fill in ({{campaign.name}}, {{adset.name}}, {{ad.name}}, {{site_source_name}}).
+_AD_PARAM_KEYS = (
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id",
+    "campaign_id", "adset_id", "ad_id", "campaign_name", "adset_name", "ad_name",
+    "placement", "site_source_name",
+)
 _MAX_PARAM_LEN = 200
 
 
@@ -110,7 +116,9 @@ def extract_ad_tracking(
     if not is_ad_platform(traffic_source):
         return {"traffic_source": traffic_source}
 
-    tracking = {key: _clean(params.get(key)) for key in _AD_PARAM_KEYS if params.get(key)}
+    # Skip macros the ad platform left unfilled (e.g. a preview link still showing "{{ad.id}}").
+    tracking = {key: _clean(params.get(key)) for key in _AD_PARAM_KEYS
+                if params.get(key) and "{{" not in str(params.get(key))}
     for click_key, _ in _CLICK_ID_SOURCES:
         if params.get(click_key):
             tracking[click_key] = _clean(params.get(click_key))

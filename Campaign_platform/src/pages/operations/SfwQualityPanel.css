@@ -90,3 +90,27 @@
   cursor: pointer;
 }
 .sfwq-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* SFW-B / Q / H dimensions */
+.sfwq-dims { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.sfwq-dim {
+  display: flex; flex-direction: column; padding: 8px 10px;
+  border: 1px dashed #d1d5db; border-radius: 8px; color: #9ca3af;
+}
+.sfwq-dim.is-live { border-style: solid; border-color: #123056; color: #123056; }
+.sfwq-dim-code { font-weight: 700; font-size: 13px; }
+.sfwq-dim-label { font-size: 12px; }
+.sfwq-dim-status { font-size: 11px; }
+
+/* Traffic quality */
+.sfwq-traffic { margin: 12px 0; }
+.sfwq-subtitle { font-size: 13px; font-weight: 600; color: #123056; margin-bottom: 6px; }
+.sfwq-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.sfwq-tab {
+  padding: 4px 10px; border: 1px solid #e5e7eb; border-radius: 999px;
+  background: #fff; color: #374151; font-size: 12px; cursor: pointer;
+}
+.sfwq-tab.is-active { background: #123056; border-color: #123056; color: #fff; }
+.sfwq-tab-count { opacity: 0.7; margin-left: 2px; }
+.sfwq-total td { font-weight: 700; border-top: 2px solid #e5e7eb; }
+.sfwq-note code { background: #f3f4f6; padding: 0 4px; border-radius: 3px; }

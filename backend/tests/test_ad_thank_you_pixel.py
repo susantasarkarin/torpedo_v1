@@ -336,6 +336,16 @@ def test_entry_capture_meta():
     assert t["fbc"].startswith("fb.1.") and t["fbc"].endswith(".abc")  # derived from fbclid
 
 
+def test_entry_capture_names_and_skips_unfilled_macros():
+    params = {"utm_source": "meta", "campaign_id": "120201", "campaign_name": "IN Amazon Pay 18-45",
+              "adset_name": "Mumbai Delhi", "ad_name": "Video v2", "site_source_name": "ig",
+              "adset_id": "{{adset.id}}", "ad_id": "{{ad.id}}"}
+    t = extract_ad_tracking(params, {}, {})["adTracking"]
+    assert (t["campaign_id"], t["campaign_name"], t["adset_name"], t["ad_name"], t["site_source_name"]) == \
+        ("120201", "IN Amazon Pay 18-45", "Mumbai Delhi", "Video v2", "ig")
+    assert "adset_id" not in t and "ad_id" not in t  # preview links leave macros unfilled
+
+
 def test_entry_capture_prefers_cookie_fbc_and_ignores_non_ad():
     fields = extract_ad_tracking({"fbclid": "abc"}, {}, {"_fbc": "fb.1.5.abc", "_fbp": "fb.1.5.9"})
     assert fields["adTracking"]["fbc"] == "fb.1.5.abc"

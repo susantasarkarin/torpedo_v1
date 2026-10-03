@@ -2085,7 +2085,7 @@ async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=
     flagged = await col.find(
         {**match, "sfwBand": {"$in": ["block", "review"]}},
         {"respondentId": 1, "vendorId": 1, "status": 1, "sfwScore": 1, "sfwBand": 1, "sfwFlags": 1,
-         "createdAt": 1, "clientIp": 1, "clientRejected": 1},
+         "createdAt": 1, "clientIp": 1, "clientRejected": 1, "clientRejectReason": 1},
     ).sort("createdAt", -1).limit(flagged_limit).to_list(length=flagged_limit)
     for doc in flagged:
         doc["_id"] = str(doc["_id"])
@@ -2096,22 +2096,71 @@ async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=
         "settings": {"enabled": sfw_quality.is_enabled(), "enforced": sfw_quality.is_enforced(),
                      "blockBelow": sfw_quality._threshold("SFW_BLOCK_BELOW", 40),
                      "reviewBelow": sfw_quality._threshold("SFW_REVIEW_BELOW", 70)},
+        # SFW-B is live; SFW-Q (answer quality) and SFW-H (history/outcome) are not built yet
+        "scores": {"B": {"label": "Behaviour", "field": "sfwScore", "status": "live"},
+                   "Q": {"label": "Answer quality", "field": "sfwQ", "status": "not_built"},
+                   "H": {"label": "History / outcome", "field": "sfwH", "status": "not_built"}},
         "bands": {b["_id"]: {"entries": b["entries"], "completes": b["completes"]} for b in bands},
         "flags": {f["_id"]: f["n"] for f in flags},
         "flagged": flagged,
     }
 
 
-@router.post("/api/sfw/projects/{survey_no}/client-rejects", dependencies=[Depends(verify_session)])
-async def sfw_client_rejects(survey_no: str, body: Dict[str, Any] = Body(...)):
-    """Client reconciliation: mark rejected respondents (our RID/SFWID or the vendor respondent id)."""
-    ids = body.get("ids") or []
-    if isinstance(ids, str):
-        ids = re.split(r"[\s,;]+", ids)
-    if not isinstance(ids, list) or not ids:
-        raise HTTPException(status_code=400, detail="Send ids: a list of RIDs or respondent IDs")
+async def _vendor_names(vendor_ids) -> Dict[str, str]:
+    ids = [v for v in vendor_ids if v not in (None, "")]
+    if not ids:
+        return {}
+    candidates = set(ids) | {int(v) for v in ids if isinstance(v, str) and v.isdigit()} | {str(v) for v in ids}
+    docs = await get_async_vendors_collection().find(
+        {"vid": {"$in": list(candidates)}}, {"vid": 1, "vendorName": 1}).to_list(length=500)
+    return {str(d["vid"]): d.get("vendorName") or str(d["vid"]) for d in docs}
+
+
+@router.get("/api/sfw/traffic-quality", dependencies=[Depends(verify_session)])
+async def sfw_traffic_quality(
+    pid: Optional[str] = Query(None, description="Survey number; omit for all projects"),
+    days: int = Query(30, ge=1, le=180, description="Window when pid is omitted"),
+):
+    """
+    Traffic quality by vendor, traffic source and Meta campaign / ad set / ad:
+    entries, completes, terminates, SFW-B flag / review / block rates, avg SFW-B,
+    client rejects and reject rate (rejects / completes).
+    """
+    report = await sfw_quality.traffic_quality(get_async_url_parameters_collection(), pid, days)
+    names = await _vendor_names([r["key"] for r in report.get("vendor", [])])
+    for row in report.get("vendor", []):
+        row["label"] = names.get(str(row["key"]), str(row["key"]))
+    return {"pid": pid, "days": None if pid else days, **report}
+
+
+@router.post("/api/sfw/projects/{survey_no}/client-rejects")
+async def sfw_client_rejects(survey_no: str, body: Dict[str, Any] = Body(...),
+                             username: str = Depends(verify_session)):
+    """
+    Client reconciliation upload. Body: {"text": "<one per line: ID[,|tab|; reason]>"}
+    or {"entries": [{"id", "reason"}]}, optional "reason" (default for lines without one).
+    IDs are our RID/SFWID or the vendor respondent id; reasons are stored verbatim.
+    """
+    entries = body.get("entries")
+    if not isinstance(entries, list):
+        text = body.get("text")
+        if text is None and isinstance(body.get("ids"), list):  # older clients
+            text = "\n".join(str(i) for i in body["ids"])
+        entries = sfw_quality.parse_reject_lines(text or body.get("ids") or "")
+    if not entries:
+        raise HTTPException(status_code=400, detail="Paste at least one RID or respondent ID")
+
+    client_name = ""
+    try:
+        project = await get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).find_one(
+            {"surveyNo": str(survey_no), "is_deleted": {"$ne": True}}, {"client": 1})
+        client_name = (project or {}).get("client") or ""
+    except Exception as e:
+        print(f"[warn] client lookup for reject upload failed: {e}")
+
     return await sfw_quality.apply_client_rejects(
-        get_async_url_parameters_collection(), str(survey_no), ids, str(body.get("reason") or ""))
+        get_async_url_parameters_collection(), str(survey_no), entries,
+        default_reason=str(body.get("reason") or ""), uploaded_by=str(username or ""), client=client_name)
 
 
 @router.get("/api/adpixel/landing")

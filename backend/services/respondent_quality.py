@@ -1,5 +1,12 @@
 """
-SFW respondent quality score (0-100) for project (adhoc) traffic.
+SFW respondent quality scores for project (adhoc) traffic.
+
+Three separate dimensions, never averaged together:
+  SFW-B  behaviour score  -> record field `sfwScore` (+ sfwBand / sfwFlags). Rules below.
+  SFW-Q  answer quality   -> `sfwQ`  (null until the answer-quality pipeline exists)
+  SFW-H  history/outcome  -> `sfwH`  (null until enough client-reject outcomes exist)
+Client rejects are an OUTCOME, stored apart (clientRejected + traffic_flow_db.client_rejects)
+and never rewrite SFW-B, so "does SFW-B predict rejects?" can be measured honestly.
 
 Scored at entry (/api/store, before the respondent is sent to the client) and
 again at completion (/surveycomplete: speeder check). Client reconciliation
@@ -84,8 +91,6 @@ def band_for(score: int) -> str:
 
 
 def score_from_flags(flags: List[str]) -> int:
-    if "client_reject" in flags:
-        return 0
     return max(0, 100 - sum(PENALTIES.get(f, 0) for f in set(flags)))
 
 
@@ -284,7 +289,9 @@ async def score_entry(collection, record_id, project_doc: Optional[Dict[str, Any
 
     score = score_from_flags(flags)
     result = {"sfwScore": score, "sfwBand": band_for(score), "sfwFlags": sorted(set(flags)),
-              "sfwScoredAt": now, "sfwEnforced": is_enforced()}
+              "sfwScoredAt": now, "sfwEnforced": is_enforced(),
+              # SFW-Q / SFW-H placeholders so every scored record carries all three dimensions
+              "sfwQ": record.get("sfwQ"), "sfwH": record.get("sfwH")}
     if intel:
         result["sfwIpIntel"] = intel
     await collection.update_one({"_id": record_id}, {"$set": result})
@@ -311,21 +318,154 @@ async def score_completion(collection, record: Dict[str, Any], project_doc: Opti
     return result
 
 
-async def apply_client_rejects(collection, survey_no: str, ids: List[str], reason: str = "") -> Dict[str, Any]:
-    """Mark a project's client-rejected respondents (ids = our RID/SFWID or the vendor respondent id)."""
+def parse_reject_lines(text: str) -> List[Dict[str, str]]:
+    """
+    One reject per line: `ID` or `ID<tab|,|;>reason as the client wrote it`.
+    A line of only space-separated IDs (no separator) is several IDs without reasons.
+    """
+    entries: List[Dict[str, str]] = []
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = re.split(r"[\t,;]", line, maxsplit=1)
+        if len(parts) == 2:
+            entries.append({"id": parts[0].strip(), "reason": parts[1].strip()})
+        else:
+            entries.extend({"id": tok, "reason": ""} for tok in line.split())
+    return [e for e in entries if e["id"]]
+
+
+async def apply_client_rejects(
+    collection, survey_no: str, entries: List[Dict[str, str]], default_reason: str = "",
+    uploaded_by: str = "", client: str = "",
+) -> Dict[str, Any]:
+    """
+    Client reconciliation upload for one project. Each entry is {id, reason}; id is our
+    RID/SFWID or the vendor respondent id. The client's reason is kept verbatim.
+
+    Writes, per matched respondent:
+      url_parameters      clientRejected / clientRejectReason / clientRejectedAt (SFW-B untouched)
+      client_rejects      one doc per respondent: latest reject + full upload history
+    and one client_reject_batches doc per upload (incl. unmatched ids) for audit.
+    """
     from bson import ObjectId
 
-    ids = [str(i).strip() for i in ids if str(i).strip()][:5000]
-    object_ids = [ObjectId(i) for i in ids if re.match(r"^[0-9a-fA-F]{24}$", i)]
-    query = {"assignedSurveyId": str(survey_no),
-             "$or": [{"_id": {"$in": object_ids}}, {"respondentId": {"$in": ids}}]}
+    db = collection.database
     now = datetime.utcnow()
-    matched = await collection.find(query, {"_id": 1, "respondentId": 1, "sfwFlags": 1}).to_list(length=len(ids) * 2 + 10)
+    batch_id = ObjectId()
+    entries = [{"id": str(e.get("id") or "").strip(), "reason": str(e.get("reason") or "").strip()}
+               for e in entries if str(e.get("id") or "").strip()][:5000]
+    ids = [e["id"] for e in entries]
+    object_ids = [ObjectId(i) for i in ids if re.match(r"^[0-9a-fA-F]{24}$", i)]
+    matched = await collection.find(
+        {"assignedSurveyId": str(survey_no), "$or": [{"_id": {"$in": object_ids}}, {"respondentId": {"$in": ids}}]},
+        {"_id": 1, "respondentId": 1, "vendorId": 1, "status": 1, "sfwScore": 1, "sfwBand": 1,
+         "traffic_source": 1, "adTracking": 1},
+    ).to_list(length=len(ids) * 2 + 10)
+
+    by_key = {}
     for doc in matched:
-        flags = sorted(set((doc.get("sfwFlags") or []) + ["client_reject"]))
+        by_key[str(doc["_id"])] = doc
+        if doc.get("respondentId"):
+            by_key.setdefault(str(doc["respondentId"]), doc)
+
+    applied, unmatched, seen = 0, [], set()
+    for entry in entries:
+        doc = by_key.get(entry["id"])
+        if not doc:
+            unmatched.append(entry["id"])
+            continue
+        if doc["_id"] in seen:
+            continue
+        seen.add(doc["_id"])
+        reason = (entry["reason"] or default_reason)[:2000]
         await collection.update_one({"_id": doc["_id"]}, {"$set": {
-            "clientRejected": True, "clientRejectedAt": now, "clientRejectReason": reason[:200],
-            "sfwFlags": flags, "sfwScore": 0, "sfwBand": "block",
+            "clientRejected": True, "clientRejectedAt": now, "clientRejectReason": reason,
         }})
-    found = {str(d["_id"]) for d in matched} | {str(d.get("respondentId")) for d in matched}
-    return {"matched": len(matched), "unmatched": [i for i in ids if i not in found][:200]}
+        upload = {"batchId": batch_id, "reason": reason, "rawId": entry["id"],
+                  "uploadedAt": now, "uploadedBy": uploaded_by}
+        await db["client_rejects"].update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"surveyNo": str(survey_no), "client": client, "rid": str(doc["_id"]),
+                      "respondentId": doc.get("respondentId"), "vendorId": doc.get("vendorId"),
+                      "trafficSource": doc.get("traffic_source"), "adTracking": doc.get("adTracking") or {},
+                      "statusAtReject": doc.get("status"), "sfwBAtReject": doc.get("sfwScore"),
+                      "sfwBandAtReject": doc.get("sfwBand"), "reason": reason,
+                      "reasonCategory": None,  # set only when the client's reason supports it
+                      "lastUploadedAt": now},
+             "$setOnInsert": {"firstUploadedAt": now},
+             "$push": {"history": upload}},
+            upsert=True,
+        )
+        applied += 1
+
+    await db["client_reject_batches"].insert_one({
+        "_id": batch_id, "surveyNo": str(survey_no), "client": client, "uploadedAt": now,
+        "uploadedBy": uploaded_by, "defaultReason": default_reason[:2000], "submitted": len(entries),
+        "matched": applied, "unmatched": unmatched[:5000],
+    })
+    return {"batchId": str(batch_id), "matched": applied, "unmatched": unmatched[:200]}
+
+
+# ---------------------------------------------------------------------------
+# Traffic quality report (per project, or across projects for N days)
+# ---------------------------------------------------------------------------
+
+_DIMENSIONS = {
+    "vendor": "$vendorId",
+    "source": {"$ifNull": ["$traffic_source", "unknown"]},
+    "campaign": {"$ifNull": ["$adTracking.campaign_name", "$adTracking.campaign_id"]},
+    "adset": {"$ifNull": ["$adTracking.adset_name", "$adTracking.adset_id"]},
+    "ad": {"$ifNull": ["$adTracking.ad_name", "$adTracking.ad_id"]},
+}
+
+
+def _metrics_group(key) -> Dict[str, Any]:
+    def is_status(*values):
+        return {"$sum": {"$cond": [{"$in": ["$status", list(values)]}, 1, 0]}}
+    return {
+        "_id": key,
+        "entries": {"$sum": 1},
+        "completes": is_status("COMPLETE"),
+        "terminates": is_status("TERMINATED"),
+        "overquota": is_status("OVERQUOTA"),
+        "sfwBlocked": is_status("SFW_BLOCKED"),
+        "scored": {"$sum": {"$cond": [{"$ifNull": ["$sfwBand", False]}, 1, 0]}},
+        "flagged": {"$sum": {"$cond": [{"$gt": [{"$size": {"$ifNull": ["$sfwFlags", []]}}, 0]}, 1, 0]}},
+        "review": {"$sum": {"$cond": [{"$eq": ["$sfwBand", "review"]}, 1, 0]}},
+        "block": {"$sum": {"$cond": [{"$eq": ["$sfwBand", "block"]}, 1, 0]}},
+        "avgSfwB": {"$avg": "$sfwScore"},
+        "rejects": {"$sum": {"$cond": [{"$eq": ["$clientRejected", True]}, 1, 0]}},
+    }
+
+
+def _with_rates(row: Dict[str, Any]) -> Dict[str, Any]:
+    def rate(num, den):
+        return round(num / den, 4) if den else None
+    row = dict(row)
+    row["key"] = row.pop("_id")
+    row["avgSfwB"] = round(row["avgSfwB"], 1) if row.get("avgSfwB") is not None else None
+    row["completeRate"] = rate(row["completes"], row["entries"])
+    row["flagRate"] = rate(row["flagged"], row["scored"])
+    row["reviewRate"] = rate(row["review"], row["scored"])
+    row["blockRate"] = rate(row["block"], row["scored"])
+    row["rejectRate"] = rate(row["rejects"], row["completes"])  # client rejects / completes
+    return row
+
+
+async def traffic_quality(collection, survey_no: Optional[str] = None, days: int = 30) -> Dict[str, Any]:
+    if survey_no:
+        match: Dict[str, Any] = {"params.pid": str(survey_no), "params.api": "false"}  # params_pid_api index
+    else:
+        match = {"surveySource": "PROJECT", "createdAt": {"$gte": datetime.utcnow() - timedelta(days=days)}}
+    facets = {"overall": [{"$group": _metrics_group(None)}]}
+    for name, key in _DIMENSIONS.items():
+        facets[name] = [{"$group": _metrics_group(key)}, {"$sort": {"entries": -1}}, {"$limit": 100}]
+    rows = await collection.aggregate([{"$match": match}, {"$facet": facets}], allowDiskUse=True).to_list(length=1)
+    out = rows[0] if rows else {}
+    report = {name: [_with_rates(r) for r in out.get(name, [])] for name in facets}
+    report["overall"] = report["overall"][0] if report["overall"] else {}
+    for name in ("campaign", "adset", "ad"):  # rows without Meta attribution aren't a campaign
+        report[name] = [r for r in report[name] if r["key"] is not None]
+    return report
