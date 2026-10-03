@@ -284,6 +284,31 @@ def test_ad_rid_not_from_ad_traffic_fires_nothing(env):
     assert _pixel(client, "VENDOR-998877") is None
 
 
+# --- landing page base pixel (PageView) -------------------------------------
+
+@pytest.mark.parametrize("query", [
+    {"fbclid": "IwZXh0bgNhZW0CMTEA"},                      # what Meta ads actually send today
+    {"utm_source": "meta", "utm_medium": "paid_social"},
+])
+def test_landing_pixel_for_meta_ad_click(env, query):
+    client, _, database = env
+    resp = client.get("/api/adpixel/landing", params={"api": "false", "vid": "5725", **query})
+
+    assert resp.json() == {"pixel": {"platform": "meta", "pixel_id": PIXEL_ID}}
+    assert resp.headers["cache-control"] == "no-store"
+    assert database["ad_pixel_fires"].docs == []  # landing never counts as a fire
+
+
+@pytest.mark.parametrize("query", [
+    {"api": "false", "vid": "5068", "rid": "12345"},  # vendor traffic: never tracked
+    {"utm_source": "newsletter"},
+    {"ttclid": "abc"},                                 # TikTok present but disabled
+])
+def test_landing_pixel_null_for_non_ad_or_disabled(env, query):
+    client, _, _ = env
+    assert client.get("/api/adpixel/landing", params=query).json() == {"pixel": None}
+
+
 # --- entry-side capture -----------------------------------------------------
 
 def test_entry_capture_meta():

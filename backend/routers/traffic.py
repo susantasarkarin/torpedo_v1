@@ -34,7 +34,9 @@ from database import (
 from services.ad_tracking import (
     RID_PATTERN,
     claim_pixel_fire,
+    derive_traffic_source,
     extract_ad_tracking,
+    get_platform_config,
     is_ad_platform,
 )
 
@@ -2047,6 +2049,19 @@ async def survey_complete_callback(
 ):
     """Callback when respondent completes an adhoc project survey."""
     return await _handle_project_survey_callback(request, _extract_rid(request, rid), "complete")
+
+
+@router.get("/api/adpixel/landing")
+async def ad_pixel_landing(request: Request):
+    """
+    Landing page (/takesurvey) for an ad click: which platform's base pixel to
+    load for a PageView. Derived from the visit's own query params (utm_source /
+    fbclid / gclid / ttclid); non-ad visits get null so vendor traffic is never
+    tracked. Fires nothing itself and writes nothing.
+    """
+    source = derive_traffic_source(dict(request.query_params))
+    config = get_platform_config(source) if is_ad_platform(source) else None
+    return JSONResponse(content={"pixel": config}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/adpixel")

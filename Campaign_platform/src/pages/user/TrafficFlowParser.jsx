@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { buildApiUrl } from "../../config"
+import { fireLandingPixel } from "../../utils/adPixels";
 import "./TrafficFlowParser.css";
 
 // Generate a unique transaction ID (UUID v4)
@@ -231,7 +232,16 @@ export default function TrafficFlowParser() {
     const parsedParams = {};
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
-    
+
+    // Ad clicks: load the platform's base pixel (PageView) so the ad platform
+    // sees the visit and sets its first-party cookie (_fbp) before /api/store.
+    if (parsedParams.fbclid || parsedParams.gclid || parsedParams.ttclid || parsedParams.utm_source) {
+      fetch(buildApiUrl(`/api/adpixel/landing${window.location.search}`), { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => fireLandingPixel(data?.pixel))
+        .catch(() => {}); // never block the survey on a tracking failure
+    }
+
     // ZERO-DELAY OPTIMIZATION: Prefetch IP + fingerprint IN PARALLEL on page load
     // This eliminates the 3-9 second delay when user clicks PROCEED
     const prefetchAll = async () => {
@@ -447,7 +457,7 @@ export default function TrafficFlowParser() {
               vendor: urlParams.vid
             });
           }
-        } catch (e) {
+        } catch {
           // non-blocking
         }
 
