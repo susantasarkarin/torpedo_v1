@@ -14,6 +14,7 @@ import routers.traffic as traffic
 from services.ad_tracking import derive_traffic_source, extract_ad_tracking
 
 PIXEL_ID = "192934514575015"
+QUORA_PIXEL_ID = "0123456789abcdef0123456789abcdef"
 
 
 _MISSING = object()
@@ -92,6 +93,8 @@ class FakeDatabase(dict):
 def env(monkeypatch):
     monkeypatch.setenv("META_PIXEL_ID", PIXEL_ID)
     monkeypatch.delenv("META_PIXEL_ENABLED", raising=False)
+    monkeypatch.setenv("QUORA_PIXEL_ID", QUORA_PIXEL_ID)
+    monkeypatch.delenv("QUORA_PIXEL_ENABLED", raising=False)
     monkeypatch.delenv("AD_PIXEL_FIRE_ON_TERMINATE", raising=False)
     database = FakeDatabase()
     url_params = database["url_parameters"]
@@ -352,3 +355,41 @@ def test_entry_capture_prefers_cookie_fbc_and_ignores_non_ad():
     assert extract_ad_tracking({"vid": "1", "rid": "x"}, {}, {}) == {"traffic_source": "direct"}
     assert derive_traffic_source({"gclid": "g"}) == "google_ads"
     assert derive_traffic_source({"utm_source": "newsletter"}) == "newsletter"
+
+
+# --- Quora ----------------------------------------------------------------
+
+def test_quora_completion_returns_quora_pixel(env):
+    client, url_params, _ = env
+    rid = _add_record(url_params, traffic_source="quora")
+
+    assert _complete_and_land(client, rid) == {"platform": "quora", "pixel_id": QUORA_PIXEL_ID,
+                                               "survey_id": "SV-42", "event_id": f"complete_{rid}"}
+    assert _pixel(client, rid) is None  # once only
+
+
+def test_quora_by_qclid(env):
+    client, url_params, _ = env
+    sfwid = _add_record(url_params, traffic_source="quora", adTracking={"qclid": "qc_abc123"})
+    _complete(client, sfwid)
+
+    assert _pixel(client, "qc_abc123")["platform"] == "quora"
+
+
+@pytest.mark.parametrize("query", [{"qclid": "qc_abc123"}, {"utm_source": "Quora"}])
+def test_landing_pixel_for_quora_ad_click(env, query):
+    client, _, _ = env
+    assert client.get("/api/adpixel/landing", params=query).json() ==         {"pixel": {"platform": "quora", "pixel_id": QUORA_PIXEL_ID}}
+
+
+def test_quora_without_pixel_id_gets_nothing(env, monkeypatch):
+    client, url_params, _ = env
+    monkeypatch.delenv("QUORA_PIXEL_ID")
+    rid = _add_record(url_params, traffic_source="quora")
+
+    assert _complete_and_land(client, rid) is None
+
+
+def test_entry_capture_quora():
+    fields = extract_ad_tracking({"utm_source": "quora", "qclid": "qc_1"}, {}, {})
+    assert fields["traffic_source"] == "quora" and fields["adTracking"]["qclid"] == "qc_1"

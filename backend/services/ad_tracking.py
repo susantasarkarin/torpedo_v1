@@ -1,7 +1,7 @@
 """
 Ad-platform attribution and the respondent thank-you page.
 
-Flow: Ad (Meta now; Google/TikTok later) -> landing page (/api/store creates the
+Flow: Ad (Meta, Quora; Google/TikTok later) -> landing page (/api/store creates the
 traffic record, whose ObjectId is the RID) -> client survey -> /surveycomplete.
 
 Entry side:  extract_ad_tracking() turns the landing URL params + Meta cookies
@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 RID_PATTERN = re.compile(r"^[0-9a-fA-F]{24}$")  # traffic record ObjectId (SFWID)
-# What /adpixel accepts: the SFWID above, the rid from the ad URL, or Meta's fbclid.
+# What /adpixel accepts: the SFWID above, the rid from the ad URL, or a click id (fbclid/qclid).
 PIXEL_RID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{6,255}$")
 
 # Platform config. `enabled_env` overrides `enabled_default`; a platform only
@@ -31,6 +31,12 @@ AD_PLATFORMS: Dict[str, Dict[str, Any]] = {
         "enabled_default": True,
         "id_env": "META_PIXEL_ID",
         "id_pattern": r"^\d{5,20}$",
+    },
+    "quora": {
+        "enabled_env": "QUORA_PIXEL_ENABLED",
+        "enabled_default": True,
+        "id_env": "QUORA_PIXEL_ID",
+        "id_pattern": r"^[A-Fa-f0-9]{32}$",
     },
     "google_ads": {
         "enabled_env": "GOOGLE_ADS_ENABLED",
@@ -52,9 +58,10 @@ _UTM_SOURCE_ALIASES = {
     "messenger": "meta", "audience_network": "meta", "an": "meta",
     "google": "google_ads", "google_ads": "google_ads", "googleads": "google_ads", "adwords": "google_ads",
     "tiktok": "tiktok", "tiktok_ads": "tiktok",
+    "quora": "quora", "quora_ads": "quora",
 }
 # Click IDs identify the platform even when UTMs are missing.
-_CLICK_ID_SOURCES = (("fbclid", "meta"), ("gclid", "google_ads"), ("ttclid", "tiktok"))
+_CLICK_ID_SOURCES = (("fbclid", "meta"), ("qclid", "quora"), ("gclid", "google_ads"), ("ttclid", "tiktok"))
 
 # Raw ids (campaign_id/adset_id/ad_id) and the human-readable names Meta can
 # fill in ({{campaign.name}}, {{adset.name}}, {{ad.name}}, {{site_source_name}}).
@@ -146,7 +153,7 @@ async def _find_ad_record(collection, rid: str) -> Optional[Dict[str, Any]]:
     """
     Resolve the identifier on /adpixel to exactly one traffic record:
     SFWID (_id) first, then the rid that arrived on the ad URL (respondentId),
-    then Meta's fbclid. Ambiguous matches resolve to nothing.
+    then the ad click id (Meta fbclid, Quora qclid). Ambiguous matches resolve to nothing.
     """
     from bson import ObjectId
 
@@ -156,7 +163,7 @@ async def _find_ad_record(collection, rid: str) -> Optional[Dict[str, Any]]:
             return record
 
     ad_sources = {"$in": list(AD_PLATFORMS)}
-    for field in ("respondentId", "adTracking.fbclid"):
+    for field in ("respondentId", "adTracking.fbclid", "adTracking.qclid"):
         cursor = collection.find({field: rid, "traffic_source": ad_sources}, _PIXEL_PROJECTION).limit(2)
         matches = await cursor.to_list(length=2)
         if len(matches) == 1:

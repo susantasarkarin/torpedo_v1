@@ -23,12 +23,34 @@ function initMetaPixel(pixelId) {
   return true;
 }
 
+function initQuoraPixel(pixelId) {
+  if (!/^[A-Fa-f0-9]{32}$/.test(String(pixelId))) return false;
+
+  /* Quora Pixel base code */
+  !function(q,e,v,n,t,s){if(q.qp) return; n=q.qp=function(){n.qp?n.qp.apply(n,arguments):n.queue.push(arguments);};
+  n.queue=[];t=document.createElement(e);t.async=!0;t.src=v;
+  s=document.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t,s);}(window, 'script', 'https://a.quora.com/qevents.js');
+
+  window.qp("init", String(pixelId));
+  window.qp("track", "ViewContent");
+  return true;
+}
+
 const PIXEL_LOADERS = {
   meta: {
     landing: ({ pixel_id }) => initMetaPixel(pixel_id),
     complete: ({ pixel_id, survey_id, event_id }) => {
       if (!initMetaPixel(pixel_id)) return;
       window.fbq("trackCustom", "SurveyComplete", { survey_id: String(survey_id) }, { eventID: String(event_id) });
+    },
+  },
+  quora: {
+    landing: ({ pixel_id }) => initQuoraPixel(pixel_id),
+    // Quora has no custom events; a survey complete is reported as CompleteRegistration
+    // (the event chosen in Quora Ads Manager).
+    complete: ({ pixel_id }) => {
+      if (!initQuoraPixel(pixel_id)) return;
+      window.qp("track", "CompleteRegistration");
     },
   },
   // google_ads: { landing: ..., complete: ... },

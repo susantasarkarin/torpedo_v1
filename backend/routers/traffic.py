@@ -2318,7 +2318,7 @@ async def ad_pixel_landing(request: Request):
     """
     Landing page (/takesurvey) for an ad click: which platform's base pixel to
     load for a PageView. Derived from the visit's own query params (utm_source /
-    fbclid / gclid / ttclid); non-ad visits get null so vendor traffic is never
+    fbclid / qclid / gclid / ttclid); non-ad visits get null so vendor traffic is never
     tracked. Fires nothing itself and writes nothing.
     """
     source = derive_traffic_source(dict(request.query_params))
