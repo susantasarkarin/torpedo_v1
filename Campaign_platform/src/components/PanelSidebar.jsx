@@ -33,6 +33,11 @@ function PanelSidebar() {
               <span className="sidebar-icon">🔗</span> Traffic Suppliers
             </Link>
           </li>
+          <li className={`sidebar-item ${isActive("/admin/panel-admin/traffic") ? "active" : ""}`}>
+            <Link to="/admin/panel-admin/traffic" className="sidebar-link">
+              <span className="sidebar-icon">📈</span> Traffic Funnel
+            </Link>
+          </li>
           <li className={`sidebar-item ${isActive("/admin/panel-admin/rewards") ? "active" : ""}`}>
             <Link to="/admin/panel-admin/rewards" className="sidebar-link">
               <span className="sidebar-icon">🎁</span> Rewards & Points

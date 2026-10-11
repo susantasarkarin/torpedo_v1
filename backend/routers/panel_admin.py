@@ -1214,6 +1214,18 @@ def rotate_supplier_token(request: Request, slug: str):
     return _sfw_write("POST", f"/suppliers/{slug}/rotate-token")
 
 
+@router.get("/traffic")
+def get_traffic(request: Request, days: int = 30):
+    """Landing-visit funnel (visits → form → signup → verified → profile) by source,
+    country, device and day, from the SFW panel's visit records."""
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/traffic", {"days": max(1, min(days, 180))})
+    except Exception as e:
+        logger.error(f"traffic report error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load traffic from the panel: {e}")
+
+
 @router.get("/dashboard/sfwpanel-overview")
 def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""
