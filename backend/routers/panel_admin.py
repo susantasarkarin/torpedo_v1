@@ -1137,7 +1137,9 @@ import requests as _http
 
 
 
-_SFW_API = os.getenv("SFW_PANEL_API_BASE", "https://panel.surveyfieldwork.com/api/admin")
+# panel.surveyfieldwork.com now 301s to the apex, which turns proxied POST/PATCH
+# (supplier create/edit) into GETs — so default to the canonical host.
+_SFW_API = os.getenv("SFW_PANEL_API_BASE", "https://surveyfieldwork.com/api/admin")
 _SFW_KEY = os.getenv("SFW_INTERNAL_KEY", "")
 
 

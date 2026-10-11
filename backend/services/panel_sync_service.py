@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # SFW admin API — same host/key the dashboard proxy uses (X-Internal-Key header,
 # validated against INTERNAL_API_KEY on the sfw-api side).
-SFW_PANEL_API_BASE = os.getenv("SFW_PANEL_API_BASE", "https://panel.surveyfieldwork.com/api/admin")
+SFW_PANEL_API_BASE = os.getenv("SFW_PANEL_API_BASE", "https://surveyfieldwork.com/api/admin")
 SFW_INTERNAL_KEY = os.getenv("SFW_INTERNAL_KEY", "")
 SFW_SYNC_TIMEOUT = int(os.getenv("SFW_SYNC_TIMEOUT", "60"))
 SFW_SYNC_FETCH_LIMIT = int(os.getenv("SFW_SYNC_FETCH_LIMIT", "100000"))
