@@ -39,6 +39,18 @@ TEST_MODE = os.getenv("OUTREACH_TEST_MODE", "false").lower() == "true"
 TEST_OVERRIDE_EMAIL = os.getenv("OUTREACH_TEST_EMAIL", "") if TEST_MODE else None
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Mailboxes reserved for the SurveyFieldwork Panel's transactional mail
+# (verification, password reset, daily survey emails sent via the Gmail API).
+# Cold outreach must never go out from them: spam complaints on outreach would
+# land panelists' verification emails in spam.
+RESERVED_TRANSACTIONAL_SENDERS = {
+    addr.strip().lower()
+    for addr in os.getenv(
+        "OUTREACH_RESERVED_SENDERS", "info@surveyfieldwork.com,panel@surveyfieldwork.com"
+    ).split(",")
+    if addr.strip()
+}
+
 from .models import (
     Lead,
     EmailSend,
@@ -320,6 +332,11 @@ class SendingEngine:
             mailbox = self.mailbox_manager.get_mailbox(mailbox_id)
             if not mailbox:
                 return False, f"Mailbox {mailbox_id} not found", None
+
+            sender = (mailbox.get("email_address") or mailbox.get("email") or "").strip().lower()
+            if sender in RESERVED_TRANSACTIONAL_SENDERS:
+                logger.error(f"Refusing outreach from {sender}: reserved for panel transactional mail")
+                return False, f"{sender} is reserved for panel transactional mail, not outreach", None
             
             # Get personalization level
             personalization_level = PersonalizationLevel(
