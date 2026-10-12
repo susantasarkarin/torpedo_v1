@@ -7,7 +7,8 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 /**
  * Traffic funnel — every landing on the SFW panel site is a visit record
  * (source, country, the ad platform's respondent id, device), followed through
- * form started → signup → email verified → profile complete. Data comes from
+ * form started → signup → email verified → membership confirmed (double opt-in:
+ * email, mobile, consents) → profile complete. Data comes from
  * the panel's /api/admin/traffic via Torpedo's proxy.
  */
 
@@ -26,6 +27,7 @@ const STEPS = [
   ["formStarted", "Form started"],
   ["signups", "Signed up"],
   ["verified", "Email verified"],
+  ["membershipConfirmed", "Membership confirmed"],
   ["profileCompleted", "Profile complete"],
 ]
 
