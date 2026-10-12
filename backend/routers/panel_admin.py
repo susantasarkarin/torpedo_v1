@@ -1259,6 +1259,41 @@ def get_profiling_stats(request: Request):
         raise HTTPException(status_code=502, detail=f"Could not load profiling stats from the panel: {e}")
 
 
+@router.get("/profiling/qual-review")
+def get_qual_review(request: Request, all: int = 0):
+    """Tier 1+ members waiting for field-team checks (articulation, identity, mystery-shopping practice)."""
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/profiling-qual-review", {"all": 1 if all else 0})
+    except Exception as e:
+        logger.error(f"qual review error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load the qual review list from the panel: {e}")
+
+
+@router.patch("/profiling/qual-review/{user_id}")
+def update_qual_review(request: Request, user_id: str, payload: Dict[str, Any] = Body(...)):
+    verify_admin_session(request)
+    allowed = {k: payload[k] for k in ("articulation", "idVerified", "idMethod", "mysPractice") if k in payload}
+    allowed["by"] = "torpedo-admin"
+    return _sfw_write("PATCH", f"/profiling-qual-review/{user_id}", allowed)
+
+
+@router.get("/profiling/flags")
+def get_profiling_flags(request: Request):
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/profiling-flags")
+    except Exception as e:
+        logger.error(f"profiling flags error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load profiling flags from the panel: {e}")
+
+
+@router.post("/profiling/flags/{user_id}/{rule}/clear")
+def clear_profiling_flag(request: Request, user_id: str, rule: str):
+    verify_admin_session(request)
+    return _sfw_write("POST", f"/profiling-flags/{user_id}/{rule}/clear", {"by": "torpedo-admin"})
+
+
 @router.get("/dashboard/sfwpanel-overview")
 def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""

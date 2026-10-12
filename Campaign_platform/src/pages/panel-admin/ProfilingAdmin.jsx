@@ -34,7 +34,9 @@ const RULES = {
   QC_07: "Insurance-paid treatment, no health cover",
   QC_08: "Over-claiming (have / plan > 80%)",
   QC_09: "Under 21 with top income band",
+  QC_12: "QUAL_09 pasted in, not typed",
 }
+const RESEARCH = { 1: "Online 1:1", 2: "Online group", 3: "In-person group", 4: "Home visit", 5: "Diary", 6: "Mobile ethnography", 7: "Product test", 8: "Store accompaniment", 9: "Phone", 10: "Mystery shopping" }
 
 async function call(path, options) {
   const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}${path}`), options)
@@ -56,6 +58,7 @@ function Stats({ stats }) {
         <span><strong>{stats.layer0Complete.toLocaleString()}</strong> core profile done</span>
         <span><strong>{stats.flowComplete.toLocaleString()}</strong> whole flow done (10 points paid)</span>
         <span><strong>{stats.attentionCheckFailed.toLocaleString()}</strong> failed the attention check</span>
+        <span><strong>{(stats.mysteryShoppers || 0).toLocaleString()}</strong> mystery shoppers ready</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -81,6 +84,127 @@ function Stats({ stats }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// Tier 2 needs checks only people can make: QUAL_09 articulation (1-5),
+// identity (KYC provider or recruiter video call — no ID document is stored),
+// and for mystery shopping the MYS_07 practice evaluation.
+function QualReview({ onChanged }) {
+  const [rows, setRows] = useState(null)
+  const [showAll, setShowAll] = useState(false)
+  const [busy, setBusy] = useState("")
+  const [error, setError] = useState("")
+
+  const load = useCallback(() => {
+    call(`/profiling/qual-review?all=${showAll ? 1 : 0}`).then((d) => setRows(d.members)).catch((e) => setError(e.message))
+  }, [showAll])
+  useEffect(() => { load() }, [load])
+
+  const update = async (userId, patch) => {
+    setBusy(userId)
+    setError("")
+    try {
+      await call(`/profiling/qual-review/${userId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) })
+      load()
+      onChanged()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy("")
+    }
+  }
+
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <h3 style={{ margin: 0, fontSize: "1rem" }}>Qual & field review (Tier 2)</h3>
+        <label style={{ fontSize: "0.85rem" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show reviewed members too</label>
+      </div>
+      {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
+      {!rows ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>Nobody is waiting. Tier 1 members appear here once they answer the qual questions.</p>
+      ) : rows.map((m) => (
+        <div key={m.userId} style={{ borderTop: "1px solid #f3f4f6", padding: "0.9rem 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+            <strong>{m.name || m.email} <span style={{ fontWeight: 400, color: "#6b7280" }}>· {m.email} · {m.country} · Tier {m.tier ?? "—"}{m.mysteryShopper ? " · mystery shopper" : ""}</span></strong>
+            <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+              Camera / mic: {m.techCheck ? `${m.techCheck.camera ? "✓" : "✗"} / ${m.techCheck.mic ? "✓" : "✗"}` : "not needed"}
+              {m.openFlags.length ? ` · open flags: ${m.openFlags.join(", ")}` : ""}
+            </span>
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "#4b5563", margin: "0.3rem 0" }}>Would do: {m.researchTypes.map((c) => RESEARCH[c] || c).join(", ")}</p>
+          <blockquote style={{ margin: "0.4rem 0", padding: "0.5rem 0.75rem", background: "#f9fafb", borderLeft: "3px solid #c7d2fe", fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{m.qual09}</blockquote>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", fontSize: "0.85rem" }}>
+            <span>Articulation:{" "}
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button key={n} type="button" disabled={busy === m.userId} onClick={() => update(m.userId, { articulation: n })}
+                  style={{ ...btn, padding: "0.25rem 0.55rem", marginRight: "0.2rem", ...(m.qual.articulation === n ? { background: "#4f46e5", color: "#fff", borderColor: "#4f46e5" } : {}) }}>{n}</button>
+              ))}
+            </span>
+            <span>Identity:{" "}
+              {m.qual.idVerifiedAt ? <span style={{ color: "#047857" }}>verified ({m.qual.idMethod})</span> : (
+                <>
+                  <button type="button" style={btn} disabled={busy === m.userId} onClick={() => update(m.userId, { idVerified: true, idMethod: "recruiter video check" })}>Verified by video call</button>{" "}
+                  <button type="button" style={btn} disabled={busy === m.userId} onClick={() => update(m.userId, { idVerified: true, idMethod: "KYC provider" })}>Verified by KYC provider</button>
+                </>
+              )}
+            </span>
+            {m.researchTypes.includes(10) && (
+              <span>Mystery practice:{" "}
+                {["pass", "fail"].map((r) => (
+                  <button key={r} type="button" disabled={busy === m.userId} onClick={() => update(m.userId, { mysPractice: r })}
+                    style={{ ...btn, padding: "0.25rem 0.6rem", marginRight: "0.2rem", ...(m.qual.mysPractice === r ? { background: r === "pass" ? "#047857" : "#b91c1c", color: "#fff" } : {}) }}>{r}</button>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function FlagReview({ onChanged }) {
+  const [rows, setRows] = useState(null)
+  const [error, setError] = useState("")
+  const load = useCallback(() => { call("/profiling/flags").then((d) => setRows(d.members)).catch((e) => setError(e.message)) }, [])
+  useEffect(() => { load() }, [load])
+  const clear = async (userId, rule) => {
+    try {
+      await call(`/profiling/flags/${userId}/${rule}/clear`, { method: "POST" })
+      load()
+      onChanged()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+  return (
+    <div style={card}>
+      <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Quality flags to review</h3>
+      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>Open consistency flags keep a member out of Tier 1. Clear a flag once you have checked the answers are genuine.</p>
+      {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
+      {!rows ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
+        <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>No open flags.</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={th}>Member</th><th style={th}>Country</th><th style={th}>Flag</th><th style={th}>Raised</th><th style={th} /></tr></thead>
+            <tbody>
+              {rows.flatMap((m) => m.flags.map((f) => (
+                <tr key={`${m.userId}-${f.rule}-${f.at}`}>
+                  <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{m.email}</div></td>
+                  <td style={td}>{m.country}</td>
+                  <td style={td}>{f.rule} · {RULES[f.rule] || ""}{f.module ? ` (${f.module})` : ""}</td>
+                  <td style={td}>{f.at ? new Date(f.at).toLocaleDateString() : ""}</td>
+                  <td style={td}>{["QC_02", "QC_03"].includes(f.rule) ? <span style={{ color: "#6b7280", fontSize: "0.8rem" }}>answers were reset</span> : <button type="button" style={btn} onClick={() => clear(m.userId, f.rule)}>Clear</button>}</td>
+                </tr>
+              )))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -176,6 +300,8 @@ export default function ProfilingAdmin() {
       </p>
       {error && <div style={{ ...card, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>}
       {stats && <Stats stats={stats} />}
+      <QualReview onChanged={load} />
+      <FlagReview onChanged={load} />
       {lists && (
         <>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
