@@ -1228,6 +1228,37 @@ def get_traffic(request: Request, days: int = 30):
         raise HTTPException(status_code=502, detail=f"Could not load traffic from the panel: {e}")
 
 
+# ─── Profiling (questionnaire v1.1) ──────────────────────────────────────────
+# Brand lists used by the panel's profiling questions (insurers, banks, vehicle
+# makes, per country) and tier / module / quality-flag counts. Lists live on
+# the SFW panel; codes are permanent there — removed brands are retired.
+
+@router.get("/profiling/lists")
+def get_profiling_lists(request: Request):
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/profiling-lists")
+    except Exception as e:
+        logger.error(f"profiling lists error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load profiling lists from the panel: {e}")
+
+
+@router.put("/profiling/lists/{key}/{variant}")
+def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[str, Any] = Body(...)):
+    verify_admin_session(request)
+    return _sfw_write("PUT", f"/profiling-lists/{key}/{variant}", {"items": payload.get("items", []), "updatedBy": "torpedo-admin"})
+
+
+@router.get("/profiling/stats")
+def get_profiling_stats(request: Request):
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/profiling-stats")
+    except Exception as e:
+        logger.error(f"profiling stats error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load profiling stats from the panel: {e}")
+
+
 @router.get("/dashboard/sfwpanel-overview")
 def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""
