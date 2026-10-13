@@ -3,6 +3,10 @@ import { buildApiUrl } from "../../config"
 import { fireLandingPixel } from "../../utils/adPixels";
 import "./TrafficFlowParser.css";
 
+// Date of birth and gender are not asked on this page for anyone (only the
+// security check). Panel members' come from their panel profile on the server.
+const ASK_DOB_GENDER = false;
+
 // Generate a unique transaction ID (UUID v4)
 function generateTransId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -354,14 +358,13 @@ export default function TrafficFlowParser() {
       return;
     }
 
-    // Validate profiling data (CRITICAL for CPX survey matching). Panel members'
-    // DOB and gender come from their panel profile, so they aren't asked here.
-    if (!landing?.knownProfile && (!birthdayDay || !birthdayMonth || !birthdayYear)) {
+    // Validate profiling data (only when ASK_DOB_GENDER is on).
+    if (ASK_DOB_GENDER && (!birthdayDay || !birthdayMonth || !birthdayYear)) {
       isClickProcessingRef.current = false;
       setProfileError("Please enter your complete date of birth");
       return;
     }
-    if (!landing?.knownProfile && !gender) {
+    if (ASK_DOB_GENDER && !gender) {
       isClickProcessingRef.current = false;
       setProfileError("Please select your gender");
       return;
@@ -501,8 +504,8 @@ export default function TrafficFlowParser() {
           fingerprintSource: "client",
           trans_id: transId,
           // CPX User Profiling Parameters (CRITICAL for demographic survey matching);
-          // left empty for panel members — the server reads their panel profile.
-          ...(landing?.knownProfile ? {} : {
+          // not asked (ASK_DOB_GENDER) — the server reads panel members' profile.
+          ...(!ASK_DOB_GENDER ? {} : {
             birthday_day: parseInt(birthdayDay, 10),
             birthday_month: parseInt(birthdayMonth, 10),
             birthday_year: parseInt(birthdayYear, 10),
@@ -628,7 +631,7 @@ export default function TrafficFlowParser() {
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
 
-        {!landing?.knownProfile && (
+        {ASK_DOB_GENDER && (
         <>
         {/* Date of Birth - mandatory for CPX demographic targeting */}
         <div style={{ margin: "20px 0", textAlign: "left" }}>
