@@ -259,10 +259,11 @@ function QualityReport() {
             {tile("Straight-liners", data.straightLiners.count, "#b45309")}
             {tile("Quick start dropouts", data.dropouts.quickStart, "#b91c1c")}
             {tile("Section dropouts", data.dropouts.sections, "#b91c1c")}
+            {tile("Older members — Quick start not started", data.dropouts.quickStartNotStarted || 0, "#4b5563")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
             <div>
-              <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Where Quick start dropouts stopped</p>
+              <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Where Quick start dropouts stopped (started, then left)</p>
               {data.dropouts.quickStartStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>None</p> : (
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>Question</th><th style={th}>Members</th></tr></thead>
