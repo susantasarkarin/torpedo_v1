@@ -23,11 +23,11 @@ router = APIRouter(prefix="/panel-admin/invitations", tags=["Panel Invitations"]
 # ============== HELPERS ==============
 
 def verify_admin_session(request: Request):
-    """Verify admin session from Authorization header"""
-    session_id = request.headers.get("Authorization")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="Missing session token")
-    return session_id
+    """Verify admin session from Authorization header (a real signed login
+    session, not just any header value)."""
+    from session_state import verify_session_sync
+    verify_session_sync(request)
+    return request.headers.get("Authorization", "").strip()
 
 
 # ============== ENDPOINTS ==============

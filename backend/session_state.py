@@ -235,6 +235,37 @@ async def verify_session(request: Request):
     return username
 
 
+def verify_session_sync(request: Request) -> str:
+    """
+    Synchronous check for routes that can't await verify_session (the panel
+    admin routers call their check from plain `def` endpoints). Requires a
+    valid, unexpired signature and a current token epoch; the session-store
+    revocation check is left to verify_session.
+    """
+    session_id = (request.headers.get("Authorization") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Missing session token")
+    cached = sessions.get(session_id)
+    if cached and cached.get("expires_at") and cached["expires_at"] > datetime.utcnow():
+        return cached["username"]
+    try:
+        username, token_epoch = _unpack(serializer.loads(session_id, max_age=SESSION_TTL_SECONDS))
+    except SignatureExpired:
+        raise HTTPException(status_code=401, detail="Session expired - please login again")
+    except BadSignature:
+        raise HTTPException(status_code=401, detail="Invalid session token - please login again")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid session token - please login again")
+    live_epoch = current_epoch(username)
+    if live_epoch >= 0 and token_epoch < live_epoch:
+        raise HTTPException(status_code=401, detail="Session invalidated - please login again")
+    sessions[session_id] = {
+        "username": username,
+        "expires_at": datetime.utcnow() + timedelta(seconds=CACHE_TTL_SECONDS),
+    }
+    return username
+
+
 async def revoke_session(session_id: str) -> None:
     """Delete a session everywhere it is known. Used by logout."""
     if not session_id:
