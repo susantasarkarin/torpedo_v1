@@ -1411,7 +1411,10 @@ def _survey_log_rows(panel_id: str, limit: int):
         except Exception as e:
             logger.warning(f"survey log index: {e}")
         _survey_log_index_ready = True
-    cursor = traffic_collection.find({"panelId": panel_id}, {f: 1 for _, f in _SURVEY_LOG_FIELDS}).sort("createdAt", -1).limit(limit)
+    # The $type condition lets MongoDB use the partial index (otherwise it walks
+    # the whole createdAt index: seconds instead of milliseconds).
+    query = {"panelId": panel_id, "$and": [{"panelId": {"$type": "string"}}]}
+    cursor = traffic_collection.find(query, {f: 1 for _, f in _SURVEY_LOG_FIELDS}).sort("createdAt", -1).limit(limit)
     rows = []
     for doc in cursor:
         row = {}
