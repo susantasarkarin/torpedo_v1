@@ -82,6 +82,31 @@ def verify_admin_session(request: Request):
     return request.headers.get("Authorization", "").strip()
 
 
+# Country values arrive as codes from some sources and names from others
+# ("IN" / "India", "UK" / "GB" / "United Kingdom"). Everything shown in the
+# panel admin uses one ISO code; filters accept the code and match every alias.
+_COUNTRY_ALIASES = {
+    "IN": ["IN", "India"], "US": ["US", "USA", "United States", "United States of America"],
+    "GB": ["GB", "UK", "United Kingdom", "Great Britain", "England"], "AU": ["AU", "Australia"],
+    "CA": ["CA", "Canada"], "FR": ["FR", "France"], "ES": ["ES", "Spain"], "DE": ["DE", "Germany"],
+    "SG": ["SG", "Singapore"], "NG": ["NG", "Nigeria"], "AE": ["AE", "UAE", "United Arab Emirates"],
+}
+_COUNTRY_LOOKUP = {alias.lower(): code for code, aliases in _COUNTRY_ALIASES.items() for alias in aliases}
+
+
+def _country_code(value) -> str:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() in ("XX", "UNKNOWN", "OTHER", "??"):
+        return "Unknown"
+    return _COUNTRY_LOOKUP.get(raw.lower(), raw.upper() if len(raw) == 2 else raw)
+
+
+def _country_filter(value):
+    code = _country_code(value)
+    aliases = _COUNTRY_ALIASES.get(code)
+    return {"$in": aliases} if aliases else _exact_or_regex(value)
+
+
 def _extract_first_list_payload(payload: Any) -> List[Dict[str, Any]]:
     """Extract first list of dicts from a JSON payload."""
     if isinstance(payload, list):
@@ -377,7 +402,7 @@ def _build_panelist_query(
         })
 
     if country:
-        conditions.append({"country": _exact_or_regex(country)})
+        conditions.append({"country": _country_filter(country)})
 
     if status:
         conditions.append({"status": _exact_or_regex(status)})
@@ -438,8 +463,8 @@ def list_panelist_countries(request: Request):
 
     try:
         countries = panelists_collection.distinct("country")
-        # Filter out empty/None values and sort
-        countries = sorted([c for c in countries if c])
+        # One ISO code per country (names and codes are mixed in the data)
+        countries = sorted({_country_code(c) for c in countries if c} - {"Unknown"})
         return {"countries": countries}
     except Exception as e:
         logger.error(f"Error fetching countries: {e}")
@@ -601,7 +626,12 @@ def list_panelist_leads(
         ]
 
         # allowDiskUse avoids the in-memory sort/group limit on large collections.
-        leads = [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline, allowDiskUse=True)]
+        # The dedup runs over the whole traffic collection (~15s), so pages are
+        # cached for the same few minutes as the total.
+        leads = _cached_lead_total(
+            f"leadpage|{search or ''}|{country or ''}|{page}|{page_size}",
+            lambda: [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline, allowDiskUse=True)],
+        )
 
         return {
             "results": leads,
@@ -866,8 +896,12 @@ def get_daily_email_stats(
     request: Request,
     days: int = Query(30, ge=1, le=365),
 ):
-    """Get daily email send statistics for the last N days"""
+    """Get daily email send statistics for the last N days (cached a few minutes)."""
     verify_admin_session(request)
+    return _cached_lead_total(f"daily-stats|{days}", lambda: _daily_email_stats(request, days))
+
+
+def _daily_email_stats(request: Request, days: int):
 
     try:
         from datetime import timedelta, timezone
@@ -1113,9 +1147,9 @@ def get_registrations_by_country(
         by_country = {}
         total_registered = 0
         for doc in registrations:
-            country = doc.get("_id") or "Unknown"
+            country = _country_code(doc.get("_id"))
             count = doc.get("count", 0)
-            by_country[country] = count
+            by_country[country] = by_country.get(country, 0) + count
             total_registered += count
         
         return {
@@ -1250,6 +1284,25 @@ def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[
     return _sfw_write("PUT", f"/profiling-lists/{key}/{variant}", {"items": payload.get("items", []), "updatedBy": "torpedo-admin"})
 
 
+@router.get("/panel-rewards")
+def get_panel_rewards(request: Request):
+    """Points earned / on hold / redeemed and gift cards to send (from the SFW panel)."""
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/rewards-overview")
+    except Exception as e:
+        logger.error(f"panel rewards error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load rewards from the panel: {e}")
+
+
+@router.post("/panel-redemptions/{redemption_id}/sent")
+def mark_panel_redemption_sent(request: Request, redemption_id: str):
+    """Record that a member's gift card was sent."""
+    from session_state import verify_session_sync
+    username = verify_session_sync(request)
+    return _sfw_write("POST", f"/redemptions/{redemption_id}/sent", {"by": username})
+
+
 @router.get("/member-funnel")
 def get_member_funnel(request: Request, country: str = "", days: int = 0):
     """Where panel members stand, signup → redeemed, and where they get stuck.
@@ -1381,7 +1434,7 @@ def get_sfwpanel_countries(request: Request):
         raw = data.get("countries", [])
         countries = [
             {
-                "country": c.get("_id", "XX"),
+                "country": _country_code(c.get("_id")),
                 "total": c.get("total", 0),
                 "today": c.get("today", 0),
                 "this_week": c.get("thisWeek", 0),

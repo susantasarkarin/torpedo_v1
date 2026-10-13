@@ -1,142 +1,126 @@
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { buildApiUrl } from "../../config"
-import { formatDate } from "../../utils/format"
 import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
-function RewardsPoints() {
-  const [stats, setStats] = useState({ totalIssued: 0, totalRedeemed: 0, pendingRedemptions: 0 })
-  const [transactions, setTransactions] = useState([])
-  const [redemptions, setRedemptions] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("transactions")
+/**
+ * Rewards & Points — live from the SurveyFieldwork Panel: points members have
+ * earned, points on hold (profile not complete yet), redemptions, and the
+ * Amazon gift cards still to be sent.
+ */
 
-  useEffect(() => {
-    fetchRewardsData()
+const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
+const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#4b5563", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }
+const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f3f4f6" }
+const btn = { padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #4f46e5", background: "#4f46e5", color: "#fff", cursor: "pointer", fontSize: "0.8rem" }
+const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", GB: "United Kingdom", US: "United States" }
+const n = (v) => (v || 0).toLocaleString()
+
+function RewardsPoints() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState("")
+  const [filter, setFilter] = useState("toSend")
+  const [busy, setBusy] = useState("")
+
+  const load = useCallback(async () => {
+    try {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panel-rewards`), { headers: { Authorization: localStorage.getItem("session_id") } })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`)
+      setData(body)
+      setError("")
+    } catch (e) {
+      setError(e.message)
+    }
   }, [])
 
-  const fetchRewardsData = async () => {
-    const sessionId = localStorage.getItem("session_id")
-    try {
-      const [statsRes, txRes, redemptionRes] = await Promise.all([
-        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/stats/`), { headers: { Authorization: sessionId } }),
-        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/`), { headers: { Authorization: sessionId } }),
-        authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/rewards/redemptions`), { headers: { Authorization: sessionId } }),
-      ])
+  useEffect(() => { load() }, [load])
 
-      if (statsRes.ok) {
-        const data = await statsRes.json()
-        setStats({
-          totalIssued: data.totalRewardsIssued || 0,
-          totalRedeemed: data.totalRedeemed || 0,
-          pendingRedemptions: data.pendingRedemptions || 0,
-        })
+  const markSent = async (r) => {
+    if (!window.confirm(`Mark the ${r.giftCard} gift card for ${r.name || r.email} as sent?`)) return
+    setBusy(r.id)
+    try {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panel-redemptions/${r.id}/sent`), {
+        method: "POST",
+        headers: { Authorization: localStorage.getItem("session_id") },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `HTTP ${res.status}`)
       }
-      if (txRes.ok) {
-        const data = await txRes.json()
-        setTransactions(data.results || data || [])
-      }
-      if (redemptionRes.ok) {
-        const data = await redemptionRes.json()
-        setRedemptions(data.results || data || [])
-      }
-    } catch (err) {
-      console.error("Failed to fetch rewards data:", err)
+      await load()
+    } catch (e) {
+      alert(`Could not mark as sent: ${e.message}`)
     } finally {
-      setLoading(false)
+      setBusy("")
     }
   }
 
-  const tabStyle = (tab) => ({
-    padding: "0.75rem 1.5rem",
-    border: "none",
-    borderBottom: activeTab === tab ? "3px solid #e8890b" : "3px solid transparent",
-    background: "none",
-    cursor: "pointer",
-    fontWeight: activeTab === tab ? "600" : "400",
-    color: activeTab === tab ? "#e8890b" : "#4b5563",
-    fontSize: "0.95rem",
-  })
+  const tile = (label, value, sub, color) => (
+    <div style={{ ...card, marginBottom: 0 }}>
+      <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>{label}</p>
+      <p style={{ margin: "0.25rem 0 0", fontSize: "1.6rem", fontWeight: 700, color }}>{value}</p>
+      {sub && <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{sub}</p>}
+    </div>
+  )
+
+  const redemptions = (data?.redemptions || []).filter((r) => (filter === "toSend" ? !r.fulfilledAt : filter === "sent" ? r.fulfilledAt : true))
 
   return (
-    <div>
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Rewards & Points</h2>
-          <p className="card-description">Manage reward points, transactions, and redemption requests.</p>
-        </div>
+    <div style={{ padding: "1.5rem", maxWidth: "1200px" }}>
+      <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Rewards & Points</h1>
+      <p style={{ margin: "0.25rem 0 1.25rem", color: "#6b7280", fontSize: "0.875rem" }}>
+        Live from the SurveyFieldwork Panel. 100 points = ₹10 / £1 / $1.
+      </p>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-3 mb-6">
-          <div className="card">
-            <h3 className="card-title">Total Points Issued</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#047857" }}>
-              {loading ? "..." : stats.totalIssued}
-            </p>
-          </div>
-          <div className="card">
-            <h3 className="card-title">Total Redeemed</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#a25e07" }}>
-              {loading ? "..." : stats.totalRedeemed}
-            </p>
-          </div>
-          <div className="card">
-            <h3 className="card-title">Pending Redemptions</h3>
-            <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#b45309" }}>
-              {loading ? "..." : stats.pendingRedemptions}
-            </p>
-          </div>
-        </div>
+      {error && <div style={{ ...card, color: "#b91c1c" }}>{error}</div>}
+      {!data && !error && <div style={card}>Loading…</div>}
 
-        {/* Tabs */}
-        <div style={{ borderBottom: "1px solid #e5e7eb", marginBottom: "1.5rem" }}>
-          <button style={tabStyle("transactions")} onClick={() => setActiveTab("transactions")}>
-            Transaction History
-          </button>
-          <button style={tabStyle("redemptions")} onClick={() => setActiveTab("redemptions")}>
-            Redemption Requests
-          </button>
-        </div>
+      {data && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
+            {tile("Gift cards to send", n(data.totals.toSend), "redeemed, not yet marked sent", data.totals.toSend ? "#dc2626" : "#059669")}
+            {tile("Points earned", n(data.totals.earnedPoints), "credited to balances", "#047857")}
+            {tile("Points on hold", n(data.totals.onHoldPoints), "released when the profile is complete", "#d97706")}
+            {tile("Points redeemed", n(data.totals.redeemedPoints), "as gift cards", "#4f46e5")}
+            {tile("Points in balances", n(data.totals.balancePoints), "owed to members if redeemed", "#1f2937")}
+          </div>
 
-        {/* Transactions Tab */}
-        {activeTab === "transactions" && (
-          <div>
-            {loading ? (
-              <p style={{ color: "#4b5563" }}>Loading transactions…</p>
-            ) : transactions.length === 0 ? (
-              <p style={{ color: "#4b5563" }}>No transactions found.</p>
+          <div style={card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem" }}>Gift-card redemptions</h3>
+              <div style={{ display: "flex", gap: "0.25rem", background: "#f3f4f6", borderRadius: "8px", padding: "0.2rem" }}>
+                {[["toSend", "To send"], ["sent", "Sent"], ["all", "All"]].map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setFilter(k)}
+                    style={{ border: "none", borderRadius: "6px", padding: "0.3rem 0.75rem", fontSize: "0.8rem", cursor: "pointer", background: filter === k ? "#fff" : "transparent", fontWeight: filter === k ? 600 : 400 }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {redemptions.length === 0 ? (
+              <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>{filter === "toSend" ? "Nothing to send — all redemptions are done." : "No redemptions."}</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
-                    <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
-                      <th style={thStyle}>Panelist</th>
-                      <th style={thStyle}>Type</th>
-                      <th style={thStyle}>Amount</th>
-                      <th style={thStyle}>Description</th>
-                      <th style={thStyle}>Status</th>
-                      <th style={thStyle}>Date</th>
-                    </tr>
+                    <tr><th style={th}>Requested</th><th style={th}>Member</th><th style={th}>Country</th><th style={th}>Gift card</th><th style={th}>Points</th><th style={th}>Status</th></tr>
                   </thead>
                   <tbody>
-                    {transactions.map((tx, i) => (
-                      <tr key={tx._id || tx.id || i} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={tdStyle}>{tx.panelist_name || tx.panelist_email || tx.panelist_id || "-"}</td>
-                        <td style={tdStyle}>
-                          <span style={{
-                            fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                            backgroundColor: tx.type === "earned" ? "#d1fae5" : "#fff7ed",
-                            color: tx.type === "earned" ? "#065f46" : "#c47209",
-                          }}>
-                            {tx.type || "-"}
-                          </span>
-                        </td>
-                        <td style={tdStyle}>{tx.amount ?? 0}</td>
-                        <td style={tdStyle}>{tx.description || "-"}</td>
-                        <td style={tdStyle}>{tx.status || "completed"}</td>
-                        <td style={tdStyle}>
-                          {tx.created_at ? formatDate(tx.created_at) : "-"}
+                    {redemptions.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ ...td, whiteSpace: "nowrap" }}>{new Date(r.at).toLocaleString()}</td>
+                        <td style={td}>{r.name || "—"}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{r.email} · {r.panelistId}</div></td>
+                        <td style={td}>{COUNTRY_LABELS[r.country] || r.country || "—"}</td>
+                        <td style={{ ...td, fontWeight: 700 }}>{r.giftCard}</td>
+                        <td style={td}>{n(r.points)}</td>
+                        <td style={td}>
+                          {r.fulfilledAt ? (
+                            <span style={{ color: "#059669" }}>Sent {new Date(r.fulfilledAt).toLocaleDateString()}{r.fulfilledBy ? ` · ${r.fulfilledBy}` : ""}</span>
+                          ) : (
+                            <button type="button" style={btn} disabled={busy === r.id} onClick={() => markSent(r)}>{busy === r.id ? "Saving…" : "Mark sent"}</button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -145,61 +129,22 @@ function RewardsPoints() {
               </div>
             )}
           </div>
-        )}
 
-        {/* Redemptions Tab */}
-        {activeTab === "redemptions" && (
-          <div>
-            {loading ? (
-              <p style={{ color: "#4b5563" }}>Loading redemption requests…</p>
-            ) : redemptions.length === 0 ? (
-              <p style={{ color: "#4b5563" }}>No redemption requests found.</p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
-                      <th style={thStyle}>Panelist</th>
-                      <th style={thStyle}>Amount</th>
-                      <th style={thStyle}>Method</th>
-                      <th style={thStyle}>Status</th>
-                      <th style={thStyle}>Requested</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {redemptions.map((r, i) => (
-                      <tr key={r._id || r.id || i} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={tdStyle}>{r.panelist_name || r.panelist_email || "-"}</td>
-                        <td style={tdStyle}>{r.amount ?? 0}</td>
-                        <td style={tdStyle}>{r.method || "UPI"}</td>
-                        <td style={tdStyle}>
-                          <span style={{
-                            fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                            backgroundColor: r.status === "completed" ? "#d1fae5" :
-                              r.status === "pending" ? "#fef3c7" : "#fee2e2",
-                            color: r.status === "completed" ? "#065f46" :
-                              r.status === "pending" ? "#92400e" : "#991b1b",
-                          }}>
-                            {r.status || "pending"}
-                          </span>
-                        </td>
-                        <td style={tdStyle}>
-                          {r.created_at ? formatDate(r.created_at) : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          <div style={card}>
+            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Points by reason</h3>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><th style={th}>Reason</th><th style={th}>Awards</th><th style={th}>Points earned</th><th style={th}>Points on hold</th></tr></thead>
+              <tbody>
+                {data.byType.map((t) => (
+                  <tr key={t.label}><td style={td}>{t.label}</td><td style={td}>{n(t.awards)}</td><td style={td}>{n(t.earnedPoints)}</td><td style={td}>{n(t.onHoldPoints)}</td></tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }
-
-const thStyle = { textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", color: "#4b5563" }
-const tdStyle = { padding: "0.75rem", fontSize: "0.875rem" }
 
 export default RewardsPoints

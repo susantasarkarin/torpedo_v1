@@ -100,7 +100,14 @@ export default function MemberFunnel() {
             <h3 style={{ margin: "0 0 1rem", fontSize: "1rem" }}>Funnel · {data.total} members</h3>
             {data.stages.map((s, i) => (
               <div key={s.key} style={{ display: "grid", gridTemplateColumns: "190px 1fr 150px", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
-                <div style={{ fontSize: "0.875rem", fontWeight: 600 }}>{s.label}</div>
+                <div style={{ fontSize: "0.875rem", fontWeight: 600 }}>
+                  {s.label}
+                  {s.skipped > 0 && (
+                    <div style={{ fontSize: "0.7rem", fontWeight: 400, color: "#9ca3af" }} title="Members past this stage who never did it — they joined before this step existed">
+                      incl. {s.skipped} who skipped it
+                    </div>
+                  )}
+                </div>
                 <div style={{ background: "#f3f4f6", borderRadius: "6px", height: "26px", position: "relative" }}>
                   <div style={{ width: `${Math.max((s.reached / max) * 100, s.reached ? 1 : 0)}%`, height: "100%", borderRadius: "6px", background: "#6366f1" }} />
                   <span style={{ position: "absolute", left: "8px", top: "4px", fontSize: "0.8rem", fontWeight: 700, color: s.reached / max > 0.12 ? "#fff" : "#1f2937" }}>
@@ -113,7 +120,8 @@ export default function MemberFunnel() {
               </div>
             ))}
             <p style={{ margin: "0.75rem 0 0", fontSize: "0.75rem", color: "#6b7280" }}>
-              Bar = members who reached the stage (and % of signups). Right = conversion from the stage above: green ≥ 70%, amber 40–70%, red below 40%.
+              Bar = members who reached the stage or went past it (and % of signups). Right = conversion from the stage above: green ≥ 70%, amber 40–70%, red below 40%.
+              "Skipped" = older members who joined before that step existed.
             </p>
           </div>
 

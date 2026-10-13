@@ -8,7 +8,7 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 const COUNTRY_NAMES = {
   US: "United States", IN: "India", GB: "United Kingdom", AU: "Australia",
   CA: "Canada", DE: "Germany", FR: "France", SG: "Singapore", AE: "UAE",
-  XX: "Unknown",
+  ES: "Spain", NG: "Nigeria", UK: "United Kingdom", XX: "Unknown",
 }
 function countryName(cc) { return COUNTRY_NAMES[cc] || cc }
 
@@ -357,7 +357,7 @@ function PanelDashboard() {
                     const percentage = totalReg > 0 ? ((count / totalReg) * 100).toFixed(1) : 0
                     return (
                       <tr key={country} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ padding: "0.75rem 1rem", color: "#1a1a1a", fontSize: "0.875rem", fontWeight: "600" }}>{country}</td>
+                        <td style={{ padding: "0.75rem 1rem", color: "#1a1a1a", fontSize: "0.875rem", fontWeight: "600" }}>{countryName(country)}</td>
                         <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#1a1a1a", fontSize: "0.875rem", fontWeight: "600" }}>{count.toLocaleString()}</td>
                         <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#4b5563", fontSize: "0.875rem" }}>{percentage}%</td>
                       </tr>

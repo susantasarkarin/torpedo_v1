@@ -7,6 +7,12 @@ import { authFetch } from "../../utils/api"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
+
+// Country codes → names for the filters (the API sends ISO codes)
+const COUNTRY_NAMES = {
+  US: "United States", IN: "India", GB: "United Kingdom", UK: "United Kingdom", AU: "Australia",
+  CA: "Canada", DE: "Germany", FR: "France", SG: "Singapore", AE: "UAE", ES: "Spain", NG: "Nigeria",
+}
 function PanelistManagement() {
   const [activeTab, setActiveTab] = useState("panelist-leads")
 
@@ -786,7 +792,7 @@ function PanelistManagement() {
               >
                 <option value="">All Countries</option>
                 {leadCountries.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
                 ))}
               </select>
             </div>
@@ -898,7 +904,7 @@ function PanelistManagement() {
               >
                 <option value="">All Countries</option>
                 {availableCountries.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
                 ))}
               </select>
             </div>
@@ -1041,7 +1047,7 @@ function PanelistManagement() {
               <select value={sfwCountry} onChange={(e) => { setSfwCountry(e.target.value); setSfwPage(1); fetchSfwPanelists({ page: 1, country: e.target.value }) }}
                 style={{ padding: "0.5rem 0.75rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }}>
                 <option value="">All Countries</option>
-                {["US","IN","GB","AU","CA","DE","SG","AE"].map(c => <option key={c} value={c}>{c}</option>)}
+                {["US","IN","GB","AU","CA","DE","SG","AE"].map(c => <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>)}
               </select>
               <button onClick={() => { setSfwPage(1); fetchSfwPanelists({ page: 1 }) }}
                 style={{ padding: "0.5rem 1rem", background: "#f97316", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.875rem", fontWeight: "600" }}>
