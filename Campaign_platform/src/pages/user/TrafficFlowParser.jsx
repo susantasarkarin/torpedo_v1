@@ -223,6 +223,10 @@ export default function TrafficFlowParser() {
   const [birthdayYear, setBirthdayYear] = useState("");
   const [gender, setGender] = useState("");
   const [profileError, setProfileError] = useState("");
+  // Bot check: question issued by the server; trap is a hidden field only bots fill.
+  const [botAnswer, setBotAnswer] = useState("");
+  const [botTrap, setBotTrap] = useState("");
+  const [botFails, setBotFails] = useState(0);
   // Survey routing: questions to ask (per project / country) and, for Paid Ads only, PII + panel consent
   const [landing, setLanding] = useState(null);
   const [answers, setAnswers] = useState({});
@@ -350,15 +354,21 @@ export default function TrafficFlowParser() {
       return;
     }
 
-    // Validate profiling data (CRITICAL for CPX survey matching)
-    if (!birthdayDay || !birthdayMonth || !birthdayYear) {
+    // Validate profiling data (CRITICAL for CPX survey matching). Panel members'
+    // DOB and gender come from their panel profile, so they aren't asked here.
+    if (!landing?.knownProfile && (!birthdayDay || !birthdayMonth || !birthdayYear)) {
       isClickProcessingRef.current = false;
       setProfileError("Please enter your complete date of birth");
       return;
     }
-    if (!gender) {
+    if (!landing?.knownProfile && !gender) {
       isClickProcessingRef.current = false;
       setProfileError("Please select your gender");
+      return;
+    }
+    if (landing?.botCheck && !botAnswer) {
+      isClickProcessingRef.current = false;
+      setProfileError("Please answer the quick question");
       return;
     }
     const unanswered = (landing?.questions || []).find((q) => !answers[q.id]);
@@ -490,11 +500,15 @@ export default function TrafficFlowParser() {
           fingerprintComponents: fingerprint?.components || {},
           fingerprintSource: "client",
           trans_id: transId,
-          // CPX User Profiling Parameters (CRITICAL for demographic survey matching)
-          birthday_day: parseInt(birthdayDay, 10),
-          birthday_month: parseInt(birthdayMonth, 10),
-          birthday_year: parseInt(birthdayYear, 10),
-          gender: gender,
+          // CPX User Profiling Parameters (CRITICAL for demographic survey matching);
+          // left empty for panel members — the server reads their panel profile.
+          ...(landing?.knownProfile ? {} : {
+            birthday_day: parseInt(birthdayDay, 10),
+            birthday_month: parseInt(birthdayMonth, 10),
+            birthday_year: parseInt(birthdayYear, 10),
+            gender: gender,
+          }),
+          botCheck: { token: landing?.botCheck?.token || "", answer: botAnswer, trap: botTrap },
         }),
       });
 
@@ -502,6 +516,20 @@ export default function TrafficFlowParser() {
 
       if (response.ok) {
         const result = await response.json();
+        if (result.bot_check_failed) {
+          // Wrong answer / too fast / trap: one more try with a new question.
+          isClickProcessingRef.current = false;
+          setLoading(false);
+          setBotAnswer("");
+          setLanding((l) => ({ ...(l || {}), botCheck: result.botCheck }));
+          if (botFails >= 1) {
+            setError("Sorry, we couldn't verify that you're a person. Please try again later.");
+          } else {
+            setBotFails((n) => n + 1);
+            setProfileError("That answer wasn't right — please answer the new question.");
+          }
+          return;
+        }
         const objectId = result.id;
         const recordType = result.type || "unknown";
         let entryLink = result.entry_link;
@@ -581,7 +609,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii]);
+  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii, botAnswer, botTrap, botFails]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -607,6 +635,8 @@ export default function TrafficFlowParser() {
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
 
+        {!landing?.knownProfile && (
+        <>
         {/* Date of Birth - mandatory for CPX demographic targeting */}
         <div style={{ margin: "20px 0", textAlign: "left" }}>
           <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
@@ -720,6 +750,36 @@ export default function TrafficFlowParser() {
               <span style={{ fontSize: "16px" }}>Female</span>
             </label>
           </div>
+        </div>
+        </>
+        )}
+
+        {/* Bot check: a question any person answers instantly (verified on the server) */}
+        {landing?.botCheck && (
+          <div style={{ margin: "20px 0", textAlign: "left" }}>
+            <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+              Quick check: {landing.botCheck.text} <span style={{ color: "#c00" }}>*</span>
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", marginTop: "10px" }}>
+              {landing.botCheck.options.map((opt) => (
+                <label key={opt} style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="radio"
+                    name="botcheck"
+                    value={opt}
+                    checked={botAnswer === opt}
+                    onChange={(e) => { setBotAnswer(e.target.value); if (profileError) setProfileError(""); }}
+                    style={{ marginRight: "8px", width: "18px", height: "18px", cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: "16px" }}>{opt}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Hidden trap field: people never see it; bots that fill every input are stopped. */}
+        <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", top: "auto", width: "1px", height: "1px", overflow: "hidden" }}>
+          <label>Leave this field empty<input type="text" name="website" tabIndex={-1} autoComplete="off" value={botTrap} onChange={(e) => setBotTrap(e.target.value)} /></label>
         </div>
 
         {/* Qualification questions (survey routing) */}

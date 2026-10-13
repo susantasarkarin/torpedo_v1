@@ -41,6 +41,8 @@ from services.ad_tracking import (
 )
 from services import respondent_quality as sfw_quality
 from services import survey_routing
+from services import bot_check
+from services import panel_profile
 from services.respondent_quality import entry_quality_fields
 from session_state import verify_session
 
@@ -2257,8 +2259,15 @@ async def routing_landing_config(request: Request):
     except Exception:
         bank = {}
     paid = survey_routing.is_paid_ads(vendor, derive_traffic_source(qp))
+    # SurveyFieldwork Panel members: DOB and gender come from their panel profile.
+    known_profile = False
+    panel_param = str(qp.get("panel") or "").strip()
+    if panel_param and not panel_param.startswith(("[", "{", "%")):
+        known_profile = bool(await panel_profile.fetch(panel_param))
     return JSONResponse(content={
         "country": country,
+        "botCheck": bot_check.issue(),
+        "knownProfile": known_profile,
         "questions": survey_routing.questions_for(projects, bank),
         "paidAds": paid,
         "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,
@@ -2926,6 +2935,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "1", "true", "yes", "on"
         }
         
+        # Bot check (question + hidden trap + minimum time). Nothing is created
+        # or routed until it passes; a failed check gets a fresh question.
+        bot_ok, bot_reason = bot_check.verify(data.get("botCheck"))
+        if not bot_ok:
+            print(f"BOT CHECK failed ({bot_reason}) vid={vendor_id} rid={respondent_id} panel={panel_id}")
+            return JSONResponse(content={
+                "allocation_success": False,
+                "allocation_error": "bot_check",
+                "bot_check_failed": True,
+                "botCheck": bot_check.issue(),
+            })
+
         traffic_id = None
         entry_link = None
         survey_id = None
@@ -3063,6 +3084,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         gender = data.get('gender', '').strip().lower()
         zip_code = data.get('zip_code', '').strip()
+        if panel_id and (birthday_year is None or not gender):
+            known = await panel_profile.fetch(panel_id)
+            if known:
+                birthday_day = birthday_day or known["birthday_day"]
+                birthday_month = birthday_month or known["birthday_month"]
+                birthday_year = birthday_year or known["birthday_year"]
+                gender = gender or known["gender"]
+                zip_code = zip_code or known["zip_code"]
         ip_region = (data.get('ipRegion') or '').strip()   # state/province from ipinfo.io
         ip_city   = (data.get('ipCity')   or '').strip()   # city from ipinfo.io
         ip_postal = (data.get('ipPostal') or '').strip()   # postal/zip from ipinfo.io
