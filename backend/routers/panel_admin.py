@@ -1250,6 +1250,38 @@ def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[
     return _sfw_write("PUT", f"/profiling-lists/{key}/{variant}", {"items": payload.get("items", []), "updatedBy": "torpedo-admin"})
 
 
+@router.get("/member-funnel")
+def get_member_funnel(request: Request, country: str = "", days: int = 0):
+    """Where panel members stand, signup → redeemed, and where they get stuck.
+
+    Torpedo adds what only it knows — each member's survey clicks and their
+    outcomes — and the panel computes the funnel."""
+    verify_admin_session(request)
+    match = {"panelId": {"$type": "string"}, "$and": [{"panelId": {"$ne": ""}}]}  # $type → partial index
+    attempts = {}
+    try:
+        for row in traffic_collection.aggregate([
+            {"$match": match},
+            {"$group": {"_id": {"p": "$panelId", "s": "$status"}, "n": {"$sum": 1}, "last": {"$max": "$createdAt"}}},
+        ]):
+            pid, status = row["_id"]["p"], row["_id"].get("s") or "UNKNOWN"
+            entry = attempts.setdefault(pid, {"attempts": 0, "statuses": {}, "lastAt": None})
+            entry["attempts"] += row["n"]
+            entry["statuses"][status] = entry["statuses"].get(status, 0) + row["n"]
+            last = row.get("last")
+            if last and (entry["lastAt"] is None or last.isoformat() + "Z" > entry["lastAt"]):
+                entry["lastAt"] = last.isoformat() + "Z"
+    except Exception as e:
+        logger.warning(f"member funnel: survey clicks unavailable: {e}")
+    try:
+        return _sfw_write("POST", "/member-funnel", {"attempts": attempts, "country": country, "days": days})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"member funnel error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load the member funnel from the panel: {e}")
+
+
 @router.get("/profiling/quality")
 def get_profiling_quality(request: Request):
     """Speeders, straight-liners and dropouts in profile answering (from the SFW panel)."""

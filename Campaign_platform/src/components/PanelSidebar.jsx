@@ -23,6 +23,11 @@ function PanelSidebar() {
               <span className="sidebar-icon">📊</span> Dashboard
             </Link>
           </li>
+          <li className={`sidebar-item ${isActive("/admin/panel-admin/funnel") ? "active" : ""}`}>
+            <Link to="/admin/panel-admin/funnel" className="sidebar-link">
+              <span className="sidebar-icon">🔻</span> Member Funnel
+            </Link>
+          </li>
           <li className={`sidebar-item ${isActive("/admin/panel-admin/panelists") ? "active" : ""}`}>
             <Link to="/admin/panel-admin/panelists" className="sidebar-link">
               <span className="sidebar-icon">👥</span> Panelist Management

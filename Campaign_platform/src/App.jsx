@@ -53,6 +53,7 @@ const TrafficSuppliers = lazy(() => import("./pages/panel-admin/TrafficSuppliers
 const TrafficFunnel = lazy(() => import("./pages/panel-admin/TrafficFunnel"))
 const ProfilingAdmin = lazy(() => import("./pages/panel-admin/ProfilingAdmin"))
 const PanelSettings = lazy(() => import("./pages/panel-admin/PanelSettings"))
+const MemberFunnel = lazy(() => import("./pages/panel-admin/MemberFunnel"))
 
 // Sales Pages
 const Campaign = lazy(() => import("./pages/sales/Campaign"))
@@ -332,6 +333,7 @@ function App() {
 
         {/* Panel Admin */}
         <Route path="panel-admin" element={<LazyPage><PanelAdminDashboard /></LazyPage>} />
+        <Route path="panel-admin/funnel" element={<LazyPage><MemberFunnel /></LazyPage>} />
         <Route path="panel-admin/panelists" element={<LazyPage><PanelistManagement /></LazyPage>} />
         <Route path="panel-admin/suppliers" element={<LazyPage><TrafficSuppliers /></LazyPage>} />
         <Route path="panel-admin/traffic" element={<LazyPage><TrafficFunnel /></LazyPage>} />
