@@ -226,7 +226,7 @@ export default function TrafficFlowParser() {
   // Bot check: question issued by the server; trap is a hidden field only bots fill.
   const [botAnswer, setBotAnswer] = useState("");
   const [botTrap, setBotTrap] = useState("");
-  const [botFails, setBotFails] = useState(0);
+  const [securityTerm, setSecurityTerm] = useState(false);
   // Survey routing: questions to ask (per project / country) and, for Paid Ads only, PII + panel consent
   const [landing, setLanding] = useState(null);
   const [answers, setAnswers] = useState({});
@@ -516,18 +516,11 @@ export default function TrafficFlowParser() {
 
       if (response.ok) {
         const result = await response.json();
-        if (result.bot_check_failed) {
-          // Wrong answer / too fast / trap: one more try with a new question.
-          isClickProcessingRef.current = false;
+        if (result.security_term) {
+          // Security check failed: terminated (status "Security Term"), no retry.
+          setSecurityTerm(true);
           setLoading(false);
-          setBotAnswer("");
-          setLanding((l) => ({ ...(l || {}), botCheck: result.botCheck }));
-          if (botFails >= 1) {
-            setError("Sorry, we couldn't verify that you're a person. Please try again later.");
-          } else {
-            setBotFails((n) => n + 1);
-            setProfileError("That answer wasn't right — please answer the new question.");
-          }
+          if (result.redirect_url) setTimeout(() => { window.location.href = result.redirect_url; }, 1500);
           return;
         }
         const objectId = result.id;
@@ -609,7 +602,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii, botAnswer, botTrap, botFails]);
+  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii, botAnswer, botTrap]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -754,11 +747,22 @@ export default function TrafficFlowParser() {
         </>
         )}
 
-        {/* Bot check: a question any person answers instantly (verified on the server) */}
-        {landing?.botCheck && (
-          <div style={{ margin: "20px 0", textAlign: "left" }}>
-            <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
-              Quick check: {landing.botCheck.text} <span style={{ color: "#c00" }}>*</span>
+        {/* Security check: a question any person answers instantly (verified on the server).
+            A wrong answer ends the visit (Security Term). */}
+        {securityTerm && (
+          <div role="alert" style={{ margin: "20px 0", padding: "16px", borderRadius: "10px", background: "#fef2f2", border: "2px solid #dc2626", color: "#991b1b", textAlign: "left" }}>
+            <strong>Security check failed.</strong> We couldn't verify this response, so this survey has ended. You will be redirected shortly.
+          </div>
+        )}
+        {landing?.botCheck && !securityTerm && (
+          <div style={{ margin: "20px 0", padding: "16px 18px", textAlign: "left", background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: "12px", boxShadow: "0 4px 14px rgba(245, 158, 11, 0.18)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <span aria-hidden="true" style={{ fontSize: "18px" }}>🛡️</span>
+              <span style={{ fontSize: "12px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#b45309" }}>Security check</span>
+            </div>
+            <p style={{ margin: "0 0 4px", fontSize: "12px", color: "#92400e" }}>Please answer carefully — a wrong answer ends this survey.</p>
+            <label style={{ display: "block", marginBottom: "8px", fontWeight: "700", color: "#1f2937", fontSize: "16px" }}>
+              {landing.botCheck.text} <span style={{ color: "#c00" }}>*</span>
             </label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", marginTop: "10px" }}>
               {landing.botCheck.options.map((opt) => (
@@ -892,7 +896,7 @@ export default function TrafficFlowParser() {
         <button
           onClick={handleStore}
           className="survey-button"
-          disabled={loading}
+          disabled={loading || securityTerm}
         >
           {loading ? "Processing..." : "Proceed"}
         </button>

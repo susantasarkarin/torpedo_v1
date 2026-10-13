@@ -2935,16 +2935,46 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "1", "true", "yes", "on"
         }
         
-        # Bot check (question + hidden trap + minimum time). Nothing is created
-        # or routed until it passes; a failed check gets a fresh question.
+        # Security check (question + hidden trap + minimum time). A failure is
+        # final: the visit is recorded as SECURITY_TERM ("Security Term") and the
+        # respondent goes to their vendor's terminate redirect — never to a survey.
         bot_ok, bot_reason = bot_check.verify(data.get("botCheck"))
         if not bot_ok:
-            print(f"BOT CHECK failed ({bot_reason}) vid={vendor_id} rid={respondent_id} panel={panel_id}")
+            print(f"SECURITY TERM ({bot_reason}) vid={vendor_id} rid={respondent_id} panel={panel_id}")
+            fwd_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
+            now_utc = datetime.utcnow()
+            try:
+                await get_async_url_parameters_collection().insert_one({
+                    "timestamp": now_utc.isoformat(),
+                    "status": "SECURITY_TERM",
+                    "securityTermReason": bot_reason,
+                    "createdAt": now_utc,
+                    "updatedAt": now_utc,
+                    "respondentId": respondent_id,
+                    "vendorId": vendor_id,
+                    "countryCode": country_code,
+                    "panelId": panel_id,
+                    "params": params or {},
+                    "url": str(data.get("url") or "")[:2000],
+                    "clientIp": fwd_ip,
+                    "userAgent": str(data.get("userAgent") or request.headers.get("user-agent") or "")[:500],
+                })
+            except Exception as rec_err:
+                print(f"[warn] could not record security term: {rec_err}")
+            redirect_url = f"{FRONTEND_URL}/survey-error?error=security"
+            if vendor_id:
+                try:
+                    vendor_doc = await asyncio.wait_for(_resolve_vendor_async(vendor_id), timeout=3.0)
+                    redirect_url = _build_vendor_redirect_url(vendor_doc, ["securityRD", "terminateRD"], redirect_url, respondent_id)
+                except Exception:
+                    pass
+            if panel_id:
+                redirect_url = f"{redirect_url}{'&' if '?' in redirect_url else '?'}panel={panel_id}"
             return JSONResponse(content={
                 "allocation_success": False,
-                "allocation_error": "bot_check",
-                "bot_check_failed": True,
-                "botCheck": bot_check.issue(),
+                "allocation_error": "security_term",
+                "security_term": True,
+                "redirect_url": redirect_url,
             })
 
         traffic_id = None
