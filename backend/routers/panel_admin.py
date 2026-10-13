@@ -1396,6 +1396,7 @@ _SURVEY_LOG_FIELDS = [
     ("date", "createdAt"), ("sfwid", "_id"), ("status", "status"), ("reason", "securityTermReason"),
     ("source", "surveySource"), ("survey_id", "assignedSurveyId"), ("country", "countryCode"),
     ("completed_at", "completedAt"), ("ip", "clientIp"), ("vendor_id", "vendorId"),
+    ("rid", "respondentId"),
 ]
 _survey_log_index_ready = False
 
@@ -1421,6 +1422,22 @@ def _survey_log_rows(panel_id: str, limit: int):
             row[key] = "" if value is None else str(value)
         rows.append(row)
     return rows
+
+
+@router.get("/panelists/{panel_id}/attempts")
+def get_panelist_attempts_internal(request: Request, panel_id: str, limit: int = 300):
+    """The Panel's member survey log (server to server, X-Internal-Key): every
+    attempt with its rid, so the Panel can show the ones that never came back."""
+    import hmac as _hmac
+    key = os.getenv("SFW_INTERNAL_KEY", "")
+    sent = request.headers.get("x-internal-key", "")
+    if not key or not _hmac.compare_digest(sent, key):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    panel_id = str(panel_id or "").strip()[:50]
+    if not panel_id:
+        raise HTTPException(status_code=400, detail="panel id required")
+    rows = _survey_log_rows(panel_id, max(1, min(int(limit or 300), 1000)))
+    return {"attempts": [{k: r[k] for k in ("date", "status", "rid", "survey_id", "completed_at")} for r in rows]}
 
 
 @router.get("/panelists/{panel_id}/survey-log")
