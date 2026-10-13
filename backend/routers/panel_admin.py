@@ -20,6 +20,7 @@ import re
 import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from fastapi.responses import Response
 from fastapi import APIRouter, HTTPException, Request, Query, Body
 from pymongo import MongoClient, UpdateOne
 from pymongo.errors import BulkWriteError
@@ -1249,6 +1250,17 @@ def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[
     return _sfw_write("PUT", f"/profiling-lists/{key}/{variant}", {"items": payload.get("items", []), "updatedBy": "torpedo-admin"})
 
 
+@router.get("/profiling/quality")
+def get_profiling_quality(request: Request):
+    """Speeders, straight-liners and dropouts in profile answering (from the SFW panel)."""
+    verify_admin_session(request)
+    try:
+        return _sfw_get("/profiling-quality")
+    except Exception as e:
+        logger.error(f"profiling quality error: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load profile quality from the panel: {e}")
+
+
 @router.get("/profiling/stats")
 def get_profiling_stats(request: Request):
     verify_admin_session(request)
@@ -1372,6 +1384,66 @@ def get_sfwpanel_panelists(
     except Exception as e:
         logger.error(f"sfwpanel panelists error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Survey log per panel member ─────────────────────────────────────────────
+# Every survey attempt a SurveyFieldwork Panel member makes goes through
+# /takesurvey and is a traffic record carrying their panelist ID (panelId).
+# The log lists them all — outcome, survey, source, security terms — and can be
+# downloaded as a CSV file.
+
+_SURVEY_LOG_FIELDS = [
+    ("date", "createdAt"), ("sfwid", "_id"), ("status", "status"), ("reason", "securityTermReason"),
+    ("source", "surveySource"), ("survey_id", "assignedSurveyId"), ("country", "countryCode"),
+    ("completed_at", "completedAt"), ("ip", "clientIp"), ("vendor_id", "vendorId"),
+]
+_survey_log_index_ready = False
+
+
+def _survey_log_rows(panel_id: str, limit: int):
+    global _survey_log_index_ready
+    if not _survey_log_index_ready:
+        try:  # tiny partial index: only panel members' records carry panelId
+            traffic_collection.create_index(
+                [("panelId", 1), ("createdAt", -1)], name="panel_member_log",
+                partialFilterExpression={"panelId": {"$type": "string"}}, background=True)
+        except Exception as e:
+            logger.warning(f"survey log index: {e}")
+        _survey_log_index_ready = True
+    cursor = traffic_collection.find({"panelId": panel_id}, {f: 1 for _, f in _SURVEY_LOG_FIELDS}).sort("createdAt", -1).limit(limit)
+    rows = []
+    for doc in cursor:
+        row = {}
+        for key, field in _SURVEY_LOG_FIELDS:
+            value = doc.get(field)
+            if hasattr(value, "isoformat"):
+                value = value.isoformat()
+            row[key] = "" if value is None else str(value)
+        rows.append(row)
+    return rows
+
+
+@router.get("/panelists/{panel_id}/survey-log")
+def get_panelist_survey_log(request: Request, panel_id: str, format: str = "json", limit: int = 2000):
+    """Every survey attempt of one panel member (newest first); format=csv downloads it."""
+    verify_admin_session(request)
+    panel_id = str(panel_id or "").strip()[:50]
+    if not panel_id:
+        raise HTTPException(status_code=400, detail="panel id required")
+    rows = _survey_log_rows(panel_id, max(1, min(int(limit or 2000), 10000)))
+    if format == "csv":
+        import csv
+        import io
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=[k for k, _ in _SURVEY_LOG_FIELDS])
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(content=buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="survey-log-{panel_id}.csv"'})
+    summary = {}
+    for r in rows:
+        summary[r["status"] or "UNKNOWN"] = summary.get(r["status"] or "UNKNOWN", 0) + 1
+    return {"panelId": panel_id, "total": len(rows), "byStatus": summary, "attempts": rows}
 
 
 @router.get("/sfwpanel-panelists/{user_id}")

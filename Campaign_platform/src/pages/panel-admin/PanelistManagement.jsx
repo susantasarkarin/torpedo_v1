@@ -22,6 +22,8 @@ function PanelistManagement() {
   const [sfwOrder, setSfwOrder] = useState("desc")
   const [sfwDetail, setSfwDetail] = useState(null)
   const [sfwDetailLoading, setSfwDetailLoading] = useState(false)
+  // Survey log: every survey attempt of the open panelist (from Torpedo traffic records)
+  const [surveyLog, setSurveyLog] = useState(null)
 
   // Panelist leads state
   const [panelLeads, setPanelLeads] = useState([])
@@ -483,9 +485,35 @@ function PanelistManagement() {
     const sessionId = localStorage.getItem("session_id")
     try {
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists/${userId}`), { headers: { Authorization: sessionId } })
-      if (res.ok) setSfwDetail(await res.json())
+      if (res.ok) {
+        const detail = await res.json()
+        setSfwDetail(detail)
+        setSurveyLog(null)
+        const pid = detail?.user?.panelistId
+        if (pid) {
+          authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/${encodeURIComponent(pid)}/survey-log?limit=200`), { headers: { Authorization: sessionId } })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((log) => setSurveyLog(log || { total: 0, attempts: [], byStatus: {} }))
+            .catch(() => setSurveyLog({ total: 0, attempts: [], byStatus: {} }))
+        }
+      }
     } catch (err) { console.error("SFW detail error:", err) }
     finally { setSfwDetailLoading(false) }
+  }
+
+  const downloadSurveyLog = async (pid) => {
+    const sessionId = localStorage.getItem("session_id")
+    const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/${encodeURIComponent(pid)}/survey-log?format=csv`), { headers: { Authorization: sessionId } })
+    if (!res.ok) return
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `survey-log-${pid}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   const sfwSort = (field) => {
@@ -1198,6 +1226,55 @@ function PanelistManagement() {
                               </tbody>
                             </table>
                           </>
+                        )}
+
+                        {sfwDetail.user?.panelistId && (
+                          <div style={{ marginTop: "1.5rem" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                              <p style={{ fontWeight: "700", color: "#4a4a4a", fontSize: "0.875rem" }}>
+                                Survey log {surveyLog ? `· ${surveyLog.total} attempt${surveyLog.total === 1 ? "" : "s"}` : ""}
+                              </p>
+                              <button type="button" onClick={() => downloadSurveyLog(sfwDetail.user.panelistId)}
+                                style={{ padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontSize: "0.8rem" }}>
+                                Download log (CSV)
+                              </button>
+                            </div>
+                            {surveyLog && Object.keys(surveyLog.byStatus || {}).length > 0 && (
+                              <p style={{ fontSize: "0.8rem", color: "#6b6b6b", marginBottom: "0.5rem" }}>
+                                {Object.entries(surveyLog.byStatus).map(([k, v]) => `${k.replace(/_/g, " ").toLowerCase()}: ${v}`).join(" · ")}
+                              </p>
+                            )}
+                            {!surveyLog ? (
+                              <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>Loading…</p>
+                            ) : surveyLog.attempts.length === 0 ? (
+                              <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>No survey attempts yet.</p>
+                            ) : (
+                              <div style={{ maxHeight: "280px", overflowY: "auto" }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                                  <thead>
+                                    <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+                                      {["Date", "Status", "Source", "Survey", "SFWID"].map((h) => (
+                                        <th key={h} style={{ ...thStyle, fontSize: "0.8rem", padding: "0.4rem 0.6rem" }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {surveyLog.attempts.map((a) => (
+                                      <tr key={a.sfwid} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", whiteSpace: "nowrap" }}>{fmtTime(a.date)}</td>
+                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontWeight: 600, color: a.status === "COMPLETE" ? "#059669" : a.status === "SECURITY_TERM" ? "#b91c1c" : "#4b5563" }}>
+                                          {a.status === "SECURITY_TERM" ? "Security Term" : a.status}{a.reason ? ` (${a.reason.replace(/_/g, " ")})` : ""}
+                                        </td>
+                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem" }}>{a.source || "—"}</td>
+                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontFamily: "monospace" }}>{a.survey_id || "—"}</td>
+                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontFamily: "monospace", color: "#6b7280" }}>{a.sfwid}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </>
                     )}

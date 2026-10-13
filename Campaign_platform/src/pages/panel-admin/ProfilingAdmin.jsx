@@ -209,6 +209,85 @@ function FlagReview({ onChanged }) {
   )
 }
 
+const RULE_LABEL = {
+  QC_02: "Section too fast (reset)",
+  QC_02Q: "Quick start too fast",
+  QC_03: "Same answer on every row (reset)",
+  QC_03Q: "First option every time (Quick start)",
+}
+
+// Profile quality: speeders, straight-liners and dropouts across all profiles.
+function QualityReport() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState("")
+  useEffect(() => { call("/profiling/quality").then(setData).catch((e) => setError(e.message)) }, [])
+  const tile = (label, value, tone) => (
+    <div style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem 1rem", minWidth: "150px", flex: "1 1 150px" }}>
+      <p style={{ fontSize: "1.5rem", fontWeight: 700, color: tone, margin: 0 }}>{value}</p>
+      <p style={{ fontSize: "0.8rem", color: "#4b5563", margin: 0 }}>{label}</p>
+    </div>
+  )
+  const memberTable = (rows) => (
+    <div style={{ overflowX: "auto", maxHeight: "260px", overflowY: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr><th style={th}>Member</th><th style={th}>Check</th><th style={th}>Section</th><th style={th}>When</th></tr></thead>
+        <tbody>
+          {rows.map((m, i) => (
+            <tr key={`${m.email}-${m.rule}-${i}`}>
+              <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{m.email} · {m.panelistId}</div></td>
+              <td style={td}>{RULE_LABEL[m.rule] || m.rule}{m.count > 1 ? ` ×${m.count}` : ""}</td>
+              <td style={td}>{m.section || "—"}</td>
+              <td style={td}>{m.at ? new Date(m.at).toLocaleDateString() : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+  return (
+    <div style={card}>
+      <h3 style={{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Profile quality</h3>
+      <p style={{ margin: "0 0 0.9rem", fontSize: "0.8rem", color: "#6b7280" }}>
+        Speeders and straight-liners are caught while members answer (sections are reset and asked again; Quick start is flagged).
+        Dropouts are members who started and haven't answered for {data?.thresholds?.dropoutHours || 24} hours.
+      </p>
+      {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
+      {!data ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+            {tile("Speeders", data.speeders.count, "#b45309")}
+            {tile("Straight-liners", data.straightLiners.count, "#b45309")}
+            {tile("Quick start dropouts", data.dropouts.quickStart, "#b91c1c")}
+            {tile("Section dropouts", data.dropouts.sections, "#b91c1c")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
+            <div>
+              <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Where Quick start dropouts stopped</p>
+              {data.dropouts.quickStartStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>None</p> : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>Question</th><th style={th}>Members</th></tr></thead>
+                  <tbody>{data.dropouts.quickStartStops.map((q) => <tr key={q.id}><td style={td}>{q.text}</td><td style={td}>{q.count}</td></tr>)}</tbody>
+                </table>
+              )}
+            </div>
+            <div>
+              <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Sections left unfinished</p>
+              {data.dropouts.sectionStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>None</p> : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>Section</th><th style={th}>Members</th></tr></thead>
+                  <tbody>{data.dropouts.sectionStops.map((s) => <tr key={s.key}><td style={td}>{s.title}</td><td style={td}>{s.count}</td></tr>)}</tbody>
+                </table>
+              )}
+            </div>
+          </div>
+          {data.speeders.members.length > 0 && (<><p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "1rem 0 0.4rem" }}>Speeders</p>{memberTable(data.speeders.members)}</>)}
+          {data.straightLiners.members.length > 0 && (<><p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "1rem 0 0.4rem" }}>Straight-liners</p>{memberTable(data.straightLiners.members)}</>)}
+        </>
+      )}
+    </div>
+  )
+}
+
 function ListEditor({ listKey, variant, items, onSaved }) {
   const [rows, setRows] = useState(items)
   const [newLabel, setNewLabel] = useState("")
@@ -300,6 +379,7 @@ export default function ProfilingAdmin() {
       </p>
       {error && <div style={{ ...card, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>}
       {stats && <Stats stats={stats} />}
+      <QualityReport />
       <QualReview onChanged={load} />
       <FlagReview onChanged={load} />
       {lists && (
