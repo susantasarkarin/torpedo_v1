@@ -81,7 +81,7 @@ def _shell(title: str, heading: str, subheading: str, body_html: str) -> str:
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 12px 32px rgba(15,23,42,0.12);">
           <tr>
             <td style="background:linear-gradient(135deg,#071733 0%,#0c2d63 58%,#13498b 100%);padding:40px;text-align:center;">
-              <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="200" style="display:block;max-width:200px;width:100%;height:auto;margin:0 auto 16px;border:0;outline:none;text-decoration:none;" />
+              <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="150" style="display:block;width:150px;max-width:150px;height:auto;margin:0 auto 18px;padding:10px 18px;background:#ffffff;border-radius:12px;border:0;outline:none;text-decoration:none;" />
               <h1 style="margin:0;color:#ffffff;font-size:25px;font-weight:700;letter-spacing:-0.3px;">{heading}</h1>
               <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:14px;">{subheading}</p>
             </td>
@@ -135,7 +135,6 @@ def _send(to_email: str, subject: str, html: str, plain: str, tag: str) -> Tuple
     try:
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
-        msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = subject
         msg["Message-ID"] = f"<panel-{tag}-{uuid.uuid4()}@surveyfieldwork.com>"
         # Transactional mail must never be filed as a bulk blast by receivers,
@@ -146,13 +145,13 @@ def _send(to_email: str, subject: str, html: str, plain: str, tag: str) -> Tuple
         msg.attach(MIMEText(plain, "plain", "utf-8"))
         msg.attach(MIMEText(html, "html", "utf-8"))
 
-        response = _get_ses_client().send_raw_email(
-            Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
-            Destinations=[to_email],
-            RawMessage={"Data": msg.as_bytes()},
-        )
-        message_id = response.get("MessageId", "")
-        logger.info(f"[panel-transactional] {tag} sent -> {to_email} | SES MessageId={message_id}")
+        # Google Workspace, not SES (owner, 2026-10-14).
+        from services.panel_gmail_sender import send_message
+        ok, details = send_message(msg)
+        if not ok:
+            return False, {"error": "gmail_send_failed", "message": details.get("error", "")}
+        message_id = details.get("gmail_message_id", "")
+        logger.info(f"[panel-transactional] {tag} sent -> {to_email} | Gmail id={message_id}")
         return True, {"ses_message_id": message_id}
 
     except ClientError as e:

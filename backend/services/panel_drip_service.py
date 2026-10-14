@@ -39,14 +39,16 @@ from services.panel_funnel import SEGMENTS
 
 logger = logging.getLogger(__name__)
 
-PANEL_PUBLIC_BASE_URL = os.getenv(
-    "PANEL_PUBLIC_BASE_URL", "https://torpedo.cogentixresearch.com"
-).rstrip("/")
+# Reminder links go to the SurveyFieldwork Panel, which owns signup, profile
+# and the survey wall (the old Torpedo-hosted /panel pages are retired).
+PANEL_PUBLIC_BASE_URL = os.getenv("PANEL_DRIP_LINK_BASE", "https://surveyfieldwork.com").rstrip("/")
 
 # Hard ceiling on any one drip run, independent of the SES budget. A drip is
 # never urgent, and a runaway sequence is far more damaging to sender
 # reputation than a slow one.
-DRIP_RUN_CAP = int(os.getenv("PANEL_DRIP_RUN_CAP", "5000"))
+# Sent through Google Workspace now, which has a daily sending limit shared
+# with the Panel's own mail — keep each run small.
+DRIP_RUN_CAP = int(os.getenv("PANEL_DRIP_RUN_CAP", "300"))
 
 
 # ============== STAGE CONFIG ==============
@@ -67,7 +69,7 @@ STAGES: Dict[str, Dict[str, Any]] = {
             "Confirm it now and we'll start sending you paid surveys."
         ),
         "cta_label": "Confirm My Email",
-        "cta_path": "/panel/login?resend=1",
+        "cta_path": "/join",
     },
     "profile": {
         "segment": "opted_in_no_profile",
@@ -82,7 +84,7 @@ STAGES: Dict[str, Dict[str, Any]] = {
             "It takes about two minutes."
         ),
         "cta_label": "Complete My Profile",
-        "cta_path": "/panel/profile",
+        "cta_path": "/profile",
     },
     "activate": {
         "segment": "profile_no_activity",
@@ -96,7 +98,7 @@ STAGES: Dict[str, Dict[str, Any]] = {
             "Log in to see what's currently available for you and start earning rewards."
         ),
         "cta_label": "See My Surveys",
-        "cta_path": "/panel/dashboard",
+        "cta_path": "/dashboard",
     },
 }
 
@@ -121,7 +123,7 @@ def _render(stage: Dict[str, Any], first_name: str, unsubscribe: str) -> Tuple[s
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 12px 32px rgba(15,23,42,0.12);">
         <tr>
           <td style="background:linear-gradient(135deg,#071733 0%,#0c2d63 58%,#13498b 100%);padding:40px;text-align:center;">
-            <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="200" style="display:block;max-width:200px;width:100%;height:auto;margin:0 auto 16px;border:0;outline:none;text-decoration:none;" />
+            <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="150" style="display:block;width:150px;max-width:150px;height:auto;margin:0 auto 18px;padding:10px 18px;background:#ffffff;border-radius:12px;border:0;outline:none;text-decoration:none;" />
             <h1 style="margin:0;color:#ffffff;font-size:25px;font-weight:700;letter-spacing:-0.3px;">{stage['heading']}</h1>
             <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:14px;">{stage['subheading']}</p>
           </td>
@@ -178,7 +180,6 @@ def _send_one_drip(stage_key: str, to_email: str, first_name: str) -> Tuple[bool
     try:
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
-        msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = stage["subject"]
         msg["Message-ID"] = f"<panel-drip-{stage_key}-{uuid.uuid4()}@surveyfieldwork.com>"
         # Per-recipient signed opt-out, so the header control and the footer
@@ -189,16 +190,12 @@ def _send_one_drip(stage_key: str, to_email: str, first_name: str) -> Tuple[bool
         msg.attach(MIMEText(plain, "plain", "utf-8"))
         msg.attach(MIMEText(html, "html", "utf-8"))
 
-        response = _get_ses_client().send_raw_email(
-            Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
-            Destinations=[to_email],
-            RawMessage={"Data": msg.as_bytes()},
-        )
-        return True, {"ses_message_id": response.get("MessageId", "")}
-    except ClientError as e:
-        code = e.response["Error"]["Code"]
-        logger.error(f"[drip-{stage_key}] SES error to {to_email}: {code}")
-        return False, {"error": code, "message": e.response["Error"]["Message"]}
+        # Google Workspace, not SES (owner, 2026-10-14).
+        from services.panel_gmail_sender import send_message
+        ok, details = send_message(msg)
+        if not ok:
+            return False, {"error": "gmail_send_failed", "message": details.get("error", "")}
+        return True, {"ses_message_id": details.get("gmail_message_id", "")}
     except Exception as e:
         logger.error(f"[drip-{stage_key}] unexpected error to {to_email}: {e}")
         return False, {"error": str(e)}
@@ -245,12 +242,7 @@ def run_drip_stage(
     stage = STAGES[stage_key]
     batch_id = f"drip-{stage_key}-{uuid.uuid4().hex[:10]}"
 
-    budget = ses_budget_for_bulk()
-    cap = min(limit or DRIP_RUN_CAP, DRIP_RUN_CAP, budget)
-    if cap <= 0:
-        logger.warning(f"[drip-{stage_key}] no SES budget available; skipping run")
-        return {"stage": stage_key, "batch_id": batch_id, "sent": 0, "skipped": 0,
-                "failed": 0, "eligible_examined": 0, "reason": "no_ses_budget"}
+    cap = min(limit or DRIP_RUN_CAP, DRIP_RUN_CAP)
 
     candidates = list(
         panelists_collection.find(

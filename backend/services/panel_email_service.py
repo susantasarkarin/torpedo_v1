@@ -68,7 +68,7 @@ PANEL_SIGNUP_URL = os.getenv("PANEL_SIGNUP_URL", "https://panel.surveyfieldwork.
 PANEL_INVITE_JOIN_URL = os.getenv("PANEL_INVITE_JOIN_URL", "https://torpedo.cogentixresearch.com/api/panel/invite/join")
 PANEL_LOGO_URL = os.getenv(
   "PANEL_LOGO_URL",
-  "https://surveyfieldwork.com/wp-content/uploads/2021/07/Vatsalya-Sign-1-1.png",
+  "https://surveyfieldwork.com/sfwlogo.png",  # the old WordPress logo URL is gone (410)
 )
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")

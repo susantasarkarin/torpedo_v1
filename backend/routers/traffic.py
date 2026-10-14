@@ -59,6 +59,15 @@ except ImportError:
 
 router = APIRouter(tags=["traffic-flow"])  # No prefix - routes are at root level
 
+
+def _as_loi(value) -> Optional[float]:
+    """Survey length in minutes, or None when unknown."""
+    try:
+        loi = float(value)
+        return loi if 0 < loi < 300 else None
+    except (TypeError, ValueError):
+        return None
+
 # ============== TRAFFIC LIST CACHING ==============
 _traffic_list_cache: Dict[str, Dict[str, Any]] = {}
 TRAFFIC_CACHE_TTL_SECONDS = 5  # 5 seconds TTL for fast refresh under high traffic
@@ -3464,6 +3473,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "redirectUrl": entry_link,
                                 "surveySource": "CPX",
                                 "cpx_mid": cpx_mid,
+                                # Survey length: the SurveyFieldwork Panel pays members by LOI.
+                                "surveyLoi": _as_loi((result.get("survey") or {}).get("loi") or result.get("loi")),
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
@@ -3551,6 +3562,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         # Update traffic record asynchronously
                         async_url_collection = get_async_url_parameters_collection()
                         hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
+                        try:
+                            from tasks.cint_survey_cleanup import get_cached_offerwall as _cint_cache
+                        except ImportError:
+                            from .tasks.cint_survey_cleanup import get_cached_offerwall as _cint_cache
+                        _cint_survey = next((x for x in (_cint_cache().get("surveys") or []) if str(x.get("SurveyNumber")) == str(survey_id)), {})
                         await async_url_collection.update_one(
                             {"_id": ObjectId(traffic_id)},
                             {"$set": {
@@ -3558,6 +3574,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "assignedSurveyId": survey_id,
                                 "redirectUrl": entry_link,
                                 "surveySource": "CINT",
+                                # Survey length: the SurveyFieldwork Panel pays members by LOI.
+                                "surveyLoi": _as_loi(_cint_survey.get("LengthOfInterview") or _cint_survey.get("BidLengthOfInterview")),
                                 "currentCintSurveyId": survey_id,
                                 "cint_hashed_pid": hashed_pid,
                                 "cint_profiling_params": cint_profiling_params,

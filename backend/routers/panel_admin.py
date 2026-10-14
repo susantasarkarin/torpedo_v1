@@ -356,7 +356,7 @@ def _panel_lead_group_stages() -> List[Dict[str, Any]]:
 # dominated the request; the total only has to be fresh enough to size the
 # pager.
 _lead_total_cache: Dict[str, Any] = {}
-_LEAD_TOTAL_TTL = 180  # seconds
+_LEAD_TOTAL_TTL = 900  # seconds; kept warm by _start_cache_warmer below
 
 
 def _cached_lead_total(cache_key: str, compute):
@@ -591,6 +591,66 @@ def list_panelists_with_email_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _lead_total(search=None, country=None) -> int:
+    pipeline = [
+        *_panel_lead_base_stages(search=search, country=country),
+        *_panel_lead_group_stages(),
+        {"$count": "total"},
+    ]
+    result = list(traffic_collection.aggregate(pipeline, allowDiskUse=True))
+    return result[0]["total"] if result else 0
+
+
+def _lead_page(search, country, page: int, page_size: int):
+    # allowDiskUse avoids the in-memory sort/group limit on large collections.
+    pipeline = [
+        *_panel_lead_base_stages(search=search, country=country),
+        *_panel_lead_group_stages(),
+        {"$sort": {"createdAt": -1}},
+        {"$skip": (page - 1) * page_size},
+        {"$limit": page_size},
+    ]
+    return [serialize_doc(doc) for doc in traffic_collection.aggregate(pipeline, allowDiskUse=True)]
+
+
+# Keep the panel-admin's slowest default views warm, so the dashboard and lead
+# list open instantly: refreshed every 12 minutes, inside the 15-minute TTL.
+_WARM_EVERY_SECONDS = 720
+_warmer_started = False
+
+
+def _warm_caches_once():
+    jobs = {
+        "leads||": lambda: _lead_total(),
+        "leadpage|||1|25": lambda: _lead_page(None, None, 1, 25),
+        "daily-stats|30": lambda: _daily_email_stats(None, 30),
+    }
+    for key, compute in jobs.items():
+        try:
+            _lead_total_cache[key] = (time.time(), compute())
+        except Exception as e:
+            logger.warning(f"panel-admin cache warm {key}: {e}")
+
+
+def _start_cache_warmer():
+    global _warmer_started
+    if _warmer_started:
+        return
+    _warmer_started = True
+    import threading
+
+    def loop():
+        while True:
+            _warm_caches_once()
+            time.sleep(_WARM_EVERY_SECONDS)
+
+    threading.Thread(target=loop, name="panel-admin-cache-warmer", daemon=True).start()
+
+
+# Runs in the API process only (FastAPI merges a router's startup handlers into the app).
+router.add_event_handler("startup", _start_cache_warmer)
+
+
 @router.get("/panelist-leads/")
 def list_panelist_leads(
     request: Request,
@@ -605,32 +665,12 @@ def list_panelist_leads(
     try:
         # The dedup count is expensive over the full traffic collection, so cache
         # it per (search, country) — only the first request per filter pays for it.
-        def _compute_total():
-            total_pipeline = [
-                *_panel_lead_base_stages(search=search, country=country),
-                *_panel_lead_group_stages(),
-                {"$count": "total"},
-            ]
-            total_result = list(traffic_collection.aggregate(total_pipeline, allowDiskUse=True))
-            return total_result[0]["total"] if total_result else 0
-
-        total = _cached_lead_total(f"leads|{search or ''}|{country or ''}", _compute_total)
-
-        skip = (page - 1) * page_size
-        results_pipeline = [
-            *_panel_lead_base_stages(search=search, country=country),
-            *_panel_lead_group_stages(),
-            {"$sort": {"createdAt": -1}},
-            {"$skip": skip},
-            {"$limit": page_size},
-        ]
-
-        # allowDiskUse avoids the in-memory sort/group limit on large collections.
+        total = _cached_lead_total(f"leads|{search or ''}|{country or ''}", lambda: _lead_total(search, country))
         # The dedup runs over the whole traffic collection (~15s), so pages are
-        # cached for the same few minutes as the total.
+        # cached like the total (the default first page is kept warm).
         leads = _cached_lead_total(
             f"leadpage|{search or ''}|{country or ''}|{page}|{page_size}",
-            lambda: [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline, allowDiskUse=True)],
+            lambda: _lead_page(search, country, page, page_size),
         )
 
         return {
@@ -1526,6 +1566,33 @@ def get_panelist_attempts_internal(request: Request, panel_id: str, limit: int =
         raise HTTPException(status_code=400, detail="panel id required")
     rows = _survey_log_rows(panel_id, max(1, min(int(limit or 300), 1000)))
     return {"attempts": [{k: r[k] for k in ("date", "status", "rid", "survey_id", "completed_at")} for r in rows]}
+
+
+@router.get("/respondents/{rid}/survey")
+def get_respondent_survey_internal(request: Request, rid: str):
+    """The Panel's completion callback (server to server, X-Internal-Key): which
+    survey a respondent ID was sent to and its length, so the Panel can pay
+    the member by LOI."""
+    import hmac as _hmac
+    key = os.getenv("SFW_INTERNAL_KEY", "")
+    if not key or not _hmac.compare_digest(request.headers.get("x-internal-key", ""), key):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    rid = str(rid or "").strip()[:64]
+    doc = traffic_collection.find_one(
+        {"respondentId": rid},
+        {"surveyLoi": 1, "surveySource": 1, "assignedSurveyId": 1, "status": 1, "panelId": 1},
+        sort=[("createdAt", -1)],
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="respondent not found")
+    return {
+        "rid": rid,
+        "loi": doc.get("surveyLoi"),
+        "source": doc.get("surveySource") or "",
+        "surveyId": str(doc.get("assignedSurveyId") or ""),
+        "status": doc.get("status") or "",
+        "panelId": doc.get("panelId") or "",
+    }
 
 
 @router.get("/panelists/{panel_id}/survey-log")
