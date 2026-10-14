@@ -155,12 +155,33 @@ class CintService:
         self.cint_settings_collection = cint_settings_collection
         self.cint_outcomes_collection = cint_outcomes_collection
 
-        # HTTP client
-        self.client = httpx.AsyncClient(timeout=api_timeout)
+        # HTTP client -- built per event loop, see the `client` property.
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_loop = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """An AsyncClient bound to the running event loop.
+
+        The scheduler jobs in main.py (refresh_cint_inventory, the resubscribe
+        check) run in worker threads and call asyncio.run(), a new loop every
+        time. One shared AsyncClient kept its pool on the first loop, so every
+        later run failed with "Event loop is closed" / "bound to a different
+        event loop" (32+ a week in the backend log, 2026-10-14)."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._client is None or self._client.is_closed or (loop is not None and loop is not self._client_loop):
+            self._client = httpx.AsyncClient(timeout=self.api_timeout)
+            self._client_loop = loop
+        return self._client
 
     async def close(self):
         """Close HTTP client"""
-        await self.client.aclose()
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
 
     async def _request_with_retry(
         self,
