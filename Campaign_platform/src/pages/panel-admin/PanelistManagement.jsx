@@ -530,7 +530,11 @@ function PanelistManagement({ mode = "all" }) {
     fetchSfwPanelists({ sortBy: field, order: newOrder, page: 1 })
   }
 
-  const rupees = (p) => p ? "₹" + (p / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "₹0"
+  // Balances are INR paise; members see points (100 points = ₹10 / £1 / $1).
+  const points = (p, country) => {
+    const perPaise = { GB: 1 / 127.89, UK: 1 / 127.89, US: 1 / 96.73 }[String(country || "").toUpperCase()] || 1 / 10
+    return `${Math.floor((p || 0) * perPaise).toLocaleString()} pts`
+  }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"
   const fmtTime = (d) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"
   const CNAMES = { US: "United States", IN: "India", GB: "United Kingdom", AU: "Australia", CA: "Canada", DE: "Germany", SG: "Singapore", AE: "UAE", XX: "Unknown" }
@@ -539,7 +543,7 @@ function PanelistManagement({ mode = "all" }) {
   return (
     <div>
       <div className="card">
-        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+        {mode !== "members" && <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
           {mode === "all" && (
             <div>
               <h2 className="card-title">Panelist Management</h2>
@@ -567,7 +571,7 @@ function PanelistManagement({ mode = "all" }) {
               {showUpload ? "Close Upload" : "Upload CSV"}
             </button>
           </div>}
-        </div>
+        </div>}
 
         {/* CSV Upload Section */}
         {showUpload && (
@@ -1122,9 +1126,9 @@ function PanelistManagement({ mode = "all" }) {
                           <td style={{ ...tdStyle, textAlign: "center", color: "#dc2626" }}>{sv.terminate || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#d97706" }}>{sv.quotafull || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#4b5563" }}>{rate}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a" }}>{rupees(p.totalEarnedPaise)}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{rupees(p.balancePaise)}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#4b5563" }}>{rupees(redeemed > 0 ? redeemed : 0)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a" }}>{points(p.totalEarnedPaise, p.country)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{points(p.balancePaise, p.country)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#4b5563" }}>{points(redeemed > 0 ? redeemed : 0, p.country)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6b6b6b" }}>{fmtDate(p.lastActiveAt)}</td>
                         </tr>
                       )
@@ -1181,9 +1185,9 @@ function PanelistManagement({ mode = "all" }) {
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
                           {[
-                            { label: "Balance", value: rupees(sfwDetail.user?.balancePaise) },
-                            { label: "Total Earned", value: rupees(sfwDetail.user?.totalEarnedPaise) },
-                            { label: "Redeemed", value: rupees(Math.max(0, (sfwDetail.user?.totalEarnedPaise || 0) - (sfwDetail.user?.balancePaise || 0))) },
+                            { label: "Balance", value: points(sfwDetail.user?.balancePaise, sfwDetail.user?.country) },
+                            { label: "Total Earned", value: points(sfwDetail.user?.totalEarnedPaise, sfwDetail.user?.country) },
+                            { label: "Redeemed", value: points(Math.max(0, (sfwDetail.user?.totalEarnedPaise || 0) - (sfwDetail.user?.balancePaise || 0)), sfwDetail.user?.country) },
                             { label: "Referrals", value: sfwDetail.user?.confirmedReferralCount || 0 },
                             { label: "Profile %", value: `${sfwDetail.user?.profileQuestionCompletion || 0}%` },
                             { label: "Joined", value: fmtDate(sfwDetail.user?.createdAt) },
@@ -1210,7 +1214,7 @@ function PanelistManagement({ mode = "all" }) {
                           ))}
                         </div>
                         <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginBottom: "1.5rem" }}>
-                          Points from surveys: {rupees(sfwDetail.survey_stats?.points_earned)}
+                          Points from surveys: {points(sfwDetail.survey_stats?.points_earned, sfwDetail.user?.country)}
                         </p>
 
                         {sfwDetail.recent_surveys?.length > 0 && (
@@ -1235,7 +1239,7 @@ function PanelistManagement({ mode = "all" }) {
                                         {s.status}
                                       </span>
                                     </td>
-                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#1a1a1a" }}>{s.pointsEarned > 0 ? rupees(s.pointsEarned) : "—"}</td>
+                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#1a1a1a" }}>{s.pointsEarned > 0 ? points(s.pointsEarned, sfwDetail.user?.country) : "—"}</td>
                                     <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#6b6b6b", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
                                   </tr>
                                 ))}

@@ -10,6 +10,7 @@ Endpoints:
 
 import asyncio
 import logging
+import os
 import threading
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -69,6 +70,9 @@ async def send_invitations(
     - daily_cap: int — max sends in this run when daily_mode=true
     """
     verify_admin_session(request)
+    # Same switch as the daily cron: no outreach to the lead list unless enabled.
+    if os.getenv("PANEL_LEAD_INVITES_ENABLED", "false").lower() != "true":
+        raise HTTPException(status_code=403, detail="Lead-list invitations are paused (PANEL_LEAD_INVITES_ENABLED is not true).")
 
     country = data.get("country")
     force_resend = data.get("force_resend", False)
@@ -309,6 +313,9 @@ async def send_login_invitations(
     - daily_cap: int — max sends in this run (default 6000)
     """
     verify_admin_session(request)
+    # Members get their daily email from the SurveyFieldwork Panel (Google Workspace).
+    if os.getenv("PANEL_LOGIN_REMINDERS_ENABLED", "false").lower() != "true":
+        raise HTTPException(status_code=403, detail="Login reminders are paused (PANEL_LOGIN_REMINDERS_ENABLED is not true).")
 
     country = data.get("country")
     daily_cap = data.get("daily_cap")
