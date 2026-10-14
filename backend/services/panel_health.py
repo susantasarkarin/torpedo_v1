@@ -210,7 +210,7 @@ def check_panel_health() -> Dict[str, Any]:
                f"below the {quota.get('transactional_reserve')} transactional reserve")
         logger.error(msg)
         problems.append(msg)
-    elif not quota.get("reachable"):
+    elif quota.get("reachable") is False:
         logger.warning(f"[panel-health] could not read SES quota: {quota.get('error')}")
 
     if problems:
