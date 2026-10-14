@@ -2612,7 +2612,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # leads.outreach_qualification rather than duplicating the list.
         from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
         _source_norm = (email_source_flag or "").strip().lower()
-        if _source_norm in _GUESSED_SOURCES:
+        # A follow-up goes to an address that already took our first mail
+        # without bouncing (a bounce moves the lead out of the sequence), so
+        # the guess is proven; only the first touch is gated.
+        if _source_norm in _GUESSED_SOURCES and next_step_number == 1:
             try:
                 _confident_enough = (
                     email_pattern_confidence is not None

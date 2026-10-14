@@ -346,3 +346,10 @@ def test_reuses_existing_suppression_module():
     # No direct collection access that would bypass the shared manager.
     assert '_db["suppression_list"]' not in source
     assert "_db['suppression_list']" not in source
+
+
+def test_domain_pattern_learned_is_a_guess():
+    """29% of October 2026 first emails from this source bounced; it was not
+    in the guessed set, so no gate ever looked at it."""
+    from leads.outreach_qualification import GUESSED_EMAIL_SOURCES
+    assert "domain_pattern_learned" in GUESSED_EMAIL_SOURCES

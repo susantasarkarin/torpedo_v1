@@ -114,6 +114,10 @@ GUESSED_EMAIL_SOURCES = {
     "pattern_applied", "pattern_reapplied", "pattern_migration",
     "pattern_derived", "name_domain_guess", "name_domain_inferred",
     "guess", "claude_web_search",
+    # A company's learned address pattern applied to a new name: still a
+    # guess. Missing here, it sailed past every gate -- 18 of the 63 first
+    # emails sent from it in October 2026 bounced (29%).
+    "domain_pattern_learned",
 }
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
