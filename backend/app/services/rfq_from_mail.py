@@ -321,36 +321,89 @@ def grounded_details(out: Dict[str, Any], text: str) -> Dict[str, Any]:
     return kept
 
 
-def enrich_open(client, limit: int = 2) -> Dict[str, int]:
-    from bson import ObjectId
+DETAILS_V = 2
+DETAIL_FIELDS = ("methodology", "country", "target_audience", "sample_size", "loi", "ir", "deadline",
+                 "budget", "currency")
+
+
+def _missing(rfq: Dict[str, Any]) -> List[str]:
+    return [k for k in DETAIL_FIELDS if rfq.get(k) in (None, "", 0)]
+
+
+def merge_details(rfq: Dict[str, Any], found: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, Any]:
+    """Fields to set: only ones still empty on the RFQ (a person's entry or an
+    earlier fill is never overwritten), from pieces read oldest first, so the
+    client's latest statement wins. A budget is never taken from quoted text --
+    the quote can hold our own prices."""
+    empty = set(_missing(rfq))
+    out: Dict[str, Any] = {}
+    for kind, kept in found:
+        for k, v in kept.items():
+            if k not in empty:
+                continue
+            if k in ("budget", "currency") and kind == "quoted":
+                continue
+            if k == "methodology" and out.get(k):
+                parts = [p for p in (out[k] + ", " + v).split(", ") if p]
+                v = ", ".join(dict.fromkeys(parts))[:60]
+            out[k] = v
+    if "budget" in out and "currency" not in out and not rfq.get("currency"):
+        out.pop("budget")
+    return out
+
+
+def _needs_details(client, rfq: Dict[str, Any]) -> Optional[datetime]:
+    """The newest client message time if this RFQ should be (re)read, else None:
+    never read with the whole thread, or the client wrote since the last read
+    and something is still empty."""
+    from app.services.rfq_thread_text import latest_ts
+    latest = latest_ts(client, rfq) or rfq.get("received_at") or datetime.utcnow()
+    if rfq.get("details_v") != DETAILS_V:
+        return latest
+    seen = rfq.get("details_seen_until")
+    if _missing(rfq) and (seen is None or latest > seen):
+        return latest
+    return None
+
+
+def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict[str, int]:
+    """Study details for open RFQs from the whole thread: the client's
+    messages, the quoted history and attachments (rfq_thread_text). Each piece
+    is read separately (the model's window is 2,048 tokens) and grounded
+    against that piece's own text. Re-read when the client writes again."""
     from leads.local_slm_client import LocalSLMError, chat_json
-    from sales.reply_triage import strip_quoted
+    from app.services.rfq_thread_text import sections
     opp = client["crm_db"]["opportunities"]
-    em = client["torpedo_gmail"]["email_metadata"]
-    stats = {"attempted": 0, "filled": 0, "unavailable": 0}
-    for o in opp.find({"metadata.rfq.source": SOURCE, "status": "open", "stage": "rfq",
-                       "metadata.rfq.details_at": {"$exists": False}},
-                      {"metadata.rfq.source_email_id": 1}).sort("metadata.rfq.received_at", -1).limit(limit):
-        src = ((o.get("metadata") or {}).get("rfq") or {}).get("source_email_id")
-        try:
-            doc = em.find_one({"_id": ObjectId(src)}, {"subject": 1, "body_plain": 1, "snippet": 1})
-        except Exception:
-            doc = None
-        body = strip_quoted((doc or {}).get("body_plain") or (doc or {}).get("snippet") or "")[:2500]
+    max_calls = max_calls if max_calls is not None else int(os.getenv("RFQ_DETAILS_CALLS_PER_RUN", "6"))
+    stats = {"attempted": 0, "filled": 0, "fields_set": 0, "calls": 0, "unavailable": 0}
+    for o in opp.find({"metadata.rfq.source": SOURCE, "status": "open", "stage": "rfq"},
+                      {"metadata.rfq": 1}).sort("metadata.rfq.received_at", -1):
+        if stats["attempted"] >= limit or stats["calls"] >= max_calls:
+            break
+        rfq = (o.get("metadata") or {}).get("rfq") or {}
+        latest = _needs_details(client, rfq)
+        if latest is None:
+            continue
         stats["attempted"] += 1
+        found: List[Tuple[str, Dict[str, Any]]] = []
+        pieces = sections(client, rfq)[:int(os.getenv("RFQ_DETAILS_MAX_PIECES", "6"))]
         try:
             from leads.local_llm_gate import queue_wait
-            with queue_wait(60):  # a background job: waiting for the shared slot costs nothing
-                out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {(doc or {}).get('subject') or ''}\n\n{body}",
-                                max_tokens=260, json_schema=_DETAIL_SCHEMA)
+            for p in pieces:
+                with queue_wait(60):  # a background job: waiting for the shared slot costs nothing
+                    out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
+                                    max_tokens=260, json_schema=_DETAIL_SCHEMA)
+                stats["calls"] += 1
+                found.append((p["kind"], grounded_details(out, f"{p['subject']}\n{p['text']}")))
         except LocalSLMError as e:
             stats["unavailable"] += 1
             logger.warning("rfq details: local model unavailable: %s", e)
             break  # an outage is never written as details; retried next cycle
-        text = f"{(doc or {}).get('subject') or ''}\n{body}"
-        fields = {f"metadata.rfq.{k}": v for k, v in grounded_details(out, text).items()}
-        fields["metadata.rfq.details_at"] = datetime.utcnow()
-        fields["metadata.rfq.details_source"] = "qwen"
+        fields = {f"metadata.rfq.{k}": v for k, v in merge_details(rfq, found).items()}
+        stats["fields_set"] += len(fields)
+        fields.update({"metadata.rfq.details_at": datetime.utcnow(), "metadata.rfq.details_source": "qwen",
+                       "metadata.rfq.details_v": DETAILS_V, "metadata.rfq.details_seen_until": latest,
+                       "metadata.rfq.details_pieces": len(pieces)})
         opp.update_one({"_id": o["_id"]}, {"$set": fields})
         stats["filled"] += 1
     return stats
