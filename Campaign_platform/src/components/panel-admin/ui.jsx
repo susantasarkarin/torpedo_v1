@@ -8,7 +8,7 @@ import { colors, card } from "./tokens"
 
 export function PageShell({ title, description, actions, children }) {
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1280px", minWidth: 0, boxSizing: "border-box" }}>
+    <div style={{ padding: "1.5rem", width: "100%", maxWidth: "1280px", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.5rem", color: colors.text }}>{title}</h1>

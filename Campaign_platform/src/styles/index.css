@@ -239,6 +239,8 @@ h6 {
 
 .content-area {
   flex: 1;
+  /* a flex item otherwise grows to its widest table and pushes past the screen */
+  min-width: 0;
   padding: 2rem;
   transition: margin-left 0.3s ease;
 }
