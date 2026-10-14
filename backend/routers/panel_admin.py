@@ -1346,6 +1346,22 @@ def get_panel_rewards(request: Request):
         raise HTTPException(status_code=502, detail=f"Could not load rewards from the panel: {e}")
 
 
+@router.post("/panel-redemptions/{redemption_id}/hold")
+def hold_panel_redemption(request: Request, redemption_id: str, data: Dict[str, Any] = Body(default={})):
+    """Hold a redemption for manual review (it cannot be marked sent while held)."""
+    from session_state import verify_session_sync
+    username = verify_session_sync(request)
+    return _sfw_write("POST", f"/redemptions/{redemption_id}/hold", {"by": username, "reason": str((data or {}).get("reason") or "")[:300]})
+
+
+@router.post("/panel-redemptions/{redemption_id}/release")
+def release_panel_redemption(request: Request, redemption_id: str):
+    """Release a held redemption after review."""
+    from session_state import verify_session_sync
+    username = verify_session_sync(request)
+    return _sfw_write("POST", f"/redemptions/{redemption_id}/release", {"by": username})
+
+
 @router.post("/panel-redemptions/{redemption_id}/sent")
 def mark_panel_redemption_sent(request: Request, redemption_id: str):
     """Record that a member's gift card was sent."""

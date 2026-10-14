@@ -37,21 +37,30 @@ function RewardsPoints({ embedded = false }) {
 
   useEffect(() => { load() }, [load])
 
-  const markSent = async (r) => {
-    if (!window.confirm(`Mark the ${r.giftCard} gift card for ${r.name || r.email} as sent?`)) return
+  // action: "sent" | "hold" | "release"
+  const act = async (r, action) => {
+    let body
+    if (action === "sent" && !window.confirm(`Mark the ${r.giftCard} gift card for ${r.name || r.email} as sent?`)) return
+    if (action === "hold") {
+      const reason = window.prompt(`Why hold the ${r.giftCard} gift card for ${r.name || r.email}?`, "Manual review")
+      if (reason === null) return
+      body = JSON.stringify({ reason })
+    }
+    if (action === "release" && !window.confirm(`Release the hold? The ${r.giftCard} gift card can then be sent.`)) return
     setBusy(r.id)
     try {
-      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panel-redemptions/${r.id}/sent`), {
+      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panel-redemptions/${r.id}/${action}`), {
         method: "POST",
-        headers: { Authorization: localStorage.getItem("session_id") },
+        headers: { Authorization: localStorage.getItem("session_id"), "Content-Type": "application/json" },
+        body,
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.detail || `HTTP ${res.status}`)
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `HTTP ${res.status}`)
       }
       await load()
     } catch (e) {
-      alert(`Could not mark as sent: ${e.message}`)
+      alert(`Could not ${action === "sent" ? "mark as sent" : action}: ${e.message}`)
     } finally {
       setBusy("")
     }
@@ -65,7 +74,7 @@ function RewardsPoints({ embedded = false }) {
     </div>
   )
 
-  const redemptions = (data?.redemptions || []).filter((r) => (filter === "toSend" ? !r.fulfilledAt : filter === "sent" ? r.fulfilledAt : true))
+  const redemptions = (data?.redemptions || []).filter((r) => (filter === "toSend" ? !r.fulfilledAt && !r.onHold : filter === "held" ? !r.fulfilledAt && r.onHold : filter === "sent" ? r.fulfilledAt : true))
 
   return (
     <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1200px" }}>
@@ -83,6 +92,7 @@ function RewardsPoints({ embedded = false }) {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
             {tile("Gift cards to send", n(data.totals.toSend), "redeemed, not yet marked sent", data.totals.toSend ? "#dc2626" : "#059669")}
+            {tile("On hold for review", n(data.totals.onHold), "release or keep holding", data.totals.onHold ? "#d97706" : "#059669")}
             {tile("Points earned", n(data.totals.earnedPoints), "credited to balances", "#047857")}
             {tile("Points on hold", n(data.totals.onHoldPoints), "released when the profile is complete", "#d97706")}
             {tile("Points redeemed", n(data.totals.redeemedPoints), "as gift cards", "#4f46e5")}
@@ -93,7 +103,7 @@ function RewardsPoints({ embedded = false }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
               <h3 style={{ margin: 0, fontSize: "1rem" }}>Gift-card redemptions</h3>
               <div style={{ display: "flex", gap: "0.25rem", background: "#f3f4f6", borderRadius: "8px", padding: "0.2rem" }}>
-                {[["toSend", "To send"], ["sent", "Sent"], ["all", "All"]].map(([k, label]) => (
+                {[["toSend", "To send"], ["held", "On hold"], ["sent", "Sent"], ["all", "All"]].map(([k, label]) => (
                   <button key={k} type="button" onClick={() => setFilter(k)}
                     style={{ border: "none", borderRadius: "6px", padding: "0.3rem 0.75rem", fontSize: "0.8rem", cursor: "pointer", background: filter === k ? "#fff" : "transparent", fontWeight: filter === k ? 600 : 400 }}>
                     {label}
@@ -120,8 +130,21 @@ function RewardsPoints({ embedded = false }) {
                         <td style={td}>
                           {r.fulfilledAt ? (
                             <span style={{ color: "#059669" }}>Sent {new Date(r.fulfilledAt).toLocaleDateString()}{r.fulfilledBy ? ` · ${r.fulfilledBy}` : ""}</span>
+                          ) : r.onHold ? (
+                            <div>
+                              <span style={{ color: "#d97706", fontWeight: 600 }}>On hold{r.suspended ? " · member suspended" : ""}</span>
+                              <ul style={{ margin: "0.25rem 0 0.4rem", paddingLeft: "1rem", fontSize: "0.75rem", color: "#6b7280" }}>
+                                {r.holdReasons.map((h) => <li key={h}>{h}</li>)}
+                              </ul>
+                              {!r.suspended && (
+                                <button type="button" style={{ ...btn, background: "#fff", color: "#4f46e5" }} disabled={busy === r.id} onClick={() => act(r, "release")}>{busy === r.id ? "Saving…" : "Release"}</button>
+                              )}
+                            </div>
                           ) : (
-                            <button type="button" style={btn} disabled={busy === r.id} onClick={() => markSent(r)}>{busy === r.id ? "Saving…" : "Mark sent"}</button>
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <button type="button" style={btn} disabled={busy === r.id} onClick={() => act(r, "sent")}>{busy === r.id ? "Saving…" : "Mark sent"}</button>
+                              <button type="button" style={{ ...btn, background: "#fff", color: "#d97706", borderColor: "#d97706" }} disabled={busy === r.id} onClick={() => act(r, "hold")}>Hold</button>
+                            </div>
                           )}
                         </td>
                       </tr>
