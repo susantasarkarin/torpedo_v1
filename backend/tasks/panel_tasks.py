@@ -14,6 +14,7 @@ the SES budget is spread evenly instead of arriving in every-third-day spikes.
 """
 
 import logging
+import os
 from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,14 @@ def _heartbeat(job_name: str, **extra) -> None:
     time_limit=11100,       # 3h5m
 )
 def send_daily_panel_invitations(self):
-    """Send one invitation email per eligible lead per day."""
+    """Send one invitation email per eligible lead per day.
+
+    Paused unless PANEL_LEAD_INVITES_ENABLED=true (owner, 2026-10-14: no
+    outreach to the ~2 lakh lead list for now)."""
+    if os.getenv("PANEL_LEAD_INVITES_ENABLED", "false").lower() != "true":
+        logger.info("[daily-panel-invite] paused (PANEL_LEAD_INVITES_ENABLED is not true); nothing sent")
+        _heartbeat("invite_cron", sent=0, failed=0)
+        return {"paused": True, "sent": 0}
     try:
         from services.panel_email_service import send_bulk_invitations
 
@@ -195,7 +203,15 @@ def run_panel_reengagement_drips(self):
     time_limit=11100,       # 3h5m
 )
 def send_daily_panel_login_invitations(self):
-    """Send one login reminder email per registered panelist per day."""
+    """Send one login reminder email per registered panelist per day.
+
+    Paused unless PANEL_LOGIN_REMINDERS_ENABLED=true: panel members get their
+    daily survey email from the SurveyFieldwork Panel itself (Google
+    Workspace), and two daily mails would be one too many."""
+    if os.getenv("PANEL_LOGIN_REMINDERS_ENABLED", "false").lower() != "true":
+        logger.info("[daily-panel-login-invite] paused (PANEL_LOGIN_REMINDERS_ENABLED is not true); nothing sent")
+        _heartbeat("login_cron", sent=0, failed=0)
+        return {"paused": True, "sent": 0}
     try:
         from services.panel_email_service import send_bulk_login_invitations
 
