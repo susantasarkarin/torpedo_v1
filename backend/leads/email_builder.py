@@ -179,7 +179,10 @@ def mail_pool_structure(client, domain: str) -> Optional[Dict[str, Any]]:
 def proven_pattern(client, domain: str) -> Optional[Dict[str, Any]]:
     """A pattern-store entry that mail has actually gone to without bouncing."""
     p = client["email_automation"]["email_patterns"].find_one({"domain": domain})
-    if not p or p.get("pattern_blacklisted") or p.get("high_bounce_risk"):
+    # 3,123 of 11,602 entries have send counts but no pattern (the send
+    # tracker upserts them); p["pattern"] raised KeyError and killed the whole
+    # builder run whenever such a domain came up (2026-10-14).
+    if not p or not p.get("pattern") or p.get("pattern_blacklisted") or p.get("high_bounce_risk"):
         return None
     sends, bounces = int(p.get("send_count") or 0), int(p.get("bounce_count") or 0)
     if sends >= 2 and bounces / max(1, sends + bounces) < 0.2:

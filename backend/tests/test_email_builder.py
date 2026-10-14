@@ -181,3 +181,11 @@ def test_shared_renderer_strips_apostrophes_and_accents():
     assert render_pattern_email("{first}.{last}@{domain}", "Björn", "Kaiser", "sharkninja.com") == \
         "bjorn.kaiser@sharkninja.com"
     assert render_pattern_email("{first}.{last}@{domain}", "Kritika", "|", "x.com") is None
+
+
+def test_pattern_entry_without_a_pattern_is_skipped_not_a_crash():
+    """3,123 email_patterns rows carry send counts but no pattern; the KeyError
+    killed every builder run that reached one (2026-10-14)."""
+    client = {"email_automation": {"email_patterns": _Col([
+        {"domain": "talkwalker.com", "send_count": 6, "examples": ["a.calinisan@talkwalker.com"]}])}}
+    assert eb.proven_pattern(client, "talkwalker.com") is None
