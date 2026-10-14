@@ -2229,6 +2229,38 @@ Rules:
     return subject, body_html
 
 
+_RE_PREFIX = _re.compile(r"^\s*re\s*:\s*", _re.I)
+
+
+def _followup_thread(db, lead_record: Dict[str, Any], from_email: str) -> Optional[Dict[str, str]]:
+    """The thread a "Re:" follow-up belongs in: this lead's first send from
+    this mailbox -> {thread_id, message_id (RFC Message-ID), subject}, or None.
+
+    Every follow-up used to go out as a new conversation with a "Re:" subject
+    (155 of 155 multi-send leads in Oct 2026, none threaded) -- and the SFW
+    step 2 subject did not even match step 1. A fake reply is a spam signal."""
+    first = db["outreach_sends_v2"].find_one(
+        {"outreach_lead_id": str(lead_record["_id"]), "from_email": from_email,
+         "gmail_thread_id": {"$nin": [None, ""]}, "status": "sent"},
+        {"gmail_message_id": 1, "gmail_thread_id": 1, "subject": 1}, sort=[("sent_at", 1)])
+    if not first or not first.get("gmail_message_id"):
+        return None
+    try:
+        svc = _get_gmail_workspace_service()
+        meta = svc._get_service(from_email).users().messages().get(
+            userId="me", id=first["gmail_message_id"], format="metadata",
+            metadataHeaders=["Message-ID", "Message-Id"]).execute()
+        rfc_id = next((h["value"] for h in (meta.get("payload") or {}).get("headers") or []
+                       if h.get("name", "").lower() == "message-id"), "")
+    except Exception as e:
+        logger.warning("[Outreach] follow-up thread lookup failed for %s: %s", lead_record.get("email"), e)
+        return None
+    if not rfc_id:
+        return None
+    return {"thread_id": first["gmail_thread_id"], "message_id": rfc_id,
+            "subject": _RE_PREFIX.sub("", first.get("subject") or "").strip()}
+
+
 def _send_via_gmail_api(
     from_email: str,
     to_email: str,
@@ -2236,6 +2268,7 @@ def _send_via_gmail_api(
     body_html: str,
     display_name: str,
     attachments: Optional[List[Dict]] = None,
+    thread: Optional[Dict[str, str]] = None,
 ) -> dict:
     """
     Send one email via GmailWorkspaceService (service account / domain-wide delegation).
@@ -2273,6 +2306,8 @@ def _send_via_gmail_api(
         body_html=body_html,
         signature_html=signature_html,
         attachments=gmail_attachments if gmail_attachments else None,
+        thread_id=(thread or {}).get("thread_id"),
+        reply_to_message_id=(thread or {}).get("message_id"),
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Gmail API send failed")
@@ -2801,10 +2836,21 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             body_html = _inject_open_tracking(body_html, send_id, TRACKING_BASE_URL)
             body_html = _rewrite_links_for_click_tracking(body_html, send_id, TRACKING_BASE_URL)
 
+        # A "Re:" step goes out as a real reply in the first mail's thread,
+        # under that mail's subject; when the thread cannot be found the "Re:"
+        # is dropped -- never a fake reply.
+        followup_thread = None
+        if _RE_PREFIX.match(subject or ""):
+            if sender_transport == "gmail" and next_step_number > 1:
+                followup_thread = _followup_thread(db, lead_record, from_email)
+            subject = (f"Re: {followup_thread['subject']}" if followup_thread and followup_thread["subject"]
+                       else _RE_PREFIX.sub("", subject).strip())
+
         if sender_transport == "gmail":
             send_result = _send_via_gmail_api(
                 from_email, email, subject, body_html, display_name,
                 attachments=step_attachments if step_attachments else None,
+                thread=followup_thread,
             )
         elif sender_transport == "smtp":
             send_result = _send_via_smtp(
