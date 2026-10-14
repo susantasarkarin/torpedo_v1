@@ -25,6 +25,9 @@ def fixed_heartbeats(monkeypatch):
         return state["heartbeats"]
 
     monkeypatch.setattr(H, "get_all_heartbeats", _get_all)
+    # Switched-off jobs report "paused"; these tests are about live jobs.
+    monkeypatch.setenv("PANEL_LEAD_INVITES_ENABLED", "true")
+    monkeypatch.setenv("PANEL_LOGIN_REMINDERS_ENABLED", "true")
     return state
 
 
@@ -181,3 +184,24 @@ def test_slack_post_is_skipped_silently_with_no_webhook_configured(monkeypatch):
     H._post_to_slack("test message")
 
     assert calls == []
+
+
+def test_switched_off_job_is_paused_not_stale(fixed_heartbeats, monkeypatch):
+    """Lead invites and the SES suppression sync are off by owner decision
+    (2026-10-14). Their missing heartbeats must not raise STALE errors."""
+    monkeypatch.setenv("PANEL_LEAD_INVITES_ENABLED", "false")
+    monkeypatch.delenv("PANEL_LOGIN_REMINDERS_ENABLED")
+    fixed_heartbeats["heartbeats"] = {
+        "suppression_sync": datetime.utcnow() - timedelta(hours=680),
+    }
+    jobs = {j["job"]: j for j in H._job_staleness()}
+    assert jobs["suppression_sync"]["status"] == "paused"
+    assert jobs["invite_cron"]["status"] == "paused"
+    assert jobs["login_cron"]["status"] == "paused"
+    assert jobs["drip_cron"]["status"] == "never_seen"
+
+
+def test_ses_quota_not_checked_when_ses_unused(monkeypatch):
+    monkeypatch.setenv("PANEL_LEAD_INVITES_ENABLED", "false")
+    q = H._ses_quota()
+    assert q["in_use"] is False and not q.get("transactional_at_risk")

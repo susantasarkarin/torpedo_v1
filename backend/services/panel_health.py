@@ -49,6 +49,23 @@ JOB_CADENCE_HOURS: Dict[str, Any] = {
 # built into each task, not two consecutive misses.
 STALE_MULTIPLIER = 1.25
 
+# Jobs that only run when their switch is on. A job paused on purpose is not
+# stale. The SES suppression sync serves lead-list invites, the only panel
+# mail still on SES (owner, 2026-10-14).
+JOB_SWITCHES: Dict[str, str] = {
+    "invite_cron": "PANEL_LEAD_INVITES_ENABLED",
+    "suppression_sync": "PANEL_LEAD_INVITES_ENABLED",
+    "login_cron": "PANEL_LOGIN_REMINDERS_ENABLED",
+}
+
+
+def _switch_on(name: str) -> bool:
+    return os.getenv(name, "false").lower() == "true"
+
+
+def ses_in_use() -> bool:
+    return _switch_on("PANEL_LEAD_INVITES_ENABLED")
+
 FAILURE_RATE_WARN = 0.20
 FAILURE_RATE_ERROR = 0.40
 
@@ -62,7 +79,11 @@ def _job_staleness() -> List[Dict[str, Any]]:
     for job_name, (cadence_hours, label) in JOB_CADENCE_HOURS.items():
         last = heartbeats.get(job_name)
         threshold = timedelta(hours=cadence_hours * STALE_MULTIPLIER)
-        if last is None:
+        switch = JOB_SWITCHES.get(job_name)
+        if switch and not _switch_on(switch):
+            status = "paused"
+            age_hours = round((now - last).total_seconds() / 3600, 1) if last else None
+        elif last is None:
             status = "never_seen"
             age_hours = None
         else:
@@ -123,6 +144,8 @@ def _suppression_velocity(window_hours: int = 24) -> Dict[str, Any]:
 
 
 def _ses_quota() -> Dict[str, Any]:
+    if not ses_in_use():
+        return {"reachable": None, "in_use": False}
     try:
         from services.panel_email_service import _get_ses_client, PANEL_SES_RESERVE, PANEL_DAILY_SEND_CAP
         quota = _get_ses_client().get_send_quota()

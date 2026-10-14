@@ -133,6 +133,10 @@ PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "140000"))
 # gives up 7K of a 119K budget, transactional mail gives up nothing.
 PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "10000"))
 
+# Login reminders go through Google Workspace (shared daily limit with the
+# Panel's own mail), so one run is kept small, like drips.
+PANEL_LOGIN_RUN_CAP = int(os.getenv("PANEL_LOGIN_RUN_CAP", "300"))
+
 # Rate limiting: confirmed max send rate for this account is 14/sec (SES
 # console -> Account dashboard). The old default of 1/sec (SES sandbox rate)
 # combined with the Celery task's 55-minute soft time limit (see
@@ -1094,7 +1098,10 @@ def send_login_invitation_email(
     first_name: str = "",
 ) -> Tuple[bool, Dict[str, Any]]:
     """
-    Send a login reminder email to registered panelists via SES.
+    Send a login reminder email to registered panelists via Google Workspace.
+    Members are not outreach, so they go out from the panel's Workspace
+    mailbox like drips and transactional mail (owner, 2026-10-14); only
+    lead-list invites stay on SES.
     Returns (success, details_dict).
     """
     blocked = _panel_gate(to_email, "panel_login")
@@ -1104,11 +1111,8 @@ def send_login_invitation_email(
         return False, {"error": category, "message": reason}
 
     try:
-        client = _get_ses_client()
-
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
-        msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = "Ready to earn? New surveys waiting for you"
         msg["Message-ID"] = f"<panel-login-{uuid.uuid4()}@surveyfieldwork.com>"
         unsub_link = _apply_unsubscribe(msg, to_email)
@@ -1118,21 +1122,13 @@ def send_login_invitation_email(
         msg.attach(MIMEText(_build_login_invitation_plain(first_name, login_url, unsub_link), "plain", "utf-8"))
         msg.attach(MIMEText(_build_login_invitation_html(first_name, login_url, unsub_link), "html", "utf-8"))
 
-        response = client.send_raw_email(
-            Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
-            Destinations=[to_email],
-            RawMessage={"Data": msg.as_bytes()},
-        )
+        from services.panel_gmail_sender import send_message
+        ok, details = send_message(msg)
+        if not ok:
+            return False, {"error": "gmail_send_failed", "message": details.get("error", "")}
+        logger.info(f"Panel login invitation sent → {to_email} | Gmail id={details.get('gmail_message_id', '')}")
+        return True, {"ses_message_id": details.get("gmail_message_id", "")}
 
-        ses_message_id = response.get("MessageId", "")
-        logger.info(f"Panel login invitation sent → {to_email} | SES MessageId={ses_message_id}")
-        return True, {"ses_message_id": ses_message_id}
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-        logger.error(f"SES error sending login invite to {to_email}: {error_code} — {error_msg}")
-        return False, {"error": error_code, "message": error_msg}
     except Exception as e:
         logger.error(f"Unexpected error sending login invite to {to_email}: {e}")
         return False, {"error": str(e)}
@@ -1167,7 +1163,9 @@ def send_bulk_login_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    budget = ses_budget_for_bulk()
+    # Workspace has a daily sending limit shared with the Panel's own mail,
+    # so the run is capped here instead of by the SES quota.
+    budget = PANEL_LOGIN_RUN_CAP
     cap_value = min(daily_cap, budget) if daily_cap is not None else budget
 
     # Window for "already sent a login reminder today", in the panel's local
