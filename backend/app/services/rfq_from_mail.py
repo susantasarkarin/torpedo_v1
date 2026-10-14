@@ -322,6 +322,10 @@ def grounded_details(out: Dict[str, Any], text: str) -> Dict[str, Any]:
 
 
 DETAILS_V = 2
+# The local model has a 2,048-token window; mail with signatures, addresses and
+# links tokenizes densely -- 2,800-char pieces overflowed it and came back as
+# cut-off JSON (2026-10-14, Hansa brief).
+PIECE_CHARS = int(os.getenv("RFQ_DETAILS_PIECE_CHARS", "1600"))
 DETAIL_FIELDS = ("methodology", "country", "target_audience", "sample_size", "loi", "ir", "deadline",
                  "budget", "currency")
 
@@ -332,17 +336,21 @@ def _missing(rfq: Dict[str, Any]) -> List[str]:
 
 def merge_details(rfq: Dict[str, Any], found: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, Any]:
     """Fields to set: only ones still empty on the RFQ (a person's entry or an
-    earlier fill is never overwritten), from pieces read oldest first, so the
-    client's latest statement wins. A budget is never taken from quoted text --
+    earlier fill is never overwritten). The client's own words and attachments
+    are read oldest first, so their latest statement wins; quoted history only
+    fills what they left empty. A budget is never taken from quoted text --
     the quote can hold our own prices."""
     empty = set(_missing(rfq))
     out: Dict[str, Any] = {}
-    for kind, kept in found:
+    direct = set()
+    for kind, kept in [f for f in found if f[0] != "quoted"] + [f for f in found if f[0] == "quoted"]:
         for k, v in kept.items():
             if k not in empty:
                 continue
-            if k in ("budget", "currency") and kind == "quoted":
+            if kind == "quoted" and (k in ("budget", "currency") or k in direct):
                 continue
+            if kind != "quoted":
+                direct.add(k)
             if k == "methodology" and out.get(k):
                 parts = [p for p in (out[k] + ", " + v).split(", ") if p]
                 v = ", ".join(dict.fromkeys(parts))[:60]
@@ -371,11 +379,11 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
     messages, the quoted history and attachments (rfq_thread_text). Each piece
     is read separately (the model's window is 2,048 tokens) and grounded
     against that piece's own text. Re-read when the client writes again."""
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from leads.local_slm_client import LocalSLMError, LocalSLMMalformedResponse, chat_json
     from app.services.rfq_thread_text import sections
     opp = client["crm_db"]["opportunities"]
     max_calls = max_calls if max_calls is not None else int(os.getenv("RFQ_DETAILS_CALLS_PER_RUN", "6"))
-    stats = {"attempted": 0, "filled": 0, "fields_set": 0, "calls": 0, "unavailable": 0}
+    stats = {"attempted": 0, "filled": 0, "fields_set": 0, "calls": 0, "unavailable": 0, "bad_answers": 0}
     for o in opp.find({"metadata.rfq.source": SOURCE, "status": "open", "stage": "rfq"},
                       {"metadata.rfq": 1}).sort("metadata.rfq.received_at", -1):
         if stats["attempted"] >= limit or stats["calls"] >= max_calls:
@@ -386,14 +394,25 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
             continue
         stats["attempted"] += 1
         found: List[Tuple[str, Dict[str, Any]]] = []
-        pieces = sections(client, rfq)[:int(os.getenv("RFQ_DETAILS_MAX_PIECES", "6"))]
+        all_pieces = sections(client, rfq, size=PIECE_CHARS)
+        pieces = all_pieces[:int(os.getenv("RFQ_DETAILS_MAX_PIECES", "8"))]
         try:
             from leads.local_llm_gate import queue_wait
             for p in pieces:
-                with queue_wait(60):  # a background job: waiting for the shared slot costs nothing
-                    out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
-                                    max_tokens=260, json_schema=_DETAIL_SCHEMA)
+                # Quoted history only while something is still empty.
+                if p["kind"] == "quoted" and not set(_missing(rfq)) - set(merge_details(rfq, found)):
+                    break
                 stats["calls"] += 1
+                try:
+                    with queue_wait(60):  # a background job: waiting for the shared slot costs nothing
+                        out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
+                                        max_tokens=260, json_schema=_DETAIL_SCHEMA)
+                except LocalSLMMalformedResponse as e:
+                    # One unreadable answer skips that piece only; breaking here
+                    # left the RFQ unmarked and retried, failing, every cycle.
+                    stats["bad_answers"] += 1
+                    logger.info("rfq details: unreadable answer for one piece of %s: %s", o["_id"], e)
+                    continue
                 found.append((p["kind"], grounded_details(out, f"{p['subject']}\n{p['text']}")))
         except LocalSLMError as e:
             stats["unavailable"] += 1

@@ -31,7 +31,7 @@ _TEXT_EXT = (".pdf", ".xlsx", ".xlsm", ".xls", ".docx", ".csv", ".txt")
 
 def _quoted_part(body: str, own: str) -> str:
     """What follows the replier's own text (strip_quoted keeps a prefix)."""
-    rest = (body or "").replace("\r\n", "\n").replace("\r", "\n")
+    rest = re.sub(r"\n{3,}", "\n\n", (body or "").replace("\r\n", "\n").replace("\r", "\n"))
     i = rest.find(own) if own else -1
     if i >= 0:
         rest = rest[i + len(own):]
@@ -188,9 +188,12 @@ def attachment_texts(client, msg: Dict[str, Any]) -> List[Dict[str, str]]:
 # ---------------------------------------------------------------------------
 # sections
 # ---------------------------------------------------------------------------
-_SIGNAL = re.compile(r"\d|\b(loi|ir|incidence|sample|n\s*=|country|countries|market|deadline|timeline|"
-                     r"target|audience|respondents?|completes?|online|cati|capi|f2f|b2b|b2c|budget|quote)\b",
-                     re.I)
+# Study terms, not bare digits: every signature carries a phone number, which
+# made "Please share your redirects" look like a brief.
+_SIGNAL = re.compile(r"\b(loi|ir|incidence|sample|samples|n\s*=\s*\d|countr(y|ies)|markets?|cit(y|ies)|"
+                     r"deadline|timelines?|target|audience|respondents?|completes?|online|cati|capi|cawi|"
+                     r"f2f|b2b|b2c|budget|quote|specs?|quota|ages?|nccs|sec|males?|females?|"
+                     r"\d+\s*(mins?|minutes|%))\b", re.I)
 
 
 def windows(text: str, size: int) -> List[str]:
@@ -214,10 +217,13 @@ def windows(text: str, size: int) -> List[str]:
 
 def sections(client, rfq: Dict[str, Any], size: int = 2800,
              with_attachments: bool = True) -> List[Dict[str, Any]]:
-    """[{kind: own|quoted|attachment, subject, text}] for the model, oldest first.
+    """[{kind: own|attachment|quoted, subject, text}] for the model: the
+    client's own words and attachments oldest first, then the quoted history.
 
-    Quoted history is taken once, from the newest message (it holds the
-    oldest), so the same brief is not read several times."""
+    Quoted history is taken once, from the message with the longest quote (it
+    holds the oldest mail), so the same brief is not read several times. It
+    comes last: a long reply's quote is ~10K chars and, read first, it used up
+    the piece budget before the client's own brief was reached."""
     from sales.reply_triage import strip_quoted
     msgs = thread_messages(client, rfq)
     out: List[Dict[str, Any]] = []
@@ -241,5 +247,4 @@ def sections(client, rfq: Dict[str, Any], size: int = 2800,
     subject = msgs[0].get("subject") if msgs else ""
     quoted = [{"kind": "quoted", "subject": subject or "", "text": w}
               for w in windows(newest_quote, size) if w not in seen]
-    # Oldest first: the quote holds what came before the indexed messages.
-    return quoted + out
+    return out + quoted

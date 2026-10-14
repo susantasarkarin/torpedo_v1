@@ -77,3 +77,24 @@ def test_needs_details_until_read_with_whole_thread(monkeypatch):
     gap = dict(done, deadline="")
     assert rb._needs_details(None, gap) == now                               # client wrote since
     assert rb._needs_details(None, dict(gap, details_seen_until=now)) is None
+
+
+def test_quoted_history_never_overrides_the_clients_own_words():
+    out = rb.merge_details({}, [("own", {"sample_size": 700}),
+                                ("quoted", {"sample_size": 300, "country": "India"})])
+    assert out["sample_size"] == 700
+    assert out["country"] == "India"     # but it fills what they left empty
+
+
+def test_a_signature_phone_number_is_not_a_brief():
+    text = "Hi Susanta,\n\nPlease share your redirects.\n\nRamiz\nM: +91 9920367917"
+    assert tt.windows(text, 1600) == []
+    assert tt.windows("Specs: LOI: 10 minutes, Males 100%, total 700", 1600)
+
+
+def test_quote_split_survives_blank_line_runs():
+    from sales.reply_triage import strip_quoted
+    body = "Hi,\n\n\n\nsee below\n\nFrom: X\nSent: today\n\nLOI 12 minutes, N=400"
+    own = strip_quoted(body)
+    q = tt._quoted_part(body, own)
+    assert "see below" not in q and "N=400" in q
