@@ -55,12 +55,12 @@ function Stats({ stats }) {
     <div style={card}>
       <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Panel profile</h3>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", marginBottom: "1rem", fontSize: "0.9rem" }}>
-        <span><strong>{stats.layer0Complete.toLocaleString()}</strong> core profile done</span>
-        <span><strong>{stats.flowComplete.toLocaleString()}</strong> whole flow done (10 points paid)</span>
+        <span><strong>{stats.layer0Complete.toLocaleString()}</strong> Quick start done</span>
+        <span><strong>{stats.flowComplete.toLocaleString()}</strong> every section done</span>
         <span><strong>{stats.attentionCheckFailed.toLocaleString()}</strong> failed the attention check</span>
         <span><strong>{(stats.mysteryShoppers || 0).toLocaleString()}</strong> mystery shoppers ready</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem", alignItems: "start" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Tier</th><th style={th}>Members</th></tr></thead>
           <tbody>
