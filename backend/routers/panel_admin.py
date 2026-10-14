@@ -1324,6 +1324,17 @@ def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[
     return _sfw_write("PUT", f"/profiling-lists/{key}/{variant}", {"items": payload.get("items", []), "updatedBy": "torpedo-admin"})
 
 
+@router.get("/overview-alerts")
+def get_overview_alerts(request: Request):
+    """Security-check terminations today and in the last 7 days (Overview alerts)."""
+    verify_admin_session(request)
+    from datetime import timedelta as _td
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    q = lambda since: traffic_collection.count_documents({"createdAt": {"$gte": since}, "status": "SECURITY_TERM"})
+    return {"securityTermsToday": q(today), "securityTermsWeek": q(now - _td(days=7))}
+
+
 @router.get("/panel-rewards")
 def get_panel_rewards(request: Request):
     """Points earned / on hold / redeemed and gift cards to send (from the SFW panel)."""

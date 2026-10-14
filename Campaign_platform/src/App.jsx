@@ -46,14 +46,13 @@ const LinkedInAutomationPage = lazy(() => import("./pages/marketing/LinkedInAuto
 const Finance = lazy(() => import("./pages/Finance"))
 const Operations = lazy(() => import("./pages/Operations"))
 const HR = lazy(() => import("./pages/HR"))
-const PanelAdminDashboard = lazy(() => import("./pages/panel-admin/PanelDashboard"))
-const PanelistManagement = lazy(() => import("./pages/panel-admin/PanelistManagement"))
-const RewardsPoints = lazy(() => import("./pages/panel-admin/RewardsPoints"))
-const TrafficSuppliers = lazy(() => import("./pages/panel-admin/TrafficSuppliers"))
-const TrafficFunnel = lazy(() => import("./pages/panel-admin/TrafficFunnel"))
-const ProfilingAdmin = lazy(() => import("./pages/panel-admin/ProfilingAdmin"))
+// Panel module: five sections (Overview, Members, Recruitment, Profiling & Quality, Rewards)
+const PanelAdminOverview = lazy(() => import("./pages/panel-admin/PanelOverview"))
+const PanelAdminMembers = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.MembersSection })))
+const PanelAdminRecruitment = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.RecruitmentSection })))
+const PanelAdminQuality = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.QualitySection })))
+const PanelAdminRewards = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.RewardsSection })))
 const PanelSettings = lazy(() => import("./pages/panel-admin/PanelSettings"))
-const MemberFunnel = lazy(() => import("./pages/panel-admin/MemberFunnel"))
 
 // Sales Pages
 const Campaign = lazy(() => import("./pages/sales/Campaign"))
@@ -332,14 +331,18 @@ function App() {
         <Route path="hr" element={<LazyPage><HR /></LazyPage>} />
 
         {/* Panel Admin */}
-        <Route path="panel-admin" element={<LazyPage><PanelAdminDashboard /></LazyPage>} />
-        <Route path="panel-admin/funnel" element={<LazyPage><MemberFunnel /></LazyPage>} />
-        <Route path="panel-admin/panelists" element={<LazyPage><PanelistManagement /></LazyPage>} />
-        <Route path="panel-admin/suppliers" element={<LazyPage><TrafficSuppliers /></LazyPage>} />
-        <Route path="panel-admin/traffic" element={<LazyPage><TrafficFunnel /></LazyPage>} />
-        <Route path="panel-admin/profiling" element={<LazyPage><ProfilingAdmin /></LazyPage>} />
-        <Route path="panel-admin/rewards" element={<LazyPage><RewardsPoints /></LazyPage>} />
+        <Route path="panel-admin" element={<LazyPage><PanelAdminOverview /></LazyPage>} />
+        <Route path="panel-admin/members" element={<LazyPage><PanelAdminMembers /></LazyPage>} />
+        <Route path="panel-admin/recruitment" element={<LazyPage><PanelAdminRecruitment /></LazyPage>} />
+        <Route path="panel-admin/profiling" element={<LazyPage><PanelAdminQuality /></LazyPage>} />
+        <Route path="panel-admin/rewards" element={<LazyPage><PanelAdminRewards /></LazyPage>} />
         <Route path="panel-admin/settings" element={<LazyPage><PanelSettings /></LazyPage>} />
+        {/* old Panel module addresses */}
+        <Route path="panel-admin/dashboard" element={<Navigate to="/admin/panel-admin" replace />} />
+        <Route path="panel-admin/funnel" element={<Navigate to="/admin/panel-admin?tab=funnel" replace />} />
+        <Route path="panel-admin/panelists" element={<Navigate to="/admin/panel-admin/members" replace />} />
+        <Route path="panel-admin/suppliers" element={<Navigate to="/admin/panel-admin/recruitment?tab=suppliers" replace />} />
+        <Route path="panel-admin/traffic" element={<Navigate to="/admin/panel-admin/recruitment?tab=traffic" replace />} />
 
         {/* Projects - Project Management */}
         {/* the old standalone Projects page duplicated Operations > Projects */}

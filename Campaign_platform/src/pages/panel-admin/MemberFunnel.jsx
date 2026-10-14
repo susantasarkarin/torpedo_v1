@@ -25,7 +25,7 @@ const PERIODS = [
 // Colour a stage-to-stage conversion: green healthy, amber weak, red roadblock.
 const tone = (pct) => (pct >= 70 ? "#059669" : pct >= 40 ? "#d97706" : "#dc2626")
 
-export default function MemberFunnel() {
+export default function MemberFunnel({ embedded = false }) {
   const [country, setCountry] = useState("")
   const [days, setDays] = useState(0)
   const [data, setData] = useState(null)
@@ -56,10 +56,10 @@ export default function MemberFunnel() {
   const countryOptions = (data?.countries || []).map((c) => c.country)
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1200px" }}>
+    <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1200px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Member Funnel</h1>
+          {!embedded && <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Member Funnel</h1>}
           <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.875rem" }}>
             Where every Panel member stands, from signup to redeeming points, and where they get stuck.
           </p>

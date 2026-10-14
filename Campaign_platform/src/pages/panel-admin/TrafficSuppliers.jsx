@@ -121,7 +121,7 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
   )
 }
 
-export default function TrafficSuppliers() {
+export default function TrafficSuppliers({ embedded = false }) {
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -231,10 +231,10 @@ export default function TrafficSuppliers() {
   const label = { fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a" }
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1000px" }}>
+    <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1000px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
         <div>
-          <h2 className="cx-page-title" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>
+          {!embedded && <h2 className="cx-page-title" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>}
           <p style={{ color: "#4b5563", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
             Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
             A signup counts as <strong>payable once the panelist completes their profile</strong> — the point they can be routed to a survey.

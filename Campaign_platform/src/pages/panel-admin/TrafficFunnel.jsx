@@ -65,7 +65,7 @@ function FunnelTable({ title, rows, keyLabel }) {
   )
 }
 
-export default function TrafficFunnel() {
+export default function TrafficFunnel({ embedded = false }) {
   const [days, setDays] = useState(30)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -90,10 +90,10 @@ export default function TrafficFunnel() {
   const totals = data?.totals
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1200px" }}>
+    <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1200px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
         <div>
-          <h2 style={{ margin: 0 }}>Traffic Funnel</h2>
+          {!embedded && <h2 style={{ margin: 0 }}>Traffic Funnel</h2>}
           <p style={{ margin: "0.25rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
             Every landing on surveyfieldwork.com, by ad source and country. Respondent id = the ad platform's click id (Meta fbclid, Quora qclid) or ?rid=.
           </p>

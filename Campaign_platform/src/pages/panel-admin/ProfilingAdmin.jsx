@@ -356,7 +356,7 @@ function ListEditor({ listKey, variant, items, onSaved }) {
   )
 }
 
-export default function ProfilingAdmin() {
+export default function ProfilingAdmin({ embedded = false }) {
   const [stats, setStats] = useState(null)
   const [lists, setLists] = useState(null)
   const [listKey, setListKey] = useState("insurers")
@@ -373,11 +373,15 @@ export default function ProfilingAdmin() {
   useEffect(() => { load() }, [load])
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1100px" }}>
-      <h2 style={{ margin: "0 0 0.25rem" }}>Profiling</h2>
-      <p style={{ margin: "0 0 1.25rem", color: "#4b5563", fontSize: "0.9rem" }}>
-        Consumer-journey profile (questionnaire v1.1) on the SFW panel: who has finished it, which tier they are in, and the brand lists the questions use.
-      </p>
+    <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1100px" }}>
+      {!embedded && (
+        <>
+          <h2 style={{ margin: "0 0 0.25rem" }}>Profiling</h2>
+          <p style={{ margin: "0 0 1.25rem", color: "#4b5563", fontSize: "0.9rem" }}>
+            Consumer-journey profile (questionnaire v1.1) on the SFW panel: who has finished it, which tier they are in, and the brand lists the questions use.
+          </p>
+        </>
+      )}
       {error && <div style={{ ...card, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>}
       {stats && <Stats stats={stats} />}
       <QualityReport />

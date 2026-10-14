@@ -13,8 +13,10 @@ const COUNTRY_NAMES = {
   US: "United States", IN: "India", GB: "United Kingdom", UK: "United Kingdom", AU: "Australia",
   CA: "Canada", DE: "Germany", FR: "France", SG: "Singapore", AE: "UAE", ES: "Spain", NG: "Nigeria",
 }
-function PanelistManagement() {
-  const [activeTab, setActiveTab] = useState("panelist-leads")
+// mode: "members" = SurveyFieldwork Panel members only (Members section);
+// "recruitment" = lead lists, imports and invites (Recruitment section).
+function PanelistManagement({ mode = "all" }) {
+  const [activeTab, setActiveTab] = useState(mode === "members" ? "sfw-panelists" : "panelist-leads")
 
   // SFW Panel state
   const [sfwPanelists, setSfwPanelists] = useState([])
@@ -538,11 +540,13 @@ function PanelistManagement() {
     <div>
       <div className="card">
         <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-          <div>
-            <h2 className="card-title">Panelist Management</h2>
-            <p className="card-description">Manage parsing-page leads, approved panelists, and bulk uploads.</p>
-          </div>
-          <div style={{ display: "flex", gap: "0.75rem" }}>
+          {mode === "all" && (
+            <div>
+              <h2 className="card-title">Panelist Management</h2>
+              <p className="card-description">Manage parsing-page leads, approved panelists, and bulk uploads.</p>
+            </div>
+          )}
+          {mode !== "members" && <div style={{ display: "flex", gap: "0.75rem" }}>
             <button
               className="btn btn-primary"
               onClick={handleSendInvitationsClick}
@@ -562,7 +566,7 @@ function PanelistManagement() {
             >
               {showUpload ? "Close Upload" : "Upload CSV"}
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* CSV Upload Section */}
@@ -697,15 +701,21 @@ function PanelistManagement() {
         {/* Tabs */}
         <div style={{ borderBottom: "1px solid #e5e7eb", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
-            <button style={tabStyle("panelist-leads")} onClick={() => setActiveTab("panelist-leads")}>
-              Panelist Lead
-            </button>
-            <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
-              Panelist Approved
-            </button>
-            <button style={tabStyle("sfw-panelists")} onClick={() => setActiveTab("sfw-panelists")}>
-              SFW Panelists
-            </button>
+            {mode !== "members" && (
+              <>
+                <button style={tabStyle("panelist-leads")} onClick={() => setActiveTab("panelist-leads")}>
+                  Panelist Lead
+                </button>
+                <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
+                  Panelist Approved
+                </button>
+              </>
+            )}
+            {mode !== "recruitment" && (
+              <button style={tabStyle("sfw-panelists")} onClick={() => setActiveTab("sfw-panelists")}>
+                {mode === "members" ? "Panel members" : "SFW Panelists"}
+              </button>
+            )}
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#4b5563", paddingBottom: "0.5rem" }}>
             Rows per batch

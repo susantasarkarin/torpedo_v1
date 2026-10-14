@@ -17,7 +17,7 @@ const btn = { padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px soli
 const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", GB: "United Kingdom", US: "United States" }
 const n = (v) => (v || 0).toLocaleString()
 
-function RewardsPoints() {
+function RewardsPoints({ embedded = false }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState("")
   const [filter, setFilter] = useState("toSend")
@@ -68,11 +68,13 @@ function RewardsPoints() {
   const redemptions = (data?.redemptions || []).filter((r) => (filter === "toSend" ? !r.fulfilledAt : filter === "sent" ? r.fulfilledAt : true))
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1200px" }}>
-      <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Rewards & Points</h1>
-      <p style={{ margin: "0.25rem 0 1.25rem", color: "#6b7280", fontSize: "0.875rem" }}>
-        Live from the SurveyFieldwork Panel. 100 points = ₹10 / £1 / $1.
-      </p>
+    <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1200px" }}>
+      {!embedded && <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Rewards & Points</h1>}
+      {!embedded && (
+        <p style={{ margin: "0.25rem 0 1.25rem", color: "#6b7280", fontSize: "0.875rem" }}>
+          Live from the SurveyFieldwork Panel. 100 points = ₹10 / £1 / $1.
+        </p>
+      )}
 
       {error && <div style={{ ...card, color: "#b91c1c" }}>{error}</div>}
       {!data && !error && <div style={card}>Loading…</div>}

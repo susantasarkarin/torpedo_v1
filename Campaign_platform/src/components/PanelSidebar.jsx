@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import "./PanelSidebar.css"
 
@@ -20,42 +19,27 @@ function PanelSidebar() {
         <ul>
           <li className={`sidebar-item ${isDashboard ? "active" : ""}`}>
             <Link to="/admin/panel-admin" className="sidebar-link">
-              <span className="sidebar-icon">📊</span> Dashboard
+              <span className="sidebar-icon">📊</span> Overview
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/admin/panel-admin/funnel") ? "active" : ""}`}>
-            <Link to="/admin/panel-admin/funnel" className="sidebar-link">
-              <span className="sidebar-icon">🔻</span> Member Funnel
+          <li className={`sidebar-item ${isActive("/admin/panel-admin/members") ? "active" : ""}`}>
+            <Link to="/admin/panel-admin/members" className="sidebar-link">
+              <span className="sidebar-icon">👥</span> Members
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/admin/panel-admin/panelists") ? "active" : ""}`}>
-            <Link to="/admin/panel-admin/panelists" className="sidebar-link">
-              <span className="sidebar-icon">👥</span> Panelist Management
-            </Link>
-          </li>
-          <li className={`sidebar-item ${isActive("/admin/panel-admin/suppliers") ? "active" : ""}`}>
-            <Link to="/admin/panel-admin/suppliers" className="sidebar-link">
-              <span className="sidebar-icon">🔗</span> Traffic Suppliers
-            </Link>
-          </li>
-          <li className={`sidebar-item ${isActive("/admin/panel-admin/traffic") ? "active" : ""}`}>
-            <Link to="/admin/panel-admin/traffic" className="sidebar-link">
-              <span className="sidebar-icon">📈</span> Traffic Funnel
+          <li className={`sidebar-item ${isActive("/admin/panel-admin/recruitment") ? "active" : ""}`}>
+            <Link to="/admin/panel-admin/recruitment" className="sidebar-link">
+              <span className="sidebar-icon">📣</span> Recruitment
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/admin/panel-admin/profiling") ? "active" : ""}`}>
             <Link to="/admin/panel-admin/profiling" className="sidebar-link">
-              <span className="sidebar-icon">🧭</span> Profiling
+              <span className="sidebar-icon">🧭</span> Profiling & Quality
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/admin/panel-admin/rewards") ? "active" : ""}`}>
             <Link to="/admin/panel-admin/rewards" className="sidebar-link">
-              <span className="sidebar-icon">🎁</span> Rewards & Points
-            </Link>
-          </li>
-          <li className={`sidebar-item ${isActive("/admin/panel-admin/settings") ? "active" : ""}`}>
-            <Link to="/admin/panel-admin/settings" className="sidebar-link">
-              <span className="sidebar-icon">⚙️</span> Panel Settings
+              <span className="sidebar-icon">🎁</span> Rewards
             </Link>
           </li>
         </ul>

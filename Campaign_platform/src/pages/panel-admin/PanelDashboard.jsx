@@ -72,7 +72,8 @@ function StatCard({ label, value, sub, color }) {
   )
 }
 
-function PanelDashboard() {
+// section="email": only the invitation email activity (Recruitment section).
+function PanelDashboard({ section = "all" }) {
   const [dailyStats, setDailyStats] = useState([])
   const [dailyLoading, setDailyLoading] = useState(false)
   const [registrationStats, setRegistrationStats] = useState({})
@@ -106,7 +107,7 @@ function PanelDashboard() {
   }, [days])
 
   useEffect(() => {
-    fetchSfwPanelData()
+    if (section !== "email") fetchSfwPanelData()
     fetchFunnel()
     fetchDripStatus()
     fetchHealth()
@@ -259,7 +260,7 @@ function PanelDashboard() {
       <div className="card">
         <div className="card-header">
           <div>
-            <h2 className="card-title">Panel Dashboard</h2>
+            <h2 className="card-title">{section === "email" ? "Invitation email activity" : "Panel Dashboard"}</h2>
             <p className="card-description">Monitor email sending activity and panelist registrations</p>
           </div>
         </div>
@@ -480,7 +481,7 @@ function PanelDashboard() {
       </div>
 
       {/* ── SFW Panel section ──────────────────────────────────────────────── */}
-      <div className="card" style={{ marginTop: "1.5rem" }}>
+      {section !== "email" && <div className="card" style={{ marginTop: "1.5rem" }}>
         <div className="card-header">
           <div>
             <h2 className="card-title">SFW Panel — panel.surveyfieldwork.com</h2>
@@ -605,7 +606,7 @@ function PanelDashboard() {
         ) : (
           <p style={{ color: "#4b5563", textAlign: "center", padding: "2rem 0" }}>Failed to load SFW panel data.</p>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
