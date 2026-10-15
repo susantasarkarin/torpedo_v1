@@ -422,33 +422,24 @@ def _attempt_skrapp_discovery(
     first: str, last: str, domain: str, emails_tried: list, leads_db
 ) -> Optional[str]:
     """
-    Use EmailPatternSystem (Skrapp / Hunter / web-scrape) to discover the
-    company email pattern. Store the pattern for future reuse, then derive
-    an email for this person.
+    Ask Skrapp for this person's verified address (leads/skrapp_client.py).
+    Only a "valid" answer that we have not already tried is used. Hunter was
+    removed 2026-10-15; the old pattern "discovery" asked about a made-up
+    person ("test user") and so could not find a real address.
     """
     tried_set = {e.lower() for e in emails_tried}
     try:
-        from leads.email_pattern_system import get_pattern_system
-        ps = get_pattern_system()
-
-        # Discover pattern via full 5-tier hierarchy
-        pattern_str = ps.discover_company_email_pattern(domain)
-        if not pattern_str:
-            return None
-
-        # Apply the discovered pattern to all no-email leads with this domain
-        try:
-            ps.apply_pattern_to_domain_leads(domain, pattern_str)
-        except Exception as _e:
-            logger.debug(f"[BounceRecovery] apply_pattern_to_domain_leads failed: {_e}")
-
-        # Build email for this specific person
-        email, confidence = ps.build_email(first, last, domain)
-        if email and _is_valid_email(email) and email.lower() not in tried_set:
-            return email, confidence
-
+        from database import get_client
+        from leads import skrapp_client
+        r = skrapp_client.find(get_client(), first, last, domain=domain)
+        email = (r.get("email") or "").lower()
+        if (r.get("status") == "found" and r.get("quality") in skrapp_client.USABLE
+                and _is_valid_email(email) and email.endswith("@" + domain.lower())
+                and email not in tried_set):
+            return email, 0.9
+        logger.info(f"[BounceRecovery] Skrapp gave nothing usable for {domain}: {r.get('status')} {r.get('quality', '')}")
     except Exception as e:
-        logger.warning(f"[BounceRecovery] Skrapp discovery failed for {domain}: {e}")
+        logger.warning(f"[BounceRecovery] Skrapp lookup failed for {domain}: {e}")
 
     return None, None
 

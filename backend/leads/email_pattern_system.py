@@ -235,13 +235,9 @@ class EmailPatternSystem:
             if stored:
                 return stored
 
-        # Tier 3: Hunter.io API
-        if self.hunter_api_key:
-            pattern = self._hunter_lookup(domain)
-            if pattern:
-                self._store_pattern(pattern)
-                return pattern
-        
+        # (Tier 3, Hunter.io, removed 2026-10-15 -- owner: Skrapp in its place.
+        # Skrapp looks up a person, not a domain: see leads/skrapp_client.py.)
+
         # Tier 4: Pattern guessing — skip for domains with known bounce history
         risk = self.get_domain_risk(domain)
         if risk.get("pattern_blacklisted") or risk.get("high_bounce_risk"):
@@ -400,55 +396,6 @@ class EmailPatternSystem:
         
         except Exception as e:
             print(f"Website scraping error for {domain}: {e}")
-        
-        return None
-    
-    def _hunter_lookup(self, domain: str) -> Optional[Dict]:
-        """Tier 3: Use Hunter.io API to discover pattern"""
-        if not self.hunter_api_key:
-            return None
-        
-        try:
-            url = f"https://api.hunter.io/v2/domain-search?domain={domain}&api_key={self.hunter_api_key}"
-            response = requests.get(url, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("data") and data["data"].get("pattern"):
-                    hunter_pattern = data["data"]["pattern"]
-                    emails = data["data"].get("emails", [])
-                    
-                    # Convert Hunter.io pattern to our format
-                    pattern_map = {
-                        "{first}": "{first}",
-                        "{last}": "{last}",
-                        "{f}": "{f}",
-                        "{l}": "{l}"
-                    }
-                    
-                    our_pattern = hunter_pattern
-                    for hunter_fmt, our_fmt in pattern_map.items():
-                        our_pattern = our_pattern.replace(hunter_fmt, our_fmt)
-                    
-                    examples = [e["value"] for e in emails[:5] if e.get("value")]
-                    
-                    return {
-                        "domain": domain,
-                        "pattern": our_pattern,
-                        "confidence": 0.9,  # Hunter.io is very reliable
-                        "source": "hunter_io",
-                        "examples": examples,
-                        "discovered_at": datetime.now(),
-                        "last_verified": datetime.now(),
-                        "hunter_data": {
-                            "organization": data["data"].get("organization"),
-                            "emails_found": len(emails)
-                        }
-                    }
-        
-        except Exception as e:
-            print(f"Hunter.io API error for {domain}: {e}")
         
         return None
     
@@ -850,71 +797,20 @@ class EmailPatternSystem:
         sample_last: str = "user",
     ) -> Optional[str]:
         """
-        Tier 2.5: Call Skrapp.io to discover a company email pattern.
-        PURPOSE: Company-wide pattern discovery, NOT individual email lookup.
+        The stored pattern for this domain, or None.
 
-        - Skips if domain already has a pattern with confidence >= 0.8.
-        - Rotates across up to 3 Skrapp accounts via monthly usage counter.
-        - Stores discovered pattern in email_patterns collection.
-        - Returns the pattern string (e.g. "{first}.{last}@{domain}") or None.
+        This used to ask Skrapp about a made-up person ("test user") at
+        POST app.skrapp.io/api/v2/email-finder -- not Skrapp's API (that is
+        GET api.skrapp.io/api/v2/find with X-Access-Key) and not a real
+        person, so it could never find anything. Skrapp is now asked about
+        real people only (leads/skrapp_client.py, used by the email builder
+        and bounce recovery); what it learns is stored and returned here.
         """
         domain = self._extract_domain(domain)
         if not domain:
             return None
-
-        # Skip if we already have a high-confidence pattern
         existing = self._lookup_database(domain)
-        if existing and existing.get("confidence", 0) >= 0.8:
-            return existing.get("pattern")
-
-        account = self.get_skrapp_account_with_capacity()
-        if not account:
-            return None  # All accounts exhausted or no keys configured
-
-        try:
-            import requests as _requests
-            resp = _requests.post(
-                "https://app.skrapp.io/api/v2/email-finder",
-                json={"domain": domain, "firstName": sample_first, "lastName": sample_last},
-                headers={"Authorization": f"Bearer {account['key']}"},
-                timeout=15,
-            )
-            self.increment_skrapp_usage(account["account_index"])
-
-            if resp.status_code == 200:
-                data = resp.json()
-                found_email = (data.get("email") or "").lower().strip()
-                if found_email and domain in found_email:
-                    # Use Skrapp-returned pattern if available, otherwise extract from email
-                    skrapp_pattern = data.get("pattern", "")
-                    if skrapp_pattern:
-                        # Skrapp returns patterns like "{first}.{last}" — append domain
-                        if "@" not in skrapp_pattern:
-                            pattern_str = f"{skrapp_pattern}@{{domain}}"
-                        else:
-                            pattern_str = skrapp_pattern
-                    else:
-                        pattern_str = self._extract_pattern_from_email(found_email, domain)
-
-                    if pattern_str:
-                        pattern_doc = {
-                            "domain": domain,
-                            "pattern": pattern_str,
-                            "confidence": 0.9,
-                            "source": "skrapp",
-                            "examples": [found_email],
-                            "discovered_at": datetime.now(),
-                            "last_verified": datetime.now(),
-                            "skrapp_account": account["account_index"],
-                        }
-                        self._store_pattern(pattern_doc)
-                        print(f"[Skrapp] Pattern discovered for {domain}: {pattern_str}")
-                        return pattern_str
-
-        except Exception as e:
-            print(f"[Skrapp] API error for {domain}: {e}")
-
-        return None
+        return existing.get("pattern") if existing else None
 
     def apply_pattern_to_domain_leads(self, domain: str, pattern_str: str) -> int:
         """

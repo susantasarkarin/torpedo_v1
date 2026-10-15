@@ -12,9 +12,10 @@ For a lead with a name and a company domain:
                    (app/services/email_structure.py; one that wrote to us
                    counts double). Two or more agreeing, or one that wrote to us.
        proven      a pattern-store entry that has been sent to without bouncing
-       hunter_io   Hunter's domain search (HUNTER_API_KEY; capped per month by
-                   HUNTER_MONTHLY_LIMIT, default 25 = the free plan)
-     No structure -> no address. Guessed patterns bounced heavily (45% in
+     Neither -> Skrapp (leads/skrapp_client.py) is asked for this person's
+     verified address; only a "valid" answer is used, and it needs no model
+     check. Hunter was removed 2026-10-15 (owner: Skrapp in its place).
+     Nothing -> no address. Guessed patterns bounced heavily (45% in
      August), so a lead is left without one and retried later.
   2. the address is built from the lead's name;
   3. the local model checks it against real addresses of the same company:
@@ -33,11 +34,10 @@ import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 
 logger = logging.getLogger(__name__)
 
-RETRY_DAYS = {"no_structure": 30, "no_name": 3650, "ai_doubt": 3650, "bounced_before": 3650,
+RETRY_DAYS = {"no_structure": 30, "skrapp_unverified": 90, "no_name": 3650, "ai_doubt": 3650, "bounced_before": 3650,
               "model_unavailable": 0}
 WEAK_SOURCES = ("guess",)
 
@@ -188,99 +188,44 @@ def proven_pattern(client, domain: str) -> Optional[Dict[str, Any]]:
     if sends >= 2 and bounces / max(1, sends + bounces) < 0.2:
         return {"form": p["pattern"].split("@")[0], "source": "proven", "confidence": 0.85,
                 "examples": [{"email": e, "name": ""} for e in (p.get("examples") or [])[:3]]}
-    if p.get("source") == "hunter_io" and p.get("pattern"):
-        return {"form": p["pattern"].split("@")[0], "source": "hunter_io", "confidence": 0.8,
+    # A looked-up pattern (Skrapp now; Hunter's stored answers from before
+    # 2026-10-15 stay valid data).
+    if p.get("source") in ("skrapp", "hunter_io") and p.get("pattern"):
+        return {"form": p["pattern"].split("@")[0], "source": p["source"], "confidence": 0.8,
                 "examples": [{"email": e, "name": ""} for e in (p.get("examples") or [])[:3]]}
     return None
 
 
-def _hunter_key(client) -> str:
-    key = os.getenv("HUNTER_API_KEY", "").strip()
-    if key:
-        return key
-    try:  # the pattern system's older setting; read the one field only
-        doc = client["torpedo_settings"]["app_settings"].find_one({"_id": "app_config"}, {"hunter_api_key": 1})
-        return ((doc or {}).get("hunter_api_key") or "").strip()
-    except Exception:
-        return ""
-
-
-def hunter_monthly_limit() -> int:
-    try:
-        return max(0, int(os.getenv("HUNTER_MONTHLY_LIMIT", "25")))
-    except ValueError:
-        return 25
-
-
-def hunter_remaining(client, key: str, now: datetime) -> int:
-    """Domain searches left on the Hunter account (its /account call is free),
-    re-read at most hourly; 0 until the reset date once used up."""
-    usage = client["email_automation"]["hunter_usage"]
-    acct = usage.find_one({"_id": "account"}) or {}
-    reset = acct.get("reset_date")
-    fresh = acct.get("checked_at") and acct["checked_at"] > now - timedelta(hours=1)
-    if fresh and (acct.get("remaining", 0) > 0 or not reset or now < reset):
-        return int(acct.get("remaining") or 0)
-    try:
-        d = (requests.get("https://api.hunter.io/v2/account", params={"api_key": key}, timeout=15).json()
-             or {}).get("data") or {}
-        searches = (d.get("requests") or {}).get("searches") or {}
-        remaining = int(searches.get("available", 0)) - int(searches.get("used", 0))
-        reset_date = datetime.strptime(d["reset_date"], "%Y-%m-%d") if d.get("reset_date") else None
-    except Exception as e:
-        logger.warning("email_builder: Hunter account check failed: %s", e)
-        return int(acct.get("remaining") or 0) if fresh else 0
-    usage.update_one({"_id": "account"}, {"$set": {"remaining": remaining, "reset_date": reset_date,
-                                                   "plan": d.get("plan_name"), "checked_at": now}}, upsert=True)
-    return remaining
-
-
-def hunter_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[str, Any]], str]:
-    """(structure or None, why). Each domain is asked once; answers are cached."""
-    cache = client["email_automation"]["hunter_lookups"]
-    hit = cache.find_one({"_id": domain})
-    if hit:
-        return (hit.get("structure"), "cached") if hit.get("structure") else (None, "hunter_has_none")
-    key = _hunter_key(client)
-    if not key:
-        return None, "hunter_not_configured"
-    usage = client["email_automation"]["hunter_usage"]
-    month = now.strftime("%Y-%m")
-    used = (usage.find_one({"_id": month}) or {}).get("n", 0)
-    if used >= hunter_monthly_limit():
-        return None, "hunter_monthly_limit"
-    # Hunter's own count decides: other parts of the system search too, and
-    # its month resets on the account's date, not on the 1st (2026-10-01: our
-    # counter said 6 used, Hunter said 44 of 50)
-    if hunter_remaining(client, key, now) <= 0:
-        return None, "hunter_quota_used_up"
-    try:
-        r = requests.get("https://api.hunter.io/v2/domain-search",
-                         params={"domain": domain, "api_key": key, "limit": 10}, timeout=20)
-    except Exception as e:
-        return None, f"hunter_error: {e}"
-    usage.update_one({"_id": month}, {"$inc": {"n": 1}}, upsert=True)
-    usage.update_one({"_id": "account"}, {"$inc": {"remaining": -1}})
-    if r.status_code in (429, 403):
-        usage.update_one({"_id": "account"}, {"$set": {"remaining": 0, "checked_at": now}}, upsert=True)
-    if r.status_code != 200:
-        return None, f"hunter_http_{r.status_code}"
-    data = (r.json() or {}).get("data") or {}
-    pattern = data.get("pattern")
-    emails = [e for e in (data.get("emails") or []) if e.get("value")]
-    structure = None
-    if pattern:
-        structure = {"form": pattern, "source": "hunter_io", "confidence": 0.8,
-                     "examples": [{"email": e["value"],
-                                   "name": f"{e.get('first_name') or ''} {e.get('last_name') or ''}".strip()}
-                                  for e in emails[:3]]}
-        client["email_automation"]["email_patterns"].update_one({"domain": domain}, {"$set": {
-            "domain": domain, "pattern": f"{pattern}@{{domain}}", "confidence": 0.8, "source": "hunter_io",
-            "examples": [e["value"] for e in emails[:5]], "discovered_at": now, "last_verified": now}},
-            upsert=True)
-    cache.update_one({"_id": domain}, {"$set": {"structure": structure, "organization": data.get("organization"),
-                                                "emails_found": len(emails), "at": now}}, upsert=True)
-    return structure, ("hunter" if structure else "hunter_has_none")
+def skrapp_address(client, first: str, last: str, domain: str, now: datetime,
+                   bounced: set) -> Dict[str, Any]:
+    """Skrapp's verified address for one person -> {"rec": ..., "set_fields": ...}."""
+    from leads import skrapp_client
+    r = skrapp_client.find(client, first, last, domain=domain, now=now)
+    st = r.get("status")
+    if st != "found":
+        why = {"not_found": "skrapp_has_none", "not_configured": "skrapp_not_configured",
+               "monthly_limit": "skrapp_monthly_limit"}.get(st, "skrapp_error")
+        return {"rec": {"status": "no_structure", "why": why}, "set_fields": {}}
+    email = r["email"]
+    rec = {"source": "skrapp", "candidate": email, "skrapp_quality": r.get("quality")}
+    if r.get("pattern"):
+        form = r["pattern"] if "@" in r["pattern"] else r["pattern"] + "@{domain}"
+        rec["structure"] = form.replace("{domain}", domain)
+        client["email_automation"]["email_patterns"].update_one({"domain": domain}, {
+            "$set": {"domain": domain, "pattern": form, "confidence": 0.8, "source": "skrapp",
+                     "last_verified": now},
+            "$setOnInsert": {"discovered_at": now}, "$addToSet": {"examples": email}}, upsert=True)
+    if email in bounced:
+        rec["status"] = "bounced_before"
+    elif address_problem(email) or not email.endswith("@" + domain):
+        rec["status"] = "ai_doubt"; rec["why"] = address_problem(email) or "skrapp address is off the company domain"
+    elif r.get("quality") not in skrapp_client.USABLE:
+        rec["status"] = "skrapp_unverified"; rec["why"] = f"skrapp quality: {r.get('quality')}"
+    else:
+        rec["status"] = "built"; rec["email"] = email
+        return {"rec": rec, "set_fields": {"email": email, "email_status": "Valid", "email_source": "skrapp",
+                                           "email_pattern_confidence": 0.9}}
+    return {"rec": rec, "set_fields": {}}
 
 
 def find_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -290,7 +235,7 @@ def find_structure(client, domain: str, now: datetime) -> Tuple[Optional[Dict[st
     s = proven_pattern(client, domain)
     if s:
         return s, s["source"]
-    return hunter_structure(client, domain, now)
+    return None, "no_known_structure"
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +358,11 @@ def build_for_lead(client, lead: Dict[str, Any], now: datetime, bounced: set) ->
     else:
         structure, why = find_structure(client, domain, now)
         if not structure:
-            rec.update({"status": "no_structure", "why": why})
+            # No structure we trust: ask Skrapp for this person's verified
+            # address (owner, 2026-10-15: Skrapp replaces Hunter).
+            sk = skrapp_address(client, first, last, domain, now, bounced)
+            rec.update(sk["rec"])
+            set_fields = {**set_fields, **sk["set_fields"]}
         else:
             form = structure["form"] if "@" in structure["form"] else structure["form"] + "@{domain}"
             candidate = render_pattern_email(form, first, last, domain)
@@ -440,8 +389,8 @@ def build_for_lead(client, lead: Dict[str, Any], now: datetime, bounced: set) ->
                 else:
                     rec["status"] = "ai_doubt" if check["verdict"] == "doubt" else "domain_doubt"
     days = RETRY_DAYS.get(rec["status"], 3650 if rec["status"] in ("built", "domain_doubt") else 1)
-    if rec.get("why") in ("hunter_monthly_limit", "hunter_quota_used_up"):
-        days = 1  # waiting on Hunter's quota, not on missing evidence
+    if rec.get("why") in ("skrapp_monthly_limit", "skrapp_not_configured", "skrapp_error"):
+        days = 1  # waiting on Skrapp's quota or key, not on missing evidence
     rec["next_try_at"] = now + timedelta(days=days) if days else now + timedelta(minutes=30)
     le.update_one({"_id": lead["_id"]}, {"$set": {"email_build": rec, **set_fields, "updated_at": now}})
     return rec

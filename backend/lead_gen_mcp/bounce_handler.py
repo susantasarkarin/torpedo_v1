@@ -10,7 +10,7 @@ When a sent email hard-bounces, this module:
        suggest alternative email formats, nickname expansions, or alias
        patterns specific to this company
   4. Tries each AI candidate in ranked order
-  5. Falls back to Hunter email-finder as last resort (costs a credit)
+  5. Falls back to Skrapp's verified lookup as last resort (costs a credit)
   6. Updates the lead row and bounce_log with the outcome
 
 Email "trying" at this stage means checking deliverability via a lightweight
@@ -33,14 +33,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from . import state as st
-from .enricher import apply_pattern, _hunter_domain_search
+from .enricher import apply_pattern
+from . import skrapp
 from .qwen_client import call_qwen
 from .schemas import EnrichedLead
 
 logger = logging.getLogger(__name__)
 
-HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "")
-HUNTER_BASE = "https://api.hunter.io/v2"
 
 # Alternative patterns to try before calling any API
 _PATTERN_VARIANTS = [
@@ -153,7 +152,7 @@ Person:
   Domain: {domain}
 
 Email that bounced: {bounced_email}
-Known Hunter.io pattern for this domain: {known_pattern or 'none'}
+Known email pattern for this domain: {known_pattern or 'none'}
 Other patterns seen at this domain: {existing_patterns_at_domain or []}
 
 Generate alternative email candidates.
@@ -180,29 +179,17 @@ Generate alternative email candidates.
 
 
 # ---------------------------------------------------------------------------
-# Hunter email-finder fallback
+# Skrapp fallback (replaced Hunter, 2026-10-15)
 # ---------------------------------------------------------------------------
 
-async def _hunter_email_finder(
+async def _skrapp_email_finder(
     first: str, last: str, domain: str
 ) -> Optional[str]:
+    """Skrapp's address for this person, only when Skrapp verified it valid."""
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{HUNTER_BASE}/email-finder",
-                params={
-                    "domain": domain,
-                    "first_name": first,
-                    "last_name": last,
-                    "api_key": HUNTER_API_KEY,
-                },
-                timeout=12,
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data", {})
-            email = data.get("email")
-            score = data.get("score", 0)
-            return email if email and score >= 50 else None
+            found = await skrapp.find(client, first, last, domain=domain)
+        return found["email"] if found and found["quality"] == "valid" else None
     except Exception:
         return None
 
@@ -222,7 +209,7 @@ async def handle_bounce(
     Lookup order:
       1. Cheap pattern variants (SMTP probe each, no API)
       2. Qwen AI candidates (SMTP probe each)
-      3. Hunter email-finder (last resort, costs a credit)
+      3. Skrapp lookup (last resort, costs a credit)
 
     Returns a dict describing the outcome:
       {
@@ -320,21 +307,21 @@ async def handle_bounce(
                 "candidates_tried": candidates_tried,
             }
 
-    # 4. Hunter email-finder (last resort)
+    # 4. Skrapp (last resort)
     if first and domain:
-        hunter_email = await _hunter_email_finder(first, last, domain)
-        if hunter_email and hunter_email.lower() != bounced_email.lower():
-            candidates_tried.append(hunter_email)
+        found_email = await _skrapp_email_finder(first, last, domain)
+        if found_email and found_email.lower() != bounced_email.lower():
+            candidates_tried.append(found_email)
             st.record_re_enrichment(
-                bounce_log_id, eid, hunter_email,
-                source="hunter_finder",
+                bounce_log_id, eid, found_email,
+                source="skrapp_finder",
                 ai_candidates=candidates_tried,
             )
-            logger.info("Bounce resolved via Hunter email-finder: %s", hunter_email)
+            logger.info("Bounce resolved via Skrapp: %s", found_email)
             return {
                 "status": "resolved",
-                "new_email": hunter_email,
-                "source": "hunter_finder",
+                "new_email": found_email,
+                "source": "skrapp_finder",
                 "bounce_log_id": bounce_log_id,
                 "candidates_tried": candidates_tried,
             }

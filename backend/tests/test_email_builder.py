@@ -110,18 +110,6 @@ def test_model_outage_is_not_a_verdict():
     assert out["verdict"] == "unavailable"
 
 
-def test_hunter_not_asked_without_a_key_or_over_the_monthly_cap(monkeypatch):
-    monkeypatch.delenv("HUNTER_API_KEY", raising=False)
-    client = {"email_automation": {"hunter_lookups": _Col(), "hunter_usage": _Col()},
-              "torpedo_settings": {"app_settings": _Col()}}
-    assert eb.hunter_structure(client, "x.com", NOW) == (None, "hunter_not_configured")
-    monkeypatch.setenv("HUNTER_API_KEY", "k")
-    client["email_automation"]["hunter_usage"] = _Col([{"_id": "2026-09", "n": 25}])
-    with patch.object(eb.requests, "get") as get:
-        assert eb.hunter_structure(client, "x.com", NOW) == (None, "hunter_monthly_limit")
-    get.assert_not_called()
-
-
 def test_a_job_title_is_not_a_person():
     assert not eb.is_person_name({"name": "Creative Design Manager"})
     assert not eb.is_person_name({"name": "Rahul", "title": "rahul"})
@@ -142,20 +130,6 @@ def test_model_domain_must_match_the_company_name():
     assert eb.domain_matches_name("trainline.com", "Trainline")
     assert not eb.domain_matches_name("adidas.com", "Nike")
     assert not eb.domain_matches_name("gmail.com", "B2B SaaS")
-
-
-def test_hunters_own_count_stops_the_search(monkeypatch):
-    from unittest.mock import MagicMock
-    monkeypatch.setenv("HUNTER_API_KEY", "k")
-    usage = _Col()
-    usage.update_one = lambda *a, **k: None
-    client = {"email_automation": {"hunter_lookups": _Col(), "hunter_usage": usage}}
-    acct = MagicMock()
-    acct.json.return_value = {"data": {"plan_name": "Free", "reset_date": "2026-10-24",
-                                       "requests": {"searches": {"used": 50, "available": 50}}}}
-    with patch.object(eb.requests, "get", return_value=acct) as get:
-        assert eb.hunter_structure(client, "x.com", NOW) == (None, "hunter_quota_used_up")
-    assert all("domain-search" not in str(c) for c in get.call_args_list)
 
 
 def test_special_characters_never_pass():
