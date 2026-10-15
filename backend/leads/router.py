@@ -112,6 +112,9 @@ try:
 except Exception as e:
     print(f"Warning: Could not create job indexes: {e}")
 
+# Last start offset Google CSE accepts for a 10-result page (start + num <= 101).
+CSE_LAST_PAGE_START = 91
+
 # ============== PERSISTENT CSE QUERY LEDGER ==============
 # One document per unique query string, shared by ALL jobs and surviving
 # restarts. Tracks how deep into Google's ~100-result window each query has
@@ -951,7 +954,9 @@ async def run_web_search_job(job_id: str):
         batch_leads = []
         cse_paused_mid_visit = False
 
-        while consecutive_empty < 3 and start_index <= 100:
+        # Google CSE serves results 1-100 and rejects (HTTP 400) any request
+        # with start + num > 101 -- a page of 10 can start at 91 at most.
+        while consecutive_empty < 3 and start_index <= CSE_LAST_PAGE_START:
             job = get_job(job_id)
             if not job or job["status"] == JobStatus.STOPPED:
                 return
@@ -989,7 +994,11 @@ async def run_web_search_job(job_id: str):
                         seen_urls.add(url)
                         batch_leads.append(lead)
                 
-                start_index += len(results)
+                # Advance by the page fetched, not by the leads it yielded:
+                # 10 results -> 4 leads used to move start by 4, so the next
+                # request re-fetched (and paid for) 6 results already seen and
+                # drifted to offsets like 95/99 that Google rejects (2026-10-15).
+                start_index += batch_size
                 await asyncio.sleep(1)  # Small delay between pagination
                 
             except Exception as e:
@@ -1043,7 +1052,7 @@ async def run_web_search_job(job_id: str):
         # this query has been consumed. During a CSE pause, start_index only
         # advanced past pages that really returned results, so persisting it
         # is safe — but exhaustion must not be judged from unavailability.
-        window_consumed = (not cse_paused_mid_visit) and start_index > 100
+        window_consumed = (not cse_paused_mid_visit) and start_index > CSE_LAST_PAGE_START
         save_query_ledger(query, next_start=start_index, exhausted=window_consumed or bool(ledger.get("exhausted")))
         if window_consumed:
             print(f"[WebSearch:{job_id}] Query window fully consumed (start>100): '{query[:60]}'")

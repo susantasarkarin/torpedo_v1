@@ -286,7 +286,10 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
     async with httpx.AsyncClient() as http_client:
         for i in range(pages):
             page_start = start + i * 10
-            if page_start > 100:
+            # CSE rejects start + num > 101 with HTTP 400 -- and the request
+            # has already taken a slot of the 100/day budget by then.
+            page_num = min(10, num_results - len(results), 101 - page_start)
+            if page_start > 100 or page_num < 1:
                 break
 
             # Reserve a slot BEFORE this request, not just react to a 429
@@ -318,7 +321,7 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
                     "q": query,
                     "key": api_key,
                     "cx": cse_id,
-                    "num": min(10, num_results - len(results)),
+                    "num": page_num,
                     "start": page_start,
                 }
 

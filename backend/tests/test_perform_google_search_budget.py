@@ -172,3 +172,46 @@ def test_rate_limiter_import_failure_fails_open_and_still_reaches_429_handling(i
     assert results == []
     fake_client.get.assert_called_once()   # request still attempted (fail open)
     pause_mock.assert_called_once()        # then paused via the existing 429 path
+
+
+def test_never_asks_google_past_result_100(monkeypatch):
+    """Google CSE rejects start + num > 101 with HTTP 400 (2026-10-15: start=95
+    and start=99 were requested and every one failed, after taking a slot of
+    the 100/day budget)."""
+    import asyncio
+    from leads import ingestion as ing
+
+    seen = []
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"items": [{"link": f"https://x/{i}"} for i in range(int(seen[-1]["num"]))]}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None, timeout=None):
+            seen.append(params)
+            return _Resp()
+
+    monkeypatch.setattr(ing, "_is_cse_paused", lambda: False)
+    monkeypatch.setattr(ing, "get_google_api_credentials", lambda: ("k", "cx"))
+    monkeypatch.setattr(ing.httpx, "AsyncClient", lambda *a, **k: _Client())
+    import leads.google_rate_limit as grl
+    monkeypatch.setattr(grl, "reserve_query_slot", lambda: (True, ""))
+
+    asyncio.run(ing.perform_google_search("q", num_results=10, start=95))
+    assert seen and all(p["start"] + p["num"] <= 101 for p in seen)
+    seen.clear()
+    assert asyncio.run(ing.perform_google_search("q", num_results=10, start=101)) == [] and not seen
+
+
+def test_websearch_job_treats_91_as_the_last_page():
+    from leads import router
+    assert router.CSE_LAST_PAGE_START == 91

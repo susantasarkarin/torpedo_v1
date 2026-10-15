@@ -29,6 +29,12 @@ if not logging.getLogger().hasHandlers():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+# httpx logs every request URL at INFO -- query string included, so API keys
+# passed as parameters (Google CSE's key=...) were written to the backend log
+# in plain text (found 2026-10-15). Errors still come through our own logging.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # Auth utilities for password hashing
 from auth import hash_password, verify_password, needs_rehash, migrate_user_password
 
