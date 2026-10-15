@@ -41,6 +41,7 @@ def _model_path_only(monkeypatch):
     a model call ("bim", "survey") are tested in test_bucket_classifier_rules.py."""
     from leads import bucket_classifier
     monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
+    monkeypatch.setattr(bucket_classifier, "MODEL_CLASSIFICATION_ENABLED", True)
 
 
 # A title that names no role we sell to: a model REJECT on it is not second-guessed

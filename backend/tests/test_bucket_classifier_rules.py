@@ -12,6 +12,12 @@ import pytest
 from leads import bucket_classifier as bc
 
 
+@pytest.fixture(autouse=True)
+def _model_on(monkeypatch):
+    """Rules come before the model either way; these tests run with the model on."""
+    monkeypatch.setattr(bc, "MODEL_CLASSIFICATION_ENABLED", True)
+
+
 def _lead(title, **kw):
     return {"_id": "x1", "name": "A B", "title": title, "company": "Acme", **kw}
 
@@ -89,3 +95,52 @@ def test_run_counts_skipped_model_calls(monkeypatch):
     assert stats["rules_decided"] == 1
     assert stats["excluded_pre_ai"] == 1
     assert stats["model_calls_skipped"] == 2
+
+
+class _Enriched:
+    def __init__(self, doc):
+        self.doc, self.q = doc, None
+
+    def find_one(self, q, proj=None):
+        self.q = q
+        return self.doc
+
+
+def test_snippet_comes_from_the_enriched_record():
+    """leads_raw has no snippet; the prompt said 'none' for every lead (2026-10-14)."""
+    from bson import ObjectId
+    oid = ObjectId()
+    col = _Enriched({"snippet": "Director- Marketing at Oracle. Delhi, India.", "location": "Delhi"})
+    out = bc.with_profile_context({"_id": "r1", "title": "Director- Marketing", "enriched_lead_id": str(oid)}, col)
+    assert out["snippet"].startswith("Director- Marketing at Oracle")
+    assert out["location"] == "Delhi" and col.q == {"_id": oid}
+    assert "Oracle" in bc.build_prompt(out)
+
+
+def test_existing_snippet_and_unlinked_leads_are_left_alone():
+    col = _Enriched({"snippet": "other"})
+    lead = {"_id": "r1", "title": "x", "snippet": "own words", "enriched_lead_id": "507f1f77bcf86cd799439011"}
+    assert bc.with_profile_context(lead, col)["snippet"] == "own words" and col.q is None
+    assert bc.with_profile_context({"_id": "r2", "title": "x"}, col) == {"_id": "r2", "title": "x"}
+
+
+def test_a_bad_enriched_id_never_breaks_classification():
+    lead = {"_id": "r1", "title": "x", "enriched_lead_id": "not-an-id"}
+    assert bc.with_profile_context(lead, _Enriched(None)) == lead
+
+
+def test_with_the_model_off_ambiguous_leads_go_to_review_without_a_call(monkeypatch):
+    """Off by default (2026-10-15): 0 usable verdicts from the 1.5B in 2,851 tries."""
+    monkeypatch.setattr(bc, "MODEL_CLASSIFICATION_ENABLED", False)
+    with _no_model():
+        r = bc.classify_lead(_lead("Research Director"))
+        assert r["bucket"] == bc.REVIEW_BUCKET and r["method"] == "model_disabled"
+        assert r["proposed_bucket"] == "SFW"
+        assert bc.classify_lead(_lead("Head of BIM"))["method"] == "rules"        # rules still decide
+        assert bc.classify_lead(_lead("Student"))["method"] == "exclusion_filter"  # exclusions still first
+
+
+def test_model_off_is_the_default():
+    import importlib, os
+    os.environ.pop("BUCKET_CLASSIFIER_USE_MODEL", None)
+    assert importlib.reload(bc).MODEL_CLASSIFICATION_ENABLED is False

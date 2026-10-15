@@ -36,6 +36,7 @@ QUALIFIED = {
 def _model_path_only(monkeypatch):
     """Model-path tests; the title rules are tested in test_bucket_classifier_rules.py."""
     monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
+    monkeypatch.setattr(bucket_classifier, "MODEL_CLASSIFICATION_ENABLED", True)
 
 
 @pytest.fixture

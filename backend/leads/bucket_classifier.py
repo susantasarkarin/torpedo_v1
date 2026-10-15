@@ -344,6 +344,13 @@ RULE_DECIDES: Dict[str, Tuple[str, ...]] = {
     "SFW": ("survey", "surveys"),
 }
 RULE_CONFIDENCE = 0.9
+
+# The local 1.5B gave no usable verdict on 2,839 of 2,839 leads in October and
+# on 12 of 12 in a dry run WITH the profile snippet (2026-10-15) -- each call
+# ~20s of the one shared model slot for a REVIEW a person makes anyway. Off by
+# default; BUCKET_CLASSIFIER_USE_MODEL=true turns it back on (e.g. with a
+# stronger model).
+MODEL_CLASSIFICATION_ENABLED = os.getenv("BUCKET_CLASSIFIER_USE_MODEL", "false").lower() == "true"
 # Someone who sells to us matches the same words ("BIM Sales Manager", "Survey
 # Panel Business Development"); the model judges those.
 _SELLER = re.compile(r"\b(?:sales|business development|bd|bdm|partnerships?|account (?:manager|executive|director)"
@@ -388,6 +395,17 @@ def classify_lead(lead: Dict[str, Any],
     if ruled:
         logger.info("lead=%s bucket=%s method=rules reason=%s", lead_id, ruled["bucket"], ruled["reason"])
         return ruled
+
+    # --- Step 1c: model switched off -> a person decides ----------------
+    if not MODEL_CLASSIFICATION_ENABLED:
+        hit = strongest_fit(lead.get("title") or lead.get("job_title"))
+        out = {"bucket": REVIEW_BUCKET, "confidence": 0.0,
+               "reason": "model classification is off; a person decides",
+               "method": "model_disabled"}
+        if hit:
+            out["proposed_bucket"] = hit[0]
+            out["reason"] += f" (title suggests {hit[0]}: {hit[1]!r})"
+        return out
 
     # --- Step 2: first pass on the cheap model -------------------------
     prompt = build_prompt(lead)
@@ -646,6 +664,30 @@ def persist(lead: Dict[str, Any], result: Dict[str, Any],
 # answered and the answer was REVIEW". Only the second is a classification.
 ERROR_METHODS = frozenset({"error", "escalation_error"})
 
+
+def with_profile_context(lead: Dict[str, Any], enriched_col=None) -> Dict[str, Any]:
+    """The lead plus the profile snippet (and location) its enriched record holds.
+
+    leads_raw carries no snippet; leads_enriched does (972 of 972 leads of
+    2026-10-08..14). The prompt said "Profile snippet: none" for every lead,
+    and the local model answered confidence 0 -> REVIEW for 2,839 of 2,839
+    leads in October, its reason usually "profile snippet is missing"."""
+    if (lead.get("snippet") or "").strip() or not lead.get("enriched_lead_id"):
+        return lead
+    try:
+        col = enriched_col if enriched_col is not None else _db["leads_enriched"]
+        e = col.find_one({"_id": ObjectId(str(lead["enriched_lead_id"]))},
+                         {"snippet": 1, "location": 1, "company_name": 1})
+    except Exception:
+        return lead
+    if not e:
+        return lead
+    out = dict(lead)
+    for k in ("snippet", "location", "company_name"):
+        if e.get(k) and not out.get(k):
+            out[k] = e[k]
+    return out
+
 # Consecutive model failures that mean the provider is down rather than the
 # leads being hard. Ten is well past any plausible run of individually-failing
 # leads and still cheap to reach.
@@ -698,7 +740,7 @@ def run(dry_run: bool = False, limit: Optional[int] = None,
 
     for lead in cursor:
         stats["scanned"] += 1
-        result = classify_lead(lead, threshold=threshold)
+        result = classify_lead(with_profile_context(lead), threshold=threshold)
 
         if result["method"] in ERROR_METHODS:
             stats["model_errors"] += 1
