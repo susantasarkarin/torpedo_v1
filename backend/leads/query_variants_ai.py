@@ -127,7 +127,7 @@ def _ask(prompt: str, count: int) -> Optional[List[Any]]:
     from leads.local_slm_client import LocalSLMError, LocalSLMMalformedResponse, chat_json
     for attempt, n in enumerate((count, max(3, count // 2))):
         try:
-            with queue_wait(QUEUE_WAIT_SECONDS):
+            with queue_wait(QUEUE_WAIT_SECONDS, priority="extraction"):
                 got = chat_json(system=_SYSTEM, user=prompt.replace(f"Write {count} ", f"Write {n} "),
                                 max_tokens=120 + 60 * n, json_schema=_schema(n), timeout=120)
         except LocalSLMMalformedResponse as e:

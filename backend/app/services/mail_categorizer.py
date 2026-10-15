@@ -522,7 +522,8 @@ def model_categorize(doc: Dict[str, Any]) -> Tuple[Optional[str], str]:
     user = (f"FROM: {doc.get('from_email') or ''}\nSUBJECT: {(doc.get('subject') or '')[:150]}\n\n"
             f"BODY:\n{body[:1000]}")
     try:
-        out = chat_json(system=_MODEL_SYSTEM, user=user, max_tokens=120, json_schema=_MODEL_SCHEMA)
+        out = chat_json(system=_MODEL_SYSTEM, user=user, max_tokens=120, json_schema=_MODEL_SCHEMA,
+                       priority="bulk")
     except LocalSLMError as e:
         return None, f"model unavailable: {e}"[:300]
     cat = out.get("category")

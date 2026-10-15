@@ -123,7 +123,7 @@ def ai_company_domain(client, company: str) -> str:
     from leads.local_llm_gate import queue_wait
     from leads.local_slm_client import LocalSLMError, chat_json
     try:
-        with queue_wait(120):
+        with queue_wait(120, priority="bulk"):
             got = chat_json(system="You know companies' email domains. Reply only with JSON.",
                             user=f"Company: {company}\nWhat domain do this company's employees use for email? "
                                  f"If it is not one specific company (a description, a list of employers, "
@@ -352,7 +352,7 @@ def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candi
     examples = "\n".join(f"- {e['email']}" + (f" ({e['name']})" if e.get("name") else "")
                          for e in structure.get("examples") or []) or "- (none on file)"
     try:
-        with queue_wait(120):
+        with queue_wait(120, priority="bulk"):
             got = chat_json(system=_SYSTEM, user=_ASK.format(
                 name=lead.get("name") or f"{first} {last}", title=(lead.get("title") or "")[:80],
                 company=lead.get("company_name") or "", domain=domain, examples=examples,

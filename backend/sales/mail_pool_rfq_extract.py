@@ -159,7 +159,7 @@ def classify_is_rfq(subject: str, from_email: str, body: str) -> bool:
     try:
         parsed = _slm.chat_json(system=_CLASSIFY_SYSTEM, user=user,
                                 max_tokens=CLASSIFY_MAX_TOKENS, timeout=CLASSIFY_TIMEOUT_S,
-                                json_schema=CLASSIFY_SCHEMA)
+                                json_schema=CLASSIFY_SCHEMA, priority="rfq")
     except _slm.LocalSLMError as e:
         raise RFQModelError(f"classify call failed: {e}") from e
     verdict = _coerce_bool(parsed.get("is_rfq"))
@@ -202,7 +202,7 @@ def extract_fields(subject: str, body: str) -> Dict[str, Any]:
     try:
         return _slm.chat_json(system=_EXTRACT_SYSTEM, user=user,
                               max_tokens=EXTRACT_MAX_TOKENS, timeout=EXTRACT_TIMEOUT_S,
-                              json_schema=EXTRACT_SCHEMA)
+                              json_schema=EXTRACT_SCHEMA, priority="rfq")
     except _slm.LocalSLMError as e:
         raise RFQModelError(f"extract call failed: {e}") from e
 

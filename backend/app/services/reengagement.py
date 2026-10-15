@@ -208,7 +208,7 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
         from leads.local_llm_gate import queue_wait
         from leads.local_slm_client import LocalSLMError, chat_json
         try:
-            with queue_wait(300):  # a daily job; the one model slot is often busy
+            with queue_wait(300, priority="bulk"):  # a daily job; the one model slot is often busy
                 got = chat_json(system=_SYSTEM, user=_ASK[kind].format(**fill) +
                                 f" Greet them as \"Hi {first},\". No sign-off, no placeholders, under 90 words.",
                                 max_tokens=320, json_schema=_SCHEMA, timeout=120)

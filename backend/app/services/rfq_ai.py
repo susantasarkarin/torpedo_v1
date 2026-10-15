@@ -37,7 +37,7 @@ def _ask(system: str, user: str, schema: Dict[str, Any], max_tokens: int = 200) 
     # was retried every 2 minutes for hours (2026-09-30). Retry shorter.
     for limit in (3500, 1600, 700):
         try:
-            with queue_wait(QUEUE_WAIT_SECONDS):
+            with queue_wait(QUEUE_WAIT_SECONDS, priority="rfq"):
                 return chat_json(system=system, user=user[:limit], max_tokens=max_tokens, json_schema=schema,
                                  timeout=120)
         except LocalSLMError as e:

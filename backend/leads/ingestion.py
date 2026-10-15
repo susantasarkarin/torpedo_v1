@@ -659,7 +659,12 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         def _extract(chunk):
             # Wait for the shared model slot rather than give up after the
             # default 5s: the results are already paid for in search quota.
-            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "90")),
+            # Extraction priority: ahead of bulk classification and mail
+            # summaries. 240s covers one extraction call already in progress
+            # (46-103s measured 2026-10-14) plus a second queued ahead of it --
+            # 90s was shorter than a single call.
+            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "240")),
+                            priority="extraction",
                             inference_seconds=float(os.getenv("LEAD_EXTRACTION_INFERENCE_SECONDS", "180"))):
                 return converse_json_object(
                     role="cheap",

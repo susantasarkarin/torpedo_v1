@@ -116,9 +116,12 @@ def test_lead_extraction_waits_longer_for_the_model_slot(monkeypatch):
     import leads.ingestion as ing
     from leads import local_llm_gate as g
     seen = []
-    monkeypatch.setattr(bc, "converse_json_object", lambda **kw: seen.append(g.queue_timeout_seconds()) or {"leads": []})
+    monkeypatch.setattr(bc, "converse_json_object",
+                        lambda **kw: seen.append((g.queue_timeout_seconds(), g.current_priority())) or {"leads": []})
     asyncio.run(ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"))
-    assert seen == [90.0]
+    # 240s (2026-10-14): one extraction call takes 46-103s, so 90s was shorter
+    # than the call already holding the slot; and it queues as "extraction".
+    assert seen == [(240.0, "extraction")]
 
 
 def test_extraction_gets_a_longer_inference_limit(monkeypatch):

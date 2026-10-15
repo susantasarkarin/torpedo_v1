@@ -34,7 +34,7 @@ def no_gate(monkeypatch):
     import contextlib
 
     @contextlib.contextmanager
-    def _fake_acquire(timeout=None):
+    def _fake_acquire(timeout=None, priority=None):
         yield
 
     monkeypatch.setattr(slm, "acquire_local_llm_slot", _fake_acquire)
@@ -300,7 +300,7 @@ def test_classify_raises_local_slm_unavailable_on_queue_timeout(monkeypatch):
     import contextlib
 
     @contextlib.contextmanager
-    def _timeout_gate(timeout=None):
+    def _timeout_gate(timeout=None, priority=None):
         raise LocalLLMQueueTimeout("no slot free within 5s")
         yield  # pragma: no cover
 
@@ -384,7 +384,7 @@ def test_classify_goes_through_the_admission_gate(monkeypatch):
     import contextlib
 
     @contextlib.contextmanager
-    def _tracking_gate(timeout=None):
+    def _tracking_gate(timeout=None, priority=None):
         calls.append("acquired")
         yield
 

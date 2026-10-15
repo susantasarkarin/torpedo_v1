@@ -559,7 +559,8 @@ def run_summary_pass(client, limit: int = 5) -> Dict[str, int]:
         stats["attempted"] += 1
         try:
             # 160 tokens cut the JSON off mid-string (live, 2026-09-28).
-            out = chat_json(system=_SUMMARY_SYSTEM, user=convo, max_tokens=320, json_schema=_SUMMARY_SCHEMA)
+            out = chat_json(system=_SUMMARY_SYSTEM, user=convo, max_tokens=320, json_schema=_SUMMARY_SCHEMA,
+                            priority="bulk")
         except LocalSLMError as e:
             stats["unavailable"] += 1
             logger.warning("mail pool summary: local model unavailable: %s", e)

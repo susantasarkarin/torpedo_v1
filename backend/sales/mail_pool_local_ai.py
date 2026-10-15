@@ -102,13 +102,13 @@ def converse_json_meta(
     t0 = time.monotonic()
     try:
         parsed = _slm.chat_json(system=system, user=user, max_tokens=max_tokens,
-                                timeout=timeout)
+                                timeout=timeout, priority="bulk")
     except _slm.LocalSLMMalformedResponse:
         logger.warning("[mail-pool-local-ai] malformed JSON, retrying once with a reminder")
         try:
             parsed = _slm.chat_json(
                 system=system, user=_reminder_user_prompt(user),
-                max_tokens=max_tokens, timeout=timeout)
+                max_tokens=max_tokens, timeout=timeout, priority="bulk")
         except _slm.LocalSLMError as e:
             raise LocalMailAIError(f"malformed JSON persisted after retry: {e}") from e
     except _slm.LocalSLMUnavailable as e:

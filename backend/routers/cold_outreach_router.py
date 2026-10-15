@@ -2038,13 +2038,19 @@ Return JSON exactly: {{"subject": "...", "body": "..."}}"""
     # anyway -- exactly what the timeout below is trying to avoid.
     # shutdown(wait=False) lets the in-flight thread finish/error on its own
     # in the background while we return immediately.
+    from leads.local_llm_gate import llm_priority
+
+    def _generate():
+        # Set inside the worker thread: a context variable set by the caller
+        # does not cross into a pool thread, and an unlabelled call would
+        # queue as "interactive" ahead of RFQ and extraction work.
+        with llm_priority("bulk"):
+            return converse_json_object(role="smart", system=system, user=user,
+                                        max_tokens=700, temperature=0.7)
+
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(
-            converse_json_object,
-            role="smart", system=system, user=user,
-            max_tokens=700, temperature=0.7,
-        )
+        future = pool.submit(_generate)
         data = future.result(timeout=_AI_GENERATION_TIMEOUT_SECONDS)
     except _FutureTimeout:
         logger.warning("[Outreach] AI generation exceeded %ss, falling back to template",

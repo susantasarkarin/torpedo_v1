@@ -211,7 +211,7 @@ def model_verdict(reply: str, subject: str = "") -> Optional[Dict[str, str]]:
     user = f"SUBJECT: {subject[:150]}\n\nREPLY:\n{reply[:1200]}"
     try:
         out = chat_json(system=_MODEL_SYSTEM, user=user, max_tokens=120,
-                        json_schema=_MODEL_SCHEMA)
+                        json_schema=_MODEL_SCHEMA, priority="rfq")  # a prospect's reply: sales tier
     except LocalSLMError as e:
         logger.warning("reply triage: local model unavailable: %s", e)
         return None

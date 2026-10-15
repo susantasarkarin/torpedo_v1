@@ -43,11 +43,16 @@ Usage:
         ...fail fast; do not retry the same overloaded instance...
 """
 
+import logging
 import os
+import time
+import uuid
 from contextlib import contextmanager
 from typing import Optional
 
 from redis import Redis, WatchError
+
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 _GATE_KEY = "local_llm_gate:slots"
@@ -141,15 +146,19 @@ _inference_timeout_override: contextvars.ContextVar = contextvars.ContextVar(
 
 
 @contextlib.contextmanager
-def queue_wait(seconds: float, inference_seconds: Optional[float] = None):
+def queue_wait(seconds: float, inference_seconds: Optional[float] = None,
+               priority: Optional[str] = None):
     token = _queue_wait_override.set(float(seconds))
     itoken = _inference_timeout_override.set(
         float(inference_seconds) if inference_seconds is not None else None)
+    ptoken = _priority.set(priority) if priority else None
     try:
         yield
     finally:
         _queue_wait_override.reset(token)
         _inference_timeout_override.reset(itoken)
+        if ptoken is not None:
+            _priority.reset(ptoken)
 
 
 def inference_timeout_override() -> Optional[float]:
@@ -222,26 +231,141 @@ def _ensure_seeded(client: Redis, capacity: int) -> None:
     # the caller on seeding specifically; the next acquire tries again.
 
 
+# ---------------------------------------------------------------------------
+# Priority (2026-10-14)
+# ---------------------------------------------------------------------------
+# The slot used to go to whichever waiter BLPOP happened to wake: lead
+# extraction (search results already paid for) queued behind bulk lead
+# classification and mail summaries, and every caller looked the same in the
+# logs. Waiters now register in a sorted set and only the front of the line
+# may take a token.
+#
+# Order: interactive -> rfq -> extraction -> bulk. Fairness by aging: a
+# waiter's place is its arrival time plus PRIORITY_RANK x the aging step, so a
+# bulk job that has waited 3 steps longer than a newly arrived interactive call
+# is ahead of it -- a stream of high-priority work delays bulk work, it never
+# starves it. Priority is separate from capacity: this changes WHO gets the
+# next slot, never how many slots exist (LOCAL_LLM_MAX_CONCURRENCY).
+PRIORITY_RANK = {"interactive": 0, "rfq": 1, "extraction": 2, "bulk": 3}
+DEFAULT_PRIORITY = "interactive"
+_WAITERS_KEY = "local_llm_gate:waiters"
+_WAITER_ALIVE_PREFIX = "local_llm_gate:waiter:"
+_STATS_KEY_PREFIX = "local_llm_gate:stats:"
+_AGING_ENV = "LOCAL_LLM_PRIORITY_AGING_SECONDS"
+# A waiter refreshes its heartbeat every poll; a crashed waiter's entry is
+# dropped once the heartbeat lapses, so it cannot hold the front of the line.
+_WAITER_TTL_SECONDS = 10
+_POLL_SECONDS = 0.2
+
+_priority: contextvars.ContextVar = contextvars.ContextVar("local_llm_priority", default=None)
+
+
+@contextlib.contextmanager
+def llm_priority(name: str):
+    """Run the enclosed local-model calls at this priority (see PRIORITY_RANK)."""
+    if name not in PRIORITY_RANK:
+        raise ValueError(f"unknown local-LLM priority {name!r}")
+    token = _priority.set(name)
+    try:
+        yield
+    finally:
+        _priority.reset(token)
+
+
+def current_priority() -> str:
+    return _priority.get() or DEFAULT_PRIORITY
+
+
+def aging_seconds() -> float:
+    try:
+        return max(0.0, float(os.getenv(_AGING_ENV, "120")))
+    except (TypeError, ValueError):
+        return 120.0
+
+
+def _prune_dead_waiters(client: Redis) -> None:
+    members = client.zrange(_WAITERS_KEY, 0, -1)
+    if not members:
+        return
+    pipe = client.pipeline()
+    for m in members:
+        pipe.exists(f"{_WAITER_ALIVE_PREFIX}{m}")
+    dead = [m for m, alive in zip(members, pipe.execute()) if not alive]
+    if dead:
+        client.zrem(_WAITERS_KEY, *dead)
+
+
+def _record(client: Redis, priority: str, outcome: str, waited: float) -> None:
+    """Per-day counters (calls / timeouts / total wait) per priority; best effort."""
+    try:
+        key = _STATS_KEY_PREFIX + time.strftime("%Y%m%d", time.gmtime())
+        pipe = client.pipeline()
+        pipe.hincrby(key, f"{priority}:{outcome}", 1)
+        pipe.hincrbyfloat(key, f"{priority}:wait_s", round(waited, 3))
+        pipe.expire(key, 14 * 86400)
+        pipe.execute()
+    except Exception:
+        pass
+
+
+def daily_stats(day: Optional[str] = None) -> dict:
+    """{'rfq:calls': 12, 'rfq:timeouts': 0, 'rfq:wait_s': 33.1, ...} for a UTC day (YYYYMMDD)."""
+    day = day or time.strftime("%Y%m%d", time.gmtime())
+    return _get_client().hgetall(_STATS_KEY_PREFIX + day)
+
+
 @contextmanager
-def acquire_local_llm_slot(timeout: Optional[float] = None):
+def acquire_local_llm_slot(timeout: Optional[float] = None, priority: Optional[str] = None):
     """
-    Blocks (via Redis BLPOP, not polling) until a slot is free or `timeout`
-    (default: LOCAL_LLM_QUEUE_TIMEOUT_SECONDS) elapses. Raises
-    LocalLLMQueueTimeout on timeout rather than hanging indefinitely.
+    Waits in priority order until a slot is free or `timeout` (default:
+    LOCAL_LLM_QUEUE_TIMEOUT_SECONDS) elapses. Raises LocalLLMQueueTimeout on
+    timeout rather than hanging indefinitely.
     """
     client = _get_client()
     capacity = max_concurrency()
     wait = queue_timeout_seconds() if timeout is None else timeout
+    prio = priority or current_priority()
     _ensure_seeded(client, capacity)
     _reclaim_orphaned_slots(client, capacity)
 
-    result = client.blpop([_GATE_KEY], timeout=wait)
-    if result is None:
+    waiter = uuid.uuid4().hex
+    alive_key = f"{_WAITER_ALIVE_PREFIX}{waiter}"
+    score = time.time() + PRIORITY_RANK.get(prio, PRIORITY_RANK["bulk"]) * aging_seconds()
+    started = time.monotonic()
+    deadline = started + wait
+    token = None
+    client.set(alive_key, prio, ex=_WAITER_TTL_SECONDS)
+    client.zadd(_WAITERS_KEY, {waiter: score})
+    try:
+        while True:
+            _prune_dead_waiters(client)
+            rank = client.zrank(_WAITERS_KEY, waiter)
+            if rank is None:  # pruned during a stall longer than the heartbeat: rejoin
+                client.zadd(_WAITERS_KEY, {waiter: score})
+                rank = client.zrank(_WAITERS_KEY, waiter)
+            if rank is not None and rank < capacity:
+                token = client.lpop(_GATE_KEY)
+                if token is not None:
+                    break
+            if time.monotonic() >= deadline:
+                break
+            client.set(alive_key, prio, ex=_WAITER_TTL_SECONDS)
+            time.sleep(_POLL_SECONDS)
+    finally:
+        client.zrem(_WAITERS_KEY, waiter)
+        client.delete(alive_key)
+
+    waited = time.monotonic() - started
+    if token is None:
+        _record(client, prio, "timeouts", waited)
+        logger.warning("local-llm gate: queue timeout priority=%s waited=%.1fs capacity=%d waiting=%d",
+                       prio, waited, capacity, client.zcard(_WAITERS_KEY))
         raise LocalLLMQueueTimeout(
             f"no local-LLM inference slot free within {wait}s "
-            f"(max_concurrency={capacity}) -- server is at capacity")
+            f"(max_concurrency={capacity}, priority={prio}) -- server is at capacity")
 
-    _, token = result
+    _record(client, prio, "calls", waited)
+    logger.info("local-llm gate: slot acquired priority=%s waited=%.1fs", prio, waited)
     lease_key = f"{_LEASE_KEY_PREFIX}{token}"
     client.set(lease_key, "1", ex=int(lease_ttl_seconds()))
     try:

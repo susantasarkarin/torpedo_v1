@@ -161,6 +161,7 @@ class ReplyHandlerService:
                 user=f"REPLY TO CLASSIFY:\n{prompt_context}",
                 max_tokens=400,
                 temperature=0.1,
+                priority="rfq",  # a prospect's reply: sales tier
             )
             if not data:
                 raise ValueError("empty Qwen classification response")
@@ -232,6 +233,7 @@ CONTACT: {context.contact_name} at {context.company_name}
                 user=prompt_context,
                 max_tokens=400,
                 temperature=0.5,
+                priority="rfq",
             )
             if not data:
                 return None

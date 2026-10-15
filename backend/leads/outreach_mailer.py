@@ -239,6 +239,7 @@ def generate_email(lead: Dict[str, Any], bucket: str
                 user=build_prompt(lead, bucket),
                 max_tokens=800,
                 temperature=0.7,
+                priority="bulk",
             )
         except Exception as e:
             logger.warning("lead=%s generation attempt %d failed: %s",

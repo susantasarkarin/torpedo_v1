@@ -646,7 +646,9 @@ def converse_meta(role: str, system: str, user: str,
                 break
 
         _demote(model_id)
-        failures.append(f"{model_id}: {_error_code(last_error)}")
+        # The cause, not just the class: "LocalLLMUnavailable" alone could not
+        # tell a queue timeout from an inference timeout or a rejected prompt.
+        failures.append(f"{model_id}: {_error_code(last_error)} ({str(last_error)[:160]})")
         remaining = len(chain) - position - 1
         if remaining:
             logger.warning(
@@ -706,9 +708,18 @@ def converse_json(role: str, system: str, user: str,
         return parse_json_strict(retry_text)
 
 
-def converse_json_object(role: str, system: str, user: str, **kw) -> Optional[Dict[str, Any]]:
-    """converse_json constrained to an object. Returns None if not an object."""
-    value = converse_json(role, system, user, **kw)
+def converse_json_object(role: str, system: str, user: str, priority: Optional[str] = None,
+                         **kw) -> Optional[Dict[str, Any]]:
+    """converse_json constrained to an object. Returns None if not an object.
+
+    priority: the local-model queue tier for this call (local_llm_gate
+    PRIORITY_RANK); None keeps whatever the caller's context already set."""
+    if priority:
+        from leads.local_llm_gate import llm_priority
+        with llm_priority(priority):
+            value = converse_json(role, system, user, **kw)
+    else:
+        value = converse_json(role, system, user, **kw)
     return value if isinstance(value, dict) else None
 
 

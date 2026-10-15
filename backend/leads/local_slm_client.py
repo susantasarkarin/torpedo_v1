@@ -130,7 +130,8 @@ def _json_mode_enabled() -> bool:
 
 def _call(system: str, user: str, max_tokens: int,
           timeout: Optional[float],
-          json_schema: Optional[Dict[str, Any]] = None) -> Tuple[str, Dict[str, int], float]:
+          json_schema: Optional[Dict[str, Any]] = None,
+          priority: Optional[str] = None) -> Tuple[str, Dict[str, int], float]:
     """One gated call to the local server. Returns (text, usage, latency).
 
     json_schema: constrain the output to this JSON Schema (server-side grammar).
@@ -148,7 +149,7 @@ def _call(system: str, user: str, max_tokens: int,
     else:
         extra_params = None
     try:
-        with acquire_local_llm_slot():
+        with acquire_local_llm_slot(priority=priority):
             return _transport.chat(
                 DEFAULT_MODEL_NAME, system, user,
                 max_tokens=max_tokens, temperature=0.0,
@@ -192,6 +193,7 @@ def chat_json(
     max_tokens: int = 512,
     timeout: Optional[float] = None,
     json_schema: Optional[Dict[str, Any]] = None,
+    priority: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Lower-level primitive: one gated call to the local server, parsed as JSON
@@ -206,7 +208,7 @@ def chat_json(
     classify() -- callers must treat both as "no AI proposal", same as any
     other call through this module.
     """
-    text, _usage, _latency = _call(system, user, max_tokens, timeout, json_schema)
+    text, _usage, _latency = _call(system, user, max_tokens, timeout, json_schema, priority)
     clean = _strip_markdown_fences(text)
     try:
         parsed = json.loads(clean)
