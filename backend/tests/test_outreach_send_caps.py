@@ -317,9 +317,15 @@ def test_ai_can_be_disabled(monkeypatch):
     assert mod._AI_PERSONALISATION_ENABLED is False
 
 
-def test_ai_enabled_by_default(monkeypatch):
+def test_ai_off_by_default(monkeypatch):
+    """Owner, 2026-10-15: send the short human campaign copy, not model drafts."""
     monkeypatch.delenv("OUTREACH_AI_PERSONALISATION", raising=False)
     mod = _load(monkeypatch)
+    assert mod._AI_PERSONALISATION_ENABLED is False
+
+
+def test_ai_can_be_turned_back_on(monkeypatch):
+    mod = _load(monkeypatch, OUTREACH_AI_PERSONALISATION="true")
     assert mod._AI_PERSONALISATION_ENABLED is True
 
 

@@ -118,6 +118,10 @@ GUESSED_EMAIL_SOURCES = {
     # guess. Missing here, it sailed past every gate -- 18 of the 63 first
     # emails sent from it in October 2026 bounced (29%).
     "domain_pattern_learned",
+    # Not imported addresses: web-search leads whose address was BUILT from a
+    # pattern learned from an old CSV list (email_status "Predicted"). ~14% of
+    # October first emails from it bounced.
+    "csv_leads_analysis",
 }
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")

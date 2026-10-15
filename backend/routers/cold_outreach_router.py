@@ -1922,8 +1922,13 @@ def _release_daily_send_slot(db, from_email: str) -> None:
         logger.debug(f"[Outreach] could not release quota slot: {e}")
 
 
+# Off by default (owner, 2026-10-15): the campaign copy is now short, human
+# text written for people, and the local model's 700-token drafts read as
+# machine-written, took 60-100s of the one shared model slot each, and in
+# October mostly timed out back to the template anyway.
+# OUTREACH_AI_PERSONALISATION=true turns it back on.
 _AI_PERSONALISATION_ENABLED = (
-    os.getenv("OUTREACH_AI_PERSONALISATION", "true").lower() != "false")
+    os.getenv("OUTREACH_AI_PERSONALISATION", "false").lower() == "true")
 
 # Bounded wait for a single AI generation call. Without this, a slow/hung model
 # (any provider, not just a local one) blocks the whole campaign loop lead by
@@ -2233,6 +2238,25 @@ Rules:
     body_html = "".join(f"<p>{_html.escape(p).replace(chr(10), '<br>')}</p>" for p in paragraphs)
 
     return subject, body_html
+
+
+def _domain_pattern_proven(domain: str) -> bool:
+    """True when this domain's address pattern has delivered our mail: at least
+    2 sends and under 20% bounced, not blacklisted (leads/email_builder.py's
+    proven_pattern test). A guessed address at such a domain follows a pattern
+    that demonstrably works there."""
+    if not domain:
+        return False
+    try:
+        p = get_leads_db()["email_patterns"].find_one(
+            {"domain": domain.lower()},
+            {"send_count": 1, "bounce_count": 1, "pattern_blacklisted": 1, "high_bounce_risk": 1})
+    except Exception:
+        return False
+    if not p or p.get("pattern_blacklisted") or p.get("high_bounce_risk"):
+        return False
+    sends, bounces = int(p.get("send_count") or 0), int(p.get("bounce_count") or 0)
+    return sends >= 2 and bounces / max(1, sends + bounces) < 0.2
 
 
 _RE_PREFIX = _re.compile(r"^\s*re\s*:\s*", _re.I)
@@ -2664,6 +2688,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 )
             except (TypeError, ValueError):
                 _confident_enough = False
+            # ...or the company's pattern has already delivered our mail
+            # (same test the email builder uses: >=2 sends, <20% bounced).
+            if not _confident_enough:
+                _confident_enough = _domain_pattern_proven(email.split("@")[-1] if "@" in email else "")
             if not _confident_enough:
                 skip_reason = (
                     f"email_source={email_source_flag!r} has no confirmed confidence "
