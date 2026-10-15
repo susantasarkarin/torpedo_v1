@@ -647,7 +647,10 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         # Given nothing, the local model invents a lead ("John Doe, VP of
         # Sales, Salesforce" -- seen 2026-09-28). Nothing in, nothing out.
         return []
-    batch = max(1, int(os.getenv("LEAD_EXTRACTION_BATCH", "5")))
+    # 3 results per call (was 5): on 2026-10-15 five-result calls took
+    # 160-179s on the CPU model and 7 ran past the 180s limit -- a timed-out
+    # call wastes all of its model time and the batch is redone later.
+    batch = max(1, int(os.getenv("LEAD_EXTRACTION_BATCH", "3")))
 
     try:
         from .bedrock_client import converse_json_object

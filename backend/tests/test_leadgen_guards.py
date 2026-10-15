@@ -161,7 +161,8 @@ def test_extraction_runs_in_small_batches_and_keeps_the_real_snippet(monkeypatch
 
     monkeypatch.setattr(bc, "converse_json_object", fake)
     leads = asyncio.run(ing.extract_leads_from_google_results(results, "q"))
-    assert len(prompts) == 3 and len(leads) == 12
+    # 3 results per call (2026-10-15: five-result calls ran past the 180s limit)
+    assert len(prompts) == 4 and len(leads) == 12
     assert leads[0]["snippet"] == "snippet 0"
     assert "email_candidate" not in prompts[0] and "\n  " not in prompts[0]
 
