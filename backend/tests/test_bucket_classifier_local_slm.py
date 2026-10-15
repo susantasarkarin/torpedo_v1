@@ -32,6 +32,12 @@ QUALIFIED = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _model_path_only(monkeypatch):
+    """Model-path tests; the title rules are tested in test_bucket_classifier_rules.py."""
+    monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
+
+
 @pytest.fixture
 def local_slm_enabled(monkeypatch):
     """Flip the module-level flag directly -- it's read at import time, so

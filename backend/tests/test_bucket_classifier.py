@@ -35,6 +35,14 @@ from leads.outreach_config import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _model_path_only(monkeypatch):
+    """These tests cover the model path; the title rules that decide without
+    a model call ("bim", "survey") are tested in test_bucket_classifier_rules.py."""
+    from leads import bucket_classifier
+    monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
+
+
 # A title that names no role we sell to: a model REJECT on it is not second-guessed
 # by the fit-signal veto (leads/fit_signals.py). QUALIFIED's "Head of BIM" is
 # exactly the kind of title the veto protects.

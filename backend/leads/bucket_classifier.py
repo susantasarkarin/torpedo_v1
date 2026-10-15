@@ -325,6 +325,48 @@ def _veto_reject(lead: Dict[str, Any], lead_id: str,
             "method": "reject_vetoed_fit_signal", "proposed_bucket": REJECT_BUCKET}
 
 
+# ============================================================
+# RULES THAT DECIDE WITHOUT A MODEL CALL
+# ============================================================
+# A title signal decides the bucket on its own only where the model agreed with
+# it almost every time it gave a definite verdict. Measured 2026-10-14 over the
+# 23,649 model-classified leads (definite verdicts come from the larger model
+# used in August; since the switch to the local 1.5B in late September it
+# returned confidence 0 -> REVIEW for 2,839 of 2,839 leads in October):
+#   "bim"     237 of 238 definite verdicts were BIM          (99.6%)
+#   "survey"   61 of 63  definite verdicts were SFW          (97%)
+#   "research director" 91%, "cmo" ~75%, "market research" 42%, "insights" 17%
+#   -- below the bar, so those still go to the model.
+# The bar: >= 95% agreement over >= 50 definite verdicts. Everything else, and
+# any title with signals for more than one bucket, still goes to the model.
+RULE_DECIDES: Dict[str, Tuple[str, ...]] = {
+    "BIM": ("bim",),
+    "SFW": ("survey", "surveys"),
+}
+RULE_CONFIDENCE = 0.9
+# Someone who sells to us matches the same words ("BIM Sales Manager", "Survey
+# Panel Business Development"); the model judges those.
+_SELLER = re.compile(r"\b(?:sales|business development|bd|bdm|partnerships?|account (?:manager|executive|director)"
+                     r"|key accounts?|client servic\w*|pre-?sales|growth)\b")
+
+
+def rule_bucket(lead: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A verdict from the title alone, or None when the model should decide."""
+    from leads.fit_signals import fit_signals
+    title = (lead.get("title") or lead.get("job_title") or "").lower()
+    if not title or _SELLER.search(title):
+        return None
+    hits = fit_signals(title)
+    if len(hits) != 1:
+        return None
+    bucket, term = hits[0]
+    if term not in RULE_DECIDES.get(bucket, ()):
+        return None
+    return {"bucket": bucket, "confidence": RULE_CONFIDENCE,
+            "reason": f"title names {term!r}, a {bucket} buyer role (rule; no model call)",
+            "method": "rules"}
+
+
 def classify_lead(lead: Dict[str, Any],
                   threshold: float = CONFIDENCE_THRESHOLD) -> Dict[str, Any]:
     """
@@ -340,6 +382,12 @@ def classify_lead(lead: Dict[str, Any],
                     lead_id, excluded)
         return {"bucket": REJECT_BUCKET, "confidence": 1.0,
                 "reason": excluded, "method": "exclusion_filter"}
+
+    # --- Step 1b: rules that decide without the model ------------------
+    ruled = rule_bucket(lead)
+    if ruled:
+        logger.info("lead=%s bucket=%s method=rules reason=%s", lead_id, ruled["bucket"], ruled["reason"])
+        return ruled
 
     # --- Step 2: first pass on the cheap model -------------------------
     prompt = build_prompt(lead)
@@ -453,15 +501,17 @@ def _classify_with(role: str, prompt: str, lead_id: str
         return _classify_with_local(prompt, lead_id)
 
     from leads.bedrock_client import converse_json_object
+    from leads.local_llm_gate import llm_priority
 
     try:
-        data = converse_json_object(
-            role=role,
-            system=SYSTEM_PROMPT,
-            user=prompt,
-            max_tokens=CLASSIFIER_MAX_TOKENS,
-            temperature=CLASSIFIER_TEMPERATURE,
-        )
+        with llm_priority("bulk"):
+            data = converse_json_object(
+                role=role,
+                system=SYSTEM_PROMPT,
+                user=prompt,
+                max_tokens=CLASSIFIER_MAX_TOKENS,
+                temperature=CLASSIFIER_TEMPERATURE,
+            )
     except Exception as e:
         logger.warning("lead=%s %s classification call failed: %s",
                        lead_id, role, e)
@@ -484,7 +534,8 @@ def _classify_with_local(prompt: str, lead_id: str
 
     try:
         data = slm.chat_json(
-            system=SYSTEM_PROMPT, user=prompt, max_tokens=CLASSIFIER_MAX_TOKENS)
+            system=SYSTEM_PROMPT, user=prompt, max_tokens=CLASSIFIER_MAX_TOKENS,
+            priority="bulk")
     except slm.LocalSLMError as e:
         logger.warning("lead=%s local SLM classification call failed: %s",
                        lead_id, e)
@@ -621,7 +672,7 @@ def run(dry_run: bool = False, limit: Optional[int] = None,
 
     stats = {b: 0 for b in VALID_BUCKETS}
     stats.update({REJECT_BUCKET: 0, REVIEW_BUCKET: 0,
-                  "scanned": 0, "written": 0, "excluded_pre_ai": 0,
+                  "scanned": 0, "written": 0, "excluded_pre_ai": 0, "rules_decided": 0,
                   "model_errors": 0, "aborted_systemic": 0})
 
     # A model outage is not a classification.
@@ -666,9 +717,14 @@ def run(dry_run: bool = False, limit: Optional[int] = None,
         stats[result["bucket"]] = stats.get(result["bucket"], 0) + 1
         if result["method"] == "exclusion_filter":
             stats["excluded_pre_ai"] += 1
+        if result["method"] == "rules":
+            stats["rules_decided"] += 1
         if persist(lead, result, dry_run=dry_run):
             stats["written"] += 1
 
+    stats["model_calls_skipped"] = stats["excluded_pre_ai"] + stats["rules_decided"]
+    logger.info("[bucket-classifier] model calls skipped: %d (exclusion %d, rules %d) of %d scanned",
+                stats["model_calls_skipped"], stats["excluded_pre_ai"], stats["rules_decided"], stats["scanned"])
     return stats
 
 
