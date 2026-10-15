@@ -2142,6 +2142,7 @@ async def sfw_project_quality(survey_no: str, flagged_limit: int = Query(50, ge=
     return {
         "surveyNo": str(survey_no),
         "settings": {"enabled": sfw_quality.is_enabled(), "enforced": sfw_quality.is_enforced(),
+                     "enforcedFlags": sorted(sfw_quality.enforce_flags()),
                      "blockBelow": sfw_quality._threshold("SFW_BLOCK_BELOW", 40),
                      "reviewBelow": sfw_quality._threshold("SFW_REVIEW_BELOW", 70)},
         "prescreen": await _prescreen_stats(col, str(survey_no)),
@@ -3368,7 +3369,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         print(f"[warn] SFW scoring skipped for {traffic_id}: {q_err}")
                     if quality:
                         print(f"SFW score {traffic_id}: {quality['sfwScore']} {quality['sfwBand']} {quality['sfwFlags']}")
-                    if quality and quality["sfwBand"] == "block" and sfw_quality.is_enforced():
+                    if sfw_quality.should_block(quality):
                         allocation_success = False
                         entry_link = None
                         allocation_error = "No survey available"  # never says why

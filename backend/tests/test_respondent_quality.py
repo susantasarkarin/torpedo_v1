@@ -401,3 +401,34 @@ def test_quality_endpoint_and_rejects(app_env, monkeypatch):
     assert out["matched"] == 1 and out["unmatched"] == ["missing-id"]
     assert rec["clientRejected"] is True and rec["clientRejectReason"] == "Speeder per client QC"
     assert rec["sfwBand"] == "good"  # outcome recorded, behaviour score untouched
+
+
+# --- targeted enforcement (2026-10-15) -------------------------------------
+
+def test_enforcement_turns_away_duplicates_and_bots_not_reentry(monkeypatch):
+    from services import respondent_quality as rq
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "true")
+    monkeypatch.delenv("SFW_ENFORCE_FLAGS", raising=False)
+    assert rq.should_block({"sfwBand": "block", "sfwFlags": ["reentry", "already_completed"]})
+    assert rq.should_block({"sfwBand": "good", "sfwFlags": ["bot_webdriver"]})
+    # a low band alone is not a reason: re-routing and shared phones cause these
+    assert not rq.should_block({"sfwBand": "block", "sfwFlags": ["reentry", "reentry_after_terminate",
+                                                                 "answer_change", "terminate_history"]})
+    assert not rq.should_block(None)
+
+
+def test_nothing_is_blocked_while_flag_only(monkeypatch):
+    from services import respondent_quality as rq
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "false")
+    assert not rq.should_block({"sfwFlags": ["already_completed"]})
+
+
+def test_enforced_flags_can_be_overridden(monkeypatch):
+    from services import respondent_quality as rq
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "true")
+    monkeypatch.setenv("SFW_ENFORCE_FLAGS", "reentry")
+    assert rq.should_block({"sfwFlags": ["reentry"]})
+    assert not rq.should_block({"sfwFlags": ["already_completed"]})

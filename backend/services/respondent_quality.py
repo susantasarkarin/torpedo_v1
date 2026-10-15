@@ -75,6 +75,32 @@ def is_enforced() -> bool:
     return is_enabled() and _truthy(os.getenv("SFW_SCORE_ENFORCE"))
 
 
+# What enforcement turns away: specific signals, not the score band.
+# Measured over the flag-only period 2026-10-03..15 (38,385 entries): the
+# "block" band was 17% of entries and held 466 of 1,280 completes, all from
+# one vendor and all carrying "reentry" -- a band cut-off would have turned
+# away 36% of completes. But 348 of those completes were "already_completed":
+# the same browser had completed that same project before (27% of all
+# completes), which clients reject at reconciliation. Re-entry after a
+# terminate, answer changes and velocity stay flags (re-routing and shared
+# phones produce them innocently). Override with SFW_ENFORCE_FLAGS (comma list).
+DEFAULT_ENFORCE_FLAGS = ("already_completed", "bot_webdriver", "bot_headless", "tor", "datacenter_ip")
+
+
+def enforce_flags() -> set:
+    raw = os.getenv("SFW_ENFORCE_FLAGS")
+    if raw is None:
+        return set(DEFAULT_ENFORCE_FLAGS)
+    return {f.strip() for f in raw.split(",") if f.strip()}
+
+
+def should_block(quality: Optional[Dict[str, Any]]) -> bool:
+    """Turn this entry away? Only when enforcement is on and it carries an enforced flag."""
+    if not quality or not is_enforced():
+        return False
+    return bool(set(quality.get("sfwFlags") or []) & enforce_flags())
+
+
 def _threshold(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, default))
