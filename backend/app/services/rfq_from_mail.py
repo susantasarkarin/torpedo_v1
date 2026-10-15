@@ -384,7 +384,10 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
     opp = client["crm_db"]["opportunities"]
     max_calls = max_calls if max_calls is not None else int(os.getenv("RFQ_DETAILS_CALLS_PER_RUN", "6"))
     stats = {"attempted": 0, "filled": 0, "fields_set": 0, "calls": 0, "unavailable": 0, "bad_answers": 0}
-    for o in opp.find({"metadata.rfq.source": SOURCE, "status": "open", "stage": "rfq"},
+    # Quoted RFQs too: they move to "proposal" once we reply with a price, and
+    # their quote total (CPI x sample size) stays empty until the sample size
+    # is read -- 23 of the 46 open RFQs sat there unread (2026-10-15).
+    for o in opp.find({"metadata.rfq.source": SOURCE, "status": "open", "stage": {"$in": ["rfq", "proposal"]}},
                       {"metadata.rfq": 1}).sort("metadata.rfq.received_at", -1):
         if stats["attempted"] >= limit or stats["calls"] >= max_calls:
             break
