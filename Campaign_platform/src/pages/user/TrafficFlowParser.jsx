@@ -519,8 +519,20 @@ export default function TrafficFlowParser() {
 
       if (response.ok) {
         const result = await response.json();
+        if (result.security_retry && result.botCheck) {
+          // A stale question or a first wrong answer: the server sends a new
+          // question instead of ending the visit (a second wrong answer ends it).
+          setLanding((prev) => ({ ...(prev || {}), botCheck: result.botCheck }));
+          setBotAnswer("");
+          setProfileError(result.retry_reason === "wrong_answer"
+            ? "That answer wasn't right. Please answer this question to continue."
+            : "Please answer this question to continue.");
+          setLoading(false);
+          isClickProcessingRef.current = false;
+          return;
+        }
         if (result.security_term) {
-          // Security check failed: terminated (status "Security Term"), no retry.
+          // Security check failed: terminated (status "Security Term").
           setSecurityTerm(true);
           setLoading(false);
           if (result.redirect_url) setTimeout(() => { window.location.href = result.redirect_url; }, 1500);
@@ -751,7 +763,7 @@ export default function TrafficFlowParser() {
         )}
 
         {/* Security check: a question any person answers instantly (verified on the server).
-            A wrong answer ends the visit (Security Term). */}
+            A first wrong answer gets one more question; a second ends the visit (Security Term). */}
         {securityTerm && (
           <div role="alert" style={{ margin: "20px 0", padding: "16px", borderRadius: "10px", background: "#fef2f2", border: "2px solid #dc2626", color: "#991b1b", textAlign: "left" }}>
             <strong>Security check failed.</strong> We couldn't verify this response, so this survey has ended. You will be redirected shortly.
@@ -763,7 +775,11 @@ export default function TrafficFlowParser() {
               <span aria-hidden="true" style={{ fontSize: "18px" }}>🛡️</span>
               <span style={{ fontSize: "12px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#b45309" }}>Security check</span>
             </div>
-            <p style={{ margin: "0 0 4px", fontSize: "12px", color: "#92400e" }}>Please answer carefully — a wrong answer ends this survey.</p>
+            <p style={{ margin: "0 0 4px", fontSize: "12px", color: "#92400e" }}>
+              {landing.botCheck.attempt > 0
+                ? "Please answer carefully. Another wrong answer ends this survey."
+                : "Please answer carefully."}
+            </p>
             <label style={{ display: "block", marginBottom: "8px", fontWeight: "700", color: "#1f2937", fontSize: "16px" }}>
               {landing.botCheck.text} <span style={{ color: "#c00" }}>*</span>
             </label>

@@ -2948,8 +2948,19 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Security check (question + hidden trap + minimum time). A failure is
         # final: the visit is recorded as SECURITY_TERM ("Security Term") and the
         # respondent goes to their vendor's terminate redirect — never to a survey.
-        bot_ok, bot_reason = bot_check.verify(data.get("botCheck"))
-        if not bot_ok:
+        bot_action, bot_reason, bot_attempt = bot_check.decide(data.get("botCheck"))
+        if bot_action == "retry":
+            # A stale question or a first wrong answer: ask again (nothing is
+            # recorded and no survey is touched, so the CPX one-call rule holds).
+            print(f"SECURITY RETRY ({bot_reason}, attempt {bot_attempt}) vid={vendor_id} rid={respondent_id}")
+            return JSONResponse(content={
+                "allocation_success": False,
+                "allocation_error": "security_retry",
+                "security_retry": True,
+                "retry_reason": "wrong_answer" if bot_reason == "wrong_answer" else "refresh",
+                "botCheck": bot_check.issue(attempt=bot_attempt),
+            })
+        if bot_action == "term":
             print(f"SECURITY TERM ({bot_reason}) vid={vendor_id} rid={respondent_id} panel={panel_id}")
             fwd_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
             now_utc = datetime.utcnow()
