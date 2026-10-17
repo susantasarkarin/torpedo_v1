@@ -2278,6 +2278,9 @@ async def routing_landing_config(request: Request):
         "country": country,
         "botCheck": bot_check.issue(),
         "knownProfile": known_profile,
+        # Ask DOB + gender only where a project screens on them, and never a
+        # panel member (their profile already has both).
+        "askProfile": (not known_profile) and survey_routing.needs_profile(projects, bank),
         "questions": survey_routing.questions_for(projects, bank),
         "paidAds": paid,
         "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,

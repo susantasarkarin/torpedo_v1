@@ -233,6 +233,8 @@ export default function TrafficFlowParser() {
   const [securityTerm, setSecurityTerm] = useState(false);
   // Survey routing: questions to ask (per project / country) and, for Paid Ads only, PII + panel consent
   const [landing, setLanding] = useState(null);
+  // DOB + gender only where the project screens on age/gender (server decides; never panel members).
+  const askDobGender = ASK_DOB_GENDER || Boolean(landing?.askProfile);
   const [answers, setAnswers] = useState({});
   const [pii, setPii] = useState({ firstName: "", lastName: "", email: "", phone: "", verifyConsent: false, panelConsent: false });
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
@@ -358,13 +360,13 @@ export default function TrafficFlowParser() {
       return;
     }
 
-    // Validate profiling data (only when ASK_DOB_GENDER is on).
-    if (ASK_DOB_GENDER && (!birthdayDay || !birthdayMonth || !birthdayYear)) {
+    // Validate profiling data (only when the project screens on age/gender).
+    if (askDobGender && (!birthdayDay || !birthdayMonth || !birthdayYear)) {
       isClickProcessingRef.current = false;
       setProfileError("Please enter your complete date of birth");
       return;
     }
-    if (ASK_DOB_GENDER && !gender) {
+    if (askDobGender && !gender) {
       isClickProcessingRef.current = false;
       setProfileError("Please select your gender");
       return;
@@ -504,8 +506,8 @@ export default function TrafficFlowParser() {
           fingerprintSource: "client",
           trans_id: transId,
           // CPX User Profiling Parameters (CRITICAL for demographic survey matching);
-          // not asked (ASK_DOB_GENDER) — the server reads panel members' profile.
-          ...(!ASK_DOB_GENDER ? {} : {
+          // asked only when the project screens on age/gender; panel members' come from their profile.
+          ...(!askDobGender ? {} : {
             birthday_day: parseInt(birthdayDay, 10),
             birthday_month: parseInt(birthdayMonth, 10),
             birthday_year: parseInt(birthdayYear, 10),
@@ -643,7 +645,7 @@ export default function TrafficFlowParser() {
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
 
-        {ASK_DOB_GENDER && (
+        {askDobGender && (
         <>
         {/* Date of Birth - mandatory for CPX demographic targeting */}
         <div style={{ margin: "20px 0", textAlign: "left" }}>

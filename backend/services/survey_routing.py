@@ -246,6 +246,18 @@ def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]]
     return out[:limit]
 
 
+def needs_profile(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]] = None) -> bool:
+    """True when any of these projects screens on age or gender -- the landing
+    page then asks date of birth and gender. It stopped asking everyone
+    (2026-10-13), which left age/gender criteria impossible to meet: every
+    entry would fail as "age_missing"."""
+    for project in projects:
+        qual = project_qualification(project, bank)
+        if qual["enabled"] and (qual["ageMin"] is not None or qual["ageMax"] is not None or qual["genders"]):
+            return True
+    return False
+
+
 def age_on(profile: Dict[str, Any], today: Optional[date] = None) -> Optional[int]:
     try:
         born = date(int(profile.get("birthday_year")), int(profile.get("birthday_month")),
