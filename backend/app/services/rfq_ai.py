@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _URL = re.compile(r"https?://[^\s>\"\]]+", re.I)
 _OUR_LINKS = re.compile(r"surveyfieldwork|cogentix|bimwave|force\.com|salesforce", re.I)
-QUEUE_WAIT_SECONDS = 90
+QUEUE_WAIT_SECONDS = 200  # outwait one running extraction call (100-170s), 2026-10-17
 
 
 def _ask(system: str, user: str, schema: Dict[str, Any], max_tokens: int = 200) -> Optional[Dict[str, Any]]:

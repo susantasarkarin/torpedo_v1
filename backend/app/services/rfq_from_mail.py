@@ -407,7 +407,7 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
                     break
                 stats["calls"] += 1
                 try:
-                    with queue_wait(60, priority="rfq"):  # a background job: waiting for the shared slot costs nothing
+                    with queue_wait(200, priority="rfq"):  # background: outwait one running extraction call (100-170s)
                         out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
                                         max_tokens=260, json_schema=_DETAIL_SCHEMA)
                 except LocalSLMMalformedResponse as e:

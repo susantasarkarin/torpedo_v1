@@ -165,10 +165,26 @@ def inference_timeout_override() -> Optional[float]:
     return _inference_timeout_override.get()
 
 
-def queue_timeout_seconds() -> float:
+# Default queue wait per priority when the caller sets none. Priority picks
+# who goes NEXT; it cannot interrupt a call already running -- an extraction
+# call holds the slot 100-170s, so an RFQ-tier call waiting 5-90s gave up
+# behind it (16 RFQ-tier queue timeouts on 2026-10-16, 7 on 10-17). Background
+# sales work can afford to outwait one running call; interactive work fails
+# fast; bulk keeps the short wait and retries on its next run.
+PRIORITY_QUEUE_WAIT = {"rfq": 200.0}
+
+
+def queue_timeout_seconds(priority: Optional[str] = None) -> float:
     override = _queue_wait_override.get()
     if override is not None:
         return max(0.1, override)
+    prio = priority or _priority.get() or ""
+    tier_default = PRIORITY_QUEUE_WAIT.get(prio)
+    if tier_default is not None:
+        try:
+            return max(0.1, float(os.getenv(f"LOCAL_LLM_{prio.upper()}_QUEUE_WAIT_SECONDS", tier_default)))
+        except (TypeError, ValueError):
+            return tier_default
     try:
         return max(0.1, float(os.getenv(_QUEUE_TIMEOUT_ENV, "5")))
     except (TypeError, ValueError):
@@ -323,8 +339,8 @@ def acquire_local_llm_slot(timeout: Optional[float] = None, priority: Optional[s
     """
     client = _get_client()
     capacity = max_concurrency()
-    wait = queue_timeout_seconds() if timeout is None else timeout
     prio = priority or current_priority()
+    wait = queue_timeout_seconds(prio) if timeout is None else timeout
     _ensure_seeded(client, capacity)
     _reclaim_orphaned_slots(client, capacity)
 

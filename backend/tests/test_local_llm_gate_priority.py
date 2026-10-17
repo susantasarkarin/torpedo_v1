@@ -148,3 +148,19 @@ def test_priority_from_context_and_queue_wait(gate):
     with pytest.raises(ValueError):
         with gate.llm_priority("urgent"):
             pass
+
+
+def test_rfq_tier_outwaits_a_running_extraction_call(gate, monkeypatch):
+    """Priority can't interrupt a running call (extraction holds the slot
+    100-170s); RFQ-tier work waited 5-90s and gave up (2026-10-16/17)."""
+    monkeypatch.delenv("LOCAL_LLM_RFQ_QUEUE_WAIT_SECONDS", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_QUEUE_TIMEOUT_SECONDS", raising=False)
+    assert gate.queue_timeout_seconds("rfq") == 200
+    assert gate.queue_timeout_seconds("bulk") == 5
+    assert gate.queue_timeout_seconds("interactive") == 5
+    with gate.llm_priority("rfq"):
+        assert gate.queue_timeout_seconds() == 200
+    with gate.queue_wait(30, priority="rfq"):
+        assert gate.queue_timeout_seconds() == 30          # an explicit wait still wins
+    monkeypatch.setenv("LOCAL_LLM_RFQ_QUEUE_WAIT_SECONDS", "250")
+    assert gate.queue_timeout_seconds("rfq") == 250
