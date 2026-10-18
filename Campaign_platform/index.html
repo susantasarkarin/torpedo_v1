@@ -4,6 +4,40 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Storage stand-in (2026-10-18): in an app's in-app browser with site
+         storage off, window.localStorage is null (or throws) and the whole app
+         crashed to a blank page before the survey form rendered -- those
+         visitors never reached the server and were invisible in our data.
+         When storage does not work, keep values in memory for this visit.
+         Runs before any other script. -->
+    <script>
+    (function () {
+      function memory() {
+        var d = {};
+        return {
+          getItem: function (k) { return Object.prototype.hasOwnProperty.call(d, k) ? d[k] : null; },
+          setItem: function (k, v) { d[k] = String(v); },
+          removeItem: function (k) { delete d[k]; },
+          clear: function () { d = {}; },
+          key: function (i) { return Object.keys(d)[i] || null; },
+          get length() { return Object.keys(d).length; }
+        };
+      }
+      ["localStorage", "sessionStorage"].forEach(function (name) {
+        var ok = false;
+        try {
+          var s = window[name];
+          if (s) { s.setItem("__sfw_t", "1"); s.removeItem("__sfw_t"); ok = true; }
+        } catch (e) { ok = false; }
+        if (!ok) {
+          try {
+            Object.defineProperty(window, name, { value: memory(), configurable: true, writable: true });
+            (window.__sfwStorageShim = window.__sfwStorageShim || []).push(name);
+          } catch (e) { /* leave as is */ }
+        }
+      });
+    })();
+    </script>
     <title>Cogentix Research</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

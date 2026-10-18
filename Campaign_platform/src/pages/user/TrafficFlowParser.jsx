@@ -222,8 +222,9 @@ function getBotSignals() {
     headlessUA: /HeadlessChrome/i.test(navigator.userAgent || ""),
     languages: (navigator.languages || []).length,
     webview: /; wv\)/.test(navigator.userAgent || ""),
-    localStorage: typeof window !== "undefined" && window.localStorage ? storageWorks(window.localStorage) : false,
-    sessionStorage: typeof window !== "undefined" && window.sessionStorage ? storageWorks(window.sessionStorage) : false,
+    // false when the browser's own storage is off (index.html then supplies an in-memory stand-in)
+    localStorage: !(window.__sfwStorageShim || []).includes("localStorage") && Boolean(window.localStorage) && storageWorks(window.localStorage),
+    sessionStorage: !(window.__sfwStorageShim || []).includes("sessionStorage") && Boolean(window.sessionStorage) && storageWorks(window.sessionStorage),
     cookies: cookiesWork(),
   };
 }
