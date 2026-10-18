@@ -138,6 +138,11 @@ def entry_quality_fields(body: Dict[str, Any]) -> Dict[str, Any]:
             "headlessUA": bool(signals.get("headlessUA")),
             "languages": int(signals.get("languages") or 0) if str(signals.get("languages", "")).isdigit() else 0,
         }
+        # Can the browser keep state (2026-10-18)? Missing = an older page
+        # that did not check -- stored as absent, never guessed.
+        for key in ("webview", "localStorage", "sessionStorage", "cookies"):
+            if isinstance(signals.get(key), bool):
+                fields["sfwSignals"][key] = signals[key]
     return fields
 
 

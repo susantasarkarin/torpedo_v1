@@ -432,3 +432,21 @@ def test_enforced_flags_can_be_overridden(monkeypatch):
     monkeypatch.setenv("SFW_ENFORCE_FLAGS", "reentry")
     assert rq.should_block({"sfwFlags": ["reentry"]})
     assert not rq.should_block({"sfwFlags": ["already_completed"]})
+
+
+# --- browser capability signals (2026-10-18) -------------------------------
+
+def test_storage_and_webview_signals_are_kept():
+    from services import respondent_quality as rq
+    f = rq.entry_quality_fields({"botSignals": {"webdriver": False, "headlessUA": False, "languages": 2,
+                                                "webview": True, "localStorage": False,
+                                                "sessionStorage": False, "cookies": True}})
+    s = f["sfwSignals"]
+    assert s["webview"] is True and s["localStorage"] is False and s["sessionStorage"] is False and s["cookies"] is True
+
+
+def test_older_pages_without_the_checks_leave_them_absent():
+    from services import respondent_quality as rq
+    s = rq.entry_quality_fields({"botSignals": {"webdriver": False, "headlessUA": False, "languages": 2,
+                                                "localStorage": "yes"}})["sfwSignals"]
+    assert "webview" not in s and "localStorage" not in s   # never guessed from junk

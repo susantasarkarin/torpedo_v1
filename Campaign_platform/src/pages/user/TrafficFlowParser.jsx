@@ -188,11 +188,43 @@ function getSfwVisitorId() {
   return id;
 }
 
+// Can this browser keep state? Android in-app browsers (WebView) have site
+// storage off unless the app turns it on, and client surveys rely on it.
+// Research Desk's in-app traffic dropped out twice as often as its normal
+// mobile browser traffic (35% vs 17%, first entries, 2026-10-18); Cint's
+// in-app traffic did not. Recorded to confirm the cause.
+function storageWorks(store) {
+  try {
+    const k = "__sfw_probe";
+    store.setItem(k, "1");
+    const ok = store.getItem(k) === "1";
+    store.removeItem(k);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function cookiesWork() {
+  try {
+    document.cookie = "__sfw_probe=1; Max-Age=60; Path=/; SameSite=Lax; Secure";
+    const ok = document.cookie.indexOf("__sfw_probe=1") !== -1;
+    document.cookie = "__sfw_probe=; Max-Age=0; Path=/";
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function getBotSignals() {
   return {
     webdriver: Boolean(navigator.webdriver),
     headlessUA: /HeadlessChrome/i.test(navigator.userAgent || ""),
     languages: (navigator.languages || []).length,
+    webview: /; wv\)/.test(navigator.userAgent || ""),
+    localStorage: typeof window !== "undefined" && window.localStorage ? storageWorks(window.localStorage) : false,
+    sessionStorage: typeof window !== "undefined" && window.sessionStorage ? storageWorks(window.sessionStorage) : false,
+    cookies: cookiesWork(),
   };
 }
 
