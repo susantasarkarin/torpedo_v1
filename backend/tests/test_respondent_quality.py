@@ -450,3 +450,32 @@ def test_older_pages_without_the_checks_leave_them_absent():
     s = rq.entry_quality_fields({"botSignals": {"webdriver": False, "headlessUA": False, "languages": 2,
                                                 "localStorage": "yes"}})["sfwSignals"]
     assert "webview" not in s and "localStorage" not in s   # never guessed from junk
+
+
+# --- per-vendor enforcement (2026-10-18) -----------------------------------
+
+def test_research_desk_repeat_entries_are_turned_away_others_are_not(monkeypatch):
+    from services import respondent_quality as rq
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "true")
+    monkeypatch.delenv("SFW_ENFORCE_FLAGS", raising=False)
+    monkeypatch.delenv("SFW_ENFORCE_FLAGS_BY_VENDOR", raising=False)
+    repeat = {"sfwFlags": ["reentry", "reentry_after_terminate"]}
+    assert rq.should_block(repeat, "5068")          # Research Desk: half its dropouts were repeat entries
+    assert not rq.should_block(repeat, "4738")      # Cint: still a flag only
+    assert not rq.should_block(repeat, None)
+    assert not rq.should_block({"sfwFlags": []}, "5068")
+    assert rq.should_block({"sfwFlags": ["already_completed"]}, "4738")   # global rules still apply
+
+
+def test_per_vendor_rules_switch(monkeypatch):
+    from services import respondent_quality as rq
+    monkeypatch.setenv("SFW_SCORE_ENABLED", "true")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "true")
+    monkeypatch.setenv("SFW_ENFORCE_FLAGS_BY_VENDOR", "")
+    assert not rq.should_block({"sfwFlags": ["reentry"]}, "5068")
+    monkeypatch.setenv("SFW_ENFORCE_FLAGS_BY_VENDOR", "4738:reentry|answer_change,5068:speeder")
+    assert rq.should_block({"sfwFlags": ["answer_change"]}, "4738")
+    assert not rq.should_block({"sfwFlags": ["reentry"]}, "5068")
+    monkeypatch.setenv("SFW_SCORE_ENFORCE", "false")
+    assert not rq.should_block({"sfwFlags": ["answer_change"]}, "4738")   # flag-only mode blocks nothing

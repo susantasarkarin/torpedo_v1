@@ -3405,7 +3405,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         print(f"[warn] SFW scoring skipped for {traffic_id}: {q_err}")
                     if quality:
                         print(f"SFW score {traffic_id}: {quality['sfwScore']} {quality['sfwBand']} {quality['sfwFlags']}")
-                    if sfw_quality.should_block(quality):
+                    if sfw_quality.should_block(quality, vendor_id):
                         allocation_success = False
                         entry_link = None
                         allocation_error = "No survey available"  # never says why

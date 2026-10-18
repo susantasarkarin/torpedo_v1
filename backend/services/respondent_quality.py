@@ -94,11 +94,33 @@ def enforce_flags() -> set:
     return {f.strip() for f in raw.split(",") if f.strip()}
 
 
-def should_block(quality: Optional[Dict[str, Any]]) -> bool:
-    """Turn this entry away? Only when enforcement is on and it carries an enforced flag."""
+# Extra flags enforced for one vendor only. Research Desk (5068), last 7 days
+# to 2026-10-18: repeat entries into the same project were a third of its
+# entries but half of all dropouts (4,453 of 9,078; 58% dropout vs 29% for
+# first entries), and most of their 277 completes were duplicates or
+# completes after being terminated earlier. Format "vid:flag|flag,vid:flag";
+# SFW_ENFORCE_FLAGS_BY_VENDOR="" turns it off.
+DEFAULT_ENFORCE_FLAGS_BY_VENDOR = "5068:reentry"
+
+
+def enforce_flags_for_vendor(vendor_id: Optional[str]) -> set:
+    raw = os.getenv("SFW_ENFORCE_FLAGS_BY_VENDOR")
+    raw = DEFAULT_ENFORCE_FLAGS_BY_VENDOR if raw is None else raw
+    vendor_id = str(vendor_id or "").strip()
+    for part in raw.split(","):
+        vid, _, flags = part.partition(":")
+        if vendor_id and vid.strip() == vendor_id:
+            return {f.strip() for f in flags.split("|") if f.strip()}
+    return set()
+
+
+def should_block(quality: Optional[Dict[str, Any]], vendor_id: Optional[str] = None) -> bool:
+    """Turn this entry away? Only when enforcement is on and it carries an
+    enforced flag -- globally enforced, or enforced for this vendor."""
     if not quality or not is_enforced():
         return False
-    return bool(set(quality.get("sfwFlags") or []) & enforce_flags())
+    flags = set(quality.get("sfwFlags") or [])
+    return bool(flags & (enforce_flags() | enforce_flags_for_vendor(vendor_id)))
 
 
 def _threshold(name: str, default: int) -> int:
