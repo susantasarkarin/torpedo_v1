@@ -15,7 +15,7 @@ completes per landing. Some apps cannot hand a link to Chrome; the log shows
 that too ("open_clicked" without a matching arrival).
 
 Settings (backend/.env):
-  IN_APP_OFFER_VENDORS   comma list of vendor ids (default "5068" = Research Desk; "" = off)
+  IN_APP_OFFER_VENDORS   comma list of vendor ids (default "" = off; Research Desk's app blocks the hand-off)
   IN_APP_OFFER_PERCENT   share of eligible visitors who get the offer (default 50)
 """
 import hashlib
@@ -34,8 +34,11 @@ def is_inapp(user_agent: str) -> bool:
 
 
 def offer_vendors() -> set:
-    raw = os.getenv("IN_APP_OFFER_VENDORS")
-    raw = "5068" if raw is None else raw
+    # Off by default: in Research Desk's app the Chrome hand-off is blocked --
+    # 28 taps, 0 arrivals in Chrome on 2026-10-18 (23:00-23:33 IST) -- so the
+    # offer only stranded people. Turn on per vendor only after checking that
+    # its app lets intent:// links through (open_clicked vs fromInApp).
+    raw = os.getenv("IN_APP_OFFER_VENDORS", "")
     return {v.strip() for v in raw.split(",") if v.strip()}
 
 
