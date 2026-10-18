@@ -42,6 +42,7 @@ from services.ad_tracking import (
 from services import respondent_quality as sfw_quality
 from services import survey_routing
 from services import bot_check
+from services import inapp_browser
 from services import panel_profile
 from services.respondent_quality import entry_quality_fields
 from session_state import verify_session
@@ -2281,12 +2282,27 @@ async def routing_landing_config(request: Request):
         # Ask DOB + gender only where a project screens on them, and never a
         # panel member (their profile already has both).
         "askProfile": (not known_profile) and survey_routing.needs_profile(projects, bank),
+        # Vendor-app in-app browser: offer to continue in Chrome (split test).
+        "inAppArm": inapp_browser.arm_for(qp.get("vid", ""), qp.get("rid", ""), request.headers.get("user-agent", "")),
         "questions": survey_routing.questions_for(projects, bank),
         "paidAds": paid,
         "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,
                 "panelText": survey_routing.PANEL_CONSENT_TEXT,
                 "policyUrl": survey_routing.privacy_policy_url()} if paid else {"required": False},
     }, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/routing/inapp-event")
+async def routing_inapp_event(body: dict = Body(...)):
+    """One step of the "Open in Chrome" split test (landing / open_clicked / continued)."""
+    event = inapp_browser.clean_event(body)
+    if not event:
+        raise HTTPException(status_code=400, detail="bad event")
+    try:
+        await get_async_url_parameters_collection().database["inapp_events"].insert_one(event)
+    except Exception as e:
+        print(f"[warn] inapp event not recorded: {e}")
+    return {"ok": True}
 
 
 @router.get("/api/routing/question-library", dependencies=[Depends(verify_session)])
@@ -3055,6 +3071,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             **extract_ad_tracking(params, data, dict(request.cookies)),
             **entry_quality_fields(data),
         }
+        # "Open in Chrome" split test (services/inapp_browser.py): which arm the
+        # visitor was in, and whether this entry arrived in Chrome from the offer.
+        if str(data.get("inAppArm") or "") in inapp_browser.ARMS:
+            ad_fields["inAppArm"] = str(data["inAppArm"])
+        if str((params or {}).get("from_inapp") or "") == "1":
+            ad_fields["fromInApp"] = True
         # Country of the connecting IP as Cloudflare sees it (server-side, not
         # browser-supplied). The traffic service never stored geoIpCountry, so the
         # SFW geo check had nothing to compare against.

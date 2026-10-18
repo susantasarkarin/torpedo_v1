@@ -228,6 +228,28 @@ function getBotSignals() {
   };
 }
 
+// "Open in Chrome" split test for vendor-app in-app browsers (2026-10-18):
+// Research Desk's in-app traffic dropped out of client surveys twice as often
+// as its normal mobile browser traffic. Steps are logged so the two halves of
+// the test can be compared on completes per landing.
+function sendInAppEvent(event, arm, params) {
+  try {
+    fetch(buildApiUrl("/api/routing/inapp-event"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ event, arm, vid: params.vid || "", rid: params.rid || "", pid: params.pid || "" }),
+    }).catch(() => {});
+  } catch { /* logging must never block the visitor */ }
+}
+
+function chromeIntentUrl() {
+  const { host, pathname, search } = window.location;
+  const query = `${search}${search ? "&" : "?"}from_inapp=1`;
+  const fallback = encodeURIComponent(`https://${host}${pathname}${query}`);
+  return `intent://${host}${pathname}${query}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${fallback};end`;
+}
+
 function extractEmailFromParams(params = {}) {
   const candidateKeys = [
     "email",
@@ -267,6 +289,9 @@ export default function TrafficFlowParser() {
   const [landing, setLanding] = useState(null);
   // DOB + gender only where the project screens on age/gender (server decides; never panel members).
   const askDobGender = ASK_DOB_GENDER || Boolean(landing?.askProfile);
+  // In-app browser offer: "offer" visitors choose Chrome or here; "control" see the normal page.
+  const [inAppChoice, setInAppChoice] = useState(null);
+  const inAppLoggedRef = useRef(false);
   const [answers, setAnswers] = useState({});
   const [pii, setPii] = useState({ firstName: "", lastName: "", email: "", phone: "", verifyConsent: false, panelConsent: false });
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
@@ -301,7 +326,14 @@ export default function TrafficFlowParser() {
 
     fetch(buildApiUrl(`/api/routing/landing${window.location.search}`), { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((cfg) => cfg && setLanding(cfg))
+      .then((cfg) => {
+        if (!cfg) return;
+        setLanding(cfg);
+        if (cfg.inAppArm && !inAppLoggedRef.current) {
+          inAppLoggedRef.current = true;
+          sendInAppEvent("landing", cfg.inAppArm, parsedParams);
+        }
+      })
       .catch(() => {}); // no config = today's form (DOB + gender only)
 
     // Ad clicks: load the platform's base pixel (PageView) so the ad platform
@@ -546,6 +578,7 @@ export default function TrafficFlowParser() {
             gender: gender,
           }),
           botCheck: { token: landing?.botCheck?.token || "", answer: botAnswer, trap: botTrap },
+          inAppArm: landing?.inAppArm || undefined,
         }),
       });
 
@@ -676,6 +709,28 @@ export default function TrafficFlowParser() {
         <p className="survey-text highlight">
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
+
+        {landing?.inAppArm === "offer" && !inAppChoice && (
+          <div style={{ margin: "16px 0", padding: "16px", borderRadius: "12px", background: "#eff6ff", border: "2px solid #3b82f6", textAlign: "left" }}>
+            <p style={{ margin: "0 0 10px", fontWeight: 700, color: "#1e3a8a", fontSize: "15px" }}>
+              This survey works best in your phone's browser.
+            </p>
+            <button
+              type="button"
+              onClick={() => { sendInAppEvent("open_clicked", "offer", urlParams); setTimeout(() => { window.location.href = chromeIntentUrl(); }, 150); }}
+              style={{ width: "100%", padding: "12px", border: "none", borderRadius: "8px", background: "#2563eb", color: "#fff", fontSize: "16px", fontWeight: 700, cursor: "pointer" }}
+            >
+              Open in Chrome
+            </button>
+            <button
+              type="button"
+              onClick={() => { sendInAppEvent("continued", "offer", urlParams); setInAppChoice("here"); }}
+              style={{ width: "100%", marginTop: "8px", padding: "10px", border: "none", background: "transparent", color: "#1e40af", fontSize: "14px", textDecoration: "underline", cursor: "pointer" }}
+            >
+              Continue here
+            </button>
+          </div>
+        )}
 
         {askDobGender && (
         <>
