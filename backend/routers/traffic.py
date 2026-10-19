@@ -3391,6 +3391,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     update_fields.update({"params.pid": survey_id, "params.api": "false",
                                           "routedFrom": str(project_number or "router"),
                                           "entryPid": str(project_number or ""), "routingAttempt": 1})
+                    if target.get("_alloc"):
+                        update_fields["allocation"] = target["_alloc"]
                 session_id = None
                 if survey_routing.routing_enabled():
                     session_id = await survey_routing.start_session(async_url_collection.database, record, ip_country)

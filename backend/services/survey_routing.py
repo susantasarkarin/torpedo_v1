@@ -415,7 +415,8 @@ async def _already_in(url_col, record: Dict[str, Any], survey_no: str) -> bool:
 async def eligible_projects(
     url_col, projects_col, record: Dict[str, Any], country: str, exclude: List[str],
 ) -> List[Tuple[Dict[str, Any], List[str]]]:
-    """Eligible routable projects for this respondent, in priority order."""
+    """Eligible routable projects for this respondent, best first (services/survey_allocation.py)."""
+    from services import survey_allocation
     answers = record.get("qualificationAnswers") or {}
     profile = record.get("profilingData") or {}
     bank = await load_bank(projects_col.database)
@@ -428,7 +429,7 @@ async def eligible_projects(
         if not ok or await is_full(url_col, project) or await _already_in(url_col, record, survey_no):
             continue
         out.append(project)
-    return out
+    return await survey_allocation.rank(url_col, out, profile)
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +488,8 @@ async def create_attempt(url_col, base: Dict[str, Any], project: Dict[str, Any],
         "projectId": str(project.get("_id")), "routingAttempt": attempt_no, "routedFrom": routed_from,
         "entryType": entry_type, "url": base.get("url"),
     })
+    if project.get("_alloc"):
+        doc["allocation"] = project["_alloc"]
     rid = str(doc["_id"])
     doc["redirectUrl"] = await build_link(project, rid)
     await url_col.insert_one(doc)
