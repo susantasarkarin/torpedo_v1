@@ -325,6 +325,12 @@ def app_env(monkeypatch, col):
         return ""
     monkeypatch.setattr(traffic, "_resolve_live_project_async", _project)
     monkeypatch.setattr(traffic, "_resolve_project_client_variable_async", _client_var)
+    # The landing-page security check (2026-10-13) is tested in test_bot_check.py;
+    # these tests post without one, so it passes here. Panel lookups stay offline.
+    monkeypatch.setattr(traffic.bot_check, "decide", lambda check: ("pass", "ok", 0))
+    async def _no_panel(_pid):
+        return None
+    monkeypatch.setattr(traffic.panel_profile, "fetch", _no_panel)
 
     app = FastAPI()
     app.include_router(traffic.router)

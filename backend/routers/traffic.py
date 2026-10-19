@@ -2277,7 +2277,9 @@ async def routing_landing_config(request: Request):
         known_profile = bool(await panel_profile.fetch(panel_param))
     return JSONResponse(content={
         "country": country,
-        "botCheck": bot_check.issue(),
+        # Panel members are verified, profiled people: no security question
+        # (24 real members failed it in the week to 2026-10-17).
+        "botCheck": None if known_profile else bot_check.issue(),
         "knownProfile": known_profile,
         # Ask DOB + gender only where a project screens on them, and never a
         # panel member (their profile already has both).
@@ -2967,7 +2969,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Security check (question + hidden trap + minimum time). A failure is
         # final: the visit is recorded as SECURITY_TERM ("Security Term") and the
         # respondent goes to their vendor's terminate redirect — never to a survey.
-        bot_action, bot_reason, bot_attempt = bot_check.decide(data.get("botCheck"))
+        # A verified SurveyFieldwork Panel member skips the security check --
+        # decided here from the panel's own profile, never from the browser.
+        panel_member = bool(panel_id) and bool(await panel_profile.fetch(panel_id))
+        if panel_member:
+            bot_action, bot_reason, bot_attempt = "pass", "panel_member", 0
+        else:
+            bot_action, bot_reason, bot_attempt = bot_check.decide(data.get("botCheck"))
         if bot_action == "retry":
             # A stale question or a first wrong answer: ask again (nothing is
             # recorded and no survey is touched, so the CPX one-call rule holds).

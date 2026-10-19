@@ -94,6 +94,12 @@ def env(monkeypatch):
     monkeypatch.setattr(traffic, "traffic_service", None)
     monkeypatch.setattr(traffic, "_resolve_live_project_async", resolve_live)
     monkeypatch.setattr(traffic, "_resolve_project_client_variable_async", client_var)
+    # The landing-page security check (2026-10-13) is tested in test_bot_check.py;
+    # these tests post without one, so it passes here. Panel lookups stay offline.
+    monkeypatch.setattr(traffic.bot_check, "decide", lambda check: ("pass", "ok", 0))
+    async def _no_panel(_pid):
+        return None
+    monkeypatch.setattr(traffic.panel_profile, "fetch", _no_panel)
 
     app = FastAPI()
     app.include_router(traffic.router)
@@ -327,3 +333,25 @@ def test_question_bank_create_use_and_archive(env, monkeypatch):
 def test_unknown_bank_reference_is_ignored():
     p = _project("1", qualification={"enabled": True, "bank": [{"id": "q_missing123", "qualifying": ["Yes"]}]})
     assert r.evaluate(p, {}, PROFILE_40, bank={}) == (True, [])
+
+
+# --- panel members skip the security check (2026-10-19) --------------------
+
+def test_verified_panel_member_skips_the_security_check(env, monkeypatch):
+    client, url_col, projects, _ = env
+    projects.docs.append(_project("80419"))
+
+    async def member(_pid):
+        return {"birthday_day": 1, "birthday_month": 1, "birthday_year": 1985, "gender": "f", "zip_code": ""}
+    monkeypatch.setattr(traffic.panel_profile, "fetch", member)
+    monkeypatch.setattr(traffic.bot_check, "decide", lambda check: ("term", "missing", 0))  # would end a visitor
+    out = _store(client, panel="PM123").json()
+    assert out["allocation_success"] and not out.get("security_term")
+
+
+def test_unknown_panel_id_still_gets_the_check(env, monkeypatch):
+    client, url_col, projects, _ = env
+    projects.docs.append(_project("80419"))
+    monkeypatch.setattr(traffic.bot_check, "decide", lambda check: ("term", "missing", 0))
+    out = _store(client, panel="not-a-member").json()          # panel_profile.fetch -> None (fixture)
+    assert out.get("security_term") is True
