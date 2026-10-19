@@ -242,6 +242,11 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(TimingMiddleware)
 
+# Login required for data-changing requests (auth_guard.py, 2026-10-19): an
+# outside scanner enrolled 817 leads through an unauthenticated endpoint.
+from auth_guard import AuthGuard
+app.add_middleware(AuthGuard)
+
 
 # ----------------------------
 # Root Health Check
