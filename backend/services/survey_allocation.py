@@ -18,6 +18,17 @@ Each eligible project now gets an expected value for this respondent:
   quota closed skipped altogether: recent returns (last 45 min) are quota-full with
                no complete, or 10+ returns in 48 h are 80%+ quota-full with no
                complete (21390 on 19 Oct: 18 returns, 18 quota-full).
+  cell closed  the client closes quota cells one at a time, and other vendors fill
+               them too: if the last 3 returns for this person's gender + age band
+               were quota-full, the latest within 40 min, the project is skipped for
+               this person. 40 min after the last quota-full one person goes through
+               as a probe (never two at once); a complete or terminate reopens it.
+
+Checked by replaying 12 days of real returns (20 Oct, 22,958 returns): the cell
+rule takes quota-full sends avoided from 306 to 583 of 2,053, at 16 more of 878
+completes turned away. A cross-study lookalike (how people like this one do on
+the same client's other studies) and shorter memories (6-24 h) were tried in the
+same replay and ranked no better -- worse on new studies -- so they are not used.
 
 routingPriority still wins where set (lower = first); value orders within it.
 Projects with no CPI get the median CPI of the other candidates.
@@ -41,6 +52,10 @@ CLOSED_MIN_OVERQUOTA = 3
 CLOSED_MIN_RETURNS_48H = 10
 CLOSED_OQ_SHARE_48H = 0.8
 CACHE_SECONDS = 120
+CELL_RUN = 3
+CELL_WINDOW_HOURS = 6
+PROBE_MINUTES = 40
+RECENT_CACHE_SECONDS = 15
 
 REACHED_CLIENT = ("COMPLETE", "TERMINATED", "OVERQUOTA", "SECURITY_TERM", "INCOMPLETE")
 
@@ -116,12 +131,13 @@ async def project_stats(url_col, survey_nos: List[str], now: Optional[datetime] 
             s["recent_oq"] += n
         if k.get("recent") and status == "COMPLETE":
             s["recent_completes"] += n
+        if status == "OVERQUOTA":
+            s["overquota"] += n
+            continue  # a full quota says nothing about this person's chance
         seg = segment_of({"gender": k.get("g"), "birthday_year": k.get("y")}, today)
         seg_stats = s["segments"].setdefault(seg, [0, 0])
         s["decided"] += n
         seg_stats[1] += n
-        if status == "OVERQUOTA":
-            s["overquota"] += n
         if status == "COMPLETE":
             s["completes"] += n
             seg_stats[0] += n
@@ -132,8 +148,44 @@ async def project_stats(url_col, survey_nos: List[str], now: Optional[datetime] 
 def quota_closed(stats: Dict[str, Any]) -> bool:
     if stats["recent_oq"] >= CLOSED_MIN_OVERQUOTA and stats["recent_completes"] == 0:
         return True
-    return (stats["completes"] == 0 and stats["decided"] >= CLOSED_MIN_RETURNS_48H
-            and stats["overquota"] >= CLOSED_OQ_SHARE_48H * stats["decided"])
+    returns = stats["decided"] + stats["overquota"]
+    return (stats["completes"] == 0 and returns >= CLOSED_MIN_RETURNS_48H
+            and stats["overquota"] >= CLOSED_OQ_SHARE_48H * returns)
+
+
+def cell_state(rows: List[Tuple[datetime, str]], now: datetime, run: int = CELL_RUN) -> str:
+    """rows: (entered_at, status) for one gender/age cell, newest first. 'open', 'closed' or 'probe'."""
+    returned = [(t, s) for t, s in rows if s in ("COMPLETE", "TERMINATED", "SECURITY_TERM", "OVERQUOTA")]
+    if len(returned) < run or any(s != "OVERQUOTA" for _, s in returned[:run]):
+        return "open"
+    last_oq = returned[0][0]
+    if now - last_oq < timedelta(minutes=PROBE_MINUTES):
+        return "closed"
+    probe_in_flight = any(s == "INCOMPLETE" and t > last_oq and now - t < timedelta(minutes=PROBE_MINUTES)
+                          for t, s in rows)
+    return "closed" if probe_in_flight else "probe"
+
+
+async def recent_by_cell(url_col, survey_nos: List[str], now: Optional[datetime] = None):
+    """{survey: {cell: [(entered_at, status), ...newest first]}} over the last 6 h (cached 15 s)."""
+    key = ("cells",) + tuple(sorted(survey_nos))
+    cached = _CACHE.get(key)
+    if cached and cached[0] > time.time():
+        return cached[1]
+    now = now or datetime.utcnow()
+    out: Dict[str, Dict[str, List[Tuple[datetime, str]]]] = {no: {} for no in survey_nos}
+    cursor = url_col.find(
+        {"params.pid": {"$in": list(survey_nos)}, "params.api": "false",
+         "createdAt": {"$gte": now - timedelta(hours=CELL_WINDOW_HOURS)}, "status": {"$in": list(REACHED_CLIENT)}},
+        {"params.pid": 1, "status": 1, "createdAt": 1, "profilingData.gender": 1, "profilingData.birthday_year": 1},
+    ).sort("createdAt", -1).limit(3000)
+    today = now.date()
+    async for d in cursor:
+        cells = out.get(str((d.get("params") or {}).get("pid")))
+        if cells is not None:
+            cells.setdefault(segment_of(d.get("profilingData") or {}, today), []).append((d["createdAt"], d.get("status")))
+    _CACHE[key] = (time.time() + RECENT_CACHE_SECONDS, out)
+    return out
 
 
 def prior_rate(project: Dict[str, Any]) -> float:
@@ -162,22 +214,30 @@ async def rank(url_col, projects: List[Dict[str, Any]], profile: Dict[str, Any])
     """Eligible projects best-first; quota-closed ones dropped. Each gets project["_alloc"]."""
     if len(projects) == 0 or mode() == "priority":
         return projects
+    now = datetime.utcnow()
+    survey_nos = [str(p.get("surveyNo")) for p in projects]
     try:
-        stats = await project_stats(url_col, [str(p.get("surveyNo")) for p in projects])
+        stats = await project_stats(url_col, survey_nos, now)
+        cells = await recent_by_cell(url_col, survey_nos, now)
     except Exception as err:  # never block a respondent over the scoring
         print(f"[warn] allocation stats failed, using priority order: {err}")
         return projects
     cpis = [c for c in (_num(p.get("cpi")) for p in projects) if c]
     fallback_cpi = median(cpis) if cpis else 1.0
-    segment = segment_of(profile)
+    segment = segment_of(profile, now.date())
     ranked = []
     for p in projects:
         s = stats.get(str(p.get("surveyNo"))) or _empty()
         if quota_closed(s):
             print(f"[info] allocation: skipping {p.get('surveyNo')} -- quota closed at client "
-                  f"({s['recent_oq']} quota-full in {RECENT_MINUTES} min, {s['overquota']}/{s['decided']} in 48 h, no completes)")
+                  f"({s['recent_oq']} quota-full in {RECENT_MINUTES} min, {s['overquota']}/{s['overquota'] + s['decided']} in 48 h, no completes)")
+            continue
+        cell = cell_state((cells.get(str(p.get("surveyNo"))) or {}).get(segment) or [], now)
+        if cell == "closed":
+            print(f"[info] allocation: skipping {p.get('surveyNo')} for {segment} -- that quota cell is full at client")
             continue
         p["_alloc"] = score(p, s, segment, _num(p.get("cpi")) or fallback_cpi)
+        p["_alloc"]["cell"] = cell
         ranked.append(p)
     ranked.sort(key=lambda p: (_priority(p), -p["_alloc"]["value"]))
     for i, p in enumerate(ranked):

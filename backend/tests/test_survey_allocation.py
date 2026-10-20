@@ -1,15 +1,35 @@
 """Survey allocation: value ordering, segment learning, quota-closed skip, fail-open."""
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from services import survey_allocation as sa
 
 
+class FakeCursor:
+    def __init__(self, docs):
+        self.docs = docs
+
+    def sort(self, *a):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def __aiter__(self):
+        async def gen():
+            for d in self.docs:
+                yield d
+        return gen()
+
+
 class FakeCol:
-    def __init__(self, rows=None, fail=False):
-        self.rows, self.fail, self.calls = rows or [], fail, 0
+    def __init__(self, rows=None, fail=False, docs=None):
+        self.rows, self.fail, self.calls, self.docs = rows or [], fail, 0, docs or []
+
+    def find(self, query, projection=None):
+        return FakeCursor(self.docs)
 
     def aggregate(self, pipeline):
         self.calls += 1
@@ -126,3 +146,31 @@ def test_stats_cached():
     run(sa.project_stats(col, ["A"]))
     run(sa.project_stats(col, ["A"]))
     assert col.calls == 1
+
+
+NOW = datetime(2026, 10, 20, 12, 0)
+
+
+def test_cell_state_rules():
+    m = lambda mins: NOW - timedelta(minutes=mins)  # noqa: E731
+    oq3 = [(m(5), "OVERQUOTA"), (m(9), "OVERQUOTA"), (m(15), "OVERQUOTA")]
+    assert sa.cell_state(oq3, NOW) == "closed"
+    assert sa.cell_state(oq3[:2], NOW) == "open"                                   # only 2 in a row
+    assert sa.cell_state([(m(2), "COMPLETE")] + oq3, NOW) == "open"                # a complete reopened it
+    assert sa.cell_state([(m(1), "INCOMPLETE")] + oq3, NOW) == "closed"            # still in the survey: not a return
+    old = [(m(50), "OVERQUOTA"), (m(55), "OVERQUOTA"), (m(60), "OVERQUOTA")]
+    assert sa.cell_state(old, NOW) == "probe"                                      # 40 min on: one probe
+    assert sa.cell_state([(m(10), "INCOMPLETE")] + old, NOW) == "closed"           # probe already in flight
+
+
+def test_rank_skips_full_cell_for_that_person_only(monkeypatch):
+    now = datetime.utcnow()
+    year = now.year - 30
+    docs = [{"params": {"pid": "A"}, "status": "OVERQUOTA", "createdAt": now - timedelta(minutes=i),
+             "profilingData": {"gender": "m", "birthday_year": year}} for i in (2, 4, 6)]
+    col = FakeCol([row("A", "COMPLETE", 10), row("B", "COMPLETE", 1)], docs=docs)
+    man = {"gender": "m", "birthday_year": year}
+    woman = {"gender": "f", "birthday_year": year}
+    assert [p["surveyNo"] for p in run(sa.rank(col, [proj("A", 150), proj("B", 150)], man))] == ["B"]
+    out = run(sa.rank(col, [proj("A", 150), proj("B", 150)], woman))
+    assert out[0]["surveyNo"] == "A" and out[0]["_alloc"]["cell"] == "open"
