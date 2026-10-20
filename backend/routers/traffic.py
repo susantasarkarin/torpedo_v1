@@ -44,6 +44,7 @@ from services import survey_routing
 from services import bot_check
 from services import inapp_browser
 from services import panel_profile
+from services import respondent_profile
 from services.respondent_quality import entry_quality_fields
 from session_state import verify_session
 
@@ -2272,9 +2273,12 @@ async def routing_landing_config(request: Request):
     paid = survey_routing.is_paid_ads(vendor, derive_traffic_source(qp))
     # SurveyFieldwork Panel members: DOB and gender come from their panel profile.
     known_profile = False
+    known_targeting: dict = {}
     panel_param = str(qp.get("panel") or "").strip()
     if panel_param and not panel_param.startswith(("[", "{", "%")):
-        known_profile = bool(await panel_profile.fetch(panel_param))
+        member = await panel_profile.fetch(panel_param)
+        known_profile = bool(member)
+        known_targeting = (member or {}).get("targeting") or {}
     return JSONResponse(content={
         "country": country,
         # Panel members are verified, profiled people: no security question
@@ -2286,7 +2290,9 @@ async def routing_landing_config(request: Request):
         "askProfile": (not known_profile) and survey_routing.needs_profile(projects, bank),
         # Vendor-app in-app browser: offer to continue in Chrome (split test).
         "inAppArm": inapp_browser.arm_for(qp.get("vid", ""), qp.get("rid", ""), request.headers.get("user-agent", "")),
-        "questions": survey_routing.questions_for(projects, bank),
+        # Targeting questions (state, city, PIN, children, NCCS) only for what the
+        # surveys screen on and a panel member's profile does not already hold.
+        "questions": survey_routing.questions_for(projects, bank, known=known_targeting, country=country),
         "paidAds": paid,
         "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,
                 "panelText": survey_routing.PANEL_CONSENT_TEXT,
@@ -3168,14 +3174,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         gender = data.get('gender', '').strip().lower()
         zip_code = data.get('zip_code', '').strip()
-        if panel_id and (birthday_year is None or not gender):
-            known = await panel_profile.fetch(panel_id)
-            if known:
-                birthday_day = birthday_day or known["birthday_day"]
-                birthday_month = birthday_month or known["birthday_month"]
-                birthday_year = birthday_year or known["birthday_year"]
-                gender = gender or known["gender"]
-                zip_code = zip_code or known["zip_code"]
+        known = await panel_profile.fetch(panel_id) if panel_id else None
+        if known and (birthday_year is None or not gender):
+            birthday_day = birthday_day or known["birthday_day"]
+            birthday_month = birthday_month or known["birthday_month"]
+            birthday_year = birthday_year or known["birthday_year"]
+            gender = gender or known["gender"]
+            zip_code = zip_code or known["zip_code"]
         ip_region = (data.get('ipRegion') or '').strip()   # state/province from ipinfo.io
         ip_city   = (data.get('ipCity')   or '').strip()   # city from ipinfo.io
         ip_postal = (data.get('ipPostal') or '').strip()   # postal/zip from ipinfo.io
@@ -3211,6 +3216,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "ip_postal": ip_postal,
             "cint_profile_params": cint_profiling_params,
         }
+        # Targeting profile (state, city, PIN, children, NCCS): a panel member's
+        # profile first, then what the landing page asked (services/respondent_profile.py).
+        _, profile_answers = respondent_profile.split_answers(ad_fields.get("qualificationAnswers") or {})
+        profiling_data = respondent_profile.merge(
+            profiling_data, (known or {}).get("targeting") or {}, respondent_profile.from_landing_answers(profile_answers))
 
         # Log profiling data if provided
         if birthday_day is not None and birthday_month is not None and birthday_year is not None:

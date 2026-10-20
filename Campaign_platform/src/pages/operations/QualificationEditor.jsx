@@ -8,7 +8,22 @@ const GENDERS = [
   { value: "f", label: "Female" },
 ];
 
-const EMPTY_QUAL = { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], bank: [], custom: [] };
+const NCCS_GRADES = ["A1", "A2", "A3", "B1", "B2", "C1", "C2", "D1", "D2", "E1", "E2", "E3"];
+
+// Targeting profile (backend/services/respondent_profile.py). Panel members' answers
+// come from their panel profile; other traffic is asked on the landing page.
+const PLACE_FIELDS = [
+  { key: "states", label: "States", hint: "comma-separated, e.g. Maharashtra, Karnataka" },
+  { key: "cities", label: "Cities", hint: "comma-separated, e.g. Mumbai, Delhi, Bengaluru" },
+  { key: "zipPrefixes", label: "PIN / postcode starts with", hint: "comma-separated, e.g. 400, 110" },
+];
+
+const EMPTY_QUAL = {
+  enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], bank: [], custom: [],
+  states: "", cities: "", zipPrefixes: "", childrenMin: "", childrenMax: "", childAgeMin: "", childAgeMax: "", nccs: [],
+};
+
+const asText = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
 
 const authHeaders = (extra = {}) => ({ Authorization: localStorage.getItem("session_id") || "", ...extra });
 
@@ -102,6 +117,44 @@ export default function QualificationEditor({ formData, setFormData }) {
               <label key={g.value} className="qe-chip">
                 <input type="checkbox" checked={qual.genders.includes(g.value)} onChange={() => toggle("genders", g.value)} />
                 {g.label}
+              </label>
+            ))}
+          </div>
+
+          {PLACE_FIELDS.map((f) => (
+            <div key={f.key} className="pp-field">
+              <label>{f.label} <small>(empty = any)</small></label>
+              <input type="text" placeholder={f.hint} value={asText(qual[f.key])} onChange={(e) => setQual({ [f.key]: e.target.value })} />
+            </div>
+          ))}
+
+          <div className="pp-form-row">
+            <div className="pp-field">
+              <label>Children under 18: at least</label>
+              <input type="number" min="0" max="10" value={qual.childrenMin ?? ""} onChange={(e) => setQual({ childrenMin: e.target.value })} />
+            </div>
+            <div className="pp-field">
+              <label>at most</label>
+              <input type="number" min="0" max="10" value={qual.childrenMax ?? ""} onChange={(e) => setQual({ childrenMax: e.target.value })} />
+            </div>
+          </div>
+          <div className="pp-form-row">
+            <div className="pp-field">
+              <label>Has a child aged from</label>
+              <input type="number" min="0" max="17" value={qual.childAgeMin ?? ""} onChange={(e) => setQual({ childAgeMin: e.target.value })} />
+            </div>
+            <div className="pp-field">
+              <label>to</label>
+              <input type="number" min="0" max="17" value={qual.childAgeMax ?? ""} onChange={(e) => setQual({ childAgeMax: e.target.value })} />
+            </div>
+          </div>
+
+          <div className="qe-group">
+            <span className="qe-group-label">NCCS <small>(India; none ticked = any)</small></span>
+            {NCCS_GRADES.map((g) => (
+              <label key={g} className="qe-chip">
+                <input type="checkbox" checked={(qual.nccs || []).includes(g)} onChange={() => toggle("nccs", g)} />
+                {g}
               </label>
             ))}
           </div>

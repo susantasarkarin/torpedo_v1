@@ -22,6 +22,8 @@ Project fields (email_automation.projects), all optional; absent = today's behav
   qualification: {enabled, ageMin, ageMax, genders[], employment[], occupation[],
                   bank: [{id, qualifying[]}],          questions from the shared question bank
                   custom: [{id, text, options[], qualifying[]}]}   (legacy inline questions)
+  states[], cities[], zipPrefixes[], childrenMin/Max, childAgeMin/Max, nccs[]
+                  targeting profile -- see services/respondent_profile.py
   routingEnabled: bool     may receive routed respondents
   routingPriority: int     lower = offered first
 
@@ -45,6 +47,8 @@ from datetime import date, datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from bson import ObjectId
+
+from services import respondent_profile
 
 # Fixed, reusable qualification questions. Age and gender come from the date of
 # birth / gender the landing page already asks; these are the extra ones.
@@ -223,17 +227,21 @@ def project_qualification(project: Optional[Dict[str, Any]], bank: Optional[Dict
         "occupation": [v for v in _str_list(raw.get("occupation"))
                        if v in {o["value"] for o in _LIBRARY["occupation"]["options"]}],
         "custom": custom,
+        **respondent_profile.criteria(raw),
     }
 
 
 def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]] = None,
-                  limit: int = 8) -> List[Dict[str, Any]]:
-    """Landing-page questions the given projects' enabled criteria need (deduplicated)."""
-    out, seen = [], set()
+                  limit: int = 12, known: Optional[Dict[str, Any]] = None, country: str = "") -> List[Dict[str, Any]]:
+    """Landing-page questions the given projects' enabled criteria need (deduplicated).
+    Targeting-profile questions (state, city, PIN, children, NCCS) only for what
+    `known` (a panel member's profile) does not already hold."""
+    out, seen, crits = [], set(), []
     for project in projects:
         qual = project_qualification(project, bank)
         if not qual["enabled"]:
             continue
+        crits.append(qual)
         for lib_id in ("employment", "occupation"):
             if qual[lib_id] and lib_id not in seen:
                 seen.add(lib_id)
@@ -243,6 +251,7 @@ def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]]
                 seen.add(q["id"])
                 out.append({"id": q["id"], "text": q["text"],
                             "options": [{"value": o, "label": o} for o in q["options"]]})
+    out += respondent_profile.questions(crits, known or {}, country)
     return out[:limit]
 
 
@@ -299,17 +308,19 @@ def evaluate(project: Dict[str, Any], answers: Dict[str, Any], profile: Dict[str
             reasons.append(f"{q['id']}_missing")
         elif answer not in q["qualifying"]:
             reasons.append(q["id"])
+    reasons += respondent_profile.reasons(qual, profile or {})
     return not reasons, reasons
 
 
-def clean_answers(raw: Any) -> Dict[str, str]:
+def clean_answers(raw: Any) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
-    out = {}
-    for key, value in list(raw.items())[:20]:
+    out: Dict[str, Any] = {}
+    for key, value in list(raw.items())[:30]:
         key = str(key)
         if key in _LIBRARY or _CUSTOM_ID.match(key):
             out[key] = str(value or "").strip()[:200]
+    out.update(respondent_profile.clean_answers(raw))  # p_* targeting answers
     return out
 
 

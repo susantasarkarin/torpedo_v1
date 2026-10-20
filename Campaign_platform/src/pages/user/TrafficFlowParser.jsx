@@ -7,6 +7,97 @@ import "./TrafficFlowParser.css";
 // security check). Panel members' come from their panel profile on the server.
 const ASK_DOB_GENDER = false;
 
+// Landing questions come from the server (routers/traffic.py routing_landing_config):
+//   select (default) one answer; text (pattern) e.g. PIN code; multi: list of values,
+//   ["none"] for "None of these"; children: list of ages, [] for no children.
+function isAnswered(q, value) {
+  if (q.type === "multi") return Array.isArray(value) && value.length > 0;
+  if (q.type === "children") return Array.isArray(value) && value.every((a) => a !== "");
+  if (q.type === "text") {
+    const v = String(value || "").trim();
+    return Boolean(v) && (!q.pattern || new RegExp(q.pattern).test(v));
+  }
+  return Boolean(value);
+}
+
+const fieldLabel = { display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" };
+const fieldInput = { width: "100%", boxSizing: "border-box", padding: "12px 16px", fontSize: "16px", border: "1px solid #ccc", borderRadius: "8px", outline: "none" };
+const fieldChip = { display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", fontSize: "15px", color: "#333" };
+
+function QuestionField({ q, value, onChange }) {
+  const id = `q-${q.id}`;
+  const required = <span style={{ color: "#c00" }}>*</span>;
+  if (q.type === "text") {
+    return (
+      <div style={{ margin: "20px 0", textAlign: "left" }}>
+        <label htmlFor={id} style={fieldLabel}>{q.text} {required}</label>
+        <input id={id} type="text" inputMode={/\[0-9\]/.test(q.pattern || "") ? "numeric" : "text"}
+          placeholder={q.placeholder || ""} value={value || ""} onChange={(e) => onChange(e.target.value)} style={fieldInput} />
+      </div>
+    );
+  }
+  if (q.type === "multi") {
+    const chosen = Array.isArray(value) ? value : [];
+    const none = chosen.includes("none");
+    const toggle = (v) => onChange(chosen.includes(v) ? chosen.filter((x) => x !== v) : [...chosen.filter((x) => x !== "none"), v]);
+    return (
+      <div style={{ margin: "20px 0", textAlign: "left" }}>
+        <span style={fieldLabel}>{q.text} {required}</span>
+        {q.options.map((o) => (
+          <label key={o.value} style={fieldChip}>
+            <input type="checkbox" checked={chosen.includes(o.value)} onChange={() => toggle(o.value)} />
+            {o.label}
+          </label>
+        ))}
+        {q.noneLabel && (
+          <label style={fieldChip}>
+            <input type="checkbox" checked={none} onChange={() => onChange(none ? [] : ["none"])} />
+            {q.noneLabel}
+          </label>
+        )}
+      </div>
+    );
+  }
+  if (q.type === "children") {
+    const ages = Array.isArray(value) ? value : null;
+    const setCount = (n) => onChange(n === "" ? undefined : Array.from({ length: Number(n) }, (_, i) => (ages && ages[i] !== undefined ? ages[i] : "")));
+    return (
+      <div style={{ margin: "20px 0", textAlign: "left" }}>
+        <label htmlFor={id} style={fieldLabel}>{q.text} {required}</label>
+        <select id={id} value={ages ? String(ages.length) : ""} onChange={(e) => setCount(e.target.value)} style={fieldInput}>
+          <option value="">Select…</option>
+          {Array.from({ length: (q.max || 6) + 1 }, (_, n) => (
+            <option key={n} value={n}>{n === 0 ? "None" : n}</option>
+          ))}
+        </select>
+        {(ages || []).map((age, i) => (
+          <div key={i} style={{ marginTop: "10px" }}>
+            <label htmlFor={`${id}-${i}`} style={{ ...fieldLabel, fontWeight: "400" }}>{q.ageText || "Age of child"} {i + 1}</label>
+            <select id={`${id}-${i}`} value={age} style={fieldInput}
+              onChange={(e) => onChange(ages.map((a, j) => (j === i ? e.target.value : a)))}>
+              <option value="">Select…</option>
+              {Array.from({ length: 18 }, (_, a) => (
+                <option key={a} value={a}>{a === 0 ? "Under 1 year" : `${a} year${a === 1 ? "" : "s"}`}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div style={{ margin: "20px 0", textAlign: "left" }}>
+      <label htmlFor={id} style={fieldLabel}>{q.text} {required}</label>
+      <select id={id} value={value || ""} onChange={(e) => onChange(e.target.value)} style={fieldInput}>
+        <option value="">Select…</option>
+        {q.options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // Generate a unique transaction ID (UUID v4)
 function generateTransId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -441,10 +532,12 @@ export default function TrafficFlowParser() {
       setProfileError("Please answer the quick question");
       return;
     }
-    const unanswered = (landing?.questions || []).find((q) => !answers[q.id]);
+    const unanswered = (landing?.questions || []).find((q) => !isAnswered(q, answers[q.id]));
     if (unanswered) {
       isClickProcessingRef.current = false;
-      setProfileError(`Please answer: ${unanswered.text}`);
+      setProfileError(unanswered.type === "text" && answers[unanswered.id]
+        ? `Please check: ${unanswered.text}`
+        : `Please answer: ${unanswered.text}`);
       return;
     }
     if (landing?.pii?.required) {
@@ -897,25 +990,15 @@ export default function TrafficFlowParser() {
 
         {/* Qualification questions (survey routing) */}
         {(landing?.questions || []).map((q) => (
-          <div key={q.id} style={{ margin: "20px 0", textAlign: "left" }}>
-            <label htmlFor={`q-${q.id}`} style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
-              {q.text} <span style={{ color: "#c00" }}>*</span>
-            </label>
-            <select
-              id={`q-${q.id}`}
-              value={answers[q.id] || ""}
-              onChange={(e) => {
-                setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
-                if (profileError) setProfileError("");
-              }}
-              style={{ width: "100%", boxSizing: "border-box", padding: "12px 16px", fontSize: "16px", border: "1px solid #ccc", borderRadius: "8px", outline: "none" }}
-            >
-              <option value="">Select…</option>
-              {q.options.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+          <QuestionField
+            key={q.id}
+            q={q}
+            value={answers[q.id]}
+            onChange={(value) => {
+              setAnswers((prev) => ({ ...prev, [q.id]: value }));
+              if (profileError) setProfileError("");
+            }}
+          />
         ))}
 
         {/* Paid Ads only: contact details + panel consent */}
