@@ -5,6 +5,7 @@ allocation-profile API, so the survey landing page doesn't ask panel members
 again for what their profile already holds.
 """
 import os
+import re
 import time
 from typing import Optional
 
@@ -36,11 +37,12 @@ async def fetch(panel_id: str) -> Optional[dict]:
             resp = await client.get(f"{_base()}/allocation-profile/{panel_id}", headers={"X-Internal-Key": key})
         if resp.status_code == 200:
             profile = (resp.json() or {}).get("profile") or {}
-            dob = str(profile.get("dateOfBirth") or "")[:10]
+            # a mistyped year ("+020005-09-...") is treated as no date of birth
+            dob = re.match(r"^(\d{4})-(\d{2})-(\d{2})", str(profile.get("dateOfBirth") or ""))
             answers = profile.get("profileAnswers") or {}
             gender = {"male": "m", "female": "f"}.get(str(profile.get("gender") or "").strip().lower(), "")
-            if len(dob) == 10 and gender:
-                y, m, d = dob.split("-")
+            if dob and gender:
+                y, m, d = dob.groups()
                 result = {
                     "birthday_day": int(d), "birthday_month": int(m), "birthday_year": int(y),
                     "gender": gender, "zip_code": str(answers.get("CORE_07") or "").strip(),
