@@ -622,10 +622,8 @@ def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_call
             logger.warning("[CompanyFit] lookup failed for %r: %s", doc.get("name"), e)
             _note(kind, "error")
 
-    # 1. the model confirms (or decides) what the text in hand points to
-    for doc in col.find({"status": "needs_model"}).sort(sort).limit(model_calls):
-        _resolve("model:", doc, allow_google=False, allow_model=True)
-    # 2. Google: LinkedIn pages, GOOGLE_BATCH companies per call
+    # 1. Google: LinkedIn pages, GOOGLE_BATCH companies per call (no model
+    #    needed -- runs first so a busy model never holds it up)
     waiting = {"status": {"$in": ["pending", "needs_google"]}, "type": {"$exists": False},
                "linkedin_at": None, "next_try_at": {"$lte": now}}
     calls = 0
@@ -642,6 +640,13 @@ def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_call
         for doc in batch:
             _resolve("", doc, allow_google=False, allow_model=False)
     stats["google_calls"] = calls
+    # 2. the model confirms (or decides) what the text in hand points to.
+    #    The one model slot is shared and RFQ/extraction outrank this; when
+    #    it is busy (a wait times out) stop and leave the rest for next run.
+    for doc in col.find({"status": "needs_model"}).sort(sort).limit(model_calls):
+        _resolve("model:", doc, allow_google=False, allow_model=True)
+        if stats.get("model:model_unavailable"):
+            break
     # 3. no Google budget left today: the companies' own websites
     if calls == 0:
         for doc in col.find({"status": "pending", "type": {"$exists": False},
