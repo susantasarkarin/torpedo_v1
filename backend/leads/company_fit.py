@@ -422,11 +422,16 @@ def _model_type(name: str, text: str) -> Optional[str]:
 
 _YES_NO = {"type": "object", "additionalProperties": False,
            "properties": {"answer": {"type": "string", "enum": ["yes", "no"]}}, "required": ["answer"]}
-_TYPE_WORDS = {
-    "mr_agency": "a market research, survey, fieldwork or panel company",
-    "brand": "a company that sells its own consumer products or services (consumer goods, retail, bank, "
-             "telecom, pharma, media, entertainment)",
-    "aec": "an architecture, engineering, construction or building-design firm",
+# Plain questions the small model answers reliably (prod tests 2026-10-21):
+# no false yes in 24 cases; brand 10/12, aec 11/12 right. The abstract
+# "is this a company that sells consumer products (...)" form said no to
+# NBCUniversal, BBC Studios and Merck.
+_QUESTIONS = {
+    "mr_agency": "Is this company a market research, survey, fieldwork or panel company?",
+    "brand": "Does this company sell its own products or services to ordinary people (the public, "
+             "consumers or patients), rather than only to other businesses?",
+    "aec": "Does this company design, engineer or build buildings, roads, bridges, plants or other "
+           "infrastructure?",
 }
 
 
@@ -438,7 +443,7 @@ def _model_confirms(name: str, text: str, ctype: str) -> Optional[str]:
         with queue_wait(120, priority="bulk"):
             got = chat_json(system="Answer only yes or no, as JSON.",
                             user=(f"Company: {name}\nWhat it says about itself: {text[:900]}\n\n"
-                                  f"Is this company {_TYPE_WORDS[ctype]}?"),
+                                  + _QUESTIONS[ctype]),
                             max_tokens=10, json_schema=_YES_NO, timeout=90)
     except (LocalSLMError, Exception):
         return None
