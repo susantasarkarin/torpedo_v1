@@ -519,10 +519,10 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
         logger.info("[CompanyFit] %s -> %s (%s %s, AI confirmed); %d leads re-basketed",
                     name or domain, ctype, source, evidence, n)
         return "typed"
-    # Google's ~25/day only goes to companies of people in a live sequence
-    # (priority 3); for the ~12,000 others it would take over a year, so the
-    # model reads their own website text instead.
-    if not tried_google and (name or domain) and (int(doc.get("priority") or 0) >= 3 or not text):
+    # Google's ~25/day is kept for companies whose own website could not be
+    # read; at that rate it would take over a year for the ~12,000 others, so
+    # the model reads their website text instead.
+    if not tried_google and (name or domain) and not text:
         # the website did not settle it; LinkedIn next, when quota allows
         db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_google"}})
         return "needs_google"
