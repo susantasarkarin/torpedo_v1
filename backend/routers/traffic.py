@@ -2324,6 +2324,26 @@ async def routing_question_library():
             "maxAttempts": survey_routing.max_attempts()}
 
 
+@router.get("/api/routing/qualification-from-rfq", dependencies=[Depends(verify_session)])
+async def routing_qualification_from_rfq(projectName: str = "", rfqId: str = "", surveyNo: str = ""):
+    """Screening criteria read from the project's RFQ email -- a suggestion for the form, never applied here."""
+    from services import rfq_targeting
+    project: Dict[str, Any] = {"projectName": projectName, "rfqId": rfqId}
+    if surveyNo and not projectName:
+        found = await get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).find_one(
+            {"surveyNo": surveyNo, "is_deleted": {"$ne": True}}, {"projectName": 1, "rfqId": 1})
+        project = found or project
+    mail_col = get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database.client["torpedo_gmail"]["email_metadata"]
+    brief = await rfq_targeting.find_brief(mail_col, project)
+    if not brief:
+        return {"found": False, "message": "No RFQ email with a target group was found for this project name."}
+    result = rfq_targeting.extract(brief["text"])
+    return {"found": True, "subject": brief.get("subject"), "from": brief.get("from"),
+            "receivedAt": brief["at"].isoformat() if hasattr(brief.get("at"), "isoformat") else brief.get("at"),
+            "qualification": result["qualification"], "evidence": result["found"], "notes": result["notes"],
+            "loi": result["loi"], "ir": result["ir"]}
+
+
 @router.post("/api/routing/questions")
 async def routing_create_question(body: Dict[str, Any] = Body(...), username: str = Depends(verify_session)):
     """Add a reusable study question (text + answer options) to the question bank."""

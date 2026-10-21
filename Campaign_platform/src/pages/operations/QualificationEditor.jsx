@@ -34,7 +34,35 @@ export default function QualificationEditor({ formData, setFormData }) {
   const [pick, setPick] = useState("");
   const [draft, setDraft] = useState(null); // {text, options} while creating a bank question
   const [bankError, setBankError] = useState("");
+  const [rfq, setRfq] = useState(null); // suggestion read from the RFQ email
+  const [rfqBusy, setRfqBusy] = useState(false);
   const qual = { ...EMPTY_QUAL, ...(formData.qualification || {}) };
+  const india = !formData.countryCode || String(formData.countryCode).toUpperCase() === "IN";
+
+  const readRfq = async () => {
+    setRfqBusy(true);
+    setRfq(null);
+    try {
+      const qs = new URLSearchParams({ projectName: formData.projectName || "", rfqId: formData.rfqId || "", surveyNo: formData.surveyNo || "" });
+      const res = await authFetch(buildApiUrl(`/api/routing/qualification-from-rfq?${qs}`), { headers: authHeaders() });
+      setRfq(res.ok ? await res.json() : { found: false, message: "Could not read the RFQ email." });
+    } catch {
+      setRfq({ found: false, message: "Could not read the RFQ email." });
+    }
+    setRfqBusy(false);
+  };
+
+  const applyRfq = () => {
+    const found = { ...(rfq?.qualification || {}) };
+    if (!india) delete found.nccs;
+    setFormData((prev) => ({
+      ...prev,
+      loi: prev.loi || (rfq?.loi ? String(rfq.loi) : prev.loi),
+      clientIR: prev.clientIR || (rfq?.ir ? String(rfq.ir) : prev.clientIR),
+      qualification: { ...EMPTY_QUAL, ...(prev.qualification || {}), ...found, enabled: true },
+    }));
+    setRfq(null);
+  };
 
   const loadLibrary = () =>
     authFetch(buildApiUrl("/api/routing/question-library"), { headers: authHeaders() })
@@ -98,6 +126,40 @@ export default function QualificationEditor({ formData, setFormData }) {
         Only criteria you set here are checked. Leave this off to send everyone to the survey as before.
       </small>
 
+      <div className="qe-bank-row">
+        <button type="button" className="qe-add" onClick={readRfq} disabled={rfqBusy || !(formData.projectName || formData.rfqId)}>
+          {rfqBusy ? "Reading the RFQ email…" : "Fill from RFQ email"}
+        </button>
+      </div>
+      {rfq && !rfq.found && <small className="qe-warn">{rfq.message}</small>}
+      {rfq && rfq.found && (
+        <div className="qe-custom">
+          <strong className="qe-custom-title">From: {rfq.subject}</strong>
+          {(rfq.evidence || []).length === 0 && <small className="qe-warn">No age, gender, NCCS, children or cities found in it.</small>}
+          <ul>
+            {(rfq.evidence || []).filter((e) => india || e.field !== "nccs").map((e) => (
+              <li key={e.field}>
+                <strong>{e.field}:</strong> {typeof e.value === "object" ? JSON.stringify(e.value) : String(e.value)}
+                {e.from && <small> (“{e.from}”)</small>}
+              </li>
+            ))}
+            {rfq.loi && <li><strong>LOI:</strong> {rfq.loi} min</li>}
+            {rfq.ir && <li><strong>IR:</strong> {rfq.ir}%</li>}
+          </ul>
+          {(rfq.notes || []).length > 0 && (
+            <>
+              <small className="pp-hint">Also in the RFQ, not checked automatically (add as bank questions if needed):</small>
+              <ul>{rfq.notes.map((n) => <li key={n}><small>{n}</small></li>)}</ul>
+            </>
+          )}
+          <div className="qe-bank-row">
+            <button type="button" className="qe-add" onClick={applyRfq} disabled={!(rfq.evidence || []).length}>Apply to this project</button>
+            <button type="button" className="qe-link" onClick={() => setRfq(null)}>Dismiss</button>
+          </div>
+          <small className="pp-hint">Applying fills the fields below; check them, then save the project.</small>
+        </div>
+      )}
+
       {qual.enabled && (
         <div className="qe-body">
           <div className="pp-form-row">
@@ -149,15 +211,17 @@ export default function QualificationEditor({ formData, setFormData }) {
             </div>
           </div>
 
-          <div className="qe-group">
-            <span className="qe-group-label">NCCS <small>(India; none ticked = any)</small></span>
-            {NCCS_GRADES.map((g) => (
-              <label key={g} className="qe-chip">
-                <input type="checkbox" checked={(qual.nccs || []).includes(g)} onChange={() => toggle("nccs", g)} />
-                {g}
-              </label>
-            ))}
-          </div>
+          {india && (
+            <div className="qe-group">
+              <span className="qe-group-label">NCCS <small>(India only; none ticked = any)</small></span>
+              {NCCS_GRADES.map((g) => (
+                <label key={g} className="qe-chip">
+                  <input type="checkbox" checked={(qual.nccs || []).includes(g)} onChange={() => toggle("nccs", g)} />
+                  {g}
+                </label>
+              ))}
+            </div>
+          )}
 
           {["employment", "occupation"].map((field) => {
             const q = libQuestion(field);

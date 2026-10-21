@@ -14,7 +14,8 @@ Project criteria (projects.qualification, all optional, empty = not checked):
   zipPrefixes[]                PIN / postcode starts with any of these, e.g. "400", "110"
   childrenMin, childrenMax     number of children under 18 in the household
   childAgeMin, childAgeMax     at least one child within this age range
-  nccs[]                       grades A1..E3
+  nccs[]                       grades A1..E3 -- India only: ignored on a project in any
+                               other country, and never asked outside India
 
 NCCS (India, MRUC 2011): grade from the chief income earner's education (7 levels)
 x how many of 11 listed household items the household has. Same education levels
@@ -179,8 +180,10 @@ def _int(raw: Any, lo: int, hi: int) -> Optional[int]:
     return n if lo <= n <= hi else None
 
 
-def criteria(raw: Dict[str, Any]) -> Dict[str, Any]:
+def criteria(raw: Dict[str, Any], country: str = "") -> Dict[str, Any]:
+    """country: the project's; NCCS applies to India projects (or projects with no country set)."""
     raw = raw if isinstance(raw, dict) else {}
+    india = str(country or "IN").strip().upper() in ("IN", "")
     return {
         "states": _list(raw.get("states")),
         "cities": _list(raw.get("cities")),
@@ -189,7 +192,7 @@ def criteria(raw: Dict[str, Any]) -> Dict[str, Any]:
         "childrenMax": _int(raw.get("childrenMax"), 0, 10),
         "childAgeMin": _int(raw.get("childAgeMin"), 0, 17),
         "childAgeMax": _int(raw.get("childAgeMax"), 0, 17),
-        "nccs": [g for g in (v.upper() for v in _list(raw.get("nccs"))) if g in NCCS_GRADES],
+        "nccs": [g for g in (v.upper() for v in _list(raw.get("nccs"))) if g in NCCS_GRADES] if india else [],
     }
 
 
@@ -290,7 +293,7 @@ def questions(crits: List[Dict[str, Any]], known: Dict[str, Any], country: str =
             out.append({"id": "p_children", "type": "children",
                         "text": "How many children under 18 live in your household?",
                         "ageText": "Age of child", "max": 6})
-        elif f == "nccs":
+        elif f == "nccs" and country.upper() in ("IN", ""):
             out.append({"id": "p_nccs_edu", "type": "select",
                         "text": "What is the highest education of the main earner in your household?",
                         "options": [{"value": str(i + 1), "label": t} for i, t in enumerate(NCCS_EDUCATION)]})

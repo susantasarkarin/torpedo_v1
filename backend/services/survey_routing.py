@@ -227,7 +227,7 @@ def project_qualification(project: Optional[Dict[str, Any]], bank: Optional[Dict
         "occupation": [v for v in _str_list(raw.get("occupation"))
                        if v in {o["value"] for o in _LIBRARY["occupation"]["options"]}],
         "custom": custom,
-        **respondent_profile.criteria(raw),
+        **respondent_profile.criteria(raw, (project or {}).get("countryCode") or ""),
     }
 
 
