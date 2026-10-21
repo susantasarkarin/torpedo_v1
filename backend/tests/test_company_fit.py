@@ -208,3 +208,50 @@ def test_website_body_words_do_not_decide():
     body = "We help retail, banking and construction customers. Follow us on social media."
     assert cf.type_from_text(head)[0] is None
     assert cf.type_from_text((head + " || " + body).split(" || ")[0])[0] is None
+
+
+class _TypesCol:
+    def __init__(self):
+        self.docs = {}
+
+    def update_one(self, q, u, upsert=False):
+        self.docs.setdefault(q["_id"], {"_id": q["_id"]}).update(u.get("$set") or {})
+
+
+class _EA(dict):
+    def __missing__(self, k):
+        self[k] = _TypesCol() if k == "company_types" else _Rows()
+        return self[k]
+
+
+def _resolve(monkeypatch, site, answer):
+    db = _EA()
+    monkeypatch.setattr(cf, "website_text", lambda d: site)
+    monkeypatch.setattr(cf, "_model_confirms", lambda n, t, c: answer)
+    monkeypatch.setattr(cf, "rebasket_company", lambda *a: 0)
+    doc = {"_id": "x.com", "name": "X", "domain": "x.com", "priority": 1}
+    r = cf.resolve_one(db, doc, NOW, allow_google=False, allow_model=True)
+    return r, db["company_types"].docs["x.com"]
+
+
+def test_industry_found_but_ai_says_no_goes_to_a_person(monkeypatch):
+    r, doc = _resolve(monkeypatch, "X | Global market research agency || ...", "no")
+    assert r == "review" and "type" not in doc and doc["proposed_type"] == "mr_agency"
+
+
+def test_industry_and_ai_agree_sets_the_type(monkeypatch):
+    r, doc = _resolve(monkeypatch, "X | Global market research agency || ...", "yes")
+    assert r == "typed" and doc["type"] == "mr_agency" and doc["ai_confirmed"] is True
+
+
+def test_model_outage_is_retried_not_a_verdict(monkeypatch):
+    r, doc = _resolve(monkeypatch, "X | Global market research agency || ...", None)
+    assert r == "model_unavailable" and doc["status"] == "needs_model" and "type" not in doc
+
+
+def test_rule_typed_waits_for_the_ai_when_the_model_is_not_called(monkeypatch):
+    db = _EA()
+    monkeypatch.setattr(cf, "website_text", lambda d: "X | Civil engineering and construction || ...")
+    r = cf.resolve_one(db, {"_id": "x.com", "name": "X", "domain": "x.com"}, NOW,
+                       allow_google=False, allow_model=False)
+    assert r == "needs_model" and db["company_types"].docs["x.com"]["proposed_type"] == "aec"

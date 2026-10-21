@@ -2297,7 +2297,7 @@ async def startup_event():
             def _icp_check_job():
                 try:
                     from leads.icp_check import run as check_people
-                    check_people(limit=4)
+                    check_people(limit=2000)
                 except Exception as e:
                     print(f"[ICPCheck] Error: {e}")
 

@@ -420,6 +420,31 @@ def _model_type(name: str, text: str) -> Optional[str]:
     return t if t in TYPES else None
 
 
+_YES_NO = {"type": "object", "additionalProperties": False,
+           "properties": {"answer": {"type": "string", "enum": ["yes", "no"]}}, "required": ["answer"]}
+_TYPE_WORDS = {
+    "mr_agency": "a market research, survey, fieldwork or panel company",
+    "brand": "a company that sells its own consumer products or services (consumer goods, retail, bank, "
+             "telecom, pharma, media, entertainment)",
+    "aec": "an architecture, engineering, construction or building-design firm",
+}
+
+
+def _model_confirms(name: str, text: str, ctype: str) -> Optional[str]:
+    """'yes' / 'no' -- or None when the model is unavailable."""
+    from leads.local_llm_gate import queue_wait
+    from leads.local_slm_client import LocalSLMError, chat_json
+    try:
+        with queue_wait(120, priority="bulk"):
+            got = chat_json(system="Answer only yes or no, as JSON.",
+                            user=(f"Company: {name}\nWhat it says about itself: {text[:900]}\n\n"
+                                  f"Is this company {_TYPE_WORDS[ctype]}?"),
+                            max_tokens=10, json_schema=_YES_NO, timeout=90)
+    except (LocalSLMError, Exception):
+        return None
+    return got.get("answer") if got.get("answer") in ("yes", "no") else None
+
+
 async def _search(query: str) -> List[Dict[str, Any]]:
     from leads.ingestion import perform_google_search
     return await perform_google_search(query, num_results=5)
@@ -461,14 +486,38 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
         ctype = _model_type(name or domain, text)
         if ctype:
             evidence, source = "model read the company's own text", "model"
+    if ctype and ctype != "other":
+        # Two independent checks must agree before anyone there is mailed:
+        # the industry found above, and the model's yes to "is this company
+        # really X?". In tests (2026-10-21) the local model never said yes
+        # to a wrong pairing, but said no to about half of the right ones --
+        # so a "no" goes to a person (status review), never to a campaign.
+        upd.update({"proposed_type": ctype, "proposed_source": source, "evidence": evidence[:300]})
+        if not allow_model:
+            db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_model"}})
+            return "needs_model"
+        ans = _model_confirms(name or domain, text, ctype)
+        if ans is None:  # outage: asked again, never a verdict
+            db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_model"}})
+            return "model_unavailable"
+        if ans == "no":
+            db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {
+                **upd, "status": "review", "ai_confirmed": False, "at": now}})
+            logger.info("[CompanyFit] %s: %s by %s, AI does not confirm -> review", name or domain, ctype, source)
+            return "review"
+        upd["ai_confirmed"] = True
     if ctype:
+        # "other" fits no campaign: nobody is mailed on it, so no second check
         upd.update({"type": ctype, "source": source, "evidence": evidence[:300], "status": "done", "at": now})
         db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": upd})
         n = rebasket_company(db, name, domain, ctype)
-        logger.info("[CompanyFit] %s -> %s (%s %s); %d leads re-basketed",
+        logger.info("[CompanyFit] %s -> %s (%s %s, AI confirmed); %d leads re-basketed",
                     name or domain, ctype, source, evidence, n)
         return "typed"
-    if not tried_google and (name or domain):
+    # Google's ~25/day only goes to companies of people in a live sequence
+    # (priority 3); for the ~12,000 others it would take over a year, so the
+    # model reads their own website text instead.
+    if not tried_google and (name or domain) and (int(doc.get("priority") or 0) >= 3 or not text):
         # the website did not settle it; LinkedIn next, when quota allows
         db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_google"}})
         return "needs_google"
@@ -516,7 +565,7 @@ def queue_all(client=None) -> Dict[str, int]:
     return {"companies": len(best)}
 
 
-def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 3) -> Dict[str, Any]:
+def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 6) -> Dict[str, Any]:
     """Work the queue, live-sequence companies first: websites for everyone,
     Google within its allowance, the model for what text alone cannot settle."""
     db = _db(client)

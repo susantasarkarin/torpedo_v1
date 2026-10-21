@@ -65,8 +65,19 @@ def main() -> None:
             {"$group": {"_id": {"$toLower": {"$ifNull": ["$company_name", "?"]}}, "n": {"$sum": 1}}},
             {"$sort": {"n": -1}}, {"$limit": 25}], allowDiskUse=True):
         print(f"  {g['n']:5}  {g['_id']}")
-    pending = client["email_automation"][company_fit.COLLECTION].count_documents({"status": "pending"})
-    print(f"\nCompanies waiting for a LinkedIn lookup: {pending}")
+    ct = client["email_automation"][company_fit.COLLECTION]
+    print("\nCompanies by status / type:")
+    for g in ct.aggregate([{"$group": {"_id": {"status": "$status", "type": "$type"}, "n": {"$sum": 1}}},
+                           {"$sort": {"n": -1}}]):
+        print(f"  {g['n']:6}  {g['_id']}")
+    print("\nWaiting for a person (industry found, AI did not confirm), top 20:")
+    for d in ct.find({"status": "review"}).sort("priority", -1).limit(20):
+        print(f"  {d.get('name') or d['_id']:35} found {d.get('proposed_type')} via {d.get('proposed_source')}"
+              f"  | {(d.get('evidence') or '')[:60]}")
+    checks = tdb["contact_icp_checks"]
+    print("\nPeople decided:")
+    for g in checks.aggregate([{"$group": {"_id": "$reconciled", "n": {"$sum": 1}}}, {"$sort": {"n": -1}}]):
+        print(f"  {g['n']:6}  {g['_id']}")
 
     if args.apply and retire:
         now = datetime.utcnow()

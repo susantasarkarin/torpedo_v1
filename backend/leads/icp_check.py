@@ -1,26 +1,31 @@
 """
-Is this PERSON in the right campaign? Checked by the local model after the
-company's industry is known (leads/company_fit.py), and nobody is mailed until
-the two agree (owner, 2026-10-21: "get the industry of all the companies using
-google search, then check if the icp is correct using qwen. if everything is
-aligned and correct then only start sending mails. if in the past there were
-errors then you need to put the contact in the correct bucket and resend it").
+Is this PERSON in the right campaign -- and if they were in the wrong one
+before, move them and mail them again (owner, 2026-10-21: "get the industry of
+all the companies using google search, then check if the icp is correct using
+qwen. if everything is aligned and correct then only start sending mails. if
+in the past there were errors then you need to put the contact in the correct
+bucket and resend it").
+
+The AI check sits on the COMPANY (leads/company_fit.py): a company's type is
+only set once the industry found (website / LinkedIn via Google) AND the local
+model's yes to "is this company really X?" agree; a "no" sends the company to
+a person (status review) and nobody there is mailed. Asked about each person
+instead, the local 1.5B model picked the wrong business 5 times in 8 and
+called every title a buyer (tests 2026-10-21), so the person is judged by the
+title rules (company_fit._NON_BUYER_TITLE).
 
 Per person (email address), torpedo.contact_icp_checks:
-    expected   the campaign the company's type gives (sfw/cogentix/bimwave/none)
-    qwen       the campaign the model picks from the company's own description
-               and the person's title
-    aligned    expected == qwen and expected != none
+    expected   the campaign the company's confirmed type gives
+    aligned    expected is a campaign and the title is not a non-buyer
 
-Then, for an aligned person (reconcile):
+Then (reconcile):
     - a live row in another campaign is retired ("moved_to_correct_bucket")
     - a row in the right campaign that was paused (duplicate-brand pause, or
-      retired by the company gate) is resumed
+      retired by a gate) is resumed
     - no row in the right campaign -> a new one, from step 1. This is the
       "resend" for people who got the wrong campaign's mail before.
-A person whose company fits no campaign has live rows retired. A person the
-model disagrees on is held ("icp_review") for a person to look at -- never
-mailed on a guess. A model outage is retried, never recorded as a verdict.
+A person whose company fits no campaign, or with a non-buyer title, has live
+rows retired.
 
 Never resent: anyone who replied, bounced, is suppressed, or whose address was
 blocked for provenance/bounce risk, plus the rows the unauthenticated-endpoint
@@ -47,56 +52,11 @@ RESUMABLE = {"paused_duplicate_brand", "skipped_icp_mismatch", "moved_to_correct
 BASKET = {"sfw": "A", "cogentix": "B", "bimwave": "C"}
 SERVICE = {"sfw": "data_services", "cogentix": "consumer_insights", "bimwave": "bimwave"}
 
-_SCHEMA = {"type": "object", "additionalProperties": False,
-           "properties": {"campaign": {"type": "string", "enum": ["sfw", "cogentix", "bimwave", "none"]},
-                          "reason": {"type": "string", "maxLength": 160}},
-           "required": ["campaign", "reason"]}
-
-_ASK = """We run three businesses and must email each person about only ONE of them:
-sfw = Survey Fieldwork: survey fieldwork, panel sample and data collection, sold to MARKET RESEARCH AGENCIES
-cogentix = Cogentix Research: consumer and brand research studies, sold to BRANDS (consumer products, retail, banks, telecom, pharma, media)
-bimwave = BIMwave: BIM modelling and CAD drafting outsourcing, sold to ARCHITECTURE, ENGINEERING and CONSTRUCTION firms
-none = this person should get none of them
-
-Company: {company}
-What the company says about itself: {about}
-Person's job title: {title}
-
-Which one business fits this person's company and role?"""
-
-
 def _tdb(client=None):
     if client is None:
         from database import get_client
         client = get_client()
     return client[os.getenv("MONGO_DB_NAME") or "torpedo"]
-
-
-# ---------------------------------------------------------------------------
-# the model's opinion on one person
-# ---------------------------------------------------------------------------
-def ask_model(company: str, about: str, title: str) -> Optional[Dict[str, str]]:
-    """{'campaign', 'reason'} or None when the model is unavailable."""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
-    try:
-        with queue_wait(120, priority="bulk"):
-            got = chat_json(system="You decide which business should contact a person. Reply only with JSON.",
-                            user=_ASK.format(company=company or "(unknown)", about=(about or "(none)")[:700],
-                                             title=title or "(unknown)"),
-                            max_tokens=80, json_schema=_SCHEMA, timeout=120)
-    except (LocalSLMError, Exception) as e:
-        logger.info("[ICPCheck] model unavailable: %s", e)
-        return None
-    if got.get("campaign") not in ("sfw", "cogentix", "bimwave", "none"):
-        return None
-    return {"campaign": got["campaign"], "reason": str(got.get("reason") or "")[:160]}
-
-
-def company_about(doc: Dict[str, Any]) -> str:
-    li = doc.get("linkedin_text") or ""
-    site = (doc.get("website_text") or "").replace(" || ", " | ")
-    return " | ".join(t for t in (li, site, doc.get("evidence") or "") if t)
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +71,10 @@ def gate(email: str, business: str, company: str, title: str, client=None) -> Tu
         return "hold", why
     rec = _tdb(client)[CHECKS].find_one({"_id": email.lower().strip()})
     if not rec or rec.get("company_type") != cf.TYPE_FOR_BUSINESS.get(business):
-        return "hold", "waiting for the AI check of this person's campaign"
+        return "hold", "waiting for the ICP check of this person"
     if not rec.get("aligned"):
-        return "stop", f"AI check disagrees: picked {rec.get('qwen')} ({rec.get('reason', '')})"
-    return "send", "company and AI check agree"
+        return "stop", f"ICP check: {rec.get('reason', '')}"
+    return "send", "company confirmed by industry + AI, title fits"
 
 
 # ---------------------------------------------------------------------------
@@ -263,30 +223,25 @@ def reconcile(tdb, p: Dict[str, Any], rec: Dict[str, Any], now: datetime, apply:
     return "resend_new_row"
 
 
-def run(client=None, limit: int = 4, apply: bool = True, now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Check up to `limit` people with the model and put them in place."""
+def run(client=None, limit: int = 2000, apply: bool = True, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Decide up to `limit` people and put them in place."""
     tdb = _tdb(client)
     now = now or datetime.utcnow()
     stats: Dict[str, int] = {}
-    calls = 0
-    for p in plan(client):
+    for p in plan(client)[:limit]:
         doc = p["doc"]
         prev = p["prev"]
+        # The model's check is on the COMPANY (company_fit: a type is only set
+        # once the model confirms it). Asked per person it picked the wrong
+        # business 5 times in 8 and called every title a buyer (2026-10-21
+        # tests), so the person is judged on the title rules.
         if p["expected"] == "none":
-            rec = {"expected": "none", "qwen": None, "aligned": False}
-        elif prev and prev.get("company_type") == doc["type"] and prev.get("qwen"):
-            rec = {"qwen": prev["qwen"], "aligned": prev["qwen"] == p["expected"]}
+            rec = {"expected": "none", "aligned": False, "reason": "company fits no campaign"}
+        elif cf._NON_BUYER_TITLE.search(p["title"] or ""):
+            rec = {"aligned": False, "reason": f"title '{p['title'][:60]}' never buys"}
+            p = {**p, "expected": "none"}
         else:
-            if calls >= limit:
-                break
-            calls += 1
-            got = ask_model(p["company"], company_about(doc), p["title"])
-            if got is None:
-                stats["model_unavailable"] = stats.get("model_unavailable", 0) + 1
-                if stats["model_unavailable"] >= 2:
-                    break
-                continue
-            rec = {"qwen": got["campaign"], "reason": got["reason"], "aligned": got["campaign"] == p["expected"]}
+            rec = {"aligned": True, "reason": f"company confirmed {doc['type']} ({doc.get('source')})"}
         rec.update({"expected": p["expected"], "company_type": doc["type"], "company": p["company"],
                     "title": p["title"], "at": now})
         done = reconcile(tdb, p, rec, now, apply=apply)
