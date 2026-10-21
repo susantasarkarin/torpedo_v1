@@ -128,9 +128,10 @@ def panel_projects_first(params: Dict[str, Any]) -> bool:
 
 
 def panel_fallback_url(record: Dict[str, Any], outcome: str) -> Optional[str]:
-    """Where a panel member goes when our projects terminated / filled for them and
-    no other project fits: their landing link again with after=projects, which
-    sends them on to CPX / Cint. None for anyone else (or a security terminate)."""
+    """Where a panel member goes when our project terminated them or was full: their
+    landing link again with after=projects, which sends them on to CPX / Cint (one
+    try of our projects, then the exchanges). None for anyone else, or a security
+    terminate."""
     url = str(record.get("panelReturnUrl") or record.get("url") or "")
     if not record.get("panelFirst") or outcome not in ("TERMINATED", "OVERQUOTA") or not url.startswith("http"):
         return None

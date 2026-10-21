@@ -10,6 +10,7 @@ from services import survey_routing as r
 from tests.test_survey_routing import _project, env  # noqa: F401  (pytest fixture)
 
 LANDING = "https://torpedo.example/takesurvey?api=true&vid=2656&cc=US&rid=pr-1&panel=SFW1"
+SET_UP = {"enabled": True, "genders": ["f"]}  # qualifications switched on: who fits is defined
 MEMBER = {"birthday_day": 1, "birthday_month": 1, "birthday_year": date.today().year - 30, "gender": "f",
           "zip_code": "", "targeting": {}, "panelAnswers": {"CORE_24": 1, "CORE_29": [1, 3]}}
 
@@ -96,19 +97,21 @@ def test_panel_member_with_no_fitting_project_goes_to_cpx(env, monkeypatch):
 
 
 def test_terminated_by_our_project_then_cpx(env, monkeypatch):
-    fits = _project("203", routing=True)
-    client, url_col, db, cpx = _member_env(env, monkeypatch, [fits])
+    fits = [_project("203", routing=True, qualification=SET_UP), _project("213", routing=True, qualification=SET_UP)]
+    client, url_col, db, cpx = _member_env(env, monkeypatch, fits)
     rid = _panel_store(client)["id"]
     resp = client.get("/surveyterminate", params={"rid": rid}, follow_redirects=False)
     loc = resp.headers["location"]
+    # one terminate in our projects: on to CPX / Cint, not a second project of ours
     assert loc.startswith("https://torpedo.example/takesurvey?") and "after=projects" in loc and "rid=pr-1" in loc
+    assert db["routing_sessions"].docs[0]["final"]["outcome"] == "TERMINATED"
     # the landing page posts again with after=projects: our projects are skipped
     out = _panel_store(client, after="projects")
     assert out["source"] == "CPX" and cpx.calls == 1
 
 
 def test_security_terminate_never_goes_on_to_cpx(env, monkeypatch):
-    client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("204", routing=True)])
+    client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("204", routing=True, qualification=SET_UP)])
     rid = _panel_store(client)["id"]
     resp = client.get("/surveysecurity", params={"rid": rid}, follow_redirects=False)
     assert "after=projects" not in resp.headers.get("location", "")
@@ -117,6 +120,11 @@ def test_security_terminate_never_goes_on_to_cpx(env, monkeypatch):
 def test_switch_off_keeps_cpx_first(env, monkeypatch):
     monkeypatch.setenv("PANEL_PROJECTS_FIRST", "false")
     client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("205", routing=True)])
+    assert _panel_store(client)["source"] == "CPX"
+
+
+def test_projects_without_qualifications_never_get_panel_members(env, monkeypatch):
+    client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("207", routing=True)])
     assert _panel_store(client)["source"] == "CPX"
 
 

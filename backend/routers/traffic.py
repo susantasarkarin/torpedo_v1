@@ -1984,9 +1984,17 @@ async def _handle_project_survey_callback(
         # eligible survey (security terminates and SFW blocks never do).
         if traffic_record.get("routingSessionId"):
             try:
+                fallback = survey_routing.panel_fallback_url(traffic_record, new_status)
                 if new_status == "COMPLETE":
                     await survey_routing.close_attempt(async_url_collection.database,
                                                        traffic_record["routingSessionId"], rid, new_status, final=True)
+                elif fallback:
+                    # Panel member terminated / full in our project: straight on to CPX / Cint
+                    # (the landing page again, which then skips our projects).
+                    await survey_routing.close_attempt(async_url_collection.database,
+                                                       traffic_record["routingSessionId"], rid, new_status, final=True)
+                    print(f"[ok] Panel member {rid} {new_status} in our project -> CPX / Cint")
+                    return RedirectResponse(url=fallback)
                 else:
                     next_link = await asyncio.wait_for(survey_routing.next_attempt(
                         async_url_collection, get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS),
@@ -1994,12 +2002,6 @@ async def _handle_project_survey_callback(
                     if next_link:
                         print(f"[ok] Routing {rid} after {new_status} -> next survey")
                         return RedirectResponse(url=next_link)
-                    # A panel member who tried our projects first goes on to CPX / Cint
-                    # (the landing page again, which then skips our projects).
-                    fallback = survey_routing.panel_fallback_url(traffic_record, new_status)
-                    if fallback:
-                        print(f"[ok] Panel member {rid} out of our projects after {new_status} -> CPX / Cint")
-                        return RedirectResponse(url=fallback)
             except Exception as r_err:
                 print(f"[warn] Routing after {new_status} failed for {rid}: {r_err}")
 
@@ -3421,6 +3423,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 except Exception as r_err:
                     candidates = []
                     print(f"[warn] routing lookup failed for {traffic_id}: {r_err}")
+                if route_reason == "panel_first":
+                    # only projects the team has set qualifications on (who fits is defined)
+                    candidates = [c for c in candidates if survey_routing.project_qualification(c, bank)["enabled"]]
                 if candidates:
                     target = candidates[0]
                 elif route_reason == "panel_first":
