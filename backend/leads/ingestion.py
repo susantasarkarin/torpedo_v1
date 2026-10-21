@@ -246,7 +246,8 @@ def _pause_cse_for_24h(reason: str = "429 from Google"):
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def perform_google_search(query: str, num_results: int = 10, start: int = 1) -> List[dict]:
+async def perform_google_search(query: str, num_results: int = 10, start: int = 1,
+                                purpose: str = "") -> List[dict]:
     """
     Perform a Google Custom Search.
     Automatically pauses for 24 hours on consecutive 429 errors.
@@ -300,7 +301,12 @@ async def perform_google_search(query: str, num_results: int = 10, start: int = 
             # leads/google_rate_limit.py's reserve_query_slot() docstring.
             try:
                 from leads.google_rate_limit import reserve_query_slot
-                allowed, reason = reserve_query_slot()
+                allowed, reason = reserve_query_slot(purpose) if purpose else reserve_query_slot()
+                if not allowed and purpose == "company":
+                    # a company lookup running out of ITS allowance must not
+                    # pause lead-gen's searches for a day
+                    logger.info(f"[Google CSE] company lookup skipped — {reason}")
+                    break
                 if not allowed:
                     logger.warning(f"[Google CSE] Skipping search — {reason}")
                     # Set the SAME pause flag a reactive 429 would set. This is

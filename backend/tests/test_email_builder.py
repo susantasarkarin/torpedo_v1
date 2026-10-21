@@ -163,3 +163,11 @@ def test_pattern_entry_without_a_pattern_is_skipped_not_a_crash():
     client = {"email_automation": {"email_patterns": _Col([
         {"domain": "talkwalker.com", "send_count": 6, "examples": ["a.calinisan@talkwalker.com"]}])}}
     assert eb.proven_pattern(client, "talkwalker.com") is None
+
+
+def test_structure_of_a_delivered_outreach_address():
+    """learn_from_outreach keys on structure_of: a sent, never-bounced
+    'priya.sharma@acme.com' for 'Priya Sharma' teaches acme's form."""
+    first, last = es.split_name("Priya Sharma")
+    label, form = es.structure_of("priya.sharma@acme.com", first, last)
+    assert form and "{first}" in form and "{last}" in form

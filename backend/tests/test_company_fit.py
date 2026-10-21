@@ -261,3 +261,33 @@ def test_research_firm_naming_its_brand_clients_stays_a_research_firm():
     head = ("Global Strategy and Innovation Consultants - Egg Strategy | providing branding, insight, strategy, "
             "qualitative research and quantitative research for leading CPG, Health and Lifestyle brands.")
     assert cf.type_from_text(head)[0] == "mr_agency"
+
+
+def test_one_google_call_types_five_companies(monkeypatch):
+    db = _EA()
+    docs = [{"_id": f"c{i}.com", "name": n, "domain": f"c{i}.com"} for i, n in
+            enumerate(["Ipsos", "COWI", "Unilever", "Infosys", "Nobody Ltd"])]
+    calls = []
+
+    async def fake_search(q, num=10):
+        calls.append(q)
+        return [{"link": "https://www.linkedin.com/company/ipsos", "title": "Ipsos | LinkedIn",
+                 "snippet": "Industry: Market Research"},
+                {"link": "https://www.linkedin.com/company/cowi", "title": "COWI - LinkedIn",
+                 "snippet": "Industry: Civil Engineering"},
+                {"link": "https://www.linkedin.com/company/unilever", "title": "Unilever | LinkedIn",
+                 "snippet": "Industry: Manufacturing of consumer goods"},
+                {"link": "https://www.linkedin.com/company/infosys-bpm", "title": "Infosys BPM | LinkedIn",
+                 "snippet": "Industry: IT Services"}]
+    monkeypatch.setattr(cf, "_search", fake_search)
+    assert cf.linkedin_batch(db, docs, NOW) == 4
+    assert len(calls) == 1 and calls[0].count(" OR ") == 4
+    got = db["company_types"].docs
+    assert "Market Research" in got["c0.com"]["linkedin_text"]
+    assert got["c4.com"]["linkedin_text"] == "" and got["c4.com"]["linkedin_at"] == NOW
+
+
+def test_a_page_must_be_that_company_not_one_sharing_a_word():
+    items = [{"link": "https://www.linkedin.com/company/global-x", "title": "Global Research Partners | LinkedIn",
+              "snippet": "Industry: Market Research"}]
+    assert cf._page_text(items, "Research Now")[0] == ""

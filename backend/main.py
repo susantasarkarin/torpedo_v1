@@ -2294,6 +2294,20 @@ async def startup_event():
                               id="company_fit_queue", name="Queue every mailed/mailable company",
                               max_instances=1, coalesce=True, replace_existing=True)
 
+            def _structure_learn_job():
+                try:
+                    from pymongo import MongoClient as _MC
+                    from app.services.email_structure import learn_from_outreach
+                    print(f"[EmailStructure] outreach-delivered: "
+                          f"{learn_from_outreach(_MC(os.getenv('MONGO_URI', 'mongodb://localhost:27017/')))}")
+                except Exception as e:
+                    print(f"[EmailStructure] Error: {e}")
+
+            scheduler.add_job(_structure_learn_job, IntervalTrigger(hours=24), next_run_time=datetime.now(),
+                              id="structure_learn_outreach",
+                              name="Email structures from every outreach address that never bounced",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             def _icp_check_job():
                 try:
                     from leads.icp_check import run as check_people

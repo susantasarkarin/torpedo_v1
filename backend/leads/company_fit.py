@@ -322,39 +322,79 @@ _WEBMAIL = {"gmail.com", "yahoo.com", "yahoo.co.in", "outlook.com", "hotmail.com
             "yandex.com", "mail.com", "msn.com", "me.com", "ymail.com"}
 
 
-def _daily_allowance_left(db) -> int:
-    limit = int(os.getenv("COMPANY_FIT_DAILY_SEARCHES", "25"))
-    if limit <= 0:
-        return 0
-    day = datetime.utcnow().strftime("%Y-%m-%d")
-    used = (db["company_type_usage"].find_one({"_id": day}) or {}).get("searches", 0)
-    return max(0, limit - used)
+GOOGLE_BATCH = 5           # companies per Google call (owner, 2026-10-21)
+GOOGLE_CALLS_PER_RUN = 4   # x every 5 min; the $5/day paid cap stops it
 
 
-def _cse_has_room() -> bool:
-    """Leave lead-gen its hour: a refused slot pauses every search for 24h."""
+def _google_left() -> int:
+    """Queries today's free tier + $5/day paid budget still allow; 0 while
+    Google itself has paused us (429)."""
     try:
-        from leads.google_rate_limit import get_usage_stats
-        s = get_usage_stats()
-        return s["hourly_remaining"] >= 3 and s["daily_remaining"] >= 5
+        from leads.ingestion import _is_cse_paused
+        if _is_cse_paused():
+            return 0
+        from leads.google_rate_limit import queries_left_today
+        return queries_left_today("company")
     except Exception:
-        return False
+        return 0
+
+
+def _title_name(title: str) -> str:
+    """'Ipsos | LinkedIn' / 'NielsenIQ - LinkedIn' -> normalised 'ipsos'."""
+    return normalise_name(re.split(r"\s[|\-\u2013]\s", title or "")[0])
 
 
 def _page_text(items: Iterable[Dict[str, Any]], name: str) -> Tuple[str, str]:
-    """(text, url) of the result that is this company's LinkedIn page."""
+    """(text, url) of the result that is THIS company's LinkedIn page -- one
+    search returns pages for several companies, so the page's own name must
+    match, not just share a word."""
     want = normalise_name(name)
+    if not want:
+        return "", ""
     for it in items or []:
         link = it.get("link") or ""
         if "linkedin.com/company/" not in link:
             continue
-        title = it.get("title") or ""
-        if want and want.split()[0] not in normalise_name(title):
+        got = _title_name(it.get("title") or "")
+        squash_got, squash_want = got.replace(" ", ""), want.replace(" ", "")
+        if not got or not (got == want or squash_got == squash_want
+                           or got.startswith(want + " ") or want.startswith(got + " ")):
             continue
         meta = " ".join(str(m.get("og:description") or "") for m in
                         ((it.get("pagemap") or {}).get("metatags") or []))
-        return " ".join([title, it.get("snippet") or "", meta]), link
+        return " ".join([it.get("title") or "", it.get("snippet") or "", meta]), link
     return "", ""
+
+
+def _search_name(doc: Dict[str, Any]) -> str:
+    n = re.sub(r"[\"\u201c\u201d]|\.\.\.|\u2026", " ", doc.get("name") or "").strip()
+    if len(normalise_name(n)) < 2:
+        n = (doc.get("domain") or "").split(".")[0]
+    return " ".join(n.split())[:60]
+
+
+def linkedin_batch(db, docs: List[Dict[str, Any]], now: datetime) -> int:
+    """ONE Google call for up to GOOGLE_BATCH companies: their LinkedIn pages'
+    titles and snippets (industry, what they do). Writes linkedin_text (''
+    when no page matched) and linkedin_at on each. -> companies found."""
+    import asyncio
+    names = [(d, _search_name(d)) for d in docs]
+    names = [(d, n) for d, n in names if n]
+    if not names:
+        return 0
+    query = "site:linkedin.com/company (" + " OR ".join(f'"{n}"' for _, n in names) + ")"
+    items = asyncio.run(_search(query, num=10))
+    found = 0
+    for d, n in names:
+        text, url = _page_text(items, n)
+        found += bool(text)
+        d.update({"linkedin_text": text, "linkedin_url": url, "linkedin_at": now})
+        db[COLLECTION].update_one({"_id": d["_id"]}, {"$set": {
+            "linkedin_text": text, "linkedin_url": url, "linkedin_at": now}})
+    db["company_type_usage"].update_one({"_id": now.strftime("%Y-%m-%d")},
+                                        {"$inc": {"searches": 1, "companies": len(names), "found": found}},
+                                        upsert=True)
+    return found
 
 
 _SKIP_BLOCKS = re.compile(r"<(script|style|noscript|svg)[^>]*>.*?</\1>", re.S | re.I)
@@ -452,17 +492,9 @@ def _model_confirms(name: str, text: str, ctype: str) -> Optional[str]:
     return got.get("answer") if got.get("answer") in ("yes", "no") else None
 
 
-async def _search(query: str) -> List[Dict[str, Any]]:
+async def _search(query: str, num: int = 10) -> List[Dict[str, Any]]:
     from leads.ingestion import perform_google_search
-    return await perform_google_search(query, num_results=5)
-
-
-def _linkedin_text(db, name: str, domain: str, now: datetime) -> Tuple[str, str]:
-    import asyncio
-    query = f'site:linkedin.com/company "{name}"' if name else f'site:linkedin.com/company "{domain}"'
-    db["company_type_usage"].update_one({"_id": now.strftime("%Y-%m-%d")}, {"$inc": {"searches": 1}},
-                                        upsert=True)
-    return _page_text(asyncio.run(_search(query)), name or domain.split(".")[0])
+    return await perform_google_search(query, num_results=num, purpose="company")
 
 
 def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = True,
@@ -470,24 +502,19 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
     """One step for one company -> typed | needs_google | needs_model | unclear | not_found."""
     name, domain = doc.get("name") or "", doc.get("domain") or ""
     upd: Dict[str, Any] = {"checked_at": now}
-    site = doc.get("website_text")
-    if site is None and domain:
-        site = website_text(domain)
-        upd["website_text"] = site
-    site = site or ""
     li, li_url = doc.get("linkedin_text") or "", doc.get("linkedin_url") or ""
     ctype, evidence, source = None, "", ""
     if li:
         (ctype, evidence), source = type_from_text(li), "linkedin"
+    # the company's own website only when LinkedIn did not settle it
+    site = doc.get("website_text")
+    if site is None and domain and not ctype:
+        site = website_text(domain)
+        upd["website_text"] = site
+    site = site or ""
     if not ctype and site:
         (ctype, evidence), source = type_from_text(site.split(" || ")[0]), "website"
-    tried_google = bool(doc.get("linkedin_at"))
-    if not ctype and not li and allow_google and not tried_google and (name or domain):
-        li, li_url = _linkedin_text(db, name, domain, now)
-        upd.update({"linkedin_text": li, "linkedin_url": li_url, "linkedin_at": now})
-        tried_google = True
-        if li:
-            (ctype, evidence), source = type_from_text(li), "linkedin"
+    tried_google = bool(doc.get("linkedin_at"))  # Google runs in batches (linkedin_batch)
     text = " | ".join(t for t in (li, site) if t)
     if not ctype and text and allow_model:
         ctype = _model_type(name or domain, text)
@@ -521,11 +548,8 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
         logger.info("[CompanyFit] %s -> %s (%s %s, AI confirmed); %d leads re-basketed",
                     name or domain, ctype, source, evidence, n)
         return "typed"
-    # Google's ~25/day is kept for companies whose own website could not be
-    # read; at that rate it would take over a year for the ~12,000 others, so
-    # the model reads their website text instead.
     if not tried_google and (name or domain) and not text:
-        # the website did not settle it; LinkedIn next, when quota allows
+        # nothing readable yet; the next Google batch looks for its LinkedIn page
         db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_google"}})
         return "needs_google"
     if text and not allow_model:
@@ -572,9 +596,12 @@ def queue_all(client=None) -> Dict[str, int]:
     return {"companies": len(best)}
 
 
-def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 6) -> Dict[str, Any]:
-    """Work the queue, live-sequence companies first: websites for everyone,
-    Google within its allowance, the model for what text alone cannot settle."""
+def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 8,
+        google_calls: int = GOOGLE_CALLS_PER_RUN) -> Dict[str, Any]:
+    """Work the queue, live-sequence companies first. Google (LinkedIn pages,
+    5 companies per call, within the $5/day cap) is the main source; the
+    company's own website fills in where LinkedIn says nothing, and is the
+    whole source when the day's Google budget is spent. The model confirms."""
     db = _db(client)
     now = now or datetime.utcnow()
     stats: Dict[str, Any] = {}
@@ -588,37 +615,38 @@ def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_call
     def _note(kind, r):
         stats[kind + r] = stats.get(kind + r, 0) + 1
 
-    # 1. the model, for companies whose text is in hand but did not settle it
-    for doc in col.find({"status": "needs_model"}).sort(sort).limit(model_calls):
-        _note("model:", resolve_one(db, doc, now, allow_google=False, allow_model=True))
-    # 2. Google, for companies whose website did not settle it
-    google_left = _daily_allowance_left(db)
-    try:
-        from leads.ingestion import _is_cse_paused
-        if _is_cse_paused():
-            google_left = 0
-    except Exception:
-        pass
-    for doc in col.find({"status": "needs_google"}).sort(sort).limit(min(2, google_left)):
-        if not _cse_has_room():
-            break
-        _note("google:", resolve_one(db, doc, now, allow_google=True, allow_model=False))
-    # Google cannot keep up with the backlog: a company that has waited a
-    # day for it goes to the model on its website text instead.
-    stale = now - timedelta(days=1)
-    for doc in col.find({"status": "needs_google", "checked_at": {"$lte": stale},
-                         "website_text": {"$nin": [None, ""]}}).sort(sort).limit(1):
-        doc = {**doc, "linkedin_at": doc.get("linkedin_at") or now}
-        _note("model:", resolve_one(db, doc, now, allow_google=False, allow_model=True))
-    # 3. websites, for everything new
-    for doc in col.find({"status": "pending", "type": {"$exists": False},
-                         "next_try_at": {"$lte": now}}).sort(sort).limit(limit):
+    def _resolve(kind, doc, **kw):
         try:
-            r = resolve_one(db, doc, now, allow_google=False, allow_model=False)
+            _note(kind, resolve_one(db, doc, now, **kw))
         except Exception as e:
             logger.warning("[CompanyFit] lookup failed for %r: %s", doc.get("name"), e)
-            r = "error"
-        _note("", r)
+            _note(kind, "error")
+
+    # 1. the model confirms (or decides) what the text in hand points to
+    for doc in col.find({"status": "needs_model"}).sort(sort).limit(model_calls):
+        _resolve("model:", doc, allow_google=False, allow_model=True)
+    # 2. Google: LinkedIn pages, GOOGLE_BATCH companies per call
+    waiting = {"status": {"$in": ["pending", "needs_google"]}, "type": {"$exists": False},
+               "linkedin_at": None, "next_try_at": {"$lte": now}}
+    calls = 0
+    while calls < google_calls and _google_left() > 0:
+        batch = list(col.find(waiting).sort(sort).limit(GOOGLE_BATCH))
+        if not batch:
+            break
+        calls += 1
+        try:
+            stats["google_found"] = stats.get("google_found", 0) + linkedin_batch(db, batch, now)
+        except Exception as e:
+            logger.warning("[CompanyFit] google batch failed: %s", e)
+            break
+        for doc in batch:
+            _resolve("", doc, allow_google=False, allow_model=False)
+    stats["google_calls"] = calls
+    # 3. no Google budget left today: the companies' own websites
+    if calls == 0:
+        for doc in col.find({"status": "pending", "type": {"$exists": False},
+                             "next_try_at": {"$lte": now}, "website_text": None}).sort(sort).limit(limit):
+            _resolve("site:", doc, allow_google=False, allow_model=False)
     logger.info("[CompanyFit] %s", stats)
     return stats
 

@@ -20,7 +20,7 @@ contacts / leads for addresses we only ever wrote to.
 import logging
 import re
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from app.services import mail_categorizer as mc
@@ -228,9 +228,22 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
     if ops:
         ea["email_address_structures"].bulk_write(ops, ordered=False)
 
-    # per domain, from EVERY stored address there (a daily run sees one day
-    # of mail; counting only that overwrote the full picture), bounce-free
-    # only, an address that wrote to us counting double
+    stats.update(refresh_domain_structures(client, touched, write_patterns, companies))
+    return stats
+
+
+def refresh_domain_structures(client, touched, write_patterns: bool = True,
+                              companies: Optional[Dict[str, str]] = None) -> Dict[str, int]:
+    """Re-derive each touched domain's structure from EVERY stored address
+    there (a daily run sees one day of mail; counting only that overwrote the
+    full picture), bounce-free only, an address that wrote to us counting
+    double."""
+    from pymongo import UpdateOne
+    from app.services.rfq_from_mail import registrable_root
+    ea = client["email_automation"]
+    now = datetime.utcnow()
+    companies = companies if companies is not None else _company_names(client)
+    stats: Dict[str, int] = {}
     by_domain = domain_evidence(ea["email_address_structures"], touched)
     dops = []
     stats["domains"] = len(by_domain)
@@ -262,6 +275,54 @@ def backfill(client, since: Optional[datetime] = None, write_patterns: bool = Tr
         stale = [d for d in touched if d not in confirmed]
         stats["patterns_retired"] = patterns.delete_many(
             {"domain": {"$in": stale}, "source": "mail_pool"}).deleted_count if stale else 0
+    return stats
+
+
+def learn_from_outreach(client, settle_days: int = 3) -> Dict[str, int]:
+    """Every address our outreach mailed that never bounced teaches its
+    company's structure too (owner, 2026-10-21: "check the email structure of
+    all existing companies which have not bounced"). Only real sends count --
+    an address we built but never sent proves nothing -- and only once a send
+    is `settle_days` old, so a late bounce has had time to arrive. Addresses
+    already known from our mail keep their record; this only adds."""
+    from pymongo import UpdateOne
+    ea = client["email_automation"]
+    ol = client["torpedo"]["outreach_leads_v2"]
+    now = datetime.utcnow()
+    bounced = bounced_addresses(client)
+    touched, ops = set(), []
+    stats = {"sent_addresses": 0, "with_structure": 0, "bounced_skipped": 0}
+    for r in ol.find({"last_sent_at": {"$lte": now - timedelta(days=settle_days)},
+                      "email": {"$nin": [None, ""]}, "bounced": {"$ne": True},
+                      "workflow_status": {"$ne": "bounced"}},
+                     {"email": 1, "name": 1, "first_name": 1, "last_sent_at": 1}):
+        a = r["email"].strip().lower()
+        dom = mc._domain(a)
+        if not dom or dom in mc.WEBMAIL:
+            continue
+        if a in bounced:
+            stats["bounced_skipped"] += 1
+            continue
+        stats["sent_addresses"] += 1
+        first, last = split_name(r.get("name") or "")
+        label, form = structure_of(a, first, last)
+        if not form:
+            continue
+        stats["with_structure"] += 1
+        touched.add(dom)
+        ops.append(UpdateOne({"_id": a}, {"$setOnInsert": {
+            "email": a, "local_part": a.split("@")[0], "domain": dom, "name": r.get("name") or "",
+            "first_name": first, "last_name": last, "structure": f"{label}@{dom}", "structure_kind": label,
+            "pattern_form": form, "wrote_to_us": 0, "bounced": False, "webmail": False,
+            "source": "outreach_delivered", "first_seen": r.get("last_sent_at"), "updated_at": now}},
+            upsert=True))
+        if len(ops) >= 2000:
+            ea["email_address_structures"].bulk_write(ops, ordered=False)
+            ops = []
+    if ops:
+        ea["email_address_structures"].bulk_write(ops, ordered=False)
+    stats["domains"] = len(touched)
+    stats.update(refresh_domain_structures(client, touched))
     return stats
 
 

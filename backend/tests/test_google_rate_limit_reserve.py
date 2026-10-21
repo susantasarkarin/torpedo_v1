@@ -278,3 +278,29 @@ def test_real_default_settings_are_the_free_tier_only():
 class MagicMockNoConfig:
     def find_one(self, *args, **kwargs):
         return None
+
+
+# --- owner 2026-10-21: "cap google budget at $5 per day" ---------------------
+
+def _daily5(**kw):
+    return _settings(monthly_budget_usd=0.0, monthly_paid_query_limit=0,
+                     daily_budget_usd=5.0, daily_paid_query_limit=3, company_hourly_limit=1000,
+                     hourly_limit=1000, daily_limit=2, **kw)
+
+
+def test_daily_paid_cap_stops_paid_queries_at_the_budget(fake_collection, fake_monthly_collection):
+    with patch.object(grl, "get_rate_limit_settings", return_value=_daily5()):
+        results = [grl.reserve_query_slot()[0] for _ in range(7)]
+    # 2 free + 3 paid, then refused
+    assert results == [True] * 5 + [False] * 2
+    doc = fake_collection.docs[grl.get_today_key()]
+    assert doc["total_queries"] == 5 and doc["billable_queries"] == 3
+
+
+def test_company_lookups_have_their_own_hourly_counter(fake_collection, fake_monthly_collection):
+    s = _daily5()
+    s.update(hourly_limit=1, company_hourly_limit=3, daily_limit=100)
+    with patch.object(grl, "get_rate_limit_settings", return_value=s):
+        assert grl.reserve_query_slot()[0] is True          # lead-gen's 1/hour
+        assert grl.reserve_query_slot()[0] is False
+        assert [grl.reserve_query_slot("company")[0] for _ in range(4)] == [True, True, True, False]

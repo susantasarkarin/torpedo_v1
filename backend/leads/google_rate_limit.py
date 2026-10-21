@@ -76,7 +76,13 @@ def get_rate_limit_settings() -> Dict[str, Any]:
             # Free tier only by default (owner, 2026-09-28): 0 paid queries.
             monthly_budget_usd = cfg.get("google_cse_monthly_budget_usd", 0.0)
             cost_per_1000_queries = cfg.get("google_cse_cost_per_1000_queries", 5.0)
+            daily_budget_usd = float(cfg.get("google_cse_daily_budget_usd",
+                                             os.getenv("GOOGLE_CSE_DAILY_BUDGET_USD", "0")))
             return {
+                "daily_budget_usd": daily_budget_usd,
+                "daily_paid_query_limit": _derive_monthly_paid_query_limit(
+                    daily_budget_usd, cost_per_1000_queries),
+                "company_hourly_limit": int(cfg.get("google_cse_company_hourly_limit", 200)),
                 "daily_limit": cfg.get("google_cse_daily_limit", 100),
                 "hourly_limit": cfg.get("google_cse_hourly_limit", 50),
                 "rate_limit_enabled": cfg.get("google_cse_rate_limit_enabled", True),
@@ -91,7 +97,11 @@ def get_rate_limit_settings() -> Dict[str, Any]:
     # Defaults from env or hardcoded
     monthly_budget_usd = float(os.getenv("GOOGLE_CSE_MONTHLY_BUDGET_USD", "0"))
     cost_per_1000_queries = float(os.getenv("GOOGLE_CSE_COST_PER_1000_QUERIES", "5.0"))
+    daily_budget_usd = float(os.getenv("GOOGLE_CSE_DAILY_BUDGET_USD", "0"))
     return {
+        "daily_budget_usd": daily_budget_usd,
+        "daily_paid_query_limit": _derive_monthly_paid_query_limit(daily_budget_usd, cost_per_1000_queries),
+        "company_hourly_limit": int(os.getenv("GOOGLE_CSE_COMPANY_HOURLY_LIMIT", "200")),
         "daily_limit": int(os.getenv("GOOGLE_CSE_DAILY_LIMIT", "100")),
         "hourly_limit": int(os.getenv("GOOGLE_CSE_HOURLY_LIMIT", "50")),
         "rate_limit_enabled": os.getenv("GOOGLE_CSE_RATE_LIMIT_ENABLED", "true").lower() == "true",
@@ -242,33 +252,25 @@ def record_query(queries: int = 1) -> Dict[str, Any]:
     return get_usage_stats()
 
 
-def reserve_query_slot() -> Tuple[bool, str]:
+def reserve_query_slot(purpose: str = "") -> Tuple[bool, str]:
     """
     Atomically reserve one Google CSE query slot for the current day+hour, or
-    refuse if the daily or hourly cap is already reached.
+    refuse if a cap is already reached. A single atomic $inc, refunded if it
+    turns out to have gone over, is race-free (check-then-act let concurrent
+    lead-search workers fire 5 queries in 1.6 s against the cap, 2026-09-26).
+    Callers reserve before EVERY HTTP request.
 
-    can_make_query()-then-record_query() (above) is check-then-act: two
-    concurrent callers can both read a count below the limit and both proceed,
-    overshooting it -- exactly the bug already found and fixed for outreach
-    sends (routers/cold_outreach_router.py's _reserve_daily_send_slot: "the
-    previous implementation counted sends and then sent... concurrent workers
-    each saw a count below the limit and all sent, overshooting the cap").
-    Found live 2026-09-26: multiple concurrent lead-search workers (leads/
-    router.py's WebSearch jobs, each tracking its OWN per-job leads_today
-    counter rather than this shared one) fired 5 queries within 1.6 seconds
-    against the real 100/day cap. A single atomic $inc, refunded if it turns
-    out to have gone over, is race-free the same way.
-
-    Callers must reserve a slot before EVERY actual HTTP request, not once per
-    logical search (a paginated search issues one request per page/quota unit).
-
-    Beyond daily_limit (the free tier), a query is billable. Billable queries
-    draw from a separate month-to-date counter capped at
-    monthly_paid_query_limit (monthly_budget_usd / cost_per_1000_queries),
-    so total spend can never exceed the configured monthly budget no matter
-    how usage is spread across days -- the 2026-09-27 ask was "$10/month
-    max, so 100 free + up to 2000 paid". daily_limit itself is no longer a
-    hard stop; hourly_limit still is, as pure burst protection.
+    Caps:
+      hourly    burst protection. Lead-gen's pacing (hourly_limit, 12 -- what
+                extraction can process) does not apply to company lookups
+                (purpose="company"), which have their own hourly counter
+                (company_hourly_limit) so neither starves the other.
+      free      the first daily_limit (100) queries of the Google day.
+      paid      beyond that, each query is billable ($5 / 1000). Owner
+                2026-10-21: "cap google budget at $5 per day" -> at most
+                daily_paid_query_limit (daily_budget_usd / cost * 1000 = 1000)
+                billable queries per day; a monthly budget, when set, caps
+                the month as well. Neither set = free tier only.
     """
     settings = get_rate_limit_settings()
     if not settings["rate_limit_enabled"]:
@@ -276,11 +278,13 @@ def reserve_query_slot() -> Tuple[bool, str]:
 
     today = get_today_key()
     current_hour = str(get_current_hour())
+    company = purpose == "company"
+    hour_field = f"company_hourly_queries.{current_hour}" if company else f"hourly_queries.{current_hour}"
 
     doc = usage_collection.find_one_and_update(
         {"date": today},
         {
-            "$inc": {"total_queries": 1, f"hourly_queries.{current_hour}": 1},
+            "$inc": {"total_queries": 1, hour_field: 1},
             "$set": {"updated_at": datetime.utcnow()},
             "$setOnInsert": {"created_at": datetime.utcnow(), "date": today},
         },
@@ -289,59 +293,65 @@ def reserve_query_slot() -> Tuple[bool, str]:
     )
 
     total = doc.get("total_queries", 0)
-    hourly = (doc.get("hourly_queries") or {}).get(current_hour, 0)
-    over_hourly = hourly > settings["hourly_limit"]
+    hourly_map = doc.get("company_hourly_queries" if company else "hourly_queries") or {}
+    hourly = hourly_map.get(current_hour, 0)
+    hourly_limit = settings.get("company_hourly_limit", 200) if company else settings["hourly_limit"]
     is_billable = total > settings["daily_limit"]
 
     def _refund_daily():
-        usage_collection.update_one(
-            {"date": today},
-            {"$inc": {"total_queries": -1, f"hourly_queries.{current_hour}": -1}},
-        )
+        usage_collection.update_one({"date": today}, {"$inc": {"total_queries": -1, hour_field: -1}})
 
-    if over_hourly:
+    if hourly > hourly_limit:
         _refund_daily()
-        return False, f"Hourly quota exceeded ({settings['hourly_limit']}/hour). Resets within the hour."
+        return False, f"Hourly quota exceeded ({hourly_limit}/hour). Resets within the hour."
 
     if not is_billable:
         return True, "OK"
 
-    if settings.get("monthly_paid_query_limit", 0) <= 0:
-        # Free tier only (owner, 2026-09-28): no paid queries at all. The
-        # wording must not say "monthly" -- the caller pauses until the limit
-        # named in the reason resets, and this one resets at Google's daily
-        # reset, not next month.
+    daily_paid_limit = settings.get("daily_paid_query_limit", 0)
+    monthly_limit = settings.get("monthly_paid_query_limit", 0)
+    if daily_paid_limit <= 0 and monthly_limit <= 0:
+        # Free tier only. The wording must not say "monthly": the caller
+        # pauses until the named limit resets, which is Google's daily reset.
         _refund_daily()
         return False, (f"Daily free quota reached ({settings['daily_limit']}/day). "
                        "Resets at midnight US Pacific.")
 
-    # Past the free daily tier -- this query only proceeds if the monthly
-    # paid budget has room for it.
-    month = get_month_key()
-    monthly_doc = monthly_usage_collection.find_one_and_update(
-        {"month": month},
-        {
-            "$inc": {"billable_queries": 1},
-            "$set": {"updated_at": datetime.utcnow()},
-            "$setOnInsert": {"created_at": datetime.utcnow(), "month": month},
-        },
-        upsert=True,
-        return_document=True,
-    )
-    billable = monthly_doc.get("billable_queries", 0)
-    monthly_limit = settings.get("monthly_paid_query_limit", 0)
+    # Past the free tier -- a billable query, within the day's paid budget...
+    paid_doc = usage_collection.find_one_and_update(
+        {"date": today}, {"$inc": {"billable_queries": 1}}, return_document=True)
+    billable_today = (paid_doc or {}).get("billable_queries", 0)
 
-    if billable > monthly_limit:
-        # Over the monthly budget -- refund both reservations so a refused
-        # query never counts against either the day or the month.
-        monthly_usage_collection.update_one(
-            {"month": month}, {"$inc": {"billable_queries": -1}}
-        )
+    def _refund_paid_day():
+        usage_collection.update_one({"date": today}, {"$inc": {"billable_queries": -1}})
+
+    if daily_paid_limit > 0 and billable_today > daily_paid_limit:
+        _refund_paid_day()
         _refund_daily()
-        return False, (
-            f"Monthly CSE budget exceeded (${settings['monthly_budget_usd']:.2f} "
-            f"/ {monthly_limit} paid queries used this month). Resets next month."
-        )
+        return False, (f"Daily CSE budget reached (${settings.get('daily_budget_usd', 0):.2f} = "
+                       f"{daily_paid_limit} paid queries). Resets at midnight US Pacific.")
+
+    # ...and the month's, when one is set.
+    if monthly_limit > 0:
+        month = get_month_key()
+        monthly_doc = monthly_usage_collection.find_one_and_update(
+            {"month": month},
+            {"$inc": {"billable_queries": 1}, "$set": {"updated_at": datetime.utcnow()},
+             "$setOnInsert": {"created_at": datetime.utcnow(), "month": month}},
+            upsert=True, return_document=True)
+        if monthly_doc.get("billable_queries", 0) > monthly_limit:
+            monthly_usage_collection.update_one({"month": month}, {"$inc": {"billable_queries": -1}})
+            _refund_paid_day()
+            _refund_daily()
+            return False, (
+                f"Monthly CSE budget exceeded (${settings['monthly_budget_usd']:.2f} "
+                f"/ {monthly_limit} paid queries used this month). Resets next month.")
+    else:
+        # no monthly cap; the month's spend is still counted for reporting
+        monthly_usage_collection.find_one_and_update(
+            {"month": get_month_key()},
+            {"$inc": {"billable_queries": 1}, "$set": {"updated_at": datetime.utcnow()},
+             "$setOnInsert": {"created_at": datetime.utcnow()}}, upsert=True)
 
     return True, "OK"
 
@@ -433,3 +443,15 @@ def estimate_monthly_cost() -> Dict[str, Any]:
         "billable_queries": round(billable),
         "estimated_cost_usd": round(cost, 2)
     }
+
+
+def queries_left_today(purpose: str = "") -> int:
+    """How many more queries today's free tier + daily paid budget allow
+    (ignores the hourly caps; reserve_query_slot still enforces everything)."""
+    settings = get_rate_limit_settings()
+    if not settings["rate_limit_enabled"]:
+        return 10_000
+    doc = usage_collection.find_one({"date": get_today_key()}) or {}
+    free_left = max(0, settings["daily_limit"] - doc.get("total_queries", 0) + doc.get("billable_queries", 0))
+    paid_left = max(0, settings.get("daily_paid_query_limit", 0) - doc.get("billable_queries", 0))
+    return free_left + paid_left
