@@ -2272,6 +2272,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Lead email builder scheduled (20 min)")
 
+            def _company_fit_job():
+                try:
+                    from leads.company_fit import run as type_companies
+                    type_companies(limit=3)
+                except Exception as e:
+                    print(f"[CompanyFit] Error: {e}")
+
+            scheduler.add_job(_company_fit_job, IntervalTrigger(seconds=1800),
+                              id="company_fit", name="Company type from its LinkedIn page -> ICP basket",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Company ICP lookup scheduled (30 min)")
+
             def _inhouse_verify_job():
                 try:
                     from pymongo import MongoClient as _MC

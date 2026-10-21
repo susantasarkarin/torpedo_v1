@@ -1141,6 +1141,8 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
         enrolled_count = 0
         skipped_suppressed = 0
         skipped_duplicate = 0
+        skipped_company: Dict[str, int] = {}
+        from leads import company_fit as _company_fit
 
         for lead in cursor:
             email = (lead.get("email") or "").lower().strip()
@@ -1178,6 +1180,20 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             if email in enrolled_emails:
                 skipped_duplicate += 1
                 continue
+            # The person's COMPANY must be what this campaign sells to
+            # (leads/company_fit.py) -- the basket alone came from whichever
+            # search found them, which is how Ipsos staff got BIM mail. An
+            # unknown company is queued for a LinkedIn lookup and waits; the
+            # lookup re-baskets its leads and the next sync enrolls them.
+            if _company_fit.enforce():
+                _verdict, _why = _company_fit.check(
+                    BASKET_BUSINESS.get(basket, ""),
+                    lead.get("company_name") or lead.get("company") or "",
+                    lead.get("company_domain") or email.split("@")[-1],
+                    lead.get("title") or "")
+                if _verdict != "fit":
+                    skipped_company[_verdict] = skipped_company.get(_verdict, 0) + 1
+                    continue
 
             lead_id = str(lead.get("_id"))
             now = datetime.utcnow()
@@ -1218,7 +1234,7 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
         logger.info(
             f"Enrollment complete for campaign {campaign_id} (basket {basket}): "
             f"enrolled={enrolled_count}, skipped_suppressed={skipped_suppressed}, "
-            f"skipped_duplicate={skipped_duplicate}"
+            f"skipped_duplicate={skipped_duplicate}, skipped_company={skipped_company}"
         )
     except Exception as e:
         logger.error(f"Enrollment background task failed for campaign {campaign_id}: {e}", exc_info=True)
@@ -2577,6 +2593,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             logger.debug(f"[Outreach] deliverability gate skipped: {_validator_err}")
 
         business = campaign.get("business", "sfw")
+
+        # Company gate (leads/company_fit.py), for every step: a lead enrolled
+        # before this check existed -- an Ipsos researcher in the BIMwave
+        # chain -- must not get the next step either. An unknown company only
+        # holds a FIRST touch (a day at a time, while the LinkedIn lookup
+        # runs); a sequence already under way is not stalled on it.
+        from leads import company_fit as _company_fit
+        if _company_fit.enforce():
+            _verdict, _why = _company_fit.check(
+                business, lead_record.get("company_name") or "",
+                email.split("@")[-1], lead_record.get("title") or "")
+            if _verdict in ("mismatch", "excluded"):
+                logger.info(f"[Outreach] Retiring {email} from {business}: {_why}")
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {"workflow_status": "skipped_icp_mismatch",
+                              "last_send_error": f"company fit: {_why}"[:300],
+                              "updated_at": datetime.utcnow()}})
+                return False
+            if _verdict == "unknown" and next_step_number == 1:
+                _hold_lead(db, lead_record, f"company fit: {_why}")
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {"next_send_at": datetime.utcnow() + timedelta(days=1)}})
+                return False
+
         sender_config = _resolve_sender_for_campaign(db, campaign)
         if not sender_config:
             db["outreach_leads_v2"].update_one(

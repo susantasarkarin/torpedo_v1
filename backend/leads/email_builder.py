@@ -208,8 +208,14 @@ def skrapp_address(client, first: str, last: str, domain: str, now: datetime,
         return {"rec": {"status": "no_structure", "why": why}, "set_fields": {}}
     email = r["email"]
     rec = {"source": "skrapp", "candidate": email, "skrapp_quality": r.get("quality")}
-    if r.get("pattern"):
-        form = r["pattern"] if "@" in r["pattern"] else r["pattern"] + "@{domain}"
+    pattern = r.get("pattern")
+    if not pattern and r.get("quality") in skrapp_client.USABLE:
+        # One verified address teaches the company's structure for everyone
+        # else we have there -- the reason leads are worked company by company.
+        from app.services.email_structure import structure_of
+        pattern = structure_of(email, first, last)[1]
+    if pattern:
+        form = pattern if "@" in pattern else pattern + "@{domain}"
         rec["structure"] = form.replace("{domain}", domain)
         client["email_automation"]["email_patterns"].update_one({"domain": domain}, {
             "$set": {"domain": domain, "pattern": form, "confidence": 0.8, "source": "skrapp",
@@ -330,6 +336,8 @@ def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candi
 def pending_query(now: datetime) -> Dict[str, Any]:
     return {
         "company_domain": {"$nin": [None, ""]},
+        # a company that fits none of our campaigns is not worth a lookup
+        "company_icp_type": {"$ne": "other"},
         "$and": [
             {"$or": [{"email": {"$in": [None, ""]}}, {"email": {"$exists": False}},
                      {"email_source": {"$in": list(WEAK_SOURCES)}, "outreach_campaign_id": {"$exists": False}}]},
@@ -396,6 +404,28 @@ def build_for_lead(client, lead: Dict[str, Any], now: datetime, bounced: set) ->
     return rec
 
 
+def pending_by_company(le, now: datetime, limit: int) -> List[Dict[str, Any]]:
+    """Waiting leads, the companies with the most of them first: the first
+    lead at a company finds (or buys) its structure, the rest reuse it at no
+    cost. Within a company, newest first."""
+    groups = le.aggregate([
+        {"$match": pending_query(now)},
+        {"$group": {"_id": {"$toLower": {"$ifNull": ["$company_name", "$company_domain"]}},
+                    "n": {"$sum": 1}, "newest": {"$max": "$created_at"}}},
+        {"$sort": {"n": -1, "newest": -1}},
+        {"$limit": limit}], allowDiskUse=True)
+    out: List[Dict[str, Any]] = []
+    for g in groups:
+        if not g["_id"]:
+            continue
+        rx ={"$regex": f"^{re.escape(g['_id'] or '')}$", "$options": "i"}
+        q = {**pending_query(now), "$or": [{"company_name": rx}, {"company_domain": rx}]}
+        out += list(le.find(q).sort("created_at", -1).limit(limit - len(out)))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def run(client=None, limit: int = 15, now: Optional[datetime] = None) -> Dict[str, Any]:
     client = client or _client()
     now = now or datetime.utcnow()
@@ -404,7 +434,7 @@ def run(client=None, limit: int = 15, now: Optional[datetime] = None) -> Dict[st
     le = client["email_automation"]["leads_enriched"]
     stats: Dict[str, Any] = {}
     unavailable = 0
-    for lead in le.find(pending_query(now)).sort("created_at", -1).limit(limit):
+    for lead in pending_by_company(le, now, limit):
         rec = build_for_lead(client, lead, now, bounced)
         stats[rec["status"]] = stats.get(rec["status"], 0) + 1
         if rec["status"] == "model_unavailable":

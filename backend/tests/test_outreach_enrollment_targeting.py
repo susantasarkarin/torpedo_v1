@@ -92,6 +92,9 @@ class _DB:
 def db(monkeypatch):
     d = _DB()
     monkeypatch.setattr(ci, "_get_torpedo_db", lambda: d)
+    # these leads carry no company; the company gate has its own tests
+    # (test_company_fit.py) -- here only brand dedup is under test
+    monkeypatch.setenv("COMPANY_FIT_ENFORCE", "false")
     return d
 
 

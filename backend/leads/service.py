@@ -432,7 +432,19 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
                 "company_revenue_range": result.company_revenue_range or raw_lead.get("company_revenue_range", ""),
                 "company": result.company_name or raw_lead.get("company_name", ""),
                 "icp_segment": raw_lead.get("icp_segment"),
+                "icp_source": raw_lead.get("icp_source"),
             }
+            # the company's type decides when known (leads/company_fit.py)
+            try:
+                from .company_fit import lookup as _company_lookup
+                _ct = _company_lookup(basket_input["company"] or "",
+                                      result.company_domain or raw_lead.get("company_domain") or "",
+                                      mailable=bool(final_email))
+                if _ct and _ct.get("type"):
+                    basket_input["company_icp_type"] = _ct["type"]
+                    enriched_dict["company_icp_type"] = _ct["type"]
+            except Exception as _ct_err:
+                logger.debug(f"company type lookup skipped: {_ct_err}")
             enriched_dict.update(compute_icp_basket(basket_input))
         except Exception as _basket_err:
             logger.warning(f"compute_icp_basket failed for lead {raw_lead_id}: {_basket_err}")

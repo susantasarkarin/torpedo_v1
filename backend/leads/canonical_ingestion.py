@@ -183,6 +183,9 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, 
         'enrichment_status': 'needed',  # Triggers the enrichment job immediately
         'lead_bracket': 'lead',  # Will be recalculated after enrichment
         'icp_segment': icp_segment or None,
+        # an ICP passed in here comes from the search job that found the lead
+        # (import_leads(icp_segment=...) is only called by search jobs)
+        'icp_source': 'search' if icp_segment else None,
         'stage': 'already_contacted' if source == 'gmail' else None,
         # Email content fields (from mail_pool_extractor)
         'subject': (payload.get('subject') or '').strip() or None,
@@ -253,6 +256,7 @@ def _build_enriched_doc(lead_data: Dict[str, Any], raw_lead_id: str) -> Dict[str
         enriched_doc = {
             'raw_lead_id': raw_lead_id,
             'icp_segment': lead_data.get('icp_segment'),
+            'icp_source': lead_data.get('icp_source'),
             # Personal Info
             'name': _clean_name,
             'first_name': _first or None,
@@ -307,8 +311,22 @@ def _build_enriched_doc(lead_data: Dict[str, Any], raw_lead_id: str) -> Dict[str
         # Remove None values to avoid overwriting with nulls
         enriched_doc = {k: v for k, v in enriched_doc.items() if v is not None}
 
+        # The company's type, when known, decides the basket; an unknown
+        # company is queued for a LinkedIn lookup (leads/company_fit.py).
+        basket_input = dict(lead_data)
+        try:
+            from leads.company_fit import lookup as _company_lookup
+            _ct = _company_lookup(enriched_doc.get('company_name') or '',
+                                  enriched_doc.get('company_domain') or '',
+                                  mailable=bool(lead_data.get('email')))
+            if _ct and _ct.get('type'):
+                basket_input['company_icp_type'] = _ct['type']
+                enriched_doc['company_icp_type'] = _ct['type']
+        except Exception as _ct_err:
+            logger.debug(f"company type lookup skipped: {_ct_err}")
+
         # Merge ICP basket classification (rule-based, no AI needed)
-        enriched_doc.update(compute_icp_basket(lead_data))
+        enriched_doc.update(compute_icp_basket(basket_input))
 
         return enriched_doc
 
@@ -436,7 +454,21 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         "bimwave":          ("C", "BIMwave", ["bimwave"]),
         "dual_fit":         ("D", "Dual Fit: SFW + Cogentix", ["survey_fieldwork", "cogentix"]),
     }
-    if existing_seg and existing_seg in SEG_TO_BASKET:
+    # The COMPANY decides (leads/company_fit.py). A search job's ICP tag
+    # (icp_source "search") only says which search found the person -- an
+    # Ipsos researcher turned up by the BIMwave search was basket C and got
+    # BIM pitches -- so it is a hint below, never the answer.
+    company_type = _n(lead.get("company_icp_type"))
+    seg_from_search = _n(lead.get("icp_source")) == "search"
+    TYPE_TO_BASKET = {
+        "mr_agency": ("A", "Survey Fieldwork", ["survey_fieldwork"]),
+        "brand":     ("B", "Cogentix Research", ["cogentix"]),
+        "aec":       ("C", "BIMwave", ["bimwave"]),
+        "other":     ("E", "Nurture / Unqualified", ["nurture"]),
+    }
+    if company_type in TYPE_TO_BASKET:
+        basket_code, basket_name, icp_tags = TYPE_TO_BASKET[company_type]
+    elif existing_seg and existing_seg in SEG_TO_BASKET and not seg_from_search:
         basket_code, basket_name, icp_tags = SEG_TO_BASKET[existing_seg]
     else:
         # â”€â”€ FALLBACK: keyword scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -506,6 +538,14 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         sfw_s   = _score_sfw()
         brand_s = _score_brand()
         aec_s   = _score_aec()
+        # the search hint counts, but alone never clears THRESHOLD
+        if seg_from_search:
+            if existing_seg in ("survey_fieldwork", "sfw"):
+                sfw_s += 2
+            elif existing_seg == "cogentix":
+                brand_s += 2
+            elif existing_seg == "bimwave":
+                aec_s += 2
 
         # ── ONE PERSON, ONE ICP, ONE BASKET ──────────────────────────────
         # This used to emit basket D ("Dual Fit") whenever a lead cleared the
@@ -577,7 +617,8 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         "fit_tier": fit_tier,
         "fit_tier_label": fit_label,
         "persona_label": persona_label,
-        "classification_confidence": "High" if existing_seg else "Medium",
+        "classification_confidence": "High" if (company_type in TYPE_TO_BASKET
+                                                or (existing_seg and not seg_from_search)) else "Medium",
         "classified_at": datetime.utcnow(),
     }
 
@@ -830,6 +871,20 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
             return
 
         BASKET_BUSINESS_MAP = {'A': 'sfw', 'B': 'cogentix', 'C': 'bimwave'}
+
+        # The company must be what the campaign sells to (leads/company_fit.py);
+        # an unknown company waits for its LinkedIn lookup, which re-baskets
+        # its leads for the periodic enrollment sync.
+        from leads import company_fit as _company_fit
+        if _company_fit.enforce() and basket in BASKET_BUSINESS_MAP:
+            _verdict, _why = _company_fit.check(
+                BASKET_BUSINESS_MAP[basket],
+                lead_data.get('company_name') or lead_data.get('company') or '',
+                lead_data.get('company_domain') or email_lower.split('@')[-1],
+                lead_data.get('title') or '')
+            if _verdict != 'fit':
+                logger.info("Enrollment skipped for %s: %s", email_lower, _why)
+                return
 
         # ── ONE PERSON, ONE BRAND ────────────────────────────────────────────
         # The dedup below used to be per-campaign ({email, campaign_id}), which
