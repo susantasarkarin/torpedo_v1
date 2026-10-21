@@ -2594,29 +2594,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         business = campaign.get("business", "sfw")
 
-        # Company gate (leads/company_fit.py), for every step: a lead enrolled
-        # before this check existed -- an Ipsos researcher in the BIMwave
-        # chain -- must not get the next step either. An unknown company only
-        # holds a FIRST touch (a day at a time, while the LinkedIn lookup
-        # runs); a sequence already under way is not stalled on it.
+        # ICP gate, every step (leads/icp_check.py; owner 2026-10-21: "if
+        # everything is aligned and correct then only start sending mails").
+        # The company's industry (its website / LinkedIn page) gives the
+        # campaign, the local model checks it for this person; only when the
+        # two agree does mail go out. Wrong campaign -> retired here (the ICP
+        # job moves the person to the right one and mails them from step 1);
+        # not checked yet -> held, re-tried in an hour.
         from leads import company_fit as _company_fit
         if _company_fit.enforce():
-            _verdict, _why = _company_fit.check(
-                business, lead_record.get("company_name") or "",
-                email.split("@")[-1], lead_record.get("title") or "")
-            if _verdict in ("mismatch", "excluded"):
+            from leads import icp_check as _icp_check
+            _action, _why = _icp_check.gate(
+                email, business, lead_record.get("company_name") or "", lead_record.get("title") or "")
+            if _action == "stop":
                 logger.info(f"[Outreach] Retiring {email} from {business}: {_why}")
                 db["outreach_leads_v2"].update_one(
                     {"_id": lead_record["_id"]},
-                    {"$set": {"workflow_status": "skipped_icp_mismatch",
-                              "last_send_error": f"company fit: {_why}"[:300],
+                    {"$set": {"pre_icp_status": lead_record.get("workflow_status"),
+                              "workflow_status": "skipped_icp_mismatch",
+                              "last_send_error": f"icp: {_why}"[:300],
                               "updated_at": datetime.utcnow()}})
                 return False
-            if _verdict == "unknown" and next_step_number == 1:
-                _hold_lead(db, lead_record, f"company fit: {_why}")
+            if _action == "hold":
+                _hold_lead(db, lead_record, f"icp: {_why}")
                 db["outreach_leads_v2"].update_one(
                     {"_id": lead_record["_id"]},
-                    {"$set": {"next_send_at": datetime.utcnow() + timedelta(days=1)}})
+                    {"$set": {"next_send_at": datetime.utcnow() + timedelta(hours=1)}})
                 return False
 
         sender_config = _resolve_sender_for_campaign(db, campaign)

@@ -33,6 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 @pytest.fixture
 def router(monkeypatch):
     monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_URL", "https://example.test/unsub")
+    # the test leads carry no company; the ICP gate has its own tests
+    monkeypatch.setenv("COMPANY_FIT_ENFORCE", "false")
     import routers.cold_outreach_router as mod
     mod = importlib.reload(mod)
     mod._config_hold_last_alert = None

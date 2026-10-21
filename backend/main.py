@@ -2275,14 +2275,36 @@ async def startup_event():
             def _company_fit_job():
                 try:
                     from leads.company_fit import run as type_companies
-                    type_companies(limit=3)
+                    type_companies(limit=30)
                 except Exception as e:
                     print(f"[CompanyFit] Error: {e}")
 
-            scheduler.add_job(_company_fit_job, IntervalTrigger(seconds=1800),
-                              id="company_fit", name="Company type from its LinkedIn page -> ICP basket",
+            scheduler.add_job(_company_fit_job, IntervalTrigger(seconds=300),
+                              id="company_fit", name="Company industry: website, LinkedIn via Google, AI",
                               max_instances=1, coalesce=True, replace_existing=True)
-            print("✅ Company ICP lookup scheduled (30 min)")
+
+            def _company_queue_job():
+                try:
+                    from leads.company_fit import queue_all
+                    print(f"[CompanyFit] queued {queue_all()}")
+                except Exception as e:
+                    print(f"[CompanyFit] queue error: {e}")
+
+            scheduler.add_job(_company_queue_job, IntervalTrigger(hours=6), next_run_time=datetime.now(),
+                              id="company_fit_queue", name="Queue every mailed/mailable company",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _icp_check_job():
+                try:
+                    from leads.icp_check import run as check_people
+                    check_people(limit=4)
+                except Exception as e:
+                    print(f"[ICPCheck] Error: {e}")
+
+            scheduler.add_job(_icp_check_job, IntervalTrigger(seconds=600),
+                              id="icp_check", name="AI check of each contact's campaign; move + resend",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Company industry (5 min), company queue (6 h), AI ICP check (10 min) scheduled")
 
             def _inhouse_verify_job():
                 try:

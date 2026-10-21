@@ -84,16 +84,16 @@ _INDUSTRY_RULES: List[Tuple[str, Tuple[str, ...]]] = [
     ("aec", ("architecture and planning", "architecture & planning", "architecture", "architects",
              "civil engineering", "construction", "building construction", "structural engineering",
              "mep", "bim", "building information modeling", "building information modelling",
-             "real estate development", "interior design", "infrastructure", "engineering services",
-             "design services", "building materials", "surveying", "urban planning")),
+             "real estate development", "interior design", "building materials", "land surveying",
+             "urban planning")),
     ("brand", ("consumer goods", "consumer products", "fmcg", "cpg", "food and beverage",
                "food & beverage", "food production", "beverage", "retail", "apparel", "fashion",
                "cosmetics", "personal care", "beauty", "banking", "financial services", "insurance",
                "telecommunications", "telecom", "automotive", "pharmaceutical", "healthcare",
-               "hospital", "consumer electronics", "media", "broadcast", "entertainment",
-               "hospitality", "travel", "airlines", "e-commerce", "ecommerce", "restaurants",
+               "hospital", "consumer electronics", "broadcast media", "media production", "entertainment",
+               "hospitality", "airlines", "e-commerce", "ecommerce", "restaurants",
                "advertising services", "marketing and advertising", "luxury goods", "sporting goods",
-               "tobacco", "wine and spirits", "dairy", "furniture", "household")),
+               "tobacco", "wine and spirits", "dairy")),
     ("other", ("it services", "information technology", "software development", "computer software",
                "staffing", "recruiting", "human resources", "outsourcing", "education", "higher education",
                "government", "non-profit", "nonprofit", "legal services", "law practice", "accounting",
@@ -242,7 +242,8 @@ def lookup(name: str, domain: str = "", client=None, queue_if_unknown: bool = Tr
         col.update_one({"_id": key}, {
             "$setOnInsert": {"status": "pending", "attempts": 0, "queued_at": now, "next_try_at": now},
             "$set": {"name": name, "domain": normalise_domain(domain)},
-            "$inc": {"mailable_leads": 1 if mailable else 0, "seen": 1}}, upsert=True)
+            "$inc": {"mailable_leads": 1 if mailable else 0, "seen": 1},
+            "$max": {"priority": 3 if mailable else 1}}, upsert=True)
     return {"_id": key, "relationship": rel} if rel else None
 
 
@@ -303,8 +304,22 @@ def rebasket_company(db, name: str, domain: str, ctype: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# LinkedIn lookup (the scheduled job)
+# Finding out what a company does (the scheduled job)
 # ---------------------------------------------------------------------------
+# Owner, 2026-10-21: "get the industry of all the companies using google
+# search, then check if the icp is correct using qwen". ~9,100 company domains
+# have been mailed and ~13,000 companies have a lead with an email, but the
+# Google quota is 100 searches a day (free tier only, owner 2026-09-28) and
+# lead-gen already uses all of it -- Google alone would take months. So each
+# company's OWN WEBSITE is read first (free, no quota); its LinkedIn page via
+# Google is the fallback for companies the website does not settle; the local
+# model decides only when the text alone is not clear.
+ACTIVE_STATUSES = ("not_started", "pending_scheduled", "in_sequence")
+_WEBMAIL = {"gmail.com", "yahoo.com", "yahoo.co.in", "outlook.com", "hotmail.com", "live.com",
+            "icloud.com", "aol.com", "rediffmail.com", "protonmail.com", "zoho.com", "gmx.com",
+            "yandex.com", "mail.com", "msn.com", "me.com", "ymail.com"}
+
+
 def _daily_allowance_left(db) -> int:
     limit = int(os.getenv("COMPANY_FIT_DAILY_SEARCHES", "25"))
     if limit <= 0:
@@ -340,19 +355,57 @@ def _page_text(items: Iterable[Dict[str, Any]], name: str) -> Tuple[str, str]:
     return "", ""
 
 
+_SKIP_BLOCKS = re.compile(r"<(script|style|noscript|svg)[^>]*>.*?</\1>", re.S | re.I)
+_META_NAMES = r"(?:description|og:description|og:title|keywords)"
+_META = re.compile(r"<meta[^>]+(?:name|property)=[\"']" + _META_NAMES +
+                   r"[\"'][^>]*content=[\"']([^\"']{3,400})", re.I)
+_META_REV = re.compile(r"<meta[^>]+content=[\"']([^\"']{3,400})[\"'][^>]*(?:name|property)=[\"']" +
+                       _META_NAMES + r"[\"']", re.I)
+_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
+
+
+def website_text(domain: str, timeout: float = 6.0) -> str:
+    """Title, meta descriptions and the first visible words of the company's
+    home page; '' when it cannot be read."""
+    import html as _html
+    import httpx
+    if not domain or domain in _WEBMAIL:
+        return ""
+    for url in (f"https://{domain}", f"https://www.{domain}", f"http://{domain}"):
+        try:
+            r = httpx.get(url, timeout=timeout, follow_redirects=True,
+                          headers={"User-Agent": "Mozilla/5.0 (compatible; company-research)"})
+        except Exception:
+            continue
+        if r.status_code >= 400 or "html" not in r.headers.get("content-type", "html"):
+            continue
+        page = r.text[:300_000]
+        parts = [m.strip() for m in _TITLE.findall(page)[:1]]
+        parts += _META.findall(page) + _META_REV.findall(page)
+        body = re.sub(r"<[^>]+>", " ", _SKIP_BLOCKS.sub(" ", page))
+        head = _html.unescape(" | ".join(p for p in parts if p))[:700]
+        # "head || body": only the head (title, descriptions) is matched by
+        # the word rules -- a page body mentions "social media", "cloud
+        # infrastructure", "data collection" (privacy policy) on almost every
+        # site; the body is for the model.
+        return head + " || " + _html.unescape(" ".join(body.split()))[:800]
+    return ""
+
+
 _TYPE_SCHEMA = {"type": "object", "additionalProperties": False,
                 "properties": {"type": {"type": "string", "enum": list(TYPES) + ["unclear"]}},
                 "required": ["type"]}
 
 
 def _model_type(name: str, text: str) -> Optional[str]:
+    """None = the model could not say (or was unavailable); asked again later."""
     from leads.local_llm_gate import queue_wait
     from leads.local_slm_client import LocalSLMError, chat_json
     try:
         with queue_wait(120, priority="bulk"):
             got = chat_json(
                 system="You sort companies by what they do. Reply only with JSON.",
-                user=(f"Company: {name}\nLinkedIn page text: {text[:900]}\n\n"
+                user=(f"Company: {name}\nWhat the company says about itself: {text[:900]}\n\n"
                       "Which one is it?\n"
                       "mr_agency = market research, fieldwork, survey or panel company\n"
                       "aec = architecture, engineering, construction or BIM company\n"
@@ -372,35 +425,100 @@ async def _search(query: str) -> List[Dict[str, Any]]:
     return await perform_google_search(query, num_results=5)
 
 
-def resolve_one(db, doc: Dict[str, Any], now: datetime) -> str:
+def _linkedin_text(db, name: str, domain: str, now: datetime) -> Tuple[str, str]:
     import asyncio
-    name, domain = doc.get("name") or "", doc.get("domain") or ""
     query = f'site:linkedin.com/company "{name}"' if name else f'site:linkedin.com/company "{domain}"'
     db["company_type_usage"].update_one({"_id": now.strftime("%Y-%m-%d")}, {"$inc": {"searches": 1}},
                                         upsert=True)
-    items = asyncio.run(_search(query))
-    text, url = _page_text(items, name or domain.split(".")[0])
-    ctype, evidence = type_from_text(text) if text else (None, "")
-    if text and not ctype:
+    return _page_text(asyncio.run(_search(query)), name or domain.split(".")[0])
+
+
+def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = True,
+                allow_model: bool = True) -> str:
+    """One step for one company -> typed | needs_google | needs_model | unclear | not_found."""
+    name, domain = doc.get("name") or "", doc.get("domain") or ""
+    upd: Dict[str, Any] = {"checked_at": now}
+    site = doc.get("website_text")
+    if site is None and domain:
+        site = website_text(domain)
+        upd["website_text"] = site
+    site = site or ""
+    li, li_url = doc.get("linkedin_text") or "", doc.get("linkedin_url") or ""
+    ctype, evidence, source = None, "", ""
+    if li:
+        (ctype, evidence), source = type_from_text(li), "linkedin"
+    if not ctype and site:
+        (ctype, evidence), source = type_from_text(site.split(" || ")[0]), "website"
+    tried_google = bool(doc.get("linkedin_at"))
+    if not ctype and not li and allow_google and not tried_google and (name or domain):
+        li, li_url = _linkedin_text(db, name, domain, now)
+        upd.update({"linkedin_text": li, "linkedin_url": li_url, "linkedin_at": now})
+        tried_google = True
+        if li:
+            (ctype, evidence), source = type_from_text(li), "linkedin"
+    text = " | ".join(t for t in (li, site) if t)
+    if not ctype and text and allow_model:
         ctype = _model_type(name or domain, text)
-        evidence = "model read the LinkedIn page" if ctype else ""
+        if ctype:
+            evidence, source = "model read the company's own text", "model"
     if ctype:
-        db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {
-            "type": ctype, "source": "linkedin", "evidence": evidence[:300], "linkedin_url": url,
-            "status": "done", "at": now}})
+        upd.update({"type": ctype, "source": source, "evidence": evidence[:300], "status": "done", "at": now})
+        db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": upd})
         n = rebasket_company(db, name, domain, ctype)
-        logger.info("[CompanyFit] %s -> %s (%s); %d leads re-basketed", name or domain, ctype, evidence, n)
+        logger.info("[CompanyFit] %s -> %s (%s %s); %d leads re-basketed",
+                    name or domain, ctype, source, evidence, n)
         return "typed"
+    if not tried_google and (name or domain):
+        # the website did not settle it; LinkedIn next, when quota allows
+        db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_google"}})
+        return "needs_google"
+    if text and not allow_model:
+        db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_model"}})
+        return "needs_model"
     attempts = int(doc.get("attempts") or 0) + 1
-    db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {
-        "attempts": attempts, "status": "pending" if attempts < MAX_ATTEMPTS else "not_found",
-        "last_result": "no linkedin page" if not text else "page did not say",
-        "next_try_at": now + timedelta(days=RETRY_DAYS)}})
-    return "not_found" if text == "" else "unclear"
+    upd.update({"attempts": attempts, "status": "pending" if attempts < MAX_ATTEMPTS else "not_found",
+                "last_result": "nothing readable" if not text else "text did not say",
+                "next_try_at": now + timedelta(days=RETRY_DAYS),
+                # read the site and LinkedIn afresh next time
+                "website_text": None, "linkedin_at": None, "linkedin_text": ""})
+    db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": upd})
+    return "not_found" if not text else "unclear"
 
 
-def run(client=None, limit: int = 5, now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Type the waiting companies with the most mailable leads first."""
+def queue_all(client=None) -> Dict[str, int]:
+    """Queue every company we have mailed or could mail. Priority 3 = someone
+    there is in a live sequence, 2 = someone there was mailed before (may need
+    moving to the right campaign and mailing again), 1 = a lead with an email."""
+    from pymongo import UpdateOne
+    db = _db(client)
+    tdb = db.client[os.getenv("MONGO_DB_NAME") or "torpedo"]
+    best: Dict[str, Tuple[int, str, str]] = {}
+
+    def _add(email: str, company: str, prio: int):
+        dom = (email or "").lower().split("@")[-1] if "@" in (email or "") else ""
+        dom = "" if dom in _WEBMAIL else dom
+        key = company_key(company, dom)
+        if key and (key not in best or best[key][0] < prio):
+            best[key] = (prio, company or "", normalise_domain(dom))
+
+    for r in tdb["outreach_leads_v2"].find({}, {"email": 1, "company_name": 1, "workflow_status": 1}):
+        _add(r.get("email"), r.get("company_name") or "",
+             3 if r.get("workflow_status") in ACTIVE_STATUSES else 2)
+    for r in db["leads_enriched"].find({"email": {"$nin": [None, ""]}}, {"email": 1, "company_name": 1}):
+        _add(r.get("email"), r.get("company_name") or "", 1)
+    now = datetime.utcnow()
+    ops = [UpdateOne({"_id": k}, {"$max": {"priority": p},
+                                  "$setOnInsert": {"status": "pending", "attempts": 0, "queued_at": now,
+                                                   "next_try_at": now, "name": n, "domain": d}},
+                     upsert=True) for k, (p, n, d) in best.items()]
+    for i in range(0, len(ops), 1000):
+        db[COLLECTION].bulk_write(ops[i:i + 1000], ordered=False)
+    return {"companies": len(best)}
+
+
+def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 3) -> Dict[str, Any]:
+    """Work the queue, live-sequence companies first: websites for everyone,
+    Google within its allowance, the model for what text alone cannot settle."""
     db = _db(client)
     now = now or datetime.utcnow()
     stats: Dict[str, Any] = {}
@@ -408,33 +526,48 @@ def run(client=None, limit: int = 5, now: Optional[datetime] = None) -> Dict[str
         ensure_indexes(client)
     except Exception:
         pass
-    budget = min(limit, _daily_allowance_left(db))
-    if budget <= 0:
-        return {"skipped": "daily allowance used"}
+    col = db[COLLECTION]
+    sort = [("priority", -1), ("queued_at", 1)]
+
+    def _note(kind, r):
+        stats[kind + r] = stats.get(kind + r, 0) + 1
+
+    # 1. the model, for companies whose text is in hand but did not settle it
+    for doc in col.find({"status": "needs_model"}).sort(sort).limit(model_calls):
+        _note("model:", resolve_one(db, doc, now, allow_google=False, allow_model=True))
+    # 2. Google, for companies whose website did not settle it
+    google_left = _daily_allowance_left(db)
     try:
         from leads.ingestion import _is_cse_paused
         if _is_cse_paused():
-            return {"skipped": "google search paused"}
+            google_left = 0
     except Exception:
         pass
-    pending = db[COLLECTION].find({"status": "pending", "type": {"$exists": False},
-                                   "next_try_at": {"$lte": now}}).sort(
-        [("mailable_leads", -1), ("seen", -1)]).limit(budget)
-    for doc in pending:
+    for doc in col.find({"status": "needs_google"}).sort(sort).limit(min(2, google_left)):
         if not _cse_has_room():
-            stats["stopped"] = "leaving the search quota to lead-gen"
             break
+        _note("google:", resolve_one(db, doc, now, allow_google=True, allow_model=False))
+    # Google cannot keep up with the backlog: a company that has waited a
+    # day for it goes to the model on its website text instead.
+    stale = now - timedelta(days=1)
+    for doc in col.find({"status": "needs_google", "checked_at": {"$lte": stale},
+                         "website_text": {"$nin": [None, ""]}}).sort(sort).limit(1):
+        doc = {**doc, "linkedin_at": doc.get("linkedin_at") or now}
+        _note("model:", resolve_one(db, doc, now, allow_google=False, allow_model=True))
+    # 3. websites, for everything new
+    for doc in col.find({"status": "pending", "type": {"$exists": False},
+                         "next_try_at": {"$lte": now}}).sort(sort).limit(limit):
         try:
-            r = resolve_one(db, doc, now)
+            r = resolve_one(db, doc, now, allow_google=False, allow_model=False)
         except Exception as e:
             logger.warning("[CompanyFit] lookup failed for %r: %s", doc.get("name"), e)
             r = "error"
-        stats[r] = stats.get(r, 0) + 1
+        _note("", r)
     logger.info("[CompanyFit] %s", stats)
     return stats
 
 
 def ensure_indexes(client=None) -> None:
     db = _db(client)
-    db[COLLECTION].create_index([("status", 1), ("next_try_at", 1), ("mailable_leads", -1)])
+    db[COLLECTION].create_index([("status", 1), ("priority", -1), ("queued_at", 1)])
     db["leads_enriched"].create_index("company_domain")

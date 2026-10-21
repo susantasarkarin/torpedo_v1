@@ -111,3 +111,100 @@ def test_unknown_company_is_queued_and_waits():
     assert cf.check("bimwave", "Acme Builders", "acmebuilders.in", client=client)[0] == "unknown"
     queued = client["email_automation"]["company_types"].docs["acmebuilders.in"]
     assert queued["status"] == "pending" and queued["mailable_leads"] == 1
+
+
+# --- the AI check and the move + resend (leads/icp_check.py) ----------------
+from datetime import datetime  # noqa: E402
+
+from leads import icp_check as ic  # noqa: E402
+
+CAMPS = [{"campaign_id": "c-sfw", "business": "sfw", "is_active": True},
+         {"campaign_id": "c-cog", "business": "cogentix", "is_active": True},
+         {"campaign_id": "c-bim", "business": "bimwave", "is_active": True}]
+
+
+class _Rows:
+    def __init__(self, docs=None):
+        self.docs = [dict(d) for d in (docs or [])]
+        self.inserted = []
+
+    def find(self, q=None, proj=None):
+        return [d for d in self.docs if all(d.get(k) == v for k, v in (q or {}).items()
+                                            if not isinstance(v, dict))]
+
+    def find_one(self, q=None, proj=None):
+        r = self.find(q)
+        return r[0] if r else None
+
+    def update_one(self, q, u, upsert=False):
+        for d in self.docs:
+            if d.get("_id") == q.get("_id"):
+                d.update(u.get("$set") or {})
+
+    def insert_one(self, doc):
+        self.inserted.append(doc)
+
+
+class _T(dict):
+    def __missing__(self, k):
+        self[k] = _Rows()
+        return self[k]
+
+    @property
+    def client(self):
+        return {"email_automation": _T()}
+
+
+def _tdb(rows):
+    t = _T()
+    t["outreach_campaigns_v2"] = _Rows(CAMPS)
+    t["outreach_leads_v2"] = _Rows(rows)
+    return t
+
+
+def _person(rows, expected="sfw", blocked=False):
+    return {"email": "a@ipsos.com", "rows": rows, "company": "Ipsos", "title": "Research Manager",
+            "expected": expected, "blocked": blocked}
+
+
+NOW = datetime(2026, 10, 21)
+
+
+def test_got_bim_mail_before_gets_moved_and_resent_from_step_one():
+    rows = [{"_id": 1, "campaign_id": "c-bim", "workflow_status": "completed", "current_step": 4}]
+    t = _tdb(rows)
+    assert ic.reconcile(t, _person(rows), {"aligned": True}, NOW) == "resend_new_row"
+    new = t["outreach_leads_v2"].inserted[0]
+    assert new["campaign_id"] == "c-sfw" and new["current_step"] == 0 and new["workflow_status"] == "not_started"
+
+
+def test_live_wrong_row_is_retired_and_paused_right_row_resumed():
+    rows = [{"_id": 1, "campaign_id": "c-bim", "workflow_status": "in_sequence", "current_step": 1},
+            {"_id": 2, "campaign_id": "c-sfw", "workflow_status": "paused_duplicate_brand", "current_step": 0}]
+    t = _tdb(rows)
+    assert ic.reconcile(t, _person(rows), {"aligned": True}, NOW) == "resumed"
+    by_id = {d["_id"]: d for d in t["outreach_leads_v2"].docs}
+    assert by_id[1]["workflow_status"] == "moved_to_correct_bucket"
+    assert by_id[2]["workflow_status"] == "not_started"
+
+
+def test_ai_disagreeing_holds_and_sends_nothing():
+    rows = [{"_id": 1, "campaign_id": "c-sfw", "workflow_status": "not_started", "current_step": 0}]
+    t = _tdb(rows)
+    assert ic.reconcile(t, _person(rows), {"aligned": False, "qwen": "cogentix"}, NOW) == "held_for_review"
+    assert t["outreach_leads_v2"].docs[0]["workflow_status"] == "icp_review"
+    assert not t["outreach_leads_v2"].inserted
+
+
+def test_someone_who_bounced_or_replied_is_never_resent():
+    rows = [{"_id": 1, "campaign_id": "c-bim", "workflow_status": "bounced", "current_step": 1}]
+    t = _tdb(rows)
+    assert ic.reconcile(t, _person(rows, blocked=True), {"aligned": True}, NOW) == "blocked_no_resend"
+    assert not t["outreach_leads_v2"].inserted
+
+
+def test_website_body_words_do_not_decide():
+    head = "Acme Cloud | Cloud hosting for developers"
+    body = "We help retail, banking and construction customers. Follow us on social media."
+    assert cf.type_from_text(head)[0] is None
+    assert cf.type_from_text((head + " || " + body).split(" || ")[0])[0] is None
