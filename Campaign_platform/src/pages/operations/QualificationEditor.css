@@ -33,3 +33,7 @@
 .qe-bank-select {
   flex: 1 1 260px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px;
 }
+
+/* Age ranges */
+.qe-range { width: 100%; display: flex; align-items: center; gap: 8px; }
+.qe-range input { width: 90px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }

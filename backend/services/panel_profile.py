@@ -11,7 +11,7 @@ from typing import Optional
 
 import httpx
 
-from services import respondent_profile
+from services import panel_questions, respondent_profile
 
 _CACHE: dict = {}
 _TTL = 10 * 60
@@ -23,7 +23,8 @@ def _base() -> str:
 
 async def fetch(panel_id: str) -> Optional[dict]:
     """{birthday_day, birthday_month, birthday_year, gender ('m'/'f'), zip_code,
-    targeting: {state, city, zip_code, children_ages, nccs -- whichever are answered}} or None."""
+    targeting: {state, city, zip_code, children_ages, nccs -- whichever are answered},
+    panelAnswers: {question id: code | [codes]} for project panel-question criteria} or None."""
     panel_id = str(panel_id or "").strip()
     key = os.getenv("SFW_INTERNAL_KEY", "")
     if not panel_id or not key:
@@ -47,6 +48,7 @@ async def fetch(panel_id: str) -> Optional[dict]:
                     "birthday_day": int(d), "birthday_month": int(m), "birthday_year": int(y),
                     "gender": gender, "zip_code": str(answers.get("CORE_07") or "").strip(),
                     "targeting": respondent_profile.from_panel_answers(answers, str(profile.get("country") or "")),
+                    "panelAnswers": panel_questions.member_answers(answers),
                 }
     except Exception as e:  # never block the survey on this lookup
         print(f"[warn] panel profile lookup failed for {panel_id}: {e}")

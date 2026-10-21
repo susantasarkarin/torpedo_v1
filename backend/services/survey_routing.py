@@ -22,6 +22,9 @@ Project fields (email_automation.projects), all optional; absent = today's behav
   qualification: {enabled, ageMin, ageMax, genders[], employment[], occupation[],
                   bank: [{id, qualifying[]}],          questions from the shared question bank
                   custom: [{id, text, options[], qualifying[]}]}   (legacy inline questions)
+  ageRanges: [{min, max}]  any of these age ranges (ageMin / ageMax: one range, older projects)
+  panelQuestions: [{id, qualifying[]}]   SurveyFieldwork Panel profiling questions, by answer
+                  code -- see services/panel_questions.py
   states[], cities[], zipPrefixes[], childrenMin/Max, childAgeMin/Max, nccs[]
                   targeting profile -- see services/respondent_profile.py
   routingEnabled: bool     may receive routed respondents
@@ -48,7 +51,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
-from services import respondent_profile
+from services import panel_questions, respondent_profile
 
 # Fixed, reusable qualification questions. Age and gender come from the date of
 # birth / gender the landing page already asks; these are the extra ones.
@@ -114,6 +117,27 @@ def routing_enabled() -> bool:
 
 def country_routing_enabled() -> bool:
     return _truthy(os.getenv("COUNTRY_ROUTING_ENABLED"))
+
+
+def panel_projects_first(params: Dict[str, Any]) -> bool:
+    """SurveyFieldwork Panel members try our own projects before CPX / Cint (2026-10-21).
+    after=projects marks the return trip once our projects are used up."""
+    if not routing_enabled() or str(os.getenv("PANEL_PROJECTS_FIRST", "true")).strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    return str((params or {}).get("after") or "").strip().lower() != "projects"
+
+
+def panel_fallback_url(record: Dict[str, Any], outcome: str) -> Optional[str]:
+    """Where a panel member goes when our projects terminated / filled for them and
+    no other project fits: their landing link again with after=projects, which
+    sends them on to CPX / Cint. None for anyone else (or a security terminate)."""
+    url = str(record.get("panelReturnUrl") or record.get("url") or "")
+    if not record.get("panelFirst") or outcome not in ("TERMINATED", "OVERQUOTA") or not url.startswith("http"):
+        return None
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "after"] + [("after", "projects")]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
 
 
 def max_attempts() -> int:
@@ -217,10 +241,20 @@ def project_qualification(project: Optional[Dict[str, Any]], bank: Optional[Dict
         qualifying = [o for o in _str_list(q.get("qualifying")) if o in options]
         if _CUSTOM_ID.match(qid) and text and options and qualifying:
             custom.append({"id": qid, "text": text[:300], "options": options[:20], "qualifying": qualifying})
+    ranges = []
+    for r in raw.get("ageRanges") or []:
+        if isinstance(r, dict):
+            lo, hi = _int_or_none(r.get("min")), _int_or_none(r.get("max"))
+            if lo is not None or hi is not None:
+                ranges.append((lo, hi))
+    if not ranges and (_int_or_none(raw.get("ageMin")) is not None or _int_or_none(raw.get("ageMax")) is not None):
+        ranges.append((_int_or_none(raw.get("ageMin")), _int_or_none(raw.get("ageMax"))))
     return {
         "enabled": bool(raw.get("enabled")),
         "ageMin": _int_or_none(raw.get("ageMin")),
         "ageMax": _int_or_none(raw.get("ageMax")),
+        "ageRanges": ranges,
+        "panelQuestions": panel_questions.criteria(raw.get("panelQuestions")),
         "genders": [g for g in _str_list(raw.get("genders")) if g in ("m", "f", "o")],
         "employment": [v for v in _str_list(raw.get("employment"))
                        if v in {o["value"] for o in _LIBRARY["employment"]["options"]}],
@@ -232,10 +266,12 @@ def project_qualification(project: Optional[Dict[str, Any]], bank: Optional[Dict
 
 
 def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]] = None,
-                  limit: int = 12, known: Optional[Dict[str, Any]] = None, country: str = "") -> List[Dict[str, Any]]:
+                  limit: int = 16, known: Optional[Dict[str, Any]] = None, country: str = "",
+                  known_answers: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Landing-page questions the given projects' enabled criteria need (deduplicated).
     Targeting-profile questions (state, city, PIN, children, NCCS) only for what
-    `known` (a panel member's profile) does not already hold."""
+    `known` (a panel member's profile) does not already hold; panel questions only
+    those `known_answers` (the member's panel answers) does not."""
     out, seen, crits = [], set(), []
     for project in projects:
         qual = project_qualification(project, bank)
@@ -252,6 +288,7 @@ def questions_for(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]]
                 out.append({"id": q["id"], "text": q["text"],
                             "options": [{"value": o, "label": o} for o in q["options"]]})
     out += respondent_profile.questions(crits, known or {}, country)
+    out += panel_questions.questions([c["panelQuestions"] for c in crits], known_answers or {}, country)
     return out[:limit]
 
 
@@ -262,7 +299,7 @@ def needs_profile(projects: List[Dict[str, Any]], bank: Optional[Dict[str, Any]]
     entry would fail as "age_missing"."""
     for project in projects:
         qual = project_qualification(project, bank)
-        if qual["enabled"] and (qual["ageMin"] is not None or qual["ageMax"] is not None or qual["genders"]):
+        if qual["enabled"] and (qual["ageRanges"] or qual["genders"]):
             return True
     return False
 
@@ -285,11 +322,11 @@ def evaluate(project: Dict[str, Any], answers: Dict[str, Any], profile: Dict[str
         return True, []
     answers = answers or {}
     reasons = []
-    if qual["ageMin"] is not None or qual["ageMax"] is not None:
+    if qual["ageRanges"]:
         age = age_on(profile or {})
         if age is None:
             reasons.append("age_missing")
-        elif (qual["ageMin"] is not None and age < qual["ageMin"]) or (qual["ageMax"] is not None and age > qual["ageMax"]):
+        elif not any((lo is None or age >= lo) and (hi is None or age <= hi) for lo, hi in qual["ageRanges"]):
             reasons.append("age")
     if qual["genders"]:
         gender = str((profile or {}).get("gender") or "").lower()[:1]
@@ -309,6 +346,10 @@ def evaluate(project: Dict[str, Any], answers: Dict[str, Any], profile: Dict[str
         elif answer not in q["qualifying"]:
             reasons.append(q["id"])
     reasons += respondent_profile.reasons(qual, profile or {})
+    if qual["panelQuestions"]:
+        # the panel profile's answers first, then what the landing page asked
+        given = {**panel_questions.landing_answers(answers), **((profile or {}).get("panelAnswers") or {})}
+        reasons += panel_questions.reasons(qual["panelQuestions"], given)
     return not reasons, reasons
 
 
@@ -321,6 +362,7 @@ def clean_answers(raw: Any) -> Dict[str, Any]:
         if key in _LIBRARY or _CUSTOM_ID.match(key):
             out[key] = str(value or "").strip()[:200]
     out.update(respondent_profile.clean_answers(raw))  # p_* targeting answers
+    out.update(panel_questions.clean_answers(raw))     # pq_* panel questions
     return out
 
 
@@ -452,7 +494,7 @@ _COPY_FIELDS = (
     "ipSource", "userAgent", "deviceFingerprint", "panelId", "profilingData", "qualificationAnswers",
     "traffic_source", "adTracking", "sfwVisitorId", "sfwSignals", "sfwScore", "sfwBand", "sfwFlags",
     "sfwQ", "sfwH", "firstName", "lastName", "phone", "contactEmail", "verifyConsent", "panelConsent",
-    "paidAds", "routingSessionId",
+    "paidAds", "routingSessionId", "panelFirst", "panelReturnUrl",
 )
 
 
@@ -501,6 +543,12 @@ async def create_attempt(url_col, base: Dict[str, Any], project: Dict[str, Any],
     })
     if project.get("_alloc"):
         doc["allocation"] = project["_alloc"]
+    if base.get("panelFirst"):
+        try:  # the Panel pays members by survey length
+            loi = float(project.get("loi"))
+            doc["surveyLoi"] = loi if 0 < loi < 300 else None
+        except (TypeError, ValueError):
+            doc["surveyLoi"] = None
     rid = str(doc["_id"])
     doc["redirectUrl"] = await build_link(project, rid)
     await url_col.insert_one(doc)

@@ -807,6 +807,13 @@ function ProjectsPage() {
                       <Eye size={14} />
                     </button>
                     <button
+                      className="pp-act-btn"
+                      title="Qualifications: who may enter this survey"
+                      onClick={() => navigate(`/admin/operations/projects/${p._id}/qualifications`)}
+                    >
+                      Qualify{p.qualification?.enabled ? " ✓" : ""}
+                    </button>
+                    <button
                       className="pp-act-btn pp-act-edit"
                       title="Edit project"
                       onClick={() => {
@@ -946,7 +953,17 @@ function ProjectsPage() {
                 </div>
               </fieldset>
 
-              <QualificationEditor formData={formData} setFormData={setFormData} />
+              {editingId ? (
+                <fieldset className="pp-fieldset">
+                  <legend>Qualifications</legend>
+                  <button type="button" className="pp-act-btn" onClick={() => navigate(`/admin/operations/projects/${editingId}/qualifications`)}>
+                    Open the qualifications page
+                  </button>
+                  <small className="pp-hint"> Country, age ranges, gender, NCCS and panel questions are set there.</small>
+                </fieldset>
+              ) : (
+                <QualificationEditor formData={formData} setFormData={setFormData} />
+              )}
 
               {/* RFQ */}
               <fieldset className="pp-fieldset">

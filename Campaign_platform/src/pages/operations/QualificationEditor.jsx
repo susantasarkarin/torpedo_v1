@@ -19,11 +19,24 @@ const PLACE_FIELDS = [
 ];
 
 const EMPTY_QUAL = {
-  enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], bank: [], custom: [],
+  enabled: false, ageMin: "", ageMax: "", ageRanges: [], panelQuestions: [], genders: [], employment: [], occupation: [], bank: [], custom: [],
   states: "", cities: "", zipPrefixes: "", childrenMin: "", childrenMax: "", childAgeMin: "", childAgeMax: "", nccs: [],
 };
 
 const asText = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
+
+export const COUNTRIES = [
+  { value: "IN", label: "India" },
+  { value: "UK", label: "United Kingdom" },
+  { value: "US", label: "United States" },
+];
+
+// Age ranges; older projects have a single ageMin / ageMax, shown as one range.
+const rangesOf = (q) => (Array.isArray(q.ageRanges) && q.ageRanges.length
+  ? q.ageRanges
+  : (q.ageMin !== "" && q.ageMin != null) || (q.ageMax !== "" && q.ageMax != null)
+    ? [{ min: q.ageMin ?? "", max: q.ageMax ?? "" }]
+    : []);
 
 const authHeaders = (extra = {}) => ({ Authorization: localStorage.getItem("session_id") || "", ...extra });
 
@@ -36,8 +49,24 @@ export default function QualificationEditor({ formData, setFormData }) {
   const [bankError, setBankError] = useState("");
   const [rfq, setRfq] = useState(null); // suggestion read from the RFQ email
   const [rfqBusy, setRfqBusy] = useState(false);
+  const [panelQs, setPanelQs] = useState(null); // SurveyFieldwork Panel profiling questions
+  const [panelPick, setPanelPick] = useState("");
   const qual = { ...EMPTY_QUAL, ...(formData.qualification || {}) };
-  const india = !formData.countryCode || String(formData.countryCode).toUpperCase() === "IN";
+  const country = String(formData.countryCode || "IN").toUpperCase();
+  const india = country === "IN";
+  const ageRanges = rangesOf(qual);
+  const setRanges = (list) => setQual({ ageRanges: list, ageMin: "", ageMax: "" });
+
+  useEffect(() => {
+    authFetch(buildApiUrl("/api/routing/panel-questions"), { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { questions: [], available: false }))
+      .then(setPanelQs)
+      .catch(() => setPanelQs({ questions: [], available: false }));
+  }, []);
+  const panelById = Object.fromEntries((panelQs?.questions || []).map((q) => [q.id, q]));
+  const panelText = (q) => (q.countries[country] || q.countries.IN || Object.values(q.countries)[0]);
+  const pickedPanel = qual.panelQuestions || [];
+  const panelSections = [...new Set((panelQs?.questions || []).map((q) => q.section))];
 
   const readRfq = async () => {
     setRfqBusy(true);
@@ -55,6 +84,11 @@ export default function QualificationEditor({ formData, setFormData }) {
   const applyRfq = () => {
     const found = { ...(rfq?.qualification || {}) };
     if (!india) delete found.nccs;
+    if (found.ageMin != null || found.ageMax != null) {
+      found.ageRanges = [{ min: found.ageMin ?? "", max: found.ageMax ?? "" }];
+      found.ageMin = "";
+      found.ageMax = "";
+    }
     setFormData((prev) => ({
       ...prev,
       loi: prev.loi || (rfq?.loi ? String(rfq.loi) : prev.loi),
@@ -162,14 +196,73 @@ export default function QualificationEditor({ formData, setFormData }) {
 
       {qual.enabled && (
         <div className="qe-body">
-          <div className="pp-form-row">
-            <div className="pp-field">
-              <label>Minimum age</label>
-              <input type="number" min="13" max="99" value={qual.ageMin ?? ""} onChange={(e) => setQual({ ageMin: e.target.value })} />
-            </div>
-            <div className="pp-field">
-              <label>Maximum age</label>
-              <input type="number" min="13" max="120" value={qual.ageMax ?? ""} onChange={(e) => setQual({ ageMax: e.target.value })} />
+          <div className="qe-group">
+            <span className="qe-group-label">Age ranges <small>(any of them qualifies; none = any age)</small></span>
+            {ageRanges.map((r, i) => (
+              <div key={i} className="qe-range">
+                <input type="number" min="13" max="99" placeholder="from" value={r.min ?? ""}
+                  onChange={(e) => setRanges(ageRanges.map((x, j) => (j === i ? { ...x, min: e.target.value } : x)))} />
+                <span>to</span>
+                <input type="number" min="13" max="120" placeholder="to" value={r.max ?? ""}
+                  onChange={(e) => setRanges(ageRanges.map((x, j) => (j === i ? { ...x, max: e.target.value } : x)))} />
+                <button type="button" className="qe-link" onClick={() => setRanges(ageRanges.filter((_, j) => j !== i))}>Remove</button>
+              </div>
+            ))}
+            <button type="button" className="qe-add" onClick={() => setRanges([...ageRanges, { min: "", max: "" }])}>+ Add age range</button>
+          </div>
+
+          <div className="qe-group">
+            <span className="qe-group-label">
+              Panel profiling questions <small>(what panel members answered at signup; others are asked on the survey page)</small>
+            </span>
+            {panelQs && !panelQs.available && <small className="qe-warn">The panel question list could not be loaded just now.</small>}
+            {pickedPanel.map((ref, i) => {
+              const q = panelById[ref.id];
+              const per = q && panelText(q);
+              const chosen = (ref.qualifying || []).map(String);
+              return (
+                <div key={ref.id} className="qe-custom">
+                  <strong className="qe-custom-title">
+                    {per ? per.text : ref.id} <small>({ref.id}{q ? (q.type === "multi" ? ", any ticked answer" : ", one answer") : ""})</small>
+                  </strong>
+                  <div className="qe-custom-qualifying">
+                    <span>Qualifying answers:</span>
+                    {(per?.options || []).map((o) => {
+                      const on = chosen.includes(String(o.code));
+                      return (
+                        <label key={o.code} className="qe-chip">
+                          <input type="checkbox" checked={on} onChange={() => {
+                            const list = [...pickedPanel];
+                            list[i] = { ...ref, qualifying: on ? chosen.filter((c) => c !== String(o.code)) : [...chosen, String(o.code)] };
+                            setQual({ panelQuestions: list });
+                          }} />
+                          {o.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {!chosen.length && <small className="qe-warn">Tick at least one qualifying answer, or this question is ignored.</small>}
+                  <button type="button" className="qe-link" onClick={() => setQual({ panelQuestions: pickedPanel.filter((_, j) => j !== i) })}>
+                    Remove from this project
+                  </button>
+                </div>
+              );
+            })}
+            <div className="qe-bank-row">
+              <select className="qe-bank-select" value={panelPick} onChange={(e) => {
+                const id = e.target.value;
+                if (id && !pickedPanel.some((p) => p.id === id)) setQual({ panelQuestions: [...pickedPanel, { id, qualifying: [] }] });
+                setPanelPick("");
+              }}>
+                <option value="">+ Add a panel question…</option>
+                {panelSections.map((section) => (
+                  <optgroup key={section} label={section}>
+                    {(panelQs?.questions || [])
+                      .filter((q) => q.section === section && q.countries[country] && !pickedPanel.some((p) => p.id === q.id))
+                      .map((q) => <option key={q.id} value={q.id}>{panelText(q).text}</option>)}
+                  </optgroup>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -329,7 +422,7 @@ export default function QualificationEditor({ formData, setFormData }) {
             checked={Boolean(formData.routingEnabled)}
             onChange={(e) => setFormData((prev) => ({ ...prev, routingEnabled: e.target.checked }))}
           />
-          Accept routed respondents (from router links and other surveys' screen-outs)
+          Accept routed respondents and panel members (router links, other surveys' screen-outs, and SurveyFieldwork Panel members before CPX / Cint)
         </label>
         {formData.routingEnabled && (
           <div className="pp-field qe-priority">

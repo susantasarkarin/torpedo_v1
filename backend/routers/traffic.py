@@ -45,6 +45,7 @@ from services import bot_check
 from services import inapp_browser
 from services import panel_profile
 from services import respondent_profile
+from services import panel_questions
 from services.respondent_quality import entry_quality_fields
 from session_state import verify_session
 
@@ -1993,6 +1994,12 @@ async def _handle_project_survey_callback(
                     if next_link:
                         print(f"[ok] Routing {rid} after {new_status} -> next survey")
                         return RedirectResponse(url=next_link)
+                    # A panel member who tried our projects first goes on to CPX / Cint
+                    # (the landing page again, which then skips our projects).
+                    fallback = survey_routing.panel_fallback_url(traffic_record, new_status)
+                    if fallback:
+                        print(f"[ok] Panel member {rid} out of our projects after {new_status} -> CPX / Cint")
+                        return RedirectResponse(url=fallback)
             except Exception as r_err:
                 print(f"[warn] Routing after {new_status} failed for {rid}: {r_err}")
 
@@ -2270,15 +2277,18 @@ async def routing_landing_config(request: Request):
         bank = await survey_routing.load_bank(get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS).database)
     except Exception:
         bank = {}
+    await panel_questions.load()  # wording + answer codes of panel questions picked on projects
     paid = survey_routing.is_paid_ads(vendor, derive_traffic_source(qp))
     # SurveyFieldwork Panel members: DOB and gender come from their panel profile.
     known_profile = False
     known_targeting: dict = {}
+    known_answers: dict = {}
     panel_param = str(qp.get("panel") or "").strip()
     if panel_param and not panel_param.startswith(("[", "{", "%")):
         member = await panel_profile.fetch(panel_param)
         known_profile = bool(member)
         known_targeting = (member or {}).get("targeting") or {}
+        known_answers = (member or {}).get("panelAnswers") or {}
     return JSONResponse(content={
         "country": country,
         # Panel members are verified, profiled people: no security question
@@ -2292,7 +2302,8 @@ async def routing_landing_config(request: Request):
         "inAppArm": inapp_browser.arm_for(qp.get("vid", ""), qp.get("rid", ""), request.headers.get("user-agent", "")),
         # Targeting questions (state, city, PIN, children, NCCS) only for what the
         # surveys screen on and a panel member's profile does not already hold.
-        "questions": survey_routing.questions_for(projects, bank, known=known_targeting, country=country),
+        "questions": survey_routing.questions_for(projects, bank, known=known_targeting, country=country,
+                                                  known_answers=known_answers),
         "paidAds": paid,
         "pii": {"required": True, "verifyText": survey_routing.VERIFY_CONSENT_TEXT,
                 "panelText": survey_routing.PANEL_CONSENT_TEXT,
@@ -2322,6 +2333,14 @@ async def routing_question_library():
             "routingEnabled": survey_routing.routing_enabled(),
             "countryRoutingEnabled": survey_routing.country_routing_enabled(),
             "maxAttempts": survey_routing.max_attempts()}
+
+
+@router.get("/api/routing/panel-questions", dependencies=[Depends(verify_session)])
+async def routing_panel_questions():
+    """The SurveyFieldwork Panel's profiling questions (answer codes per country), for project qualifications."""
+    catalog = await panel_questions.load(force=True)
+    return {"questions": sorted(catalog.values(), key=lambda q: (q.get("section") or "", q["id"])),
+            "available": bool(catalog)}
 
 
 @router.get("/api/routing/qualification-from-rfq", dependencies=[Depends(verify_session)])
@@ -3241,6 +3260,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         _, profile_answers = respondent_profile.split_answers(ad_fields.get("qualificationAnswers") or {})
         profiling_data = respondent_profile.merge(
             profiling_data, (known or {}).get("targeting") or {}, respondent_profile.from_landing_answers(profile_answers))
+        if known and known.get("panelAnswers"):
+            profiling_data["panelAnswers"] = known["panelAnswers"]  # codes for panel-question criteria
 
         # Log profiling data if provided
         if birthday_day is not None and birthday_month is not None and birthday_year is not None:
@@ -3337,7 +3358,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ===============================================================================
         # CASE 1: PROJECT-BASED (ADHOC) FLOW (api=false & pid=<project_number>)
         # ===============================================================================
-        if (is_project_adhoc_flow or is_router_flow) and traffic_id:
+        # SurveyFieldwork Panel members: our own projects first; CPX / Cint only when
+        # nothing fits or our projects terminate them (after=projects on the way back).
+        panel_first = (panel_member and not is_project_adhoc_flow and not is_router_flow
+                       and survey_routing.panel_projects_first(params))
+        if (is_project_adhoc_flow or is_router_flow or panel_first) and traffic_id:
             projects_col = get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS)
             record = await async_url_collection.find_one({"_id": ObjectId(traffic_id)}) or {}
             ip_country = survey_routing.norm_country(record.get("cfIpCountry") or country_code)
@@ -3375,6 +3400,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         route_reason = "prescreen_fail" if country_ok else "country"
                     else:
                         allocation_error = "No survey available"
+            elif panel_first:
+                print(f"Strategy: PANEL MEMBER -> our projects first. country={ip_country}, SFWID={traffic_id}")
+                route_reason = "panel_first"
             elif not survey_routing.routing_enabled():
                 allocation_error = "No survey available"  # router links need SURVEY_ROUTING_ENABLED
             else:
@@ -3385,7 +3413,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 await async_url_collection.update_one({"_id": ObjectId(traffic_id)}, {"$set": {"prescreen": prescreen}})
 
             # Router link, or the entry project didn't fit: next eligible survey in this country
-            if target is None and route_reason in ("prescreen_fail", "country", "router_link"):
+            if target is None and route_reason in ("prescreen_fail", "country", "router_link", "panel_first"):
                 try:
                     candidates = await asyncio.wait_for(survey_routing.eligible_projects(
                         async_url_collection, projects_col, record, ip_country,
@@ -3395,6 +3423,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     print(f"[warn] routing lookup failed for {traffic_id}: {r_err}")
                 if candidates:
                     target = candidates[0]
+                elif route_reason == "panel_first":
+                    print(f"Panel member {traffic_id}: none of our projects fits -> CPX / Cint")
                 else:
                     allocation_error = "No survey available"
 
@@ -3414,15 +3444,25 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # how they arrived: panel/vendor pid link, router link, or re-routed at entry
                     "entryType": {"entry_link": "pid_link", "router_link": "router_link",
                                   "prescreen_fail": "rerouted_prescreen",
-                                  "country": "rerouted_country"}.get(route_reason, route_reason),
+                                  "country": "rerouted_country",
+                                  "panel_first": "panel_project"}.get(route_reason, route_reason),
                 }
                 if route_reason != "entry_link":
                     # counted under the survey they actually entered
                     update_fields.update({"params.pid": survey_id, "params.api": "false",
-                                          "routedFrom": str(project_number or "router"),
+                                          "routedFrom": "panel" if route_reason == "panel_first" else str(project_number or "router"),
                                           "entryPid": str(project_number or ""), "routingAttempt": 1})
                     if target.get("_alloc"):
                         update_fields["allocation"] = target["_alloc"]
+                    if route_reason == "panel_first":
+                        update_fields["panelFirst"] = True  # CPX / Cint if our projects terminate them
+                        update_fields["surveyLoi"] = _as_loi(target.get("loi"))  # the Panel pays members by LOI
+                        # where they go if our projects terminate them: this landing link again
+                        landing_url = str(data.get("url") or "")
+                        if not landing_url.startswith("http"):
+                            from urllib.parse import urlencode as _urlencode
+                            landing_url = f"{FRONTEND_URL}/takesurvey?{_urlencode({k: v for k, v in params.items() if isinstance(v, str)})}"
+                        update_fields["panelReturnUrl"] = landing_url[:2000]
                 session_id = None
                 if survey_routing.routing_enabled():
                     session_id = await survey_routing.start_session(async_url_collection.database, record, ip_country)
@@ -3456,7 +3496,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         if session_id:
                             await survey_routing.close_attempt(async_url_collection.database, session_id,
                                                                traffic_id, "SFW_BLOCKED", final=True)
-            elif route_reason or prescreen:
+            elif (route_reason or prescreen) and route_reason != "panel_first":
                 await async_url_collection.update_one(
                     {"_id": ObjectId(traffic_id)},
                     {"$set": {"status": "NOT_ROUTED", "notRoutedReason": route_reason or "prescreen_fail",

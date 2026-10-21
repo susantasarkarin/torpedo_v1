@@ -780,6 +780,16 @@ export default function TrafficFlowParser() {
     }
   }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender, landing, answers, pii, botAnswer, botTrap]);
 
+  // A panel member back from our own projects (after=projects) goes straight on to
+  // CPX / Cint: nothing to ask them, so don't make them press Proceed again.
+  const autoContinuedRef = useRef(false);
+  useEffect(() => {
+    if (autoContinuedRef.current || !landing || !urlParams || urlParams.after !== "projects") return;
+    if (!landing.knownProfile || (landing.questions || []).length || landing.pii?.required) return;
+    autoContinuedRef.current = true;
+    handleStore();
+  }, [landing, urlParams, handleStore]);
+
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
   // useEffect(() => {
