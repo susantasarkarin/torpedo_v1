@@ -255,3 +255,9 @@ def test_rule_typed_waits_for_the_ai_when_the_model_is_not_called(monkeypatch):
     r = cf.resolve_one(db, {"_id": "x.com", "name": "X", "domain": "x.com"}, NOW,
                        allow_google=False, allow_model=False)
     assert r == "needs_model" and db["company_types"].docs["x.com"]["proposed_type"] == "aec"
+
+
+def test_research_firm_naming_its_brand_clients_stays_a_research_firm():
+    head = ("Global Strategy and Innovation Consultants - Egg Strategy | providing branding, insight, strategy, "
+            "qualitative research and quantitative research for leading CPG, Health and Lifestyle brands.")
+    assert cf.type_from_text(head)[0] == "mr_agency"
