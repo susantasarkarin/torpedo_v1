@@ -113,7 +113,7 @@ def plan(client=None) -> List[Dict[str, Any]]:
     types = {d["_id"]: d for d in ea[cf.COLLECTION].find({"type": {"$in": list(cf.TYPES)}})}
     rels = {r["key"].strip().lower() for r in ea["party_relationships"].find(
         {"relationship": {"$in": list(cf.EXCLUDED_RELATIONSHIPS)}, "key": {"$type": "string"}}, {"key": 1})}
-    suppressed = {d["email"] for d in tdb["outreach_bounce_suppression"].find({}, {"email": 1})}
+    suppressed = known_dead(tdb.client)
     checked = {d["_id"]: d for d in tdb[CHECKS].find({}, {"company_type": 1, "qwen": 1, "reconciled": 1})}
     todo = []
     for email, rows in _people(tdb).items():
@@ -153,6 +153,22 @@ def plan(client=None) -> List[Dict[str, Any]]:
                      "prev": prev})
     todo.sort(key=lambda p: (not p["live"], -(p["last"] - datetime.min).total_seconds()))
     return todo
+
+
+def known_dead(client) -> set:
+    """Every address known to bounce: the outreach suppression list, any
+    bounced outreach send, a lead marked bounced/invalid, and the shared
+    suppression list's bounces. The resends of 2026-10-22 went to 199 such
+    addresses (48% of the day's sends) because only the first was checked."""
+    from app.services.email_structure import bounced_addresses
+    tdb = client[os.getenv("MONGO_DB_NAME") or "torpedo"]
+    dead = {d["email"].strip().lower() for d in tdb["outreach_bounce_suppression"].find({}, {"email": 1})
+            if d.get("email")}
+    dead |= {e.strip().lower() for e in tdb["outreach_sends_v2"].distinct("email", {"status": "bounced"}) if e}
+    dead |= {e.strip().lower() for e in client["email_automation"]["leads_enriched"].distinct(
+        "email", {"email_status": {"$in": ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]}}) if e}
+    dead |= bounced_addresses(client)
+    return dead
 
 
 def _campaign_for(tdb, business: str) -> Optional[Dict[str, Any]]:

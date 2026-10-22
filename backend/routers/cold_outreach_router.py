@@ -2542,6 +2542,26 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             return False
 
+        # Bounce HISTORY, not just the suppression list. On 2026-10-22 all
+        # 199 bounces of the day (of 416 sends) went to addresses we already
+        # knew were dead: 149 had bounced before in outreach_sends_v2, 50
+        # carried email_status "bounced" on the lead -- none of them had been
+        # copied to outreach_bounce_suppression, the only list checked here.
+        _bounce_why = _known_bounce(db, email)
+        if _bounce_why:
+            logger.info(f"[Outreach] Not sending to {email}: {_bounce_why}")
+            db["outreach_bounce_suppression"].update_one(
+                {"email": email},
+                {"$setOnInsert": {"email": email, "reason": _bounce_why[:200],
+                                  "created_at": datetime.utcnow(), "source": "send_gate_history"}},
+                upsert=True)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"pre_bounce_status": lead_record.get("workflow_status"),
+                          "workflow_status": "bounced", "last_send_error": _bounce_why[:300],
+                          "updated_at": datetime.utcnow()}})
+            return False
+
         # Check if the lead has been marked Negative (DNC) in leads_enriched
         leads_db = get_leads_db()
         enriched_lead = leads_db["leads_enriched"].find_one(
@@ -3097,6 +3117,24 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 {"_id": lead_record["_id"]}, {"$set": _update}
             )
         return False
+
+
+_BAD_LEAD_STATUSES = ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]
+
+
+def _known_bounce(db, email: str) -> str:
+    """Why this address is known dead, or '' -- any earlier bounced send, the
+    lead's own email_status, or the shared suppression list's bounce reasons."""
+    if db["outreach_sends_v2"].find_one({"email": email, "status": "bounced"}, {"_id": 1}):
+        return "bounced before (outreach send history)"
+    if get_leads_db()["leads_enriched"].find_one(
+            {"email": email, "email_status": {"$in": _BAD_LEAD_STATUSES}}, {"_id": 1}):
+        return "lead's email_status is bounced/invalid"
+    if get_leads_db()["suppression_list"].find_one(
+            {"email": email, "reason": {"$in": ["bounce", "gmail_bounce", "bounced", "hard_bounce"]}},
+            {"_id": 1}):
+        return "on the bounce suppression list"
+    return ""
 
 
 def _hold_lead(db, lead_record: dict, why: str) -> None:
