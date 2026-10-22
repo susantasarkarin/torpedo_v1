@@ -3312,7 +3312,12 @@ def process_due_outreach_sends() -> dict:
                 # sets this flag. Absence of the field (the default for
                 # every existing/legacy row) means NOT sendable.
                 "sendable": True,
-            }).limit(2))
+            # Follow-ups first, then fresh first touches (owner, 2026-10-22:
+            # "each mailbox has a limit of 2000 mails per day. you need to
+            # send all the followups first followed by fresh outreach") --
+            # the mailbox cap is shared, so whatever is left after the
+            # follow-ups goes to new people. Oldest-due first within each.
+            }).sort([("current_step", -1), ("next_send_at", 1)]).limit(2))
             due.extend(camp_due)
 
         if cooldown_skipped:

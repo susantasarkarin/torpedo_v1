@@ -86,7 +86,8 @@ _INDUSTRY_RULES: List[Tuple[str, Tuple[str, ...]]] = [
     ("aec", ("architecture and planning", "architecture & planning", "architecture", "architects",
              "civil engineering", "construction", "building construction", "structural engineering",
              "mep", "bim", "building information modeling", "building information modelling",
-             "real estate development", "interior design", "building materials", "land surveying",
+             "real estate development", "real estate", "property developer", "property development",
+             "real estate developer", "interior design", "building materials", "land surveying",
              "urban planning")),
     ("brand", ("consumer goods", "consumer products", "fmcg", "cpg", "food and beverage",
                "food & beverage", "food production", "beverage", "retail", "apparel", "fashion",
@@ -114,6 +115,51 @@ _SUFFIXES = re.compile(r"\b(inc|incorporated|llc|ltd|limited|plc|corp|corporatio
                        r"gmbh|sa|ag|bv|group|holdings|india|global|international|the)\b\.?", re.I)
 _PLATFORM_DOMAINS = {"linkedin.com", "in.linkedin.com", "gmail.com", "yahoo.com", "outlook.com",
                      "hotmail.com", "google.com"}
+
+
+# Competitors are never targets (owner, 2026-10-22: "ignore all
+# competitors"): a BIM / CAD outsourcing firm sells what BIMwave sells; a
+# panel, sample or fieldwork provider sells what Survey Fieldwork sells.
+# (Cogentix's competitors -- research agencies -- are already a different
+# type.) Matched on the company NAME and the HEAD of its own text (LinkedIn
+# industry, page title/description) -- body text of a big AEC firm mentions
+# "BIM services" too, and that does not make AECOM a competitor.
+COMPETITOR_NAME = {
+    "bimwave": re.compile(r"\b(bim|cad|revit|drafting|scan ?to ?bim)\b", re.I),
+    "sfw": re.compile(r"\b(panel|panels|sample|fieldwork|field work|data collection)\b", re.I),
+}
+COMPETITOR_TEXT = {
+    "bimwave": re.compile(r"\b(bim|cad|revit)\s+(services|outsourcing|modell?ing services|drafting|"
+                          r"consult\w* services|coordination services)|\bcad drafting|\bdrafting services|"
+                          r"\bscan[ -]to[ -]bim|\bbim outsourcing", re.I),
+    "sfw": re.compile(r"\b(panel provider|online panel|survey panel|sample provider|online sample|"
+                      r"sample company|fieldwork (services|agency|company)|data collection (services|company)|"
+                      r"respondent recruitment|panel company)\b", re.I),
+}
+COMPETITOR_SEED = {
+    "sfw": {"dynata", "toluna", "cint", "lucidhq", "purespectrum", "pureprofile", "borderless access",
+            "rakuten insight", "macromill", "schlesinger", "market cube", "innovatemr", "prodege",
+            "quest mindshare", "mfour", "survey fieldwork", "surveyfieldwork"},
+    "bimwave": {"bimheroes", "bim heroes", "pinnacle infotech", "pinnacleinfotech", "bimwave",
+                "bimwave solutions", "bimwavesolutions"},
+}
+
+
+def competitor_of(name: str, head: str = "", domain: str = "") -> List[str]:
+    """Which of our businesses this company competes with."""
+    n = normalise_name(name)
+    root = normalise_domain(domain).split(".")[0]
+    out = []
+    for biz in ("bimwave", "sfw"):
+        if (n in COMPETITOR_SEED[biz] or root in COMPETITOR_SEED[biz]
+                or COMPETITOR_NAME[biz].search(name or "") or COMPETITOR_TEXT[biz].search(head or "")):
+            out.append(biz)
+    return out
+
+
+def _head(doc: Dict[str, Any]) -> str:
+    return " | ".join(t for t in (doc.get("skrapp_text") or "", doc.get("linkedin_text") or "",
+                                  (doc.get("website_text") or "").split(" || ")[0]) if t)
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +233,9 @@ def decide(type_doc: Optional[Dict[str, Any]], business: str, title: str = "") -
         return "fit", "campaign has no company-type rule"
     if type_doc and type_doc.get("relationship") in EXCLUDED_RELATIONSHIPS:
         return "excluded", f"company is our {type_doc['relationship']}"
+    if type_doc and business.lower() in competitor_of(type_doc.get("name") or "", _head(type_doc),
+                                                       type_doc.get("domain") or ""):
+        return "excluded", f"company is a {business} competitor"
     ctype = (type_doc or {}).get("type")
     if ctype not in TYPES:
         return "unknown", "company type not known yet"
@@ -239,7 +288,8 @@ def lookup(name: str, domain: str = "", client=None, queue_if_unknown: bool = Tr
         col.update_one({"_id": key}, {"$set": {"type": st, "source": "seed", "name": name,
                                                 "domain": normalise_domain(domain), "at": now}},
                        upsert=True)
-        return {"_id": key, "type": st, "source": "seed", "relationship": rel}
+        return {"_id": key, "type": st, "source": "seed", "relationship": rel,
+                "name": name, "domain": normalise_domain(domain)}
     if queue_if_unknown:
         col.update_one({"_id": key}, {
             "$setOnInsert": {"status": "pending", "attempts": 0, "queued_at": now, "next_try_at": now},
@@ -497,6 +547,22 @@ async def _search(query: str, num: int = 10) -> List[Dict[str, Any]]:
     return await perform_google_search(query, num_results=num, purpose="company")
 
 
+def skrapp_text(client, domain: str, name: str) -> str:
+    """'Industry: Real Estate | Puravankara Limited | Public Company | 1,001-5,000'
+    from Skrapp's free company card; '' when it has none."""
+    try:
+        from leads import skrapp_client
+        card = skrapp_client.company_snapshot(client, domain=domain, name="" if domain else name)
+    except Exception as e:
+        logger.info("[CompanyFit] skrapp card failed for %s: %s", domain or name, e)
+        return ""
+    if not card:
+        return ""
+    parts = [f"Industry: {card['industry']}" if card.get("industry") else "", card.get("company_name") or "",
+             card.get("type") or "", card.get("employees_range") or "", card.get("hq_country") or ""]
+    return " | ".join(p for p in parts if p)
+
+
 def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = True,
                 allow_model: bool = True) -> str:
     """One step for one company -> typed | needs_google | needs_model | unclear | not_found."""
@@ -504,7 +570,15 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
     upd: Dict[str, Any] = {"checked_at": now}
     li, li_url = doc.get("linkedin_text") or "", doc.get("linkedin_url") or ""
     ctype, evidence, source = None, "", ""
-    if li:
+    # Skrapp's free company card first: LinkedIn's own industry, no quota
+    sk = doc.get("skrapp_text")
+    if sk is None and (domain or name):
+        sk = skrapp_text(db.client, domain, name)
+        upd["skrapp_text"] = sk
+    sk = sk or ""
+    if sk:
+        (ctype, evidence), source = type_from_text(sk), "skrapp"
+    if li and not ctype:
         (ctype, evidence), source = type_from_text(li), "linkedin"
     # the company's own website only when LinkedIn did not settle it
     site = doc.get("website_text")
@@ -515,7 +589,7 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
     if not ctype and site:
         (ctype, evidence), source = type_from_text(site.split(" || ")[0]), "website"
     tried_google = bool(doc.get("linkedin_at"))  # Google runs in batches (linkedin_batch)
-    text = " | ".join(t for t in (li, site) if t)
+    text = " | ".join(t for t in (sk, li, site) if t)
     if not ctype and text and allow_model:
         ctype = _model_type(name or domain, text)
         if ctype:
@@ -630,7 +704,7 @@ def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_call
 
     # 1. Google: LinkedIn pages, GOOGLE_BATCH companies per call (no model
     #    needed -- runs first so a busy model never holds it up)
-    waiting = {"status": {"$in": ["pending", "needs_google"]}, "type": {"$exists": False},
+    waiting = {"status": "needs_google", "type": {"$exists": False},
                "linkedin_at": None, "next_try_at": {"$lte": now}}
     calls = 0
     while calls < google_calls and _google_left() > 0:
@@ -653,11 +727,10 @@ def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_call
         _resolve("model:", doc, allow_google=False, allow_model=True)
         if stats.get("model:model_unavailable"):
             break
-    # 3. no Google budget left today: the companies' own websites
-    if calls == 0:
-        for doc in col.find({"status": "pending", "type": {"$exists": False},
-                             "next_try_at": {"$lte": now}, "website_text": None}).sort(sort).limit(limit):
-            _resolve("site:", doc, allow_google=False, allow_model=False)
+    # 3. new companies: Skrapp's free card, then their own website
+    for doc in col.find({"status": "pending", "type": {"$exists": False},
+                         "next_try_at": {"$lte": now}}).sort(sort).limit(limit):
+        _resolve("new:", doc, allow_google=False, allow_model=False)
     logger.info("[CompanyFit] %s", stats)
     return stats
 

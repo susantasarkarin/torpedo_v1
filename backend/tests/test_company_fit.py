@@ -219,6 +219,8 @@ class _TypesCol:
 
 
 class _EA(dict):
+    client = None  # no Skrapp in these tests: skrapp_text() then returns ""
+
     def __missing__(self, k):
         self[k] = _TypesCol() if k == "company_types" else _Rows()
         return self[k]
@@ -306,3 +308,41 @@ def test_a_research_firm_never_passes_as_a_brand(monkeypatch):
 
 def test_unsafe_guessed_address_is_never_resent():
     assert "bounce_recovery_alt" in ic.UNSAFE_SOURCES
+
+
+# --- 2026-10-22: competitors, real-estate developers, Skrapp card ----------
+
+@pytest.mark.parametrize("name,head,domain,want", [
+    ("BIM Heroes", "Industry: Business Consulting and Services", "bimheroes.com", ["bimwave"]),
+    ("Pinnacle Infotech", "BIM Services | Pinnacle", "pinnacleinfotech.com", ["bimwave"]),
+    ("Acme CAD Drafting", "", "", ["bimwave"]),
+    ("Dynata", "Industry: Market Research", "dynata.com", ["sfw"]),
+    ("Panel Station", "", "", ["sfw"]),
+    ("Fast Field Ltd", "Online panel provider in Asia", "", ["sfw"]),
+    ("AECOM", "Industry: Civil Engineering | AECOM", "aecom.com", []),
+    ("Ipsos", "Industry: Market Research | Global Market Research and Public Opinion Specialist", "ipsos.com", []),
+])
+def test_competitors(name, head, domain, want):
+    assert cf.competitor_of(name, head, domain) == want
+
+
+def test_competitor_is_excluded_from_its_campaign_only():
+    doc = {"type": "aec", "name": "BIM Heroes", "domain": "bimheroes.com"}
+    assert cf.decide(doc, "bimwave")[0] == "excluded"
+    doc = {"type": "mr_agency", "name": "Dynata", "domain": "dynata.com"}
+    assert cf.decide(doc, "sfw")[0] == "excluded"
+
+
+def test_real_estate_developers_are_aec():
+    assert cf.type_from_text("Industry: Real Estate | Puravankara Limited | Public Company")[0] == "aec"
+
+
+def test_skrapp_card_is_the_first_source(monkeypatch):
+    db = _EA()
+    monkeypatch.setattr(cf, "skrapp_text", lambda c, d, n: "Industry: Market Research | Ipsos")
+    monkeypatch.setattr(cf, "website_text", lambda d: (_ for _ in ()).throw(AssertionError("no site read")))
+    monkeypatch.setattr(cf, "_model_confirms", lambda n, t, c: "yes")
+    monkeypatch.setattr(cf, "rebasket_company", lambda *a: 0)
+    r = cf.resolve_one(db, {"_id": "ipsos.com", "name": "Ipsos", "domain": "ipsos.com"}, NOW,
+                       allow_google=False, allow_model=True)
+    assert r == "typed" and db["company_types"].docs["ipsos.com"]["source"] == "skrapp"

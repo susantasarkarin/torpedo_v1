@@ -2308,6 +2308,28 @@ async def startup_event():
                               name="Email structures from every outreach address that never bounced",
                               max_instances=1, coalesce=True, replace_existing=True)
 
+            def _skrapp_refind_job():
+                try:
+                    from leads.skrapp_jobs import refind_bounced
+                    print(f"[SkrappRefind] {refind_bounced(limit=20)}")
+                except Exception as e:
+                    print(f"[SkrappRefind] Error: {e}")
+
+            scheduler.add_job(_skrapp_refind_job, IntervalTrigger(hours=1),
+                              id="skrapp_refind", name="Bounced people: new verified address via Skrapp",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _skrapp_lists_job():
+                try:
+                    from leads.skrapp_jobs import import_lists
+                    print(f"[SkrappLists] {import_lists()}")
+                except Exception as e:
+                    print(f"[SkrappLists] Error: {e}")
+
+            scheduler.add_job(_skrapp_lists_job, IntervalTrigger(hours=24), next_run_time=datetime.now(),
+                              id="skrapp_lists", name="Valid contacts from Skrapp lists -> fresh outreach",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             def _icp_check_job():
                 try:
                     from leads.icp_check import run as check_people
