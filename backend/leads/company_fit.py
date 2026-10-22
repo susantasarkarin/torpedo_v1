@@ -531,6 +531,12 @@ def resolve_one(db, doc: Dict[str, Any], now: datetime, allow_google: bool = Tru
             db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_model"}})
             return "needs_model"
         ans = _model_confirms(name or domain, text, ctype)
+        if ans == "yes" and ctype == "brand":
+            # Research firms talk about consumers too: GWI and Egg Strategy
+            # got a yes to "sells to ordinary people". A brand must also
+            # NOT be a market research company.
+            mr = _model_confirms(name or domain, text, "mr_agency")
+            ans = None if mr is None else ("no" if mr == "yes" else "yes")
         if ans is None:  # outage: asked again, never a verdict
             db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {**upd, "status": "needs_model"}})
             return "model_unavailable"

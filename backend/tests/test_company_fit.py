@@ -291,3 +291,14 @@ def test_a_page_must_be_that_company_not_one_sharing_a_word():
     items = [{"link": "https://www.linkedin.com/company/global-x", "title": "Global Research Partners | LinkedIn",
               "snippet": "Industry: Market Research"}]
     assert cf._page_text(items, "Research Now")[0] == ""
+
+
+def test_a_research_firm_never_passes_as_a_brand(monkeypatch):
+    db = _EA()
+    monkeypatch.setattr(cf, "website_text", lambda d: "GWI | Audience profiles for marketers || ...")
+    monkeypatch.setattr(cf, "_model_confirms", lambda n, t, c: "yes")   # yes to everything
+    monkeypatch.setattr(cf, "_model_type", lambda n, t: "brand")
+    monkeypatch.setattr(cf, "rebasket_company", lambda *a: 0)
+    doc = {"_id": "gwi.com", "name": "GWI", "domain": "gwi.com", "linkedin_at": NOW}
+    r = cf.resolve_one(db, doc, NOW, allow_google=False, allow_model=True)
+    assert r == "review" and "type" not in db["company_types"].docs["gwi.com"]
