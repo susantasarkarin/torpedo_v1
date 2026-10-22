@@ -213,6 +213,14 @@ function ProjectDetail() {
       {/* ── Top bar: back + title + chips ── */}
       <div className="pd-topbar">
         <button onClick={() => navigate(-1)} className="pd-back-btn"><ArrowLeft size={14} /> Back</button>
+        <button
+          onClick={() => navigate(`/admin/operations/projects/${project._id}/qualifications`)}
+          className="pd-back-btn"
+          style={{ background: "#e8890b", color: "#fff", borderColor: "#e8890b", marginLeft: 8 }}
+          title="Who may enter this survey: country, age ranges, gender, NCCS, panel questions"
+        >
+          {project.qualification?.enabled ? "Edit qualifications" : "Set qualifications"}
+        </button>
         <div className="pd-topbar-main">
           <h1 className="pd-title cx-page-title">{project.projectName}</h1>
           <div className="pd-meta-chips">
@@ -255,19 +263,6 @@ function ProjectDetail() {
       <div className="pd-two-col">
         {/* Left column */}
         <div className="pd-col">
-          <div className="pd-section">
-            <h4 className="pd-section-title">Project Details</h4>
-            <div className="pd-kv-grid">
-              <div className="pd-kv"><span className="pd-k">Project Name</span><span className="pd-v">{project.projectName || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Survey No</span><span className="pd-v mono">{project.surveyNo || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Client</span><span className="pd-v">{project.client || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Vendor</span><span className="pd-v">{project.vendorName || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Country Code</span><span className="pd-v mono">{project.countryCode || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Sales Person</span><span className="pd-v">{project.salesPerson || "—"}</span></div>
-              <div className="pd-kv"><span className="pd-k">Value</span><span className="pd-v">{project.projectValue ? `$${Number(project.projectValue).toLocaleString()}` : "—"}</span></div>
-            </div>
-          </div>
-
           {(() => {
             // Qualifications: who may enter (set on the Qualifications page)
             const q = project.qualification || {};
@@ -308,6 +303,20 @@ function ProjectDetail() {
               </div>
             );
           })()}
+
+          <div className="pd-section">
+            <h4 className="pd-section-title">Project Details</h4>
+            <div className="pd-kv-grid">
+              <div className="pd-kv"><span className="pd-k">Project Name</span><span className="pd-v">{project.projectName || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Survey No</span><span className="pd-v mono">{project.surveyNo || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Client</span><span className="pd-v">{project.client || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Vendor</span><span className="pd-v">{project.vendorName || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Country Code</span><span className="pd-v mono">{project.countryCode || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Sales Person</span><span className="pd-v">{project.salesPerson || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Value</span><span className="pd-v">{project.projectValue ? `$${Number(project.projectValue).toLocaleString()}` : "—"}</span></div>
+            </div>
+          </div>
+
 
           <div className="pd-section">
             <h4 className="pd-section-title"><CalendarDays size={14} /> Timeline</h4>
