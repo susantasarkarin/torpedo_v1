@@ -71,12 +71,10 @@ async def fill(project: Dict[str, Any], client=None) -> Optional[Dict[str, Any]]
         return None
     client = client if client is not None else _client()
     brief = await rfq_targeting.find_brief(client["torpedo_gmail"]["email_metadata"], project)
-    if not brief:
+    sets = merge(project, rfq_targeting.extract(brief["text"])) if brief else {}
+    if not sets:  # no email, or nothing in it to fill: look again after RECHECK_HOURS
         await client["email_automation"]["projects"].update_one(
             {"_id": project["_id"]}, {"$set": {"qualificationAutofillCheckedAt": datetime.utcnow()}})
-        return None
-    sets = merge(project, rfq_targeting.extract(brief["text"]))
-    if not sets:
         return None
     db = client["email_automation"]
     await db["projects_qualification_backup_auto"].insert_one({
