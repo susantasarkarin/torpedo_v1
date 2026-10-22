@@ -82,3 +82,5 @@ def test_no_email_no_change(monkeypatch):
     monkeypatch.setattr(rfq_targeting, "find_brief", brief)
     client = _Client()
     assert asyncio.run(qa.fill({"_id": ObjectId(), "qualification": {}}, client)) is None
+    # remembered, so the 30-min job looks again only after 6 h
+    assert "qualificationAutofillCheckedAt" in client["email_automation"]["projects"].updates[0][1]["$set"]

@@ -5,7 +5,9 @@ Owner: "the qualification, if present in the mail should be automatically
 filled. if not present then we should be able to fill in manually."
 
   when      a project is created or saved, and every 30 min for live / paused
-            projects (the RFQ email, or a revised one, can arrive later)
+            projects not filled yet (the RFQ email can arrive later); a project
+            whose email has no target group is looked at again after 6 h -- each
+            look scans the mail store (~4 s), too heavy to repeat every 30 min
   what      services/rfq_targeting.extract on the project's RFQ email: age range,
             women / men only, NCCS (India), cities, children; LOI and IR when
             the project has none
@@ -16,13 +18,14 @@ filled. if not present then we should be able to fill in manually."
             previous values go to projects_qualification_backup_auto first
 """
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from bson import ObjectId
 
 from services import rfq_targeting
 
+RECHECK_HOURS = 6
 AUTO_KEYS = ("genders", "nccs", "cities", "states", "childrenMin", "childAgeMin", "childAgeMax")
 _CLIENT: Dict[str, Any] = {}
 
@@ -69,6 +72,8 @@ async def fill(project: Dict[str, Any], client=None) -> Optional[Dict[str, Any]]
     client = client if client is not None else _client()
     brief = await rfq_targeting.find_brief(client["torpedo_gmail"]["email_metadata"], project)
     if not brief:
+        await client["email_automation"]["projects"].update_one(
+            {"_id": project["_id"]}, {"$set": {"qualificationAutofillCheckedAt": datetime.utcnow()}})
         return None
     sets = merge(project, rfq_targeting.extract(brief["text"]))
     if not sets:
@@ -100,7 +105,10 @@ async def fill_open_projects(client=None) -> int:
     n = 0
     cursor = client["email_automation"]["projects"].find({
         "is_deleted": {"$ne": True}, "qualificationManual": {"$ne": True},
-        "projectStatus": {"$regex": "^(live|pause)$", "$options": "i"}})
+        "qualificationSource": {"$exists": False},          # filled once already: done
+        "projectStatus": {"$regex": "^(live|pause)$", "$options": "i"},
+        "$or": [{"qualificationAutofillCheckedAt": {"$exists": False}},
+                {"qualificationAutofillCheckedAt": {"$lt": datetime.utcnow() - timedelta(hours=RECHECK_HOURS)}}]})
     async for project in cursor:
         try:
             if await fill(project, client):
