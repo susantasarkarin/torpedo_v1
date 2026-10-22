@@ -268,6 +268,45 @@ function ProjectDetail() {
             </div>
           </div>
 
+          {(() => {
+            // Qualifications: who may enter (set on the Qualifications page)
+            const q = project.qualification || {};
+            const ranges = (q.ageRanges && q.ageRanges.length ? q.ageRanges : (q.ageMin || q.ageMax) ? [{ min: q.ageMin, max: q.ageMax }] : [])
+              .map((r) => `${r.min || "any"}–${r.max || "any"}`).join(", ");
+            const list = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
+            const kids = [q.childrenMin !== undefined && q.childrenMin !== "" ? `at least ${q.childrenMin}` : "",
+              q.childrenMax !== undefined && q.childrenMax !== "" ? `at most ${q.childrenMax}` : "",
+              (q.childAgeMin !== undefined && q.childAgeMin !== "") || (q.childAgeMax !== undefined && q.childAgeMax !== "")
+                ? `a child aged ${q.childAgeMin || 0}–${q.childAgeMax || 17}` : ""].filter(Boolean).join(", ");
+            const rows = [
+              ["Age", ranges],
+              ["Gender", (q.genders || []).map((g) => (g === "f" ? "Female" : g === "m" ? "Male" : g)).join(", ")],
+              ["NCCS", list(q.nccs)],
+              ["Cities", list(q.cities)],
+              ["States", list(q.states)],
+              ["PIN starts with", list(q.zipPrefixes)],
+              ["Children", kids],
+              ["Panel questions", (q.panelQuestions || []).length ? `${q.panelQuestions.length} (${q.panelQuestions.map((p) => p.id).join(", ")})` : ""],
+              ["Bank questions", (q.bank || []).length ? String(q.bank.length) : ""],
+            ].filter(([, v]) => v);
+            return (
+              <div className="pd-section">
+                <h4 className="pd-section-title">Qualifications</h4>
+                <div className="pd-kv-grid">
+                  <div className="pd-kv"><span className="pd-k">Pre-screening</span><span className="pd-v">{q.enabled ? "On" : "Off: everyone is sent to the survey"}</span></div>
+                  {q.enabled && rows.map(([k, v]) => (
+                    <div key={k} className="pd-kv"><span className="pd-k">{k}</span><span className="pd-v">{v}</span></div>
+                  ))}
+                  <div className="pd-kv"><span className="pd-k">Routed respondents &amp; panel members</span><span className="pd-v">{project.routingEnabled ? "Accepted" : "Not accepted"}</span></div>
+                </div>
+                <button type="button" className="pd-icon-btn" style={{ marginTop: 8, padding: "6px 12px" }}
+                  onClick={() => navigate(`/admin/operations/projects/${project._id}/qualifications`)}>
+                  {q.enabled ? "Edit qualifications" : "Set qualifications"}
+                </button>
+              </div>
+            );
+          })()}
+
           <div className="pd-section">
             <h4 className="pd-section-title"><CalendarDays size={14} /> Timeline</h4>
             <div className="pd-kv-grid">
