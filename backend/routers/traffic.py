@@ -579,6 +579,53 @@ def _get_cint_client() -> httpx.Client:
     return _cint_http_client
 
 
+def _cint_price(survey: dict) -> float:
+    """Price per complete (USD) of an offerwall survey. Cint sends it as
+    RPI = {"value": "0.85", "currency_code": "USD"}; older payloads had CPI / payout.
+    Read only CPI / payout before 2026-10-22, every survey priced at $0 and failed
+    the CPI floor (0/297 India surveys passed), so the Cint fallback never sent anyone."""
+    for key in ("CPI", "payout", "RPI"):
+        value = survey.get(key)
+        if isinstance(value, dict):
+            value = value.get("value")
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            continue
+        if price > 0:
+            return price
+    return 0.0
+
+
+# What the SurveyFieldwork Panel pays a member for a complete, in USD, by survey
+# length (copy of sfw_panel backend/src/config/currency.js, owner 2026-10-14:
+# 100 points = Rs 10 / GBP 1 / USD 1; GBP and INR at its fixed rates). A panel
+# member is only offered a Cint survey that pays us more than we pay them.
+_PANEL_PAY_USD_BY_LOI = {
+    "IN": [(5, 5 / 96.73), (10, 8 / 96.73), (15, 12 / 96.73), (20, 15 / 96.73), (30, 20 / 96.73), (10**6, 25 / 96.73)],
+    "UK": [(5, 0.25 * 127.89 / 96.73), (10, 0.40 * 127.89 / 96.73), (15, 0.60 * 127.89 / 96.73),
+           (20, 0.80 * 127.89 / 96.73), (30, 1.00 * 127.89 / 96.73), (10**6, 1.25 * 127.89 / 96.73)],
+    "US": [(5, 0.25), (10, 0.40), (15, 0.60), (20, 0.80), (30, 1.00), (10**6, 1.25)],
+}
+PANEL_VENDOR_IDS = {v.strip() for v in os.getenv("SFW_PANEL_VENDOR_IDS", "2656").split(",") if v.strip()}
+
+
+def _panel_member_price_floor(country: str):
+    """Minimum Cint price for a panel member's survey: their reward x margin (default 1.2)."""
+    table = _PANEL_PAY_USD_BY_LOI.get("UK" if (country or "").upper() == "GB" else (country or "").upper(),
+                                      _PANEL_PAY_USD_BY_LOI["US"])
+    margin = float(os.getenv("PANEL_CINT_MARGIN", "1.2"))
+
+    def floor(survey: dict) -> float:
+        try:
+            loi = float(survey.get("LengthOfInterview") or survey.get("BidLengthOfInterview") or 0)
+        except (TypeError, ValueError):
+            loi = 0
+        loi = loi if loi > 0 else 30  # unknown length: price it as a long survey
+        return next(pay for max_loi, pay in table if loi <= max_loi) * margin
+    return floor
+
+
 def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = None, relaxed: bool = False) -> list:
     """
     Filter an offerwall survey list by IR/conversion quality floors and optional age qualification.
@@ -602,13 +649,12 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
     def _passes_quality(s: dict) -> bool:
         ir = float(s.get("IR") or s.get("BidIncidence") or 0)
         conv = float(s.get("Conversion") or 1.0)  # default 1.0 when absent -- no conversion penalty
-        cpi = float(s.get("CPI") or s.get("payout") or 0)
+        cpi = _cint_price(s)
         return ir >= min_ir and conv >= min_conv and cpi >= min_cpi
 
     def _passes_cpi(s: dict) -> bool:
         """Minimal CPI floor -- always enforced even in relaxed passes."""
-        cpi = float(s.get("CPI") or s.get("payout") or 0)
-        return cpi >= min_cpi
+        return _cint_price(s) >= min_cpi
 
     def _passes_age(s: dict) -> bool:
         """Filter by survey_qualifications age precode (question_id 42). Skip if no qual data."""
@@ -662,7 +708,7 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
     """
     loi = float(survey.get("LengthOfInterview") or survey.get("LOI") or survey.get("BidLengthOfInterview") or 10)
     rpc = float(survey.get("RevenuePerClick") or survey.get("RPC") or 0)
-    cpi = float(survey.get("CPI") or survey.get("payout") or 0)
+    cpi = _cint_price(survey)
     global_conv = float(survey.get("Conversion") or 0)
 
     survey_num = str(survey.get("SurveyNumber") or "")
@@ -735,7 +781,8 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
 
     return score
 
-async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None, relaxed: bool = False) -> list:
+async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None, relaxed: bool = False,
+                                          price_floor=None) -> list:
     """
     Fetch live survey candidates for a country (Asynchronous).
     
@@ -761,6 +808,8 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             cached = get_cached_surveys_for_country(country_lang_id)
             if cached:
                 cached = _apply_cint_quality_filter(cached, respondent_age, relaxed=relaxed)
+                if price_floor:
+                    cached = [x for x in cached if _cint_price(x) >= price_floor(x)]
                 cached.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in cached[:limit] if s.get("SurveyNumber")]
                 print(f"   ðŸ“¡ CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
@@ -772,6 +821,8 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             all_surveys = cache_info.get("surveys", [])
             if all_surveys:
                 all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age, relaxed=relaxed)
+                if price_floor:
+                    all_surveys = [x for x in all_surveys if _cint_price(x) >= price_floor(x)]
                 all_surveys.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in all_surveys[:limit] if s.get("SurveyNumber")]
                 print(f"   ðŸ“¡ CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
@@ -825,6 +876,8 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             return []
         
         filtered = _apply_cint_quality_filter(filtered, respondent_age, relaxed=relaxed)
+        if price_floor:
+            filtered = [x for x in filtered if _cint_price(x) >= price_floor(x)]
         filtered.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
         candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
         print(f"   ðŸ“¡ CINT offerwall: Selected {len(candidates)} candidates")
@@ -1314,7 +1367,10 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
         # Fetch live candidates from the CINT offerwall (uses cache when available)
         # relaxed=True: use lower quality floors (CPI>=0.05, IR>=0) so low-CPI
         # markets like India are not blocked -- any survey beats terminating the user.
-        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age, relaxed=True)
+        member_floor = (_panel_member_price_floor(country_code)
+                        if str(traffic_record.get("vendorId") or "") in PANEL_VENDOR_IDS else None)
+        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age, relaxed=True,
+                                                           price_floor=member_floor)
         
         if not candidates:
             print(f"   [warn] CINT fallback: No candidates available for country={country_code}")
@@ -3636,7 +3692,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         pass
                 if effective_country != country_code and country_code:
                     print(f"   ðŸŒ CINT allocation: using geoIpCountry={effective_country!r} (declared: {country_code!r})")
-                candidates = await fetch_cint_offerwall_candidates(effective_country, limit=50, respondent_age=respondent_age_for_cint)
+                member_floor = _panel_member_price_floor(effective_country) if str(vendor_id or "") in PANEL_VENDOR_IDS else None
+                candidates = await fetch_cint_offerwall_candidates(effective_country, limit=50, respondent_age=respondent_age_for_cint,
+                                                                   price_floor=member_floor)
                 
                 if not candidates:
                     allocation_error = "CINT fallback has no candidates for this country"
