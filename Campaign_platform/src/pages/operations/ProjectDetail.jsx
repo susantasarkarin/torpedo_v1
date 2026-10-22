@@ -299,7 +299,9 @@ function ProjectDetail() {
                   ))}
                   <div className="pd-kv"><span className="pd-k">Routed respondents &amp; panel members</span><span className="pd-v">{project.routingEnabled ? "Accepted" : "Not accepted"}</span></div>
                 </div>
-                <button type="button" className="pd-icon-btn" style={{ marginTop: 8, padding: "6px 12px" }}
+                <button type="button"
+                  style={{ marginTop: 10, padding: "6px 14px", width: "auto", whiteSpace: "nowrap", border: "1px solid #123056",
+                    borderRadius: 6, background: "#fff", color: "#123056", fontSize: 13, cursor: "pointer" }}
                   onClick={() => navigate(`/admin/operations/projects/${project._id}/qualifications`)}>
                   {q.enabled ? "Edit qualifications" : "Set qualifications"}
                 </button>
