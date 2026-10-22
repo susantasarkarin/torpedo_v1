@@ -302,3 +302,7 @@ def test_a_research_firm_never_passes_as_a_brand(monkeypatch):
     doc = {"_id": "gwi.com", "name": "GWI", "domain": "gwi.com", "linkedin_at": NOW}
     r = cf.resolve_one(db, doc, NOW, allow_google=False, allow_model=True)
     assert r == "review" and "type" not in db["company_types"].docs["gwi.com"]
+
+
+def test_unsafe_guessed_address_is_never_resent():
+    assert "bounce_recovery_alt" in ic.UNSAFE_SOURCES

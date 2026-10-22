@@ -48,6 +48,9 @@ ACTIVE = cf.ACTIVE_STATUSES
 BLOCKING_STATUSES = {"replied", "bounced", "suppressed", "needs_human_intervention",
                      "paused_unauthorized_enroll", "ai_rejected_paused", "skipped_unverified_provenance",
                      "skipped_high_bounce_risk", "skipped_gate", "error"}
+# Addresses from the disabled alternate-format guesser bounced 51% on resend
+# (88 of 170, measured 2026-10-22); never mail them again on a resend.
+UNSAFE_SOURCES = {"bounce_recovery_alt"}
 RESUMABLE = {"paused_duplicate_brand", "skipped_icp_mismatch", "moved_to_correct_bucket", "icp_review"}
 BASKET = {"sfw": "A", "cogentix": "B", "bimwave": "C"}
 SERVICE = {"sfw": "data_services", "cogentix": "consumer_insights", "bimwave": "bimwave"}
@@ -84,6 +87,7 @@ def _people(tdb) -> Dict[str, List[Dict[str, Any]]]:
     out: Dict[str, List[Dict[str, Any]]] = {}
     for r in tdb["outreach_leads_v2"].find({"email": {"$nin": [None, ""]}}, {
             "email": 1, "campaign_id": 1, "workflow_status": 1, "current_step": 1, "reply_received": 1,
+            "email_source": 1,
             "company_name": 1, "title": 1, "updated_at": 1}):
         out.setdefault(r["email"].lower().strip(), []).append(r)
     return out
@@ -114,6 +118,7 @@ def plan(client=None) -> List[Dict[str, Any]]:
     todo = []
     for email, rows in _people(tdb).items():
         if email in suppressed or any(r.get("reply_received") or r.get("workflow_status") in BLOCKING_STATUSES
+                                      or (r.get("email_source") or "") in UNSAFE_SOURCES
                                       for r in rows):
             blocked = True
         else:
