@@ -2233,6 +2233,18 @@ async def startup_event():
             scheduler.add_job(_nurture_job, IntervalTrigger(seconds=900),
                               id="lead_nurture", name="Positive Lead Nurture",
                               max_instances=1, coalesce=True, replace_existing=True)
+
+            def _qualification_autofill_job():
+                try:
+                    from services.qualification_autofill import run_job
+                    run_job()
+                except Exception as e:
+                    print(f"[Qualifications] Auto-fill error: {e}")
+
+            # Project qualifications from RFQ emails that arrive after the project is set up
+            scheduler.add_job(_qualification_autofill_job, IntervalTrigger(seconds=1800),
+                              id="qualification_autofill", name="Project qualifications from RFQ emails",
+                              max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Reply triage (5 min) and lead nurture (15 min) scheduled")
 
             def _finance_automation_job():
@@ -4144,6 +4156,10 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
             project_data["entryLink"] = re.sub(r"pid=[^&]*", f"pid={project_data['surveyNo']}", entry_link)
         result = projects_collection.insert_one(project_data)
         project_data["_id"] = str(result.inserted_id)
+        # Qualifications from the RFQ email when it has a target group (never blocks the save)
+        import asyncio as _asyncio
+        from services import qualification_autofill
+        _asyncio.create_task(qualification_autofill.fill_by_id(project_data["_id"]))
         return {"message": "Project created successfully", "project": project_data}
     except HTTPException:
         raise
@@ -4198,6 +4214,12 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
         result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Project not found")
+        # Saved from the Qualifications page (qualificationManual) = the team's own;
+        # otherwise fill whatever the RFQ email has that is still empty.
+        if not project_data.get("qualificationManual"):
+            import asyncio as _asyncio
+            from services import qualification_autofill
+            _asyncio.create_task(qualification_autofill.fill_by_id(project_id))
         return {"message": "Project updated successfully"}
     except HTTPException:
         # Without this the bare handler below swallowed every deliberate status:

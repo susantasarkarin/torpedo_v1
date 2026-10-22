@@ -39,6 +39,8 @@ export default function ProjectQualifications() {
         routingPriority: formData.routingPriority ?? "",
         loi: formData.loi ?? "",
         clientIR: formData.clientIR ?? "",
+        // saved here = the team's own: automatic filling from the RFQ email stops for this project
+        qualificationManual: true,
       };
       const res = await authFetch(buildApiUrl(`/projects/${encodeURIComponent(projectId)}`), {
         method: "PUT",
@@ -67,6 +69,13 @@ export default function ProjectQualifications() {
       <p className="pp-hint">
         Survey {formData.surveyNo} · {formData.client || "no client"}. Panel members are matched on their panel profile;
         everyone else is asked these questions on the survey page, then sent to the best-matching survey.
+      </p>
+      <p className="pp-hint">
+        {formData.qualificationManual
+          ? "Set by hand: automatic filling from the RFQ email is off for this project."
+          : formData.qualificationSource?.from === "rfq_email"
+            ? `Filled automatically from the RFQ email "${formData.qualificationSource.subject || ""}". Check it; saving here makes it yours and stops automatic filling.`
+            : "No RFQ email with a target group found yet; it is checked every 30 minutes. Fill in by hand below if the email does not have it."}
       </p>
 
       <fieldset className="pp-fieldset">
