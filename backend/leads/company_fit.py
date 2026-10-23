@@ -553,6 +553,9 @@ def skrapp_text(client, domain: str, name: str) -> str:
     try:
         from leads import skrapp_client
         card = skrapp_client.company_snapshot(client, domain=domain, name="" if domain else name)
+        if not card and domain and name:
+            # no card under the email domain (a local or group domain): by name
+            card = skrapp_client.company_snapshot(client, name=name)
     except Exception as e:
         logger.info("[CompanyFit] skrapp card failed for %s: %s", domain or name, e)
         return ""
@@ -676,7 +679,7 @@ def queue_all(client=None) -> Dict[str, int]:
     return {"companies": len(best)}
 
 
-def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 8,
+def run(client=None, limit: int = 30, now: Optional[datetime] = None, model_calls: int = 20,
         google_calls: int = GOOGLE_CALLS_PER_RUN) -> Dict[str, Any]:
     """Work the queue, live-sequence companies first. Google (LinkedIn pages,
     5 companies per call, within the $5/day cap) is the main source; the
