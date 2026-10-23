@@ -2547,6 +2547,24 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # knew were dead: 149 had bounced before in outreach_sends_v2, 50
         # carried email_status "bounced" on the lead -- none of them had been
         # copied to outreach_bounce_suppression, the only list checked here.
+        # A resend (person moved to the right campaign, or a paused row
+        # resumed) goes to an address that last took our mail long ago. On
+        # 22-23 Oct such resends bounced 55% when the last delivery was 60+
+        # days old -- people move on. Held until the address is re-verified.
+        if lead_record.get("enrolled_by") == "icp_reroute" or lead_record.get("icp_resumed_at"):
+            _last = db["outreach_sends_v2"].find_one({"email": email, "status": "sent"},
+                                                     {"sent_at": 1}, sort=[("sent_at", -1)])
+            _last_at = (_last or {}).get("sent_at")
+            if _last_at and _last_at < datetime.utcnow() - timedelta(days=RESEND_MAX_AGE_DAYS):
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {"pre_stale_status": lead_record.get("workflow_status"),
+                              "workflow_status": "held_stale_address",
+                              "last_send_error": f"resend: last delivered {_last_at:%Y-%m-%d}, over "
+                                                 f"{RESEND_MAX_AGE_DAYS} days ago -- re-verify first",
+                              "updated_at": datetime.utcnow()}})
+                return False
+
         _bounce_why = _known_bounce(db, email)
         if _bounce_why:
             logger.info(f"[Outreach] Not sending to {email}: {_bounce_why}")
@@ -3120,6 +3138,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
 
 _BAD_LEAD_STATUSES = ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]
+RESEND_MAX_AGE_DAYS = int(os.getenv("OUTREACH_RESEND_MAX_AGE_DAYS", "60"))
 
 
 def _known_bounce(db, email: str) -> str:

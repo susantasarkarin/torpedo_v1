@@ -87,6 +87,19 @@ def _count(client, index: int, now: datetime, exhausted: bool = False) -> None:
     usage.update_one({"account_id": str(index), "month": month}, update, upsert=True)
 
 
+_CREDIT_CHECK: Dict[str, Any] = {}
+
+
+def _has_credits(client, now: datetime) -> bool:
+    """The account's email credits, read (free) at most hourly: no lookup is
+    sent while none are left."""
+    if _CREDIT_CHECK.get("at") and _CREDIT_CHECK["at"] > now - timedelta(hours=1):
+        return _CREDIT_CHECK["ok"]
+    left = email_credits_left(client)
+    _CREDIT_CHECK.update(at=now, ok=left is None or left > 0)
+    return _CREDIT_CHECK["ok"]
+
+
 def _cache_key(first: str, last: str, domain: str, company: str) -> str:
     return "|".join(x.strip().lower() for x in (first, last, domain or "", company or ""))
 
@@ -110,6 +123,8 @@ def find(client, first: str, last: str, domain: str = "", company: str = "",
     acct = _account(client, now)
     if not acct:
         return {"status": "monthly_limit"}
+    if not _has_credits(client, now):
+        return {"status": "monthly_limit"}
     params = {"firstName": first, "lastName": last}
     if domain:
         params["domain"] = domain
@@ -122,9 +137,14 @@ def find(client, first: str, last: str, domain: str = "", company: str = "",
         return {"status": "error", "error": str(e)[:200]}
     if r.status_code == 404:
         out = {"status": "not_found"}
-    elif r.status_code in (401, 403):
-        logger.error("skrapp: key %d rejected (HTTP %d)", acct["index"], r.status_code)
+    elif r.status_code == 401:
+        logger.error("skrapp: key %d rejected (HTTP 401)", acct["index"])
         return {"status": "key_rejected"}
+    elif r.status_code == 403:
+        # Skrapp answers 403 "Not enough credits" (2026-10-23: plan credits
+        # 14000/14000 used) -- out of credits for now, not a bad key
+        _count(client, acct["index"], now, exhausted=True)
+        return {"status": "monthly_limit"}
     elif r.status_code in (402, 429):
         _count(client, acct["index"], now, exhausted=True)
         return {"status": "monthly_limit"}
