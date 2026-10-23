@@ -20,7 +20,6 @@
 }
 .cx-sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 16px 20px; }
 .cx-sidebar-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 8px; }
-.cx-sidebar-close { display: none; }
 
 .cx-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--cx-black); }
 .cx-logo:hover { color: var(--cx-black); }
@@ -99,9 +98,27 @@
   font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; color: var(--cx-black);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cx-menu-btn { display: none; }
 
-.cx-content { flex: 1; min-width: 0; padding: 24px 28px 40px; }
+.cx-content { flex: 1; min-width: 0; padding: 20px 24px 32px; }
+
+/* Every page used to bring its own outer padding and a max-width (1000-1600px)
+   from the old layout; inside the shell that doubled the gutter and left a
+   wide empty band on big screens. The page's root element now fills the
+   content area and the shell owns the gutter. Modals render outside
+   .cx-content and are not affected. */
+.cx-content > :not(.modal-overlay):not([class*="modal"]):not([role="dialog"]) {
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-top: 0 !important;
+}
+.cx-content :is(.max-w-7xl, .max-w-screen-xl, .max-w-screen-2xl),
+.cx-content :is([style*="max-width: 1100px"], [style*="max-width: 1200px"], [style*="max-width: 1280px"],
+                [style*="max-width: 1400px"], [style*="max-width: 1600px"]) {
+  max-width: none !important;
+}
 
 .cx-icon-btn {
   width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center;
@@ -109,6 +126,8 @@
   color: var(--cx-text-secondary); font-size: 1rem; cursor: pointer; transition: background-color 0.15s, color 0.15s;
 }
 .cx-icon-btn:hover { background: var(--cx-hover); color: var(--cx-black); }
+/* desktop: no drawer controls (phones turn them on below) */
+.cx-icon-btn:is(.cx-menu-btn, .cx-sidebar-close) { display: none; }
 
 .cx-avatar {
   width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%;
@@ -205,7 +224,7 @@ body.cx-drawer-lock { overflow: hidden; }
 /* ---- tablet ------------------------------------------------------------ */
 @media (max-width: 1100px) {
   .cx-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cx-content { padding: 20px 20px 32px; }
+  .cx-content { padding: 16px 20px 28px; }
   .cx-topbar { padding: 10px 20px; }
 }
 
@@ -218,9 +237,9 @@ body.cx-drawer-lock { overflow: hidden; }
     box-shadow: none;
   }
   .cx-sidebar.is-open { transform: translateX(0); box-shadow: 8px 0 32px rgba(26, 26, 26, 0.18); }
-  .cx-sidebar-close { display: grid; }
+  .cx-icon-btn.cx-sidebar-close { display: grid; }
   .cx-main { margin-left: 0; }
-  .cx-menu-btn { display: grid; width: 44px; height: 44px; }
+  .cx-icon-btn.cx-menu-btn { display: grid; width: 44px; height: 44px; }
   .cx-topbar { padding: 8px 12px; min-height: 56px; }
   .cx-topbar-crumb { display: none; }
   .cx-content { padding: 16px 16px 28px; }

@@ -109,7 +109,7 @@ export default function MemberFunnel({ embedded = false }) {
                   )}
                 </div>
                 <div style={{ background: "#f5f3ef", borderRadius: "6px", height: "26px", position: "relative" }}>
-                  <div style={{ width: `${Math.max((s.reached / max) * 100, s.reached ? 1 : 0)}%`, height: "100%", borderRadius: "6px", background: "#6366f1" }} />
+                  <div style={{ width: `${Math.max((s.reached / max) * 100, s.reached ? 1 : 0)}%`, height: "100%", borderRadius: "6px", background: "#e8910a" }} />
                   <span style={{ position: "absolute", left: "8px", top: "4px", fontSize: "0.8rem", fontWeight: 700, color: s.reached / max > 0.12 ? "#fff" : "#1f2937" }}>
                     {s.reached.toLocaleString()} · {s.pctOfSignups}%
                   </span>

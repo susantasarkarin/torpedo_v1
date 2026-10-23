@@ -3,10 +3,10 @@ import { useSearchParams } from "react-router-dom"
 // Shared style tokens, country names and the URL-backed tab hook for the Panel module.
 
 export const colors = {
-  text: "#111827",
+  text: "#1a1a1a",
   muted: "#6f6f6f",
   border: "#e8e4dc",
-  accent: "#4f46e5",
+  accent: "#a15f06",  // brand orange for text (fills use #e8910a)
   good: "#15803d",
   warn: "#d97706",
   bad: "#dc2626",

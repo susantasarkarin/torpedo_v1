@@ -21,7 +21,7 @@ const card = {
 const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
 const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef" }
 const btn = { padding: "0.45rem 0.9rem", borderRadius: "8px", border: "1px solid #d4cec3", background: "#fff", cursor: "pointer", fontSize: "0.85rem" }
-const primary = { ...btn, background: "#4f46e5", borderColor: "#4f46e5", color: "#fff" }
+const primary = { ...btn, background: "#e8910a", borderColor: "#e8910a", color: "#fff" }
 
 const LIST_LABELS = { insurers: "Insurers", banks: "Banks & card issuers", vehicle_makes: "Vehicle makes" }
 const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", US: "United States" }
@@ -135,12 +135,12 @@ function QualReview({ onChanged }) {
             </span>
           </div>
           <p style={{ fontSize: "0.8rem", color: "#5c5c5c", margin: "0.3rem 0" }}>Would do: {m.researchTypes.map((c) => RESEARCH[c] || c).join(", ")}</p>
-          <blockquote style={{ margin: "0.4rem 0", padding: "0.5rem 0.75rem", background: "#faf9f7", borderLeft: "3px solid #c7d2fe", fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{m.qual09}</blockquote>
+          <blockquote style={{ margin: "0.4rem 0", padding: "0.5rem 0.75rem", background: "#faf9f7", borderLeft: "3px solid #f9d398", fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{m.qual09}</blockquote>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", fontSize: "0.85rem" }}>
             <span>Articulation:{" "}
               {[1, 2, 3, 4, 5].map((n) => (
                 <button key={n} type="button" disabled={busy === m.userId} onClick={() => update(m.userId, { articulation: n })}
-                  style={{ ...btn, padding: "0.25rem 0.55rem", marginRight: "0.2rem", ...(m.qual.articulation === n ? { background: "#4f46e5", color: "#fff", borderColor: "#4f46e5" } : {}) }}>{n}</button>
+                  style={{ ...btn, padding: "0.25rem 0.55rem", marginRight: "0.2rem", ...(m.qual.articulation === n ? { background: "#e8910a", color: "#fff", borderColor: "#e8910a" } : {}) }}>{n}</button>
               ))}
             </span>
             <span>Identity:{" "}

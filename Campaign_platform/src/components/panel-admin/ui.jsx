@@ -8,7 +8,7 @@ import { colors, card } from "./tokens"
 
 export function PageShell({ title, description, actions, children }) {
   return (
-    <div style={{ padding: "1.5rem", width: "100%", maxWidth: "1280px", minWidth: 0, boxSizing: "border-box" }}>
+    <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.5rem", color: colors.text }}>{title}</h1>
@@ -24,7 +24,7 @@ export function PageShell({ title, description, actions, children }) {
 
 export function Tabs({ tabs, active, onChange }) {
   return (
-    <div style={{ display: "flex", gap: "0.25rem", borderBottom: `1px solid ${colors.border}`, marginBottom: "1.25rem", overflowX: "auto" }}>
+    <div style={{ display: "flex", gap: "0.25rem", borderBottom: `1px solid ${colors.border}`, marginBottom: "1.25rem", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none" }}>
       {tabs.map((t) => (
         <button
           key={t.key}
@@ -39,8 +39,7 @@ export function Tabs({ tabs, active, onChange }) {
             fontSize: "0.9rem",
             fontWeight: active === t.key ? 600 : 400,
             color: active === t.key ? colors.accent : "#5c5c5c",
-            borderBottom: `3px solid ${active === t.key ? colors.accent : "transparent"}`,
-            marginBottom: "-1px",
+            borderBottom: `3px solid ${active === t.key ? "#e8910a" : "transparent"}`,
           }}
         >
           {t.label}

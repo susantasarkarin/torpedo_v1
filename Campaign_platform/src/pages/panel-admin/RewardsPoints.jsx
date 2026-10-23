@@ -13,7 +13,7 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 const card = { background: "#fff", border: "1px solid #e8e4dc", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
 const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
 const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef" }
-const btn = { padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #4f46e5", background: "#4f46e5", color: "#fff", cursor: "pointer", fontSize: "0.8rem" }
+const btn = { padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #e8910a", background: "#e8910a", color: "#fff", cursor: "pointer", fontSize: "0.8rem" }
 const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", GB: "United Kingdom", US: "United States" }
 const n = (v) => (v || 0).toLocaleString()
 
@@ -95,7 +95,7 @@ function RewardsPoints({ embedded = false }) {
             {tile("On hold for review", n(data.totals.onHold), "release or keep holding", data.totals.onHold ? "#d97706" : "#15803d")}
             {tile("Points earned", n(data.totals.earnedPoints), "credited to balances", "#166534")}
             {tile("Points on hold", n(data.totals.onHoldPoints), "released when the profile is complete", "#d97706")}
-            {tile("Points redeemed", n(data.totals.redeemedPoints), "as gift cards", "#4f46e5")}
+            {tile("Points redeemed", n(data.totals.redeemedPoints), "as gift cards", "#e8910a")}
             {tile("Points in balances", n(data.totals.balancePoints), "owed to members if redeemed", "#1f2937")}
           </div>
 
@@ -137,7 +137,7 @@ function RewardsPoints({ embedded = false }) {
                                 {r.holdReasons.map((h) => <li key={h}>{h}</li>)}
                               </ul>
                               {!r.suspended && (
-                                <button type="button" style={{ ...btn, background: "#fff", color: "#4f46e5" }} disabled={busy === r.id} onClick={() => act(r, "release")}>{busy === r.id ? "Saving…" : "Release"}</button>
+                                <button type="button" style={{ ...btn, background: "#fff", color: "#a15f06" }} disabled={busy === r.id} onClick={() => act(r, "release")}>{busy === r.id ? "Saving…" : "Release"}</button>
                               )}
                             </div>
                           ) : (
