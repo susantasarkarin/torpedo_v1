@@ -23,7 +23,9 @@ def _compliance_env(monkeypatch):
     monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_URL", "https://example.com/u")
     monkeypatch.setenv("SENDING_ENABLED", "true")
     monkeypatch.delenv("MAIL_MODE", raising=False)
-    monkeypatch.delenv("MAIL_MODE_OUTREACH", raising=False)
+    # Lead channels default to sandbox when unset; these tests exercise the
+    # other gates on a live outreach channel, so say so explicitly.
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "live")
     # No Mongo in these tests: the outreach kill switch reads as "not paused"
     # unless a test says otherwise, and side-effect writes are no-ops.
     monkeypatch.setattr(facade, "outreach_paused", lambda: False)
@@ -183,8 +185,36 @@ def test_outreach_kill_switch_unreadable_counts_as_paused(monkeypatch):
 
 
 # ----------------------------------------------------------------- MAIL_MODE
-def test_mail_mode_defaults_to_live(monkeypatch):
-    assert facade.mail_mode("outreach") == "live"
+@pytest.mark.parametrize("channel", ["outreach", "sales_outreach", "campaign", "nurture", "reengagement"])
+def test_unset_mail_mode_is_sandbox_for_lead_channels(monkeypatch, channel):
+    monkeypatch.delenv(f"MAIL_MODE_{channel.upper()}", raising=False)
+    monkeypatch.delenv("MAIL_MODE", raising=False)
+    assert facade.mail_mode(channel) == "sandbox"
+
+
+@pytest.mark.parametrize("channel", ["finance", "panel_invite", "panel_login", "panel_drip", "transactional", "manual"])
+def test_unset_mail_mode_is_live_for_non_lead_channels(monkeypatch, channel):
+    monkeypatch.delenv(f"MAIL_MODE_{channel.upper()}", raising=False)
+    monkeypatch.delenv("MAIL_MODE", raising=False)
+    assert facade.mail_mode(channel) == "live"
+
+
+def test_global_mail_mode_live_cannot_open_a_lead_channel(monkeypatch):
+    monkeypatch.delenv("MAIL_MODE_NURTURE", raising=False)
+    monkeypatch.setenv("MAIL_MODE", "live")
+    assert facade.mail_mode("nurture") == "sandbox"
+    monkeypatch.setenv("MAIL_MODE_NURTURE", "live")
+    assert facade.mail_mode("nurture") == "live"
+
+
+def test_unset_lead_channel_send_never_reaches_transport(transport, monkeypatch):
+    monkeypatch.delenv("MAIL_MODE_OUTREACH", raising=False)
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport)
+    assert result.category == "sandbox"
+    transport.assert_not_called()
 
 
 def test_mail_mode_channel_override_and_bad_value(monkeypatch):

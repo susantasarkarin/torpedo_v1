@@ -116,10 +116,20 @@ def outreach_paused() -> bool:
 def mail_mode(channel: str) -> str:
     """CRM plan 3.1: sandbox (write outbox_preview only) | shadow (drafts/preview only,
     real classification upstream) | live. MAIL_MODE_<CHANNEL> overrides MAIL_MODE.
-    Unset = live, which is what every channel did before this existed; only the
-    owner switches a channel back to live once it has been set otherwise.
+
+    Unset defaults differ by audience (owner, 2026-10-24):
+      lead channels (OUTREACH_CHANNELS)  -> sandbox: nothing reaches a lead until
+                                            the owner sets that channel to live
+      everything else (finance, panel account mail, manual compose) -> live
+    The global MAIL_MODE is NOT applied to lead channels; each needs its own
+    MAIL_MODE_<CHANNEL>=live, so one broad setting can never open outreach.
     An unknown value fails safe to sandbox."""
-    raw = (os.getenv(f"MAIL_MODE_{channel.upper()}") or os.getenv("MAIL_MODE") or "live").strip().lower()
+    own = os.getenv(f"MAIL_MODE_{channel.upper()}")
+    if channel in OUTREACH_CHANNELS:
+        raw = own or "sandbox"
+    else:
+        raw = own or os.getenv("MAIL_MODE") or "live"
+    raw = raw.strip().lower()
     return raw if raw in MAIL_MODES else "sandbox"
 
 
