@@ -11,7 +11,7 @@ import CrmNav, { Modal, Field, inputStyle } from "./CrmNav";
 import "../../styles/crm-ui.css";
 
 const STATUS_COLORS = {
-  new: "#e8890b", working: "#d97706", converted: "#059669", disqualified: "#4b5563",
+  new: "#e8910a", working: "#d97706", converted: "#15803d", disqualified: "#5c5c5c",
 };
 
 export default function CrmLeads() {

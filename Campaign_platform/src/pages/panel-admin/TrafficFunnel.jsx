@@ -14,13 +14,13 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
 const card = {
   background: "#fff",
-  border: "1px solid #e5e7eb",
+  border: "1px solid #e8e4dc",
   borderRadius: "10px",
   padding: "1.25rem",
   marginBottom: "1.25rem",
 }
-const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#4b5563", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }
-const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f3f4f6", whiteSpace: "nowrap" }
+const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
+const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef", whiteSpace: "nowrap" }
 
 const STEPS = [
   ["visits", "Visits"],
@@ -38,7 +38,7 @@ function FunnelTable({ title, rows, keyLabel }) {
     <div style={card}>
       <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>{title}</h3>
       {rows.length === 0 ? (
-        <p style={{ color: "#4b5563", fontSize: "0.875rem", margin: 0 }}>No visits in this window.</p>
+        <p style={{ color: "#5c5c5c", fontSize: "0.875rem", margin: 0 }}>No visits in this window.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -94,26 +94,26 @@ export default function TrafficFunnel({ embedded = false }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
         <div>
           {!embedded && <h2 style={{ margin: 0 }}>Traffic Funnel</h2>}
-          <p style={{ margin: "0.25rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
+          <p style={{ margin: "0.25rem 0 0", color: "#5c5c5c", fontSize: "0.875rem" }}>
             Every landing on surveyfieldwork.com, by ad source and country. Respondent id = the ad platform's click id (Meta fbclid, Quora qclid) or ?rid=.
           </p>
         </div>
         <select value={days} onChange={(e) => setDays(Number(e.target.value))}
-          style={{ padding: "0.45rem 0.6rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }}>
+          style={{ padding: "0.45rem 0.6rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem" }}>
           {[1, 7, 30, 90, 180].map((d) => <option key={d} value={d}>Last {d} day{d > 1 ? "s" : ""}</option>)}
         </select>
       </div>
 
       {error && <div style={{ ...card, borderColor: "#fecaca", background: "#fef2f2", color: "#991b1b" }}>{error}</div>}
-      {loading && !data && <p style={{ color: "#4b5563" }}>Loading…</p>}
+      {loading && !data && <p style={{ color: "#5c5c5c" }}>Loading…</p>}
 
       {totals && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
           {STEPS.map(([k, label], i) => (
             <div key={k} style={{ ...card, marginBottom: 0 }}>
-              <div style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>{label}</div>
+              <div style={{ fontSize: "0.8rem", color: "#5c5c5c", fontWeight: 600 }}>{label}</div>
               <div style={{ fontSize: "1.6rem", fontWeight: 700, marginTop: "0.2rem" }}>{(totals[k] || 0).toLocaleString()}</div>
-              {i > 0 && <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>{pct(totals[k], totals[STEPS[i - 1][0]])} of previous</div>}
+              {i > 0 && <div style={{ fontSize: "0.8rem", color: "#5c5c5c" }}>{pct(totals[k], totals[STEPS[i - 1][0]])} of previous</div>}
             </div>
           ))}
         </div>

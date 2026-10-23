@@ -43,7 +43,7 @@ export default function SurveyRevenue() {
     <div className="crm-page">
       <div className="crm-head">
         <div className="crm-head__titles">
-          <TrendingUp size={26} style={{ color: "#059669" }} />
+          <TrendingUp size={26} style={{ color: "#15803d" }} />
           <div>
             <h1 className="crm-title cx-page-title">Survey Revenue</h1>
             <p className="crm-subtitle">Active surveys ranked by expected revenue per entrant (CPI × P(complete)).</p>
@@ -81,7 +81,7 @@ export default function SurveyRevenue() {
                   <td className="num">{fmtMoney(s.cpi)}</td>
                   <td className="num">{s.p_complete != null ? `${Math.round(s.p_complete * 100)}%` : "—"}</td>
                   <td className="crm-muted">{BASIS_LABEL[s.basis] || s.basis || "—"}</td>
-                  <td className="num" style={{ fontWeight: 700, color: "#047857" }}>{fmtMoney(s.epc)}</td>
+                  <td className="num" style={{ fontWeight: 700, color: "#166534" }}>{fmtMoney(s.epc)}</td>
                 </tr>
               ))}
             </tbody>

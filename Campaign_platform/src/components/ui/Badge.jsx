@@ -1,20 +1,21 @@
 // file: src/components/ui/Badge.jsx
 import { clsx } from 'clsx';
 
+// status pills from the CRM mockup: tinted fill, no border, coloured dot
 const badgeVariants = {
-  default: 'bg-slate-100 text-slate-700 border-slate-200',
-  primary: 'bg-cogentix-navy-50 text-cogentix-navy border-cogentix-navy-200',
-  secondary: 'bg-cogentix-orange-50 text-cogentix-orange-700 border-cogentix-orange-200',
-  success: 'bg-cogentix-green-50 text-cogentix-green-700 border-cogentix-green-200',
-  warning: 'bg-amber-50 text-amber-700 border-amber-200',
-  danger: 'bg-red-50 text-red-700 border-red-200',
-  info: 'bg-cogentix-orange-50 text-cogentix-orange-700 border-cogentix-orange-200',
+  default: 'bg-text-secondary/10 text-text-secondary border-transparent',
+  primary: 'bg-cogentix-orange/12 text-cogentix-orange-700 border-transparent',
+  secondary: 'bg-cogentix-orange/12 text-cogentix-orange-700 border-transparent',
+  success: 'bg-green-600/10 text-green-700 border-transparent',
+  warning: 'bg-amber-600/10 text-amber-700 border-transparent',
+  danger: 'bg-red-600/10 text-red-700 border-transparent',
+  info: 'bg-blue-600/10 text-blue-700 border-transparent',
 };
 
 const badgeSizes = {
   sm: 'px-2 py-0.5 text-sm',
-  md: 'px-2.5 py-1 text-sm',
-  lg: 'px-3 py-1.5 text-sm',
+  md: 'px-2.5 py-0.5 text-sm',
+  lg: 'px-3 py-1 text-sm',
 };
 
 export function Badge({
@@ -29,7 +30,7 @@ export function Badge({
   return (
     <span
       className={clsx(
-        'inline-flex items-center font-medium rounded-full border',
+        'inline-flex items-center font-semibold rounded-full border whitespace-nowrap',
         badgeVariants[variant],
         badgeSizes[size],
         className
@@ -38,13 +39,13 @@ export function Badge({
       {dot && (
         <span className={clsx(
           'w-1.5 h-1.5 rounded-full mr-1.5',
-          variant === 'success' && 'bg-cogentix-green',
-          variant === 'warning' && 'bg-amber-500',
-          variant === 'danger' && 'bg-red-500',
-          variant === 'info' && 'bg-cogentix-orange-500',
-          variant === 'primary' && 'bg-cogentix-navy',
+          variant === 'success' && 'bg-green-600',
+          variant === 'warning' && 'bg-amber-600',
+          variant === 'danger' && 'bg-red-600',
+          variant === 'info' && 'bg-blue-600',
+          variant === 'primary' && 'bg-cogentix-orange',
           variant === 'secondary' && 'bg-cogentix-orange',
-          variant === 'default' && 'bg-slate-500',
+          variant === 'default' && 'bg-text-secondary',
         )} />
       )}
       {children}

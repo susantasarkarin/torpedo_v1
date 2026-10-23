@@ -537,22 +537,22 @@ function RFQ() {
 
   const getStatusColor = (status) => {
     const colors = {
-      detected: { bg: "#fff7ed", color: "#c47209" },
+      detected: { bg: "#fdf4e7", color: "#d17f08" },
       pending: { bg: "#fef3c7", color: "#92400e" },
-      quoted: { bg: "#fff7ed", color: "#c47209" },
+      quoted: { bg: "#fdf4e7", color: "#d17f08" },
       negotiating: { bg: "#fce7f3", color: "#9d174d" },
       won: { bg: "#dcfce7", color: "#166534" },
       lost: { bg: "#fee2e2", color: "#991b1b" },
-      closed: { bg: "#f3f4f6", color: "#4b5563" },
-      cancelled: { bg: "#f3f4f6", color: "#4b5563" }
+      closed: { bg: "#f5f3ef", color: "#5c5c5c" },
+      cancelled: { bg: "#f5f3ef", color: "#5c5c5c" }
     }
     return colors[status] || colors.pending
   }
 
   const getPriorityColor = (priority) => {
     const colors = {
-      low: { bg: "#f3f4f6", color: "#4b5563" },
-      medium: { bg: "#fff7ed", color: "#c47209" },
+      low: { bg: "#f5f3ef", color: "#5c5c5c" },
+      medium: { bg: "#fdf4e7", color: "#d17f08" },
       high: { bg: "#fef3c7", color: "#92400e" },
       urgent: { bg: "#fee2e2", color: "#991b1b" }
     }
@@ -628,7 +628,7 @@ function RFQ() {
         </div>
 
         {/* Direction tabs: inbound (client -> us) vs outbound (us -> vendor) */}
-        <div className="rfq-direction-tabs" style={{ display: 'flex', gap: '4px', padding: '0 20px', borderBottom: '1px solid #e5e7eb' }}>
+        <div className="rfq-direction-tabs" style={{ display: 'flex', gap: '4px', padding: '0 20px', borderBottom: '1px solid #e8e4dc' }}>
           {[
             { value: "inbound", label: "Inbound (Client RFQs)" },
             { value: "outbound", label: "Outbound (To Vendors)" },
@@ -639,9 +639,9 @@ function RFQ() {
               style={{
                 padding: '10px 16px',
                 border: 'none',
-                borderBottom: direction === tab.value ? '2px solid #e8890b' : '2px solid transparent',
+                borderBottom: direction === tab.value ? '2px solid #e8910a' : '2px solid transparent',
                 background: 'transparent',
-                color: direction === tab.value ? '#e8890b' : '#4b5563',
+                color: direction === tab.value ? '#e8910a' : '#5c5c5c',
                 fontWeight: direction === tab.value ? 600 : 500,
                 cursor: 'pointer',
                 fontSize: '0.9rem'
@@ -759,7 +759,7 @@ function RFQ() {
                     className={`rfq-row state-${rfq.state || 'open'}`}
                     style={{
                       backgroundColor: selectedIds.includes(rfq.opportunity_id)
-                        ? '#fff7ed'
+                        ? '#fdf4e7'
                         : rfq.state === 'won' ? '#f0fdf4'
                         : rfq.state === 'lost' ? '#fef2f2'
                         : 'transparent',
@@ -783,7 +783,7 @@ function RFQ() {
                         </div>
                       )}
                       {rfq.methodology && (
-                        <div className="rfq-subtitle" style={{ color: '#4b5563', fontSize: '0.875rem' }}>
+                        <div className="rfq-subtitle" style={{ color: '#5c5c5c', fontSize: '0.875rem' }}>
                           {rfq.methodology} {rfq.study_type && `• ${rfq.study_type}`}
                         </div>
                       )}
@@ -808,7 +808,7 @@ function RFQ() {
                           {rfq.account_name}
                         </Link>
                       ) : (
-                        <span style={{ color: '#6b6b6b' }}>—</span>
+                        <span style={{ color: '#6f6f6f' }}>—</span>
                       )}
                     </td>
                     <td>
@@ -816,23 +816,23 @@ function RFQ() {
                     </td>
                     <td>
                       {rfq.loi ? (
-                        <span style={{ fontSize: '0.875rem', color: '#a25e07', fontWeight: '500' }}>{rfq.loi} min</span>
+                        <span style={{ fontSize: '0.875rem', color: '#a15f06', fontWeight: '500' }}>{rfq.loi} min</span>
                       ) : (
-                        <span style={{ color: '#6b6b6b' }}>—</span>
+                        <span style={{ color: '#6f6f6f' }}>—</span>
                       )}
                     </td>
                     <td>
                       {rfq.ir ? (
-                        <span style={{ fontSize: '0.875rem', color: '#047857', fontWeight: '500' }}>{rfq.ir}%</span>
+                        <span style={{ fontSize: '0.875rem', color: '#166534', fontWeight: '500' }}>{rfq.ir}%</span>
                       ) : (
-                        <span style={{ color: '#6b6b6b' }}>—</span>
+                        <span style={{ color: '#6f6f6f' }}>—</span>
                       )}
                     </td>
                     <td>
                       {rfq.sample_size ? (
                         <span style={{ fontSize: '0.875rem', color: '#8b5cf6', fontWeight: '500' }}>{rfq.sample_size.toLocaleString()}</span>
                       ) : (
-                        <span style={{ color: '#6b6b6b' }}>—</span>
+                        <span style={{ color: '#6f6f6f' }}>—</span>
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -871,7 +871,7 @@ function RFQ() {
                               ? <span title="CPI from our quote; value needs the sample size">
                                   CPI {formatCurrency(rfq.cpi, rfq.manual_currency || rfq.extracted_currency || "USD")}
                                 </span>
-                              : <span style={{ color: '#6b6b6b' }}>—</span>}
+                              : <span style={{ color: '#6f6f6f' }}>—</span>}
                           {rfq.manual_value && <span className="override-badge">✎</span>}
                         </div>
                       )}
@@ -1005,8 +1005,8 @@ function RFQ() {
                     <label>Direction</label>
                     <span style={{
                       padding: '4px 12px', borderRadius: '12px', fontWeight: 600,
-                      backgroundColor: selectedRfq.direction === 'outbound' ? '#f3e8ff' : '#fff7ed',
-                      color: selectedRfq.direction === 'outbound' ? '#7c3aed' : '#c47209'
+                      backgroundColor: selectedRfq.direction === 'outbound' ? '#f3e8ff' : '#fdf4e7',
+                      color: selectedRfq.direction === 'outbound' ? '#7c3aed' : '#d17f08'
                     }}>
                       {selectedRfq.direction === 'outbound' ? '↗ Outbound (to vendor)' : '↙ Inbound (from client)'}
                     </span>
@@ -1019,7 +1019,7 @@ function RFQ() {
                   )}
                   <div className="detail-item">
                     <label>Value</label>
-                    <span style={{ fontWeight: 'bold', color: '#047857' }}>
+                    <span style={{ fontWeight: 'bold', color: '#166534' }}>
                       {formatCurrency(selectedRfq.manual_value || selectedRfq.extracted_value, selectedRfq.manual_currency || selectedRfq.extracted_currency)}
                     </span>
                   </div>
@@ -1030,7 +1030,7 @@ function RFQ() {
                         ? <>
                             {formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)}
                             {selectedRfq.taxes_extra ? " + taxes" : ""}
-                            {selectedRfq.cpi ? <span style={{ color: '#4b5563', fontSize: '0.875rem' }}> (our quote)</span> : null}
+                            {selectedRfq.cpi ? <span style={{ color: '#5c5c5c', fontSize: '0.875rem' }}> (our quote)</span> : null}
                           </>
                         : "— (not quoted yet)"}
                     </span>
@@ -1041,7 +1041,7 @@ function RFQ() {
                       value={selectedRfq.manual_currency || selectedRfq.extracted_currency || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "manual_currency", e.target.value)}
                       title={selectedRfq.currency_source || ""}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3' }}
                     >
                       <option value="">— not known</option>
                       {CURRENCIES.map(c => (
@@ -1083,7 +1083,7 @@ function RFQ() {
                     <select
                       value={selectedRfq.methodology || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "methodology", e.target.value)}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3' }}
                     >
                       <option value="">Select...</option>
                       {METHODOLOGIES.map(m => (
@@ -1098,7 +1098,7 @@ function RFQ() {
                       value={selectedRfq.loi || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "loi", parseInt(e.target.value) || null)}
                       placeholder="Length of Interview"
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3', width: '100px' }}
                     />
                   </div>
                   <div className="detail-item">
@@ -1108,7 +1108,7 @@ function RFQ() {
                       value={selectedRfq.ir || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "ir", parseFloat(e.target.value) || null)}
                       placeholder="Incidence Rate"
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3', width: '100px' }}
                     />
                   </div>
                   <div className="detail-item">
@@ -1118,7 +1118,7 @@ function RFQ() {
                       value={selectedRfq.country || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "country", e.target.value)}
                       placeholder="Target country"
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3' }}
                     />
                   </div>
                   <div className="detail-item">
@@ -1128,7 +1128,7 @@ function RFQ() {
                       value={selectedRfq.sample_size || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "sample_size", parseInt(e.target.value) || null)}
                       placeholder="Required completes"
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3', width: '100px' }}
                     />
                   </div>
                   <div className="detail-item">
@@ -1136,7 +1136,7 @@ function RFQ() {
                     <select
                       value={selectedRfq.study_type || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "study_type", e.target.value)}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3' }}
                     >
                       <option value="">Select...</option>
                       <option value="B2B">B2B</option>
@@ -1154,13 +1154,13 @@ function RFQ() {
                       value={selectedRfq.timeline || ""}
                       onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "timeline", e.target.value)}
                       placeholder="Project timeline"
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d4cec3' }}
                     />
                   </div>
                 </div>
                 {/* Target Audience - Full width */}
                 <div style={{ marginTop: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#4b5563', marginBottom: '4px' }}>Target Audience</label>
+                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#5c5c5c', marginBottom: '4px' }}>Target Audience</label>
                   <textarea
                     value={selectedRfq.target_audience || ""}
                     onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "target_audience", e.target.value)}
@@ -1170,7 +1170,7 @@ function RFQ() {
                       minHeight: '60px', 
                       padding: '8px', 
                       borderRadius: '4px', 
-                      border: '1px solid #d1d5db',
+                      border: '1px solid #d4cec3',
                       fontSize: '0.9rem'
                     }}
                   />
@@ -1189,7 +1189,7 @@ function RFQ() {
                     minHeight: '100px', 
                     padding: '12px', 
                     borderRadius: '8px', 
-                    border: '1px solid #d1d5db',
+                    border: '1px solid #d4cec3',
                     fontSize: '0.9rem'
                   }}
                 />
@@ -1200,10 +1200,10 @@ function RFQ() {
                 <div className="detail-section">
                   <h3>📧 Original Email</h3>
                   <div style={{ 
-                    backgroundColor: '#f9fafb', 
+                    backgroundColor: '#faf9f7', 
                     padding: '16px', 
                     borderRadius: '8px', 
-                    border: '1px solid #e5e7eb',
+                    border: '1px solid #e8e4dc',
                     maxHeight: '300px',
                     overflowY: 'auto',
                     whiteSpace: 'pre-wrap',
@@ -1220,7 +1220,7 @@ function RFQ() {
                 <div className="detail-section">
                   <h3>📋 AI Summary</h3>
                   <div style={{ 
-                    backgroundColor: '#fff7ed', 
+                    backgroundColor: '#fdf4e7', 
                     padding: '16px', 
                     borderRadius: '8px', 
                     border: '1px solid #fde68a',
@@ -1240,7 +1240,7 @@ function RFQ() {
                     {selectedRfq.estimate_number && (
                       <div className="detail-item">
                         <label>Estimate</label>
-                        <span style={{ color: '#a25e07', fontWeight: 'bold' }}>
+                        <span style={{ color: '#a15f06', fontWeight: 'bold' }}>
                           {selectedRfq.estimate_number}
                         </span>
                       </div>
@@ -1248,7 +1248,7 @@ function RFQ() {
                     {selectedRfq.invoice_number && (
                       <div className="detail-item">
                         <label>Invoice</label>
-                        <span style={{ color: '#047857', fontWeight: 'bold' }}>
+                        <span style={{ color: '#166534', fontWeight: 'bold' }}>
                           {selectedRfq.invoice_number}
                         </span>
                       </div>
@@ -1277,7 +1277,7 @@ function RFQ() {
                   {!selectedRfq.estimate_number && selectedRfq.status !== 'won' && (
                     <button 
                       className="btn"
-                      style={{ backgroundColor: '#e8890b', color: 'white' }}
+                      style={{ backgroundColor: '#e8910a', color: 'white' }}
                       onClick={() => openConvertModal("estimate")}
                     >
                       📋 Create Estimate
@@ -1286,7 +1286,7 @@ function RFQ() {
                   {selectedRfq.status !== 'won' && (
                     <button 
                       className="btn"
-                      style={{ backgroundColor: '#10b981', color: 'white' }}
+                      style={{ backgroundColor: '#16a34a', color: 'white' }}
                       onClick={() => openConvertModal("invoice")}
                     >
                       💰 Create Invoice
@@ -1334,7 +1334,7 @@ function RFQ() {
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
                   {selectedRfq.title || selectedRfq.project_name || 'Untitled RFQ'}
                 </div>
-                <div style={{ fontSize: '0.9rem', color: '#666' }}>
+                <div style={{ fontSize: '0.9rem', color: '#5c5c5c' }}>
                   Value: {formatCurrency(selectedRfq.manual_value || selectedRfq.extracted_value, selectedRfq.manual_currency || 'USD')}
                   {selectedRfq.sample_size && ` • ${selectedRfq.sample_size} completes`}
                   {selectedRfq.methodology && ` • ${selectedRfq.methodology}`}
@@ -1353,7 +1353,7 @@ function RFQ() {
                     width: '100%', 
                     padding: '8px 12px', 
                     borderRadius: '6px', 
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d4cec3'
                   }}
                 >
                   <option value="">Select customer...</option>
@@ -1363,7 +1363,7 @@ function RFQ() {
                     </option>
                   ))}
                 </select>
-                <small style={{ color: '#666' }}>
+                <small style={{ color: '#5c5c5c' }}>
                   Will auto-match from RFQ if left empty
                 </small>
               </div>
@@ -1383,7 +1383,7 @@ function RFQ() {
                     width: '100%', 
                     padding: '8px 12px', 
                     borderRadius: '6px', 
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d4cec3'
                   }}
                 />
               </div>
@@ -1402,7 +1402,7 @@ function RFQ() {
                       width: '100%', 
                       padding: '8px 12px', 
                       borderRadius: '6px', 
-                      border: '1px solid #d1d5db'
+                      border: '1px solid #d4cec3'
                     }}
                   />
                 </div>
@@ -1418,7 +1418,7 @@ function RFQ() {
                       width: '100%', 
                       padding: '8px 12px', 
                       borderRadius: '6px', 
-                      border: '1px solid #d1d5db'
+                      border: '1px solid #d4cec3'
                     }}
                   />
                 </div>
@@ -1437,7 +1437,7 @@ function RFQ() {
                     width: '100%', 
                     padding: '8px 12px', 
                     borderRadius: '6px', 
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d4cec3'
                   }}
                 />
               </div>
@@ -1456,7 +1456,7 @@ function RFQ() {
                     width: '100%', 
                     padding: '8px 12px', 
                     borderRadius: '6px', 
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d4cec3'
                   }}
                 />
               </div>
@@ -1473,7 +1473,7 @@ function RFQ() {
               <button 
                 className="btn"
                 style={{ 
-                  backgroundColor: convertType === "estimate" ? '#e8890b' : '#10b981', 
+                  backgroundColor: convertType === "estimate" ? '#e8910a' : '#16a34a', 
                   color: 'white' 
                 }}
                 onClick={handleConversion}
@@ -1529,7 +1529,7 @@ function RFQ() {
                   value={createForm.title}
                   onChange={(e) => setCreateForm(prev => ({ ...prev, title: e.target.value }))}
                   placeholder={createForm.direction === "outbound" ? "e.g. RFQ_Mac Upgraders_HRG_SFW" : "e.g. Healthcare survey, US"}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                 />
               </div>
 
@@ -1542,7 +1542,7 @@ function RFQ() {
                       value={createForm.vendor_name}
                       onChange={(e) => setCreateForm(prev => ({ ...prev, vendor_name: e.target.value }))}
                       placeholder="e.g. SFW"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                     />
                   </div>
                   <div className="form-group">
@@ -1552,7 +1552,7 @@ function RFQ() {
                       value={createForm.client_name}
                       onChange={(e) => setCreateForm(prev => ({ ...prev, client_name: e.target.value }))}
                       placeholder="e.g. HRG"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                     />
                   </div>
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1562,7 +1562,7 @@ function RFQ() {
                       value={createForm.contact_email}
                       onChange={(e) => setCreateForm(prev => ({ ...prev, contact_email: e.target.value }))}
                       placeholder="vendor.contact@example.com"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                     />
                   </div>
                 </div>
@@ -1574,7 +1574,7 @@ function RFQ() {
                     value={createForm.contact_email}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, contact_email: e.target.value }))}
                     placeholder="client@example.com"
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
               )}
@@ -1586,7 +1586,7 @@ function RFQ() {
                     type="number"
                     value={createForm.manual_value}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, manual_value: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
                 <div className="form-group">
@@ -1594,7 +1594,7 @@ function RFQ() {
                   <select
                     value={createForm.manual_currency}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, manual_currency: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   >
                     {CURRENCIES.map(c => (
                       <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
@@ -1606,7 +1606,7 @@ function RFQ() {
                   <select
                     value={createForm.methodology}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, methodology: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   >
                     <option value="">Select...</option>
                     {METHODOLOGIES.map(m => (
@@ -1620,7 +1620,7 @@ function RFQ() {
                     type="text"
                     value={createForm.country}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, country: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
                 <div className="form-group">
@@ -1629,7 +1629,7 @@ function RFQ() {
                     type="number"
                     value={createForm.loi}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, loi: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
                 <div className="form-group">
@@ -1638,7 +1638,7 @@ function RFQ() {
                     type="number"
                     value={createForm.ir}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, ir: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
                 <div className="form-group">
@@ -1647,7 +1647,7 @@ function RFQ() {
                     type="number"
                     value={createForm.sample_size}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, sample_size: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   />
                 </div>
                 <div className="form-group">
@@ -1655,7 +1655,7 @@ function RFQ() {
                   <select
                     value={createForm.priority}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, priority: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -1671,7 +1671,7 @@ function RFQ() {
                   value={createForm.description}
                   onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d4cec3' }}
                 />
               </div>
             </div>

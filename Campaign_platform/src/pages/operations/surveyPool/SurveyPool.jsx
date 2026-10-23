@@ -767,7 +767,7 @@ export default function SurveyPool() {
                 </a>
               </div>
               <p className="sync-info">
-                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#a25e07' }}>Settings</a>.
+                Syncs all surveys from CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#a15f06' }}>Settings</a>.
                 {poolStats?.last_sync && (
                   <span className="last-sync">
                     Last sync: {formatDateTime(poolStats.last_sync)}
@@ -842,7 +842,7 @@ export default function SurveyPool() {
                       <span 
                         className="survey-link" 
                         onClick={() => handleSurveyClick(survey)}
-                        style={{ cursor: 'pointer', color: '#a25e07', textDecoration: 'underline' }}
+                        style={{ cursor: 'pointer', color: '#a15f06', textDecoration: 'underline' }}
                       >
                         {getSurveyName(survey)}
                       </span>
@@ -852,8 +852,8 @@ export default function SurveyPool() {
                         padding: '2px 8px', 
                         borderRadius: '4px', 
                         fontSize: '0.875rem',
-                        background: surveySource === 'CPX' ? '#fff7ed' : '#d1fae5',
-                        color: surveySource === 'CPX' ? '#e8890b' : '#10b981',
+                        background: surveySource === 'CPX' ? '#fdf4e7' : '#dcfce7',
+                        color: surveySource === 'CPX' ? '#e8910a' : '#16a34a',
                         fontWeight: 'bold'
                       }}>
                         {surveySource}
@@ -982,7 +982,7 @@ export default function SurveyPool() {
                 <div className="detail-item">
                   <span className="detail-label">Source</span>
                   <span className="detail-value" style={{ 
-                    color: selectedSurvey.account_name ? '#10b981' : '#e8890b',
+                    color: selectedSurvey.account_name ? '#16a34a' : '#e8910a',
                     fontWeight: 'bold'
                   }}>
                     {selectedSurvey.account_name ? '🎯 CINT Research' : '📊 CPX Research'}
@@ -998,7 +998,7 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Payout</span>
-                  <span className="detail-value" style={{ color: '#047857', fontWeight: 'bold' }}>{getPayout(selectedSurvey)}</span>
+                  <span className="detail-value" style={{ color: '#166534', fontWeight: 'bold' }}>{getPayout(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Conversion Rate</span>
@@ -1156,12 +1156,12 @@ export default function SurveyPool() {
               
               {/* CINT Entry Link Section */}
               {selectedSurvey.account_name && (
-                <div className="detail-item full-width" style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                  <span className="detail-label" style={{ color: '#047857', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
+                <div className="detail-item full-width" style={{ marginTop: '16px', padding: '16px', background: '#faf9f7', borderRadius: '8px' }}>
+                  <span className="detail-label" style={{ color: '#166534', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
                   <div style={{ marginTop: '12px' }}>
                     {loadingEntryLink ? (
-                      <div style={{ padding: '12px', color: '#666', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="loading-spinner" style={{ width: '16px', height: '16px', border: '2px solid #e5e7eb', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                      <div style={{ padding: '12px', color: '#5c5c5c', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="loading-spinner" style={{ width: '16px', height: '16px', border: '2px solid #e8e4dc', borderTopColor: '#16a34a', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
                         Loading entry link…
                       </div>
                     ) : cintEntryLink?.live_link ? (
@@ -1243,7 +1243,7 @@ export default function SurveyPool() {
                               disabled={creatingEntryLink}
                               style={{
                                 padding: '6px 14px',
-                                background: creatingEntryLink ? '#9ca3af' : '#10b981',
+                                background: creatingEntryLink ? '#8a8a8a' : '#16a34a',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -1262,7 +1262,7 @@ export default function SurveyPool() {
                         </div>
                       </div>
                     )}
-                    <div style={{ color: '#666', marginTop: '12px', fontSize: '0.875rem', lineHeight: '1.6' }}>
+                    <div style={{ color: '#5c5c5c', marginTop: '12px', fontSize: '0.875rem', lineHeight: '1.6' }}>
                       <strong>CINT/Lucid Parameters:</strong>
                       <ul style={{ margin: '8px 0 0 16px', padding: 0, listStyle: 'none' }}>
                         <li>• <code>SID</code> - Survey ID: <strong>{selectedSurvey.survey_id}</strong></li>

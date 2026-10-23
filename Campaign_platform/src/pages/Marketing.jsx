@@ -18,14 +18,14 @@ function Marketing() {
       description: "Manage your websites, pages, and content",
       icon: Globe,
       link: "/admin/marketing/websites",
-      color: "#a25e07"
+      color: "#a15f06"
     },
     { 
       title: "Blog Management", 
       description: "Create and publish blog posts",
       icon: BookOpen,
       link: "/admin/marketing/websites",
-      color: "#047857"
+      color: "#166534"
     },
     { 
       title: "Media Library", 

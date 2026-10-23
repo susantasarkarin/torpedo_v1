@@ -5,7 +5,7 @@
   padding: 16px;
   background: #ffffff;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
 }
 
 .timeline {
@@ -22,7 +22,7 @@
   top: 32px;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(to bottom, #e8890b 0%, #8b5cf6 50%, #22c55e 100%);
+  background: linear-gradient(to bottom, #e8910a 0%, #8b5cf6 50%, #22c55e 100%);
   opacity: 0.2;
 }
 
@@ -51,15 +51,15 @@
 .timeline-content {
   flex: 1;
   padding: 12px;
-  background: #f9fafb;
+  background: #faf9f7;
   border-radius: 6px;
-  border-left: 3px solid #e5e7eb;
+  border-left: 3px solid #e8e4dc;
   transition: all 0.2s ease;
 }
 
 .timeline-item:hover .timeline-content {
-  background: #f3f4f6;
-  border-left-color: #d1d5db;
+  background: #f5f3ef;
+  border-left-color: #d4cec3;
 }
 
 .timeline-header {
@@ -83,11 +83,11 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: #fff7ed;
+  background: #fdf4e7;
   border-radius: 4px;
   font-size: 14px;
   font-weight: 600;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .channel-text {
@@ -106,7 +106,7 @@
 
 .timeline-date {
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
   white-space: nowrap;
 }
 
@@ -115,7 +115,7 @@
   font-size: 14px;
   color: #4a4a4a;
   padding: 8px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .timeline-subject strong {
@@ -125,14 +125,14 @@
 .timeline-preview {
   margin-top: 8px;
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
   line-height: 1.5;
 }
 
 .expand-btn {
   display: inline-block;
   margin-left: 4px;
-  color: #a25e07;
+  color: #a15f06;
   background: none;
   border: none;
   cursor: pointer;
@@ -143,7 +143,7 @@
 }
 
 .expand-btn:hover {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .timeline-full-content {
@@ -151,7 +151,7 @@
   padding: 12px;
   background: #ffffff;
   border-radius: 4px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   font-size: 14px;
   color: #4a4a4a;
   line-height: 1.6;
@@ -167,7 +167,7 @@
   gap: 6px;
   margin-top: 12px;
   padding: 8px 0;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
 }
 
 .metric {
@@ -175,11 +175,11 @@
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .metric svg {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .timeline-error {
@@ -195,7 +195,7 @@
 }
 
 .timeline-error svg {
-  color: #ef4444;
+  color: #dc2626;
   flex-shrink: 0;
 }
 
@@ -205,12 +205,12 @@
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  color: #4b5563;
+  color: #5c5c5c;
   gap: 12px;
 }
 
 .empty-state svg {
-  color: #d1d5db;
+  color: #d4cec3;
 }
 
 .empty-state p {

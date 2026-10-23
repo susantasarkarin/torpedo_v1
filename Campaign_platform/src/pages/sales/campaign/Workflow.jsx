@@ -111,7 +111,7 @@ export default function Workflow() {
               outreach, and reply enrichment.
             </p>
             {lastRefresh && (
-              <p style={{ fontSize: "0.875rem", color: "#6b6b6b", marginTop: "0.25rem" }}>
+              <p style={{ fontSize: "0.875rem", color: "#6f6f6f", marginTop: "0.25rem" }}>
                 Last refreshed: {formatTime(lastRefresh)}
               </p>
             )}
@@ -169,7 +169,7 @@ export default function Workflow() {
             style={{
               background: "white",
               borderRadius: "12px",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               padding: "2rem",
               marginBottom: "1.5rem",
             }}
@@ -190,7 +190,7 @@ export default function Workflow() {
                       <span style={{ fontWeight: 600, color: "#4a4a4a" }}>
                         {STAGE_ICONS[stage.id]} {stage.label}
                       </span>
-                      <span style={{ color: "#4b5563" }}>
+                      <span style={{ color: "#5c5c5c" }}>
                         <strong style={{ color: "#1a1a1a" }}>{stage.count.toLocaleString()}</strong>
                         {convPct !== null && (
                           <span style={{ marginLeft: "0.5rem", fontSize: "0.875rem", color: convPct >= 50 ? "#16a34a" : "#dc2626" }}>
@@ -199,7 +199,7 @@ export default function Workflow() {
                         )}
                       </span>
                     </div>
-                    <div style={{ height: "28px", backgroundColor: "#f3f4f6", borderRadius: "6px", overflow: "hidden" }}>
+                    <div style={{ height: "28px", backgroundColor: "#f5f3ef", borderRadius: "6px", overflow: "hidden" }}>
                       <div
                         style={{
                           height: "100%",
@@ -211,7 +211,7 @@ export default function Workflow() {
                         }}
                       />
                     </div>
-                    <div style={{ fontSize: "0.875rem", color: "#6b6b6b", marginTop: "0.25rem" }}>
+                    <div style={{ fontSize: "0.875rem", color: "#6f6f6f", marginTop: "0.25rem" }}>
                       {STAGE_DESC[stage.id]}
                     </div>
                   </div>
@@ -237,7 +237,7 @@ export default function Workflow() {
             style={{
               background: "white",
               borderRadius: "12px",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               padding: "1.5rem 2rem",
             }}
           >
@@ -267,7 +267,7 @@ export default function Workflow() {
                     </div>
                   </div>
                   {idx < stages.length - 1 && (
-                    <div style={{ flex: "0 0 auto", color: "#d1d5db", fontSize: "1.5rem", padding: "0 0.25rem" }}>
+                    <div style={{ flex: "0 0 auto", color: "#d4cec3", fontSize: "1.5rem", padding: "0 0.25rem" }}>
                       →
                     </div>
                   )}
@@ -279,7 +279,7 @@ export default function Workflow() {
       )}
 
       {loading && (
-        <div style={{ textAlign: "center", padding: "3rem", color: "#4b5563" }}>
+        <div style={{ textAlign: "center", padding: "3rem", color: "#5c5c5c" }}>
           ⏳ Loading pipeline data…
         </div>
       )}

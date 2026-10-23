@@ -1,11 +1,11 @@
 .survey-pool-container {
   padding: 20px;
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
   min-height: calc(100vh - var(--cx-nav-h, 90px));
 }
 
 .survey-pool-header {
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   padding: 20px;
   border-radius: 8px;
@@ -45,7 +45,7 @@
 
 .stat-label {
   font-size: 14px;
-  color: #6b6b6b;
+  color: #6f6f6f;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -66,7 +66,7 @@
 
 .stat-note {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   font-style: italic;
 }
 
@@ -146,8 +146,8 @@
 .filter-input:focus,
 .filter-select:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 .filter-actions {
@@ -191,7 +191,7 @@ table {
 }
 
 thead {
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   border-bottom: 2px solid #dee2e6;
 }
 
@@ -209,17 +209,17 @@ td {
   padding: 12px;
   border-bottom: 1px solid #dee2e6;
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
 }
 
 /* Remove default hover, only apply to clickable rows */
 tbody tr.clickable-row:hover:not(.selected-row) {
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
 }
 
 .survey-id {
   font-weight: 600;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .survey-title {
@@ -265,12 +265,12 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .survey-provider {
   font-weight: 600;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .survey-last-updated {
   font-size: 14px;
-  color: #6b6b6b;
+  color: #6f6f6f;
 }
 
 /* Pagination */
@@ -289,7 +289,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .pagination-info {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   font-weight: 600;
 }
 
@@ -311,7 +311,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 
 .records-per-page:focus {
   outline: none;
-  border-color: #e8890b;
+  border-color: #e8910a;
 }
 
 .pagination-buttons {
@@ -332,20 +332,20 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .pagination-btn:hover:not(:disabled) {
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
-  border-color: #e8890b;
+  border-color: #e8910a;
 }
 
 .pagination-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
 }
 
 .pagination-page-info {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   font-weight: 600;
   min-width: 100px;
   text-align: center;
@@ -364,7 +364,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 .survey-pool-loading p {
   margin: 20px 0 0;
   font-size: 16px;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .loading-spinner {
@@ -372,7 +372,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   height: 50px;
   margin: 0 auto;
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #e8890b;
+  border-top: 4px solid #e8910a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -403,7 +403,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 .survey-pool-error .error-detail {
   font-size: 14px;
   font-weight: 400;
-  color: #666;
+  color: #5c5c5c;
   margin: 8px 0 16px;
 }
 
@@ -449,7 +449,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 .empty-subtitle {
   margin: 0;
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
 }
 
 /* Responsive Design */
@@ -623,7 +623,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1976d2;
+  color: #2563eb;
 }
 
 .preview-info {
@@ -644,7 +644,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
   font-weight: 600;
   font-size: 14px;
   padding: 4px;
-  color: #1976d2;
+  color: #2563eb;
 }
 
 .preview-list {
@@ -659,7 +659,7 @@ tbody tr.clickable-row:hover:not(.selected-row) {
 }
 
 .preview-list code {
-  background: #f8f9fa;
+  background: #faf9f7;
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Courier New', monospace;
@@ -747,13 +747,13 @@ td {
 /* Survey Link Styles */
 .survey-link {
   cursor: pointer;
-  color: #a25e07;
+  color: #a15f06;
   text-decoration: underline;
   transition: color 0.2s ease;
 }
 
 .survey-link:hover {
-  color: #c47209;
+  color: #d17f08;
 }
 
 /* Source Badge */
@@ -765,7 +765,7 @@ td {
   font-weight: 600;
   text-transform: uppercase;
   background-color: #e8f4fd;
-  color: #1976d2;
+  color: #2563eb;
 }
 
 /* Survey Details Modal */
@@ -809,7 +809,7 @@ td {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   border-radius: 12px 12px 0 0;
 }
@@ -858,7 +858,7 @@ td {
 
 .detail-label {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -882,7 +882,7 @@ td {
   display: block;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #047857;
+  color: #166534;
   margin-bottom: 8px;
 }
 
@@ -902,20 +902,20 @@ td {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
   cursor: text;
   font-family: 'Courier New', monospace;
 }
 
 .entry-link-input:focus {
   outline: none;
-  border-color: #10b981;
+  border-color: #16a34a;
   background-color: #fff;
 }
 
 .copy-link-btn {
   padding: 8px 16px;
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
   border: none;
   border-radius: 4px;
@@ -930,9 +930,9 @@ td {
 }
 
 .copy-link-btn:hover {
-  background-color: #c47209;
+  background-color: #d17f08;
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(232, 137, 11, 0.3);
+  box-shadow: 0 2px 4px rgba(232, 145, 10, 0.3);
 }
 
 .copy-link-btn:active {
@@ -941,7 +941,7 @@ td {
 
 .open-link-btn {
   padding: 8px 16px;
-  background-color: #10b981;
+  background-color: #16a34a;
   color: white;
   border: none;
   border-radius: 4px;
@@ -957,7 +957,7 @@ td {
 }
 
 .open-link-btn:hover {
-  background-color: #059669;
+  background-color: #15803d;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 }
@@ -1003,7 +1003,7 @@ td {
   justify-content: space-between;
   align-items: center;
   padding: 15px 20px;
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
 }
 
@@ -1040,10 +1040,10 @@ td {
 }
 
 .pool-stats-grid .stat-card {
-  background: #f8f9fa;
+  background: #faf9f7;
   padding: 15px;
   border-radius: 8px;
-  border-left: 4px solid #e8890b;
+  border-left: 4px solid #e8910a;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1064,7 +1064,7 @@ td {
 .pool-stats-grid .stat-card h4 {
   margin: 0;
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   font-weight: 500;
 }
 
@@ -1077,7 +1077,7 @@ td {
 .stat-numbers .active {
   font-size: 24px;
   font-weight: 700;
-  color: #047857;
+  color: #166534;
 }
 
 /* Per-card active number colors matching border accent */
@@ -1090,21 +1090,21 @@ td {
 }
 
 .pool-stats-grid .stat-card.total .stat-numbers .active {
-  color: #047857;
+  color: #166534;
 }
 
 .stat-numbers .total {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
 }
 
 /* API vs DIY Distribution */
 .pool-distribution {
   margin-top: 12px;
   padding: 12px 16px;
-  background: #f8fafc;
+  background: #faf9f7;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
 }
 
 .distribution-header {
@@ -1117,7 +1117,7 @@ td {
 }
 
 .distribution-total {
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 400;
 }
 
@@ -1126,7 +1126,7 @@ td {
   height: 28px;
   border-radius: 6px;
   overflow: hidden;
-  background: #e5e7eb;
+  background: #e8e4dc;
   margin-bottom: 8px;
 }
 
@@ -1142,11 +1142,11 @@ td {
 }
 
 .api-segment {
-  background: linear-gradient(90deg, #e8890b, #fb9f1a);
+  background: linear-gradient(90deg, #e8910a, #fb9f1a);
 }
 
 .diy-segment {
-  background: linear-gradient(90deg, #10b981, #34d399);
+  background: linear-gradient(90deg, #16a34a, #34d399);
 }
 
 .distribution-legend {
@@ -1154,18 +1154,18 @@ td {
   gap: 20px;
   flex-wrap: wrap;
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .legend-api::before {
   content: '●';
-  color: #a25e07;
+  color: #a15f06;
   margin-right: 4px;
 }
 
 .legend-diy::before {
   content: '●';
-  color: #047857;
+  color: #166534;
   margin-right: 4px;
 }
 
@@ -1185,7 +1185,7 @@ td {
 
 .sync-btn {
   padding: 12px 24px;
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   border: none;
   border-radius: 6px;
@@ -1197,9 +1197,9 @@ td {
 
 .settings-link {
   padding: 12px 20px;
-  background: #f8f9fa;
-  color: #a25e07;
-  border: 1px solid #e8890b;
+  background: #faf9f7;
+  color: #a15f06;
+  border: 1px solid #e8910a;
   border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
@@ -1208,13 +1208,13 @@ td {
 }
 
 .settings-link:hover {
-  background: #e8890b;
+  background: #e8910a;
   color: white;
 }
 
 .sync-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.4);
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.4);
 }
 
 .sync-btn:disabled,
@@ -1234,7 +1234,7 @@ td {
 
 .sync-info {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
   margin: 0;
 }
 
@@ -1247,7 +1247,7 @@ td {
 
 .filter-toggle {
   padding: 10px 15px;
-  background: #fff7ed;
+  background: #fdf4e7;
   border-radius: 6px;
   border: 1px solid #fde68a;
 }
@@ -1279,12 +1279,12 @@ td {
 }
 
 .pool-toggle-btn.active {
-  background-color: #d1fae5;
-  color: #059669;
+  background-color: #dcfce7;
+  color: #15803d;
 }
 
 .pool-toggle-btn.active:hover {
-  background-color: #a7f3d0;
+  background-color: #bbf7d0;
 }
 
 .pool-toggle-btn.inactive {
@@ -1297,7 +1297,7 @@ td {
 }
 
 .filter-note {
-  color: #a25e07;
+  color: #a15f06;
   font-weight: 500;
   font-style: italic;
 }

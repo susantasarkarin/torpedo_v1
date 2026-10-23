@@ -127,12 +127,12 @@ function VendorLeadsPage() {
 
   const getStatusBadge = (status) => {
     const styles = {
-      new: { backgroundColor: "#fff7ed", color: "#c47209" },
+      new: { backgroundColor: "#fdf4e7", color: "#d17f08" },
       contacted: { backgroundColor: "#fef3c7", color: "#92400e" },
       qualified: { backgroundColor: "#dcfce7", color: "#166534" },
       rejected: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
+    return styles[status] || { backgroundColor: "#f5f3ef", color: "#4a4a4a" }
   }
 
   const openCreate = () => {
@@ -345,7 +345,7 @@ function VendorLeadsPage() {
             setRecordsPerPage(parseInt(e.target.value))
             setCurrentPage(1)
           }}
-          style={{ padding: "10px 16px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+          style={{ padding: "10px 16px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
         >
           <option value={10}>10 per page</option>
           <option value={20}>20 per page</option>
@@ -411,7 +411,7 @@ function VendorLeadsPage() {
                         <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {(lead.mail_pool.model_summary || lead.mail_pool.last_summary || lead.mail_pool.last_subject || "").slice(0, 60)}
                         </div>
-                        <div style={{ color: "#4b5563" }}>
+                        <div style={{ color: "#5c5c5c" }}>
                           {lead.mail_pool.messages_in} in / {lead.mail_pool.messages_out} out
                           {lead.mail_pool.last_contact_at ? ` · ${String(lead.mail_pool.last_contact_at).slice(0, 10)}` : ""}
                         </div>
@@ -480,33 +480,33 @@ function VendorLeadsPage() {
                 placeholder="Name"
                 value={formData.name}
                 onChange={e => setFormData({ ...formData, name: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="email"
                 placeholder="Email"
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="text"
                 placeholder="Title"
                 value={formData.title}
                 onChange={e => setFormData({ ...formData, title: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="text"
                 placeholder="Company"
                 value={formData.company}
                 onChange={e => setFormData({ ...formData, company: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <select
                 value={formData.status}
                 onChange={e => setFormData({ ...formData, status: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               >
                 <option value="new">New</option>
                 <option value="contacted">Contacted</option>
@@ -667,7 +667,7 @@ function VendorLeadsPage() {
                         {detailLead.location && <div className="info-row"><span className="label">Location</span><span className="value">{detailLead.location}</span></div>}
                         {detailLead.website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">{detailLead.website} ↗</a></span></div>}
                         {!detailLead.company && !detailLead.vendor_name && !detailLead.industry && !detailLead.location && !detailLead.website && (
-                          <div className="info-row"><span className="value" style={{ color: "#6b6b6b", fontStyle: "italic" }}>No company details available</span></div>
+                          <div className="info-row"><span className="value" style={{ color: "#6f6f6f", fontStyle: "italic" }}>No company details available</span></div>
                         )}
                       </div>
                     </div>
@@ -792,12 +792,12 @@ function VendorLeadsPage() {
         <div className="modal-overlay" onClick={() => setShowConvertModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: "450px", padding: "24px" }}>
             <h2 style={{ marginBottom: "8px" }}>🎯 Convert to Vendor</h2>
-            <p style={{ color: "#666", marginBottom: "20px" }}>
+            <p style={{ color: "#5c5c5c", marginBottom: "20px" }}>
               Convert <strong>{convertingLead.name}</strong> ({convertingLead.email}) to a full vendor
             </p>
             
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "panel" ? "2px solid #e8890b" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "panel" ? "#fff7ed" : "white" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "panel" ? "2px solid #e8910a" : "1px solid #e8e4dc", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "panel" ? "#fdf4e7" : "white" }}>
                 <input 
                   type="radio" 
                   name="vendorType" 
@@ -807,11 +807,11 @@ function VendorLeadsPage() {
                 />
                 <div>
                   <strong>🎯 Panel Vendor</strong>
-                  <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>For survey panels & traffic operations</p>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#5c5c5c" }}>For survey panels & traffic operations</p>
                 </div>
               </label>
               
-              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "billing" ? "2px solid #e8890b" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "billing" ? "#fff7ed" : "white" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "billing" ? "2px solid #e8910a" : "1px solid #e8e4dc", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "billing" ? "#fdf4e7" : "white" }}>
                 <input 
                   type="radio" 
                   name="vendorType" 
@@ -821,7 +821,7 @@ function VendorLeadsPage() {
                 />
                 <div>
                   <strong>💰 Billing Vendor</strong>
-                  <p style={{ margin: 0, fontSize: "14px", color: "#666" }}>For invoicing & financial transactions</p>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#5c5c5c" }}>For invoicing & financial transactions</p>
                 </div>
               </label>
             </div>

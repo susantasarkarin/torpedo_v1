@@ -185,7 +185,7 @@ function LinkedInAutomationPage() {
       </div>
 
       {error && (
-        <div className="card" style={{ border: "1px solid #ef4444", marginBottom: "1rem" }}>
+        <div className="card" style={{ border: "1px solid #dc2626", marginBottom: "1rem" }}>
           <p style={{ color: "#b91c1c" }}>{error}</p>
         </div>
       )}

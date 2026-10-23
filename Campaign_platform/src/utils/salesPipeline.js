@@ -7,10 +7,10 @@ export const SALES_STAGES = [
   { id: "lead_generation", label: "Lead Generation", icon: "🎯", color: { bg: "#f0fdf4", text: "#166534" } },
   { id: "outreach", label: "Outreach", icon: "📧", color: { bg: "#ecfeff", text: "#0e7490" } },
   { id: "discovery_call", label: "Discovery Call", icon: "📞", color: { bg: "#fef3c7", text: "#92400e" } },
-  { id: "presentation", label: "Presentation", icon: "📊", color: { bg: "#fff7ed", text: "#c47209" } },
-  { id: "rfq_pricing", label: "RFQ & Pricing", icon: "💰", color: { bg: "#fff7ed", text: "#c47209" } },
+  { id: "presentation", label: "Presentation", icon: "📊", color: { bg: "#fdf4e7", text: "#d17f08" } },
+  { id: "rfq_pricing", label: "RFQ & Pricing", icon: "💰", color: { bg: "#fdf4e7", text: "#d17f08" } },
   { id: "negotiation", label: "Negotiation", icon: "🤝", color: { bg: "#fce7f3", text: "#9d174d" } },
-  { id: "won", label: "Won", icon: "✅", color: { bg: "#d1fae5", text: "#065f46" } },
+  { id: "won", label: "Won", icon: "✅", color: { bg: "#dcfce7", text: "#166534" } },
   { id: "lost", label: "Lost", icon: "❌", color: { bg: "#fee2e2", text: "#dc2626" } },
   { id: "onboarding", label: "Onboarding", icon: "🚀", color: { bg: "#cffafe", text: "#0f766e" } },
   { id: "project_execution", label: "Project Execution", icon: "⚙️", color: { bg: "#fef9c3", text: "#854d0e" } },
@@ -32,7 +32,7 @@ export const getStageLabel = (stageId) => {
 // Get stage style for badges
 export const getStageStyle = (stageId) => {
   const stage = getStageById(stageId)
-  if (!stage) return { bg: "#f3f4f6", color: "#4a4a4a" }
+  if (!stage) return { bg: "#f5f3ef", color: "#4a4a4a" }
   return { bg: stage.color.bg, color: stage.color.text }
 }
 

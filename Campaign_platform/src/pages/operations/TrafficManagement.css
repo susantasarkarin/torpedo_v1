@@ -19,7 +19,7 @@
 }
 
 .traffic-header p {
-  color: #666;
+  color: #5c5c5c;
   margin: 0.25rem 0 0;
   font-size: 0.9rem;
 }
@@ -32,7 +32,7 @@
 
 .export-btn {
   padding: 0.5rem 1rem;
-  background: #059669;
+  background: #15803d;
   color: white;
   border: none;
   border-radius: 6px;
@@ -42,12 +42,12 @@
 }
 
 .export-btn:hover {
-  background: #047857;
+  background: #166534;
 }
 
 .refresh-btn {
   padding: 0.5rem 1rem;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -57,7 +57,7 @@
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #c47209;
+  background: #d17f08;
 }
 
 .refresh-btn:disabled {
@@ -93,7 +93,7 @@
 }
 
 .stat-card.total {
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
 }
 
@@ -125,7 +125,7 @@
 .search-box input {
   width: 100%;
   padding: 0.5rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   background: white;
 }
@@ -137,7 +137,7 @@
 
 .filter-controls select {
   padding: 0.5rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   background: white;
   cursor: pointer;
@@ -159,14 +159,14 @@
   align-items: center;
   justify-content: center;
   padding: 4rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #e0e0e0;
-  border-top-color: #e8890b;
+  border: 4px solid #e8e4dc;
+  border-top-color: #e8910a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
@@ -182,7 +182,7 @@
 .traffic-empty {
   text-align: center;
   padding: 4rem;
-  color: #666;
+  color: #5c5c5c;
   background: #f9f9f9;
   border-radius: 12px;
 }
@@ -194,7 +194,7 @@
 
 .clear-filters-btn {
   padding: 0.5rem 1rem;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -216,18 +216,18 @@
 }
 
 .traffic-table th {
-  background: #f8f9fa;
+  background: #faf9f7;
   padding: 0.75rem 1rem;
   text-align: left;
   font-weight: 600;
   color: #333;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid #e8e4dc;
   white-space: nowrap;
 }
 
 .traffic-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
   vertical-align: middle;
 }
 
@@ -237,7 +237,7 @@
 }
 
 .traffic-table tbody tr.clickable-row:hover {
-  background: #f9fafb;
+  background: #faf9f7;
 }
 
 .expand-cell {
@@ -260,14 +260,14 @@
 }
 
 .out-url-cell a {
-  color: #a25e07;
+  color: #a15f06;
   text-decoration: none;
   font-size: 0.875rem;
 }
 
 .out-url-cell a:hover {
   text-decoration: underline;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .status-badge {
@@ -315,7 +315,7 @@
 }
 
 .detail-grid strong {
-  color: #666;
+  color: #5c5c5c;
 }
 
 .redirect-url {
@@ -353,7 +353,7 @@
 
 .pagination-info {
   font-size: 0.875rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .pagination-controls {
@@ -364,7 +364,7 @@
 
 .pagination-btn {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   background: white;
   border-radius: 6px;
   cursor: pointer;
@@ -373,8 +373,8 @@
 }
 
 .pagination-btn:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #e8890b;
+  background: #faf9f7;
+  border-color: #e8910a;
 }
 
 .pagination-btn:disabled {
@@ -459,5 +459,5 @@
   width: 18px;
   height: 18px;
   cursor: pointer;
-  accent-color: #e8890b;
+  accent-color: #e8910a;
 }

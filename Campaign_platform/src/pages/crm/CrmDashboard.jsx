@@ -101,7 +101,7 @@ export default function CrmDashboard() {
 
       {/* global search */}
       <div style={{ position: "relative", marginBottom: "1rem", maxWidth: 480 }}>
-        <div className="crm-search" style={{ border: "1px solid #d1d5db", borderRadius: "0.45rem" }}>
+        <div className="crm-search" style={{ border: "1px solid #d4cec3", borderRadius: "0.45rem" }}>
           <Search size={16} className="crm-icon" />
           <input value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Search the whole CRM — accounts, contacts, leads, deals…" />
@@ -109,14 +109,14 @@ export default function CrmDashboard() {
         {results && (
           <div style={{
             position: "absolute", top: "110%", left: 0, right: 0, zIndex: 50,
-            background: "#fff", border: "1px solid #e5e7eb", borderRadius: "0.45rem",
+            background: "#fff", border: "1px solid #e8e4dc", borderRadius: "0.45rem",
             boxShadow: "0 12px 24px rgba(0,0,0,0.12)", maxHeight: 380, overflowY: "auto",
           }}>
             {Object.entries(results).every(([, v]) => !v.length) ? (
               <p className="crm-muted" style={{ padding: "0.8rem" }}>No matches.</p>
             ) : Object.entries(results).map(([kind, items]) => items.length > 0 && (
               <div key={kind}>
-                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.875rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", background: "#f9fafb" }}>
+                <div style={{ padding: "0.4rem 0.8rem", fontSize: "0.875rem", fontWeight: 700, color: "#5c5c5c", textTransform: "uppercase", background: "#faf9f7" }}>
                   {kind}
                 </div>
                 {items.map((it) => (

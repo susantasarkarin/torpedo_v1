@@ -243,13 +243,13 @@ function MyProfile() {
           display: 'flex', 
           gap: '0', 
           marginBottom: '1.5rem',
-          borderBottom: '2px solid #e5e7eb'
+          borderBottom: '2px solid #e8e4dc'
         }}>
           <button
             onClick={() => setActiveTab("profile")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'profile' ? '#e8890b' : 'transparent',
+              background: activeTab === 'profile' ? '#e8910a' : 'transparent',
               color: activeTab === 'profile' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
@@ -264,7 +264,7 @@ function MyProfile() {
             onClick={() => setActiveTab("users")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'users' ? '#e8890b' : 'transparent',
+              background: activeTab === 'users' ? '#e8910a' : 'transparent',
               color: activeTab === 'users' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
@@ -279,7 +279,7 @@ function MyProfile() {
             onClick={() => setActiveTab("roles")}
             style={{
               padding: '0.75rem 1.5rem',
-              background: activeTab === 'roles' ? '#e8890b' : 'transparent',
+              background: activeTab === 'roles' ? '#e8910a' : 'transparent',
               color: activeTab === 'roles' ? 'white' : '#4a4a4a',
               border: 'none',
               borderRadius: '8px 8px 0 0',
@@ -315,7 +315,7 @@ function MyProfile() {
                     onChange={(e) => handleProfileChange("displayName", e.target.value)}
                     placeholder="Enter your display name"
                   />
-                  <small style={{ color: "#666", marginTop: "4px" }}>
+                  <small style={{ color: "#5c5c5c", marginTop: "4px" }}>
                     This name will be shown across the application
                   </small>
                 </div>
@@ -326,9 +326,9 @@ function MyProfile() {
                     type="text"
                     value={profile.username}
                     disabled
-                    style={{ backgroundColor: "#f5f5f5", cursor: "not-allowed" }}
+                    style={{ backgroundColor: "#f5f3ef", cursor: "not-allowed" }}
                   />
-                  <small style={{ color: "#666", marginTop: "4px" }}>
+                  <small style={{ color: "#5c5c5c", marginTop: "4px" }}>
                     Username cannot be changed (used for login)
                   </small>
                 </div>
@@ -350,14 +350,14 @@ function MyProfile() {
                       type="text"
                       value={profile.role}
                       disabled
-                      style={{ backgroundColor: "#f5f5f5", cursor: "not-allowed", flex: 1 }}
+                      style={{ backgroundColor: "#f5f3ef", cursor: "not-allowed", flex: 1 }}
                     />
                     <span style={{
                       padding: '0.25rem 0.75rem',
                       borderRadius: '999px',
                       fontSize: '0.875rem',
-                      background: profile.role === 'admin' ? '#fff7ed' : '#f3f4f6',
-                      color: profile.role === 'admin' ? '#c47209' : '#4a4a4a',
+                      background: profile.role === 'admin' ? '#fdf4e7' : '#f5f3ef',
+                      color: profile.role === 'admin' ? '#d17f08' : '#4a4a4a',
                       fontWeight: 'bold'
                     }}>
                       {profile.role === 'admin' ? '🔐 Full Access' : 
@@ -373,7 +373,7 @@ function MyProfile() {
                     type="text"
                     value={formatDate(profile.createdAt)}
                     disabled
-                    style={{ backgroundColor: "#f5f5f5", cursor: "not-allowed" }}
+                    style={{ backgroundColor: "#f5f3ef", cursor: "not-allowed" }}
                   />
                 </div>
 
@@ -469,24 +469,24 @@ function MyProfile() {
               {availableRoles.length > 0 ? (
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
                   <thead>
-                    <tr style={{ background: '#f3f4f6', textAlign: 'left' }}>
-                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e5e7eb' }}>Role</th>
-                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e5e7eb' }}>Description</th>
-                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e5e7eb' }}>Permissions</th>
+                    <tr style={{ background: '#f5f3ef', textAlign: 'left' }}>
+                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e8e4dc' }}>Role</th>
+                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e8e4dc' }}>Description</th>
+                      <th style={{ padding: '0.75rem', borderBottom: '2px solid #e8e4dc' }}>Permissions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {availableRoles.map(role => (
-                      <tr key={role.code} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                      <tr key={role.code} style={{ borderBottom: '1px solid #e8e4dc' }}>
                         <td style={{ padding: '0.75rem' }}>
                           <span style={{
                             padding: '0.25rem 0.75rem',
                             borderRadius: '999px',
                             fontSize: '0.875rem',
-                            background: role.code === 'admin' ? '#fff7ed' : 
+                            background: role.code === 'admin' ? '#fdf4e7' : 
                                        role.code === 'manager' ? '#fef3c7' :
-                                       role.code === 'user' ? '#dcfce7' : '#f3f4f6',
-                            color: role.code === 'admin' ? '#c47209' : 
+                                       role.code === 'user' ? '#dcfce7' : '#f5f3ef',
+                            color: role.code === 'admin' ? '#d17f08' : 
                                   role.code === 'manager' ? '#92400e' :
                                   role.code === 'user' ? '#166534' : '#4a4a4a',
                             fontWeight: 'bold'
@@ -494,7 +494,7 @@ function MyProfile() {
                             {role.name}
                           </span>
                         </td>
-                        <td style={{ padding: '0.75rem', color: '#666' }}>{role.description}</td>
+                        <td style={{ padding: '0.75rem', color: '#5c5c5c' }}>{role.description}</td>
                         <td style={{ padding: '0.75rem' }}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
                             {role.permissions.slice(0, 3).map((perm, idx) => (
@@ -502,7 +502,7 @@ function MyProfile() {
                                 padding: '0.125rem 0.5rem',
                                 borderRadius: '4px',
                                 fontSize: '0.875rem',
-                                background: '#f3f4f6',
+                                background: '#f5f3ef',
                                 color: '#4a4a4a'
                               }}>
                                 {perm}
@@ -513,7 +513,7 @@ function MyProfile() {
                                 padding: '0.125rem 0.5rem',
                                 borderRadius: '4px',
                                 fontSize: '0.875rem',
-                                background: '#e5e7eb',
+                                background: '#e8e4dc',
                                 color: '#4a4a4a'
                               }}>
                                 +{role.permissions.length - 3} more
@@ -529,16 +529,16 @@ function MyProfile() {
                 <div style={{ 
                   padding: '2rem', 
                   textAlign: 'center', 
-                  background: '#f9fafb', 
+                  background: '#faf9f7', 
                   borderRadius: '8px',
                   marginTop: '1rem'
                 }}>
-                  <p style={{ color: '#666', marginBottom: '1rem' }}>
+                  <p style={{ color: '#5c5c5c', marginBottom: '1rem' }}>
                     Available roles are defined in the system configuration.
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#fff7ed', color: '#c47209', fontWeight: 'bold' }}>Admin</span>
+                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#fdf4e7', color: '#d17f08', fontWeight: 'bold' }}>Admin</span>
                       <span>- Full system access</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -550,7 +550,7 @@ function MyProfile() {
                       <span>- View and edit access</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#f3f4f6', color: '#4a4a4a', fontWeight: 'bold' }}>Viewer</span>
+                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '999px', background: '#f5f3ef', color: '#4a4a4a', fontWeight: 'bold' }}>Viewer</span>
                       <span>- Read-only access</span>
                     </div>
                   </div>
@@ -560,11 +560,11 @@ function MyProfile() {
 
             <div className="settings-group" style={{ marginTop: '2rem' }}>
               <h3>ℹ️ Role Assignment</h3>
-              <div style={{ padding: '1rem', background: '#fff7ed', borderRadius: '8px', borderLeft: '4px solid #e8890b' }}>
-                <p style={{ margin: 0, color: '#c47209' }}>
+              <div style={{ padding: '1rem', background: '#fdf4e7', borderRadius: '8px', borderLeft: '4px solid #e8910a' }}>
+                <p style={{ margin: 0, color: '#d17f08' }}>
                   <strong>To assign or change a user's role:</strong>
                 </p>
-                <ol style={{ marginTop: '0.5rem', marginBottom: 0, color: '#c47209' }}>
+                <ol style={{ marginTop: '0.5rem', marginBottom: 0, color: '#d17f08' }}>
                   <li>Go to the "User Management" tab</li>
                   <li>Click the edit (✏️) button for the user</li>
                   <li>Select the new role from the dropdown</li>

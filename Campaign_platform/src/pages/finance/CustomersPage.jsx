@@ -570,7 +570,7 @@ function CustomersPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#6b6b6b",
+              color: "#6f6f6f",
             }}
           />
           <input
@@ -608,10 +608,10 @@ function CustomersPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#a25e07",
+                color: "#a15f06",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading customers…</p>
+            <p style={{ color: "#5c5c5c" }}>Loading customers…</p>
           </div>
         </div>
       ) : (
@@ -642,7 +642,7 @@ function CustomersPage() {
                         style={{
                           width: "32px",
                           height: "32px",
-                          backgroundColor: "#f3f4f6",
+                          backgroundColor: "#f5f3ef",
                           borderRadius: "0.5rem",
                           display: "flex",
                           alignItems: "center",
@@ -660,7 +660,7 @@ function CustomersPage() {
                     <code
                       style={{
                         fontSize: "0.875rem",
-                        backgroundColor: "#f3f4f6",
+                        backgroundColor: "#f5f3ef",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
                         fontFamily: "monospace",
@@ -677,8 +677,8 @@ function CustomersPage() {
                           alignItems: 'center',
                           gap: '4px',
                           padding: '4px 8px',
-                          background: '#fff7ed',
-                          color: '#c47209',
+                          background: '#fdf4e7',
+                          color: '#d17f08',
                           borderRadius: '12px',
                           fontSize: '14px',
                           fontWeight: '500',
@@ -690,7 +690,7 @@ function CustomersPage() {
                         👤 {customer.linked_contacts_count} contact{customer.linked_contacts_count > 1 ? 's' : ''}
                       </span>
                     ) : (
-                      <span style={{ color: '#6b6b6b', fontSize: '14px' }}>—</span>
+                      <span style={{ color: '#6f6f6f', fontSize: '14px' }}>—</span>
                     )}
                   </td>
                   <td style={styles.td}>
@@ -789,7 +789,7 @@ function CustomersPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Customer No</label>
                     <input
-                      style={{...styles.input, backgroundColor: '#f3f4f6', cursor: 'not-allowed'}}
+                      style={{...styles.input, backgroundColor: '#f5f3ef', cursor: 'not-allowed'}}
                       value={formData.customer_number}
                       disabled
                       readOnly
@@ -803,7 +803,7 @@ function CustomersPage() {
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Customer Name *</label>
                   <input
-                    style={{ ...styles.input, borderColor: formErrors.name ? "#ef4444" : undefined }}
+                    style={{ ...styles.input, borderColor: formErrors.name ? "#dc2626" : undefined }}
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -841,7 +841,7 @@ function CustomersPage() {
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Email</label>
                   <input
-                    style={{ ...styles.input, borderColor: formErrors.email ? "#ef4444" : undefined }}
+                    style={{ ...styles.input, borderColor: formErrors.email ? "#dc2626" : undefined }}
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -852,7 +852,7 @@ function CustomersPage() {
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Phone</label>
                   <input
-                    style={{ ...styles.input, borderColor: formErrors.phone ? "#ef4444" : undefined }}
+                    style={{ ...styles.input, borderColor: formErrors.phone ? "#dc2626" : undefined }}
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -880,10 +880,10 @@ function CustomersPage() {
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>
-                      GSTIN {isGSTINRequired() && <span style={{ color: "#ef4444" }}>*</span>}
+                      GSTIN {isGSTINRequired() && <span style={{ color: "#dc2626" }}>*</span>}
                     </label>
                     <input
-                      style={{ ...styles.input, borderColor: formErrors.gstin ? "#ef4444" : undefined }}
+                      style={{ ...styles.input, borderColor: formErrors.gstin ? "#dc2626" : undefined }}
                       type="text"
                       value={formData.gstin}
                       onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
@@ -895,7 +895,7 @@ function CustomersPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>PAN</label>
                     <input
-                      style={{ ...styles.input, borderColor: formErrors.pan ? "#ef4444" : undefined }}
+                      style={{ ...styles.input, borderColor: formErrors.pan ? "#dc2626" : undefined }}
                       type="text"
                       value={formData.pan}
                       onChange={(e) => setFormData({ ...formData, pan: e.target.value.toUpperCase() })}
@@ -1220,7 +1220,7 @@ function CustomersPage() {
 const styles = {
   container: {
     padding: "1.5rem",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     minHeight: "100vh",
   },
   header: {
@@ -1236,13 +1236,13 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "0",
     fontSize: "0.95rem",
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1289,13 +1289,13 @@ const styles = {
     paddingRight: "1rem",
     paddingTop: "0.75rem",
     paddingBottom: "0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
   },
   recordsPerPageSelect: {
     padding: "0.75rem 1rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
     backgroundColor: "white",
@@ -1305,7 +1305,7 @@ const styles = {
     display: "flex",
     gap: "2rem",
     fontSize: "0.9rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
   },
   tableContainer: {
     backgroundColor: "white",
@@ -1318,8 +1318,8 @@ const styles = {
     borderCollapse: "collapse",
   },
   thead: {
-    backgroundColor: "#f9fafb",
-    borderBottom: "2px solid #e5e7eb",
+    backgroundColor: "#faf9f7",
+    borderBottom: "2px solid #e8e4dc",
   },
   th: {
     padding: "1rem",
@@ -1327,11 +1327,11 @@ const styles = {
     fontSize: "0.875rem",
     fontWeight: "600",
     textTransform: "uppercase",
-    color: "#4b5563",
+    color: "#5c5c5c",
     letterSpacing: "0.05em",
   },
   tr: {
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
   },
   td: {
     padding: "1rem",
@@ -1340,7 +1340,7 @@ const styles = {
   },
   customerNo: {
     fontWeight: "600",
-    color: "#059669",
+    color: "#15803d",
     fontFamily: "monospace",
     fontSize: "0.95rem",
   },
@@ -1353,16 +1353,16 @@ const styles = {
     textTransform: "capitalize",
   },
   statusActive: {
-    backgroundColor: "#d1fae5",
-    color: "#065f46",
+    backgroundColor: "#dcfce7",
+    color: "#166534",
   },
   statusInactive: {
-    backgroundColor: "#e5e7eb",
-    color: "#4b5563",
+    backgroundColor: "#e8e4dc",
+    color: "#5c5c5c",
   },
   linkSelect: {
     padding: "0.4rem 0.6rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.375rem",
     fontSize: "0.875rem",
     backgroundColor: "white",
@@ -1376,7 +1376,7 @@ const styles = {
   },
   btnEdit: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#4b5563",
+    backgroundColor: "#5c5c5c",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1387,7 +1387,7 @@ const styles = {
   },
   btnDelete: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#ef4444",
+    backgroundColor: "#dc2626",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1399,7 +1399,7 @@ const styles = {
   emptyState: {
     textAlign: "center",
     padding: "3rem",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
   },
   paginationContainer: {
     display: "flex",
@@ -1414,7 +1414,7 @@ const styles = {
   },
   paginationBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "0.375rem",
@@ -1424,13 +1424,13 @@ const styles = {
     transition: "all 0.2s",
   },
   paginationBtnDisabled: {
-    backgroundColor: "#d1d5db",
+    backgroundColor: "#d4cec3",
     cursor: "not-allowed",
     opacity: "0.6",
   },
   pageInfo: {
     fontSize: "0.9rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     minWidth: "150px",
     textAlign: "center",
   },
@@ -1460,7 +1460,7 @@ const styles = {
   },
   modalHeader: {
     padding: "1.5rem",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1475,7 +1475,7 @@ const styles = {
     background: "none",
     border: "none",
     fontSize: "2rem",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
     cursor: "pointer",
     padding: "0",
     width: "2rem",
@@ -1487,7 +1487,7 @@ const styles = {
   section: {
     marginBottom: "2rem",
     paddingBottom: "1.5rem",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
   },
   sectionTitle: {
     fontSize: "1.1rem",
@@ -1507,34 +1507,34 @@ const styles = {
   },
   input: {
     padding: "0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
     backgroundColor: "white",
   },
   select: {
     padding: "0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
     backgroundColor: "white",
     cursor: "pointer",
   },
   errorText: {
-    color: "#ef4444",
+    color: "#dc2626",
     fontSize: "0.875rem",
     marginTop: "0.25rem",
   },
   modalFooter: {
     padding: "1rem 1.5rem",
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid #e8e4dc",
     display: "flex",
     justifyContent: "flex-end",
     gap: "0.75rem",
   },
   btnCancel: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#4b5563",
+    backgroundColor: "#5c5c5c",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -1544,7 +1544,7 @@ const styles = {
   },
   btnSave: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",

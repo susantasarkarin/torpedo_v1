@@ -22,7 +22,7 @@ export default function CrmNav() {
   return (
     <div style={{
       display: "flex", gap: "0.25rem", marginBottom: "1rem",
-      borderBottom: "1px solid #e5e7eb", paddingBottom: "0.5rem", flexWrap: "wrap",
+      borderBottom: "1px solid #e8e4dc", paddingBottom: "0.5rem", flexWrap: "wrap",
     }}>
       {TABS.map(({ to, label, icon: Icon, end }) => (
         <NavLink key={to} to={to} end={end}
@@ -30,8 +30,8 @@ export default function CrmNav() {
             display: "inline-flex", alignItems: "center", gap: "0.35rem",
             padding: "0.4rem 0.75rem", borderRadius: "0.4rem",
             fontSize: "0.875rem", fontWeight: 600, textDecoration: "none",
-            color: isActive ? "#c47209" : "#4b5563",
-            background: isActive ? "#fff7ed" : "transparent",
+            color: isActive ? "#d17f08" : "#5c5c5c",
+            background: isActive ? "#fdf4e7" : "transparent",
           })}>
           <Icon size={15} /> {label}
         </NavLink>
@@ -66,7 +66,7 @@ export function Modal({ title, onClose, children, width = 440 }) {
 export function Field({ label, children }) {
   return (
     <label style={{ display: "block", marginBottom: "0.7rem" }}>
-      <span style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#4b5563", marginBottom: "0.25rem" }}>
+      <span style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#5c5c5c", marginBottom: "0.25rem" }}>
         {label}
       </span>
       {children}
@@ -75,6 +75,6 @@ export function Field({ label, children }) {
 }
 
 export const inputStyle = {
-  width: "100%", padding: "0.45rem 0.6rem", border: "1px solid #d1d5db",
+  width: "100%", padding: "0.45rem 0.6rem", border: "1px solid #d4cec3",
   borderRadius: "0.4rem", fontSize: "0.875rem", boxSizing: "border-box",
 };

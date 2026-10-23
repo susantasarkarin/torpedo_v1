@@ -163,7 +163,7 @@ export default function MarketingWebsites() {
                   <tr key={p._id} className="border-t border-gray-100">
                     <td className="py-2 font-semibold">{p.title}</td>
                     <td className="py-2">{siteName(p.site_id)}</td>
-                    <td className="py-2"><span className="status-badge" style={{ background: "#fff7ed" }}>
+                    <td className="py-2"><span className="status-badge" style={{ background: "#fdf4e7" }}>
                       {p.status === "sent_to_site" ? "Sent to site" : p.status === "ready" ? "Ready" : "Draft"}</span>
                       {p.published_url && <> · <a href={p.published_url} target="_blank" rel="noreferrer">open</a></>}
                     </td>

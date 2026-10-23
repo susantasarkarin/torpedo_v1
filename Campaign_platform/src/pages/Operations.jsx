@@ -269,7 +269,7 @@ function Operations() {
       return (
         <div className="loading-container">
           <div className="loading-spinner"></div>
-          <p style={{ marginTop: "1rem", color: "#4b5563" }}>Loading dashboard…</p>
+          <p style={{ marginTop: "1rem", color: "#5c5c5c" }}>Loading dashboard…</p>
         </div>
       );
     }
@@ -542,7 +542,7 @@ function Operations() {
                   <Line type="monotone" dataKey="clicks" stroke="#ff5c7a" strokeWidth={2.2} dot={{ r: 2 }} />
                   <Line type="monotone" dataKey="incomplete" stroke="#f59e0b" strokeWidth={2.2} dot={{ r: 2 }} />
                   <Line type="monotone" dataKey="complete" stroke="#4f7df4" strokeWidth={2.2} dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="terminate" stroke="#ef4444" strokeWidth={2.2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="terminate" stroke="#dc2626" strokeWidth={2.2} dot={{ r: 2 }} />
                   <Line type="monotone" dataKey="quotaFull" stroke="#8b5cf6" strokeWidth={2.2} dot={{ r: 2 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -672,21 +672,21 @@ function Operations() {
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">In Progress</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#a25e07' }}>🔄</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#dbeafe20', color: '#a15f06' }}>🔄</div>
             </div>
-            <div className="kpi-value" style={{ color: '#a25e07' }}>{rfqStats.inProgress}</div>
+            <div className="kpi-value" style={{ color: '#a15f06' }}>{rfqStats.inProgress}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">Quoted</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#dcfce720', color: '#047857' }}>✅</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#dcfce720', color: '#166534' }}>✅</div>
             </div>
-            <div className="kpi-value" style={{ color: '#047857' }}>{rfqStats.quoted}</div>
+            <div className="kpi-value" style={{ color: '#166534' }}>{rfqStats.quoted}</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-card-header">
               <span className="kpi-title">Total RFQs</span>
-              <div className="kpi-icon" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}>📋</div>
+              <div className="kpi-icon" style={{ backgroundColor: '#f5f3ef', color: '#5c5c5c' }}>📋</div>
             </div>
             <div className="kpi-value">{rfqs.length}</div>
           </div>
@@ -911,7 +911,7 @@ function Operations() {
                           <span style={{ fontWeight: 500 }}>{acc.name}</span>
                         </div>
                       </td>
-                      <td style={{ color: '#4b5563' }}>{acc.email || '—'}</td>
+                      <td style={{ color: '#5c5c5c' }}>{acc.email || '—'}</td>
                       <td>
                         <span className={`status-badge ${acc.account_type || 'client'}`}>
                           {acc.account_type || 'client'}

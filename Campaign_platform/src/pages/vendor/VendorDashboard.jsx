@@ -98,72 +98,72 @@ function VendorDashboard() {
             onClick={() => navigate('/admin/vendor/leads')}
             style={{ 
               padding: "20px", 
-              background: "#f8fafc", 
+              background: "#faf9f7", 
               borderRadius: "12px", 
               cursor: "pointer",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8910a"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e4dc"}
           >
             <span style={{ fontSize: "2rem" }}>👥</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Vendor Leads</h3>
-            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Manage vendor leads</p>
+            <p style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "4px" }}>Manage vendor leads</p>
           </div>
           
           <div 
             onClick={() => navigate('/admin/vendor/all')}
             style={{ 
               padding: "20px", 
-              background: "#f8fafc", 
+              background: "#faf9f7", 
               borderRadius: "12px", 
               cursor: "pointer",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8910a"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e4dc"}
           >
             <span style={{ fontSize: "2rem" }}>🏢</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Vendors</h3>
-            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>View all vendors</p>
+            <p style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "4px" }}>View all vendors</p>
           </div>
           
           <div 
             onClick={() => navigate('/admin/vendor/billing')}
             style={{ 
               padding: "20px", 
-              background: "#f8fafc", 
+              background: "#faf9f7", 
               borderRadius: "12px", 
               cursor: "pointer",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8910a"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e4dc"}
           >
             <span style={{ fontSize: "2rem" }}>💰</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Billing</h3>
-            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Manage invoices</p>
+            <p style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "4px" }}>Manage invoices</p>
           </div>
           
           <div 
             onClick={() => navigate('/admin/vendor/payments')}
             style={{ 
               padding: "20px", 
-              background: "#f8fafc", 
+              background: "#faf9f7", 
               borderRadius: "12px", 
               cursor: "pointer",
-              border: "1px solid #e5e7eb",
+              border: "1px solid #e8e4dc",
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8890b"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#e5e7eb"}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#e8910a"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e4dc"}
           >
             <span style={{ fontSize: "2rem" }}>💳</span>
             <h3 style={{ marginTop: "12px", fontWeight: "600" }}>Payments</h3>
-            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "4px" }}>Process payments</p>
+            <p style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "4px" }}>Process payments</p>
           </div>
         </div>
       </div>

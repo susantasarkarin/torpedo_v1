@@ -246,7 +246,7 @@ function UserManagement() {
             case 'locked':
                 return { background: '#fce7f3', color: '#9d174d' }
             default:
-                return { background: '#f3f4f6', color: '#4a4a4a' }
+                return { background: '#f5f3ef', color: '#4a4a4a' }
         }
     }
 
@@ -289,13 +289,13 @@ function UserManagement() {
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button
                         onClick={fetchUsers}
-                        style={{ padding: '0.5rem 1rem', background: '#f3f4f6', borderRadius: '4px', border: '1px solid #d1d5db', cursor: 'pointer' }}
+                        style={{ padding: '0.5rem 1rem', background: '#f5f3ef', borderRadius: '4px', border: '1px solid #d4cec3', cursor: 'pointer' }}
                     >
                         🔄 Refresh
                     </button>
                     <button
                         onClick={handleAdd}
-                        style={{ padding: '0.5rem 1rem', background: '#e8890b', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}
+                        style={{ padding: '0.5rem 1rem', background: '#e8910a', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}
                     >
                         + Add User
                     </button>
@@ -307,7 +307,7 @@ function UserManagement() {
             ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr style={{ background: '#f3f4f6', textAlign: 'left' }}>
+                        <tr style={{ background: '#f5f3ef', textAlign: 'left' }}>
                             <th style={{ padding: '0.75rem' }}>Name</th>
                             <th style={{ padding: '0.75rem' }}>Username/Email</th>
                             <th style={{ padding: '0.75rem' }}>Role</th>
@@ -317,7 +317,7 @@ function UserManagement() {
                     </thead>
                     <tbody>
                         {users.map(user => (
-                            <tr key={user.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                            <tr key={user.id} style={{ borderBottom: '1px solid #e8e4dc' }}>
                                 <td style={{ padding: '0.75rem' }}>{user.name || user.username}</td>
                                 <td style={{ padding: '0.75rem' }}>{user.email || user.username}</td>
                                 <td style={{ padding: '0.75rem' }}>
@@ -325,8 +325,8 @@ function UserManagement() {
                                         padding: '0.25rem 0.5rem',
                                         borderRadius: '999px',
                                         fontSize: '0.875rem',
-                                        background: user.role === 'admin' ? '#fff7ed' : '#f3f4f6',
-                                        color: user.role === 'admin' ? '#c47209' : '#4a4a4a'
+                                        background: user.role === 'admin' ? '#fdf4e7' : '#f5f3ef',
+                                        color: user.role === 'admin' ? '#d17f08' : '#4a4a4a'
                                     }}>
                                         {getRoleDisplay(user.role)}
                                     </span>
@@ -368,7 +368,7 @@ function UserManagement() {
                         ))}
                         {users.length === 0 && (
                             <tr>
-                                <td colSpan="5" style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
+                                <td colSpan="5" style={{ padding: '1rem', textAlign: 'center', color: '#5c5c5c' }}>
                                     No users found. Click "Add User" to create one.
                                 </td>
                             </tr>
@@ -392,7 +392,7 @@ function UserManagement() {
                                     type="text"
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                     required
                                     placeholder="John Doe"
                                 />
@@ -404,7 +404,7 @@ function UserManagement() {
                                     type="email"
                                     value={formData.email}
                                     onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                     required
                                     placeholder="user@example.com"
                                 />
@@ -412,7 +412,7 @@ function UserManagement() {
 
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 'bold' }}>
-                                    Username {editingUser && <span style={{ fontWeight: 'normal', color: '#666' }}>(cannot be changed)</span>}
+                                    Username {editingUser && <span style={{ fontWeight: 'normal', color: '#5c5c5c' }}>(cannot be changed)</span>}
                                 </label>
                                 <input
                                     type="text"
@@ -421,9 +421,9 @@ function UserManagement() {
                                     style={{ 
                                         width: '100%', 
                                         padding: '0.5rem', 
-                                        border: '1px solid #d1d5db', 
+                                        border: '1px solid #d4cec3', 
                                         borderRadius: '4px',
-                                        backgroundColor: editingUser ? '#f5f5f5' : 'white'
+                                        backgroundColor: editingUser ? '#f5f3ef' : 'white'
                                     }}
                                     disabled={!!editingUser}
                                     placeholder="Will default to email if not provided"
@@ -432,13 +432,13 @@ function UserManagement() {
 
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 'bold' }}>
-                                    Password {editingUser && <span style={{ fontWeight: 'normal', color: '#666' }}>(Leave blank to keep current)</span>}
+                                    Password {editingUser && <span style={{ fontWeight: 'normal', color: '#5c5c5c' }}>(Leave blank to keep current)</span>}
                                 </label>
                                 <input
                                     type="password"
                                     value={formData.password}
                                     onChange={e => setFormData({ ...formData, password: e.target.value })}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                     required={!editingUser}
                                     placeholder="Min 6 characters"
                                     minLength={editingUser ? 0 : 6}
@@ -450,7 +450,7 @@ function UserManagement() {
                                 <select
                                     value={formData.role}
                                     onChange={e => setFormData({ ...formData, role: e.target.value })}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                 >
                                     {roles.length > 0 ? (
                                         roles.map(role => (
@@ -474,7 +474,7 @@ function UserManagement() {
                                 <select
                                     value={formData.status}
                                     onChange={e => setFormData({ ...formData, status: e.target.value })}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                 >
                                     <option value="active">Active</option>
                                     <option value="inactive">Inactive</option>
@@ -487,13 +487,13 @@ function UserManagement() {
                                 <button
                                     type="button"
                                     onClick={() => setIsModalOpen(false)}
-                                    style={{ padding: '0.5rem 1rem', background: '#f3f4f6', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ padding: '0.5rem 1rem', background: '#f5f3ef', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    style={{ padding: '0.5rem 1rem', background: '#e8890b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ padding: '0.5rem 1rem', background: '#e8910a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                     {editingUser ? "Save Changes" : "Create User"}
                                 </button>
@@ -511,7 +511,7 @@ function UserManagement() {
                 }}>
                     <div style={{ background: 'white', padding: '2rem', borderRadius: '8px', width: '400px', maxWidth: '90%' }}>
                         <h3 style={{ marginBottom: '1rem' }}>🔑 Reset Password</h3>
-                        <p style={{ marginBottom: '1rem', color: '#666' }}>
+                        <p style={{ marginBottom: '1rem', color: '#5c5c5c' }}>
                             Reset password for user: <strong>{resetPasswordUser.username}</strong>
                         </p>
                         <form onSubmit={submitResetPassword}>
@@ -521,7 +521,7 @@ function UserManagement() {
                                     type="password"
                                     value={newPassword}
                                     onChange={e => setNewPassword(e.target.value)}
-                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d4cec3', borderRadius: '4px' }}
                                     required
                                     placeholder="Min 6 characters"
                                     minLength={6}
@@ -532,13 +532,13 @@ function UserManagement() {
                                 <button
                                     type="button"
                                     onClick={() => setIsResetPasswordOpen(false)}
-                                    style={{ padding: '0.5rem 1rem', background: '#f3f4f6', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ padding: '0.5rem 1rem', background: '#f5f3ef', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    style={{ padding: '0.5rem 1rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ padding: '0.5rem 1rem', background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                     Reset Password
                                 </button>

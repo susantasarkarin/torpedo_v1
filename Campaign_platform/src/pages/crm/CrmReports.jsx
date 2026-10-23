@@ -105,11 +105,11 @@ export default function CrmReports() {
               {(pipeline?.stages || []).map((s) => (
                 <div key={s.stage} style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.45rem" }}>
                   <span className="crm-mono" style={{ width: 90 }}>{s.stage}</span>
-                  <div style={{ flex: 1, background: "#f3f4f6", borderRadius: "0.3rem", height: 18, overflow: "hidden" }}>
+                  <div style={{ flex: 1, background: "#f5f3ef", borderRadius: "0.3rem", height: 18, overflow: "hidden" }}>
                     <div style={{
                       width: `${Math.round((s.value / maxStageValue) * 100)}%`,
                       minWidth: s.count ? 4 : 0, height: "100%",
-                      background: s.stage === "won" ? "#059669" : s.stage === "lost" ? "#dc2626" : "#e8890b",
+                      background: s.stage === "won" ? "#15803d" : s.stage === "lost" ? "#dc2626" : "#e8910a",
                     }} />
                   </div>
                   <span style={{ width: 150, textAlign: "right", fontSize: "0.875rem" }}>
@@ -143,7 +143,7 @@ export default function CrmReports() {
                 {dupes.length === 0 ? (
                   <p className="crm-muted">No likely duplicates. 🎉</p>
                 ) : dupes.map((g) => (
-                  <div key={g.key} style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", padding: "0.5rem 0.7rem", marginBottom: "0.5rem" }}>
+                  <div key={g.key} style={{ border: "1px solid #f5f3ef", borderRadius: "0.4rem", padding: "0.5rem 0.7rem", marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: "0.875rem" }}>
                         {g.accounts.map((a) => a.name).join("  ·  ")}

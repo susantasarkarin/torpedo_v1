@@ -119,7 +119,7 @@ function RFQReviewQueue() {
         {loading ? (
           <p style={{ padding: "1.5rem" }}>Loading…</p>
         ) : items.length === 0 ? (
-          <p style={{ padding: "1.5rem", color: "#4b5563" }}>Nothing pending review right now.</p>
+          <p style={{ padding: "1.5rem", color: "#5c5c5c" }}>Nothing pending review right now.</p>
         ) : (
           <div className="rfq-table-container">
             <table className="rfq-table">
@@ -145,7 +145,7 @@ function RFQReviewQueue() {
                     <tr key={item._id}>
                       <td>
                         <div>{item.sender_name || "—"}</div>
-                        <div style={{ color: "#4b5563", fontSize: "0.875rem" }}>{item.sender_email}</div>
+                        <div style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>{item.sender_email}</div>
                       </td>
                       <td>{payload.title || "—"}</td>
                       <td>{formatMoney(payload.budget, payload.currency)}</td>

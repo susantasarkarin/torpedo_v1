@@ -52,7 +52,7 @@
   align-items: center;
   padding: 20px 30px;
   border-bottom: 2px solid #f0f0f0;
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   border-radius: 8px 8px 0 0;
 }
@@ -86,7 +86,7 @@
 /* Modal Tabs */
 .modal-tabs {
   display: flex;
-  border-bottom: 2px solid #e0e0e0;
+  border-bottom: 2px solid #e8e4dc;
   background-color: #f9f9f9;
   padding: 0;
 }
@@ -99,20 +99,20 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  color: #666;
+  color: #5c5c5c;
   border-bottom: 3px solid transparent;
   transition: all 0.3s ease;
   text-align: center;
 }
 
 .tab-button:hover {
-  color: #a25e07;
+  color: #a15f06;
   background-color: #f0f0f0;
 }
 
 .tab-button.active {
-  color: #a25e07;
-  border-bottom-color: #e8890b;
+  color: #a15f06;
+  border-bottom-color: #e8910a;
   background-color: white;
 }
 
@@ -128,7 +128,7 @@
   font-size: 18px;
   font-weight: 600;
   color: #333;
-  border-bottom: 2px solid #e8890b;
+  border-bottom: 2px solid #e8910a;
   padding-bottom: 10px;
 }
 
@@ -140,10 +140,10 @@
 }
 
 .spec-item {
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
   padding: 15px;
   border-radius: 6px;
-  border-left: 4px solid #e8890b;
+  border-left: 4px solid #e8910a;
 }
 
 .spec-item label {
@@ -165,14 +165,14 @@
 }
 
 .spec-item a {
-  color: #a25e07;
+  color: #a15f06;
   text-decoration: none;
   word-break: break-all;
   transition: color 0.3s ease;
 }
 
 .spec-item a:hover {
-  color: #c47209;
+  color: #d17f08;
   text-decoration: underline;
 }
 
@@ -210,7 +210,7 @@
   }
 
   .tab-button.active {
-    border-left-color: #e8890b;
+    border-left-color: #e8910a;
     border-bottom-color: transparent;
   }
 }
@@ -222,7 +222,7 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 10px;
-  border-bottom: 2px solid #e8890b;
+  border-bottom: 2px solid #e8910a;
 }
 
 .financials-header h3 {
@@ -232,7 +232,7 @@
 }
 
 .create-invoice-btn {
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   border: none;
   padding: 10px 20px;
@@ -244,7 +244,7 @@
 
 .create-invoice-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.4);
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.4);
 }
 
 .create-invoice-btn:disabled {
@@ -260,10 +260,10 @@
 }
 
 .financial-card {
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 8px;
   padding: 20px;
-  border-left: 4px solid #e8890b;
+  border-left: 4px solid #e8910a;
 }
 
 .financial-card.revenue {
@@ -275,14 +275,14 @@
 }
 
 .financial-card.profit {
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
 }
 
 .financial-card h4 {
   margin: 0 0 15px 0;
   font-size: 14px;
   text-transform: uppercase;
-  color: #666;
+  color: #5c5c5c;
   letter-spacing: 0.5px;
 }
 
@@ -339,7 +339,7 @@
 
 .doc-count {
   font-size: 14px;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .alert {

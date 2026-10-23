@@ -38,7 +38,7 @@ export function Tabs({ tabs, active, onChange }) {
             whiteSpace: "nowrap",
             fontSize: "0.9rem",
             fontWeight: active === t.key ? 600 : 400,
-            color: active === t.key ? colors.accent : "#4b5563",
+            color: active === t.key ? colors.accent : "#5c5c5c",
             borderBottom: `3px solid ${active === t.key ? colors.accent : "transparent"}`,
             marginBottom: "-1px",
           }}
@@ -60,7 +60,7 @@ export function StatTile({ label, value, sub, color = colors.text, onClick }) {
     >
       <p style={{ margin: 0, fontSize: "0.8rem", color: colors.muted }}>{label}</p>
       <p style={{ margin: "0.25rem 0 0", fontSize: "1.6rem", fontWeight: 700, color }}>{value}</p>
-      {sub && <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{sub}</p>}
+      {sub && <p style={{ margin: 0, fontSize: "0.75rem", color: "#8a8a8a" }}>{sub}</p>}
     </div>
   )
 }

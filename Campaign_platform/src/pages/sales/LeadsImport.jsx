@@ -92,7 +92,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "0.5rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     background: "none",
     border: "none",
     cursor: "pointer",
@@ -110,7 +110,7 @@ const styles = {
     margin: 0,
   },
   subtitle: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     marginTop: "0.25rem",
   },
   progressBar: {
@@ -145,11 +145,11 @@ const styles = {
     background: "#fff",
     borderRadius: "12px",
     boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8e4dc",
     padding: "2rem",
   },
   dropZone: {
-    border: "2px dashed #d1d5db",
+    border: "2px dashed #d4cec3",
     borderRadius: "8px",
     padding: "3rem",
     textAlign: "center",
@@ -157,13 +157,13 @@ const styles = {
     transition: "all 0.2s",
   },
   dropZoneHover: {
-    borderColor: "#e8890b",
-    backgroundColor: "#fff7ed",
+    borderColor: "#e8910a",
+    backgroundColor: "#fdf4e7",
   },
   templateSection: {
     marginTop: "2rem",
     padding: "1rem",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
     display: "flex",
     alignItems: "center",
@@ -183,7 +183,7 @@ const styles = {
     alignItems: "center",
     gap: "1rem",
     padding: "0.75rem 0",
-    borderBottom: "1px solid #f3f4f6",
+    borderBottom: "1px solid #f5f3ef",
   },
   mappingLabel: {
     width: "200px",
@@ -195,7 +195,7 @@ const styles = {
     flex: 1,
     padding: "0.5rem 0.75rem",
     borderRadius: "6px",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     fontSize: "0.875rem",
     backgroundColor: "#fff",
   },
@@ -211,19 +211,19 @@ const styles = {
   previewTh: {
     textAlign: "left",
     padding: "0.75rem",
-    backgroundColor: "#f9fafb",
-    borderBottom: "1px solid #e5e7eb",
+    backgroundColor: "#faf9f7",
+    borderBottom: "1px solid #e8e4dc",
     fontWeight: "600",
     color: "#4a4a4a",
   },
   previewTd: {
     padding: "0.75rem",
-    borderBottom: "1px solid #f3f4f6",
-    color: "#4b5563",
+    borderBottom: "1px solid #f5f3ef",
+    color: "#5c5c5c",
   },
   btnPrimary: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "#fff",
     border: "none",
     borderRadius: "6px",
@@ -237,7 +237,7 @@ const styles = {
     padding: "0.625rem 1.25rem",
     backgroundColor: "#fff",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "6px",
     cursor: "pointer",
     fontWeight: "500",
@@ -269,7 +269,7 @@ const styles = {
     justifyContent: "space-between",
     marginTop: "2rem",
     paddingTop: "1.5rem",
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid #e8e4dc",
   },
 }
 
@@ -424,7 +424,7 @@ function LeadsImport() {
         return (
           <div style={styles.card}>
             <h3 style={{ marginTop: 0 }}>📁 Upload CSV File</h3>
-            <p style={{ color: "#4b5563" }}>
+            <p style={{ color: "#5c5c5c" }}>
               Upload a CSV file containing your leads data. The file should have headers in the first row.
             </p>
             
@@ -446,7 +446,7 @@ function LeadsImport() {
               <p style={{ margin: 0, fontWeight: "500" }}>
                 Drop your CSV file here, or click to browse
               </p>
-              <p style={{ margin: "0.5rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
+              <p style={{ margin: "0.5rem 0 0", color: "#5c5c5c", fontSize: "0.875rem" }}>
                 Supports .csv files up to 500MB
               </p>
               <input
@@ -461,7 +461,7 @@ function LeadsImport() {
             <div style={styles.templateSection}>
               <div>
                 <strong>📋 Need a template?</strong>
-                <p style={{ margin: "0.25rem 0 0", color: "#4b5563", fontSize: "0.875rem" }}>
+                <p style={{ margin: "0.25rem 0 0", color: "#5c5c5c", fontSize: "0.875rem" }}>
                   Download our CSV template with all supported fields
                 </p>
               </div>
@@ -479,14 +479,14 @@ function LeadsImport() {
               <span>📄</span>
               <div>
                 <strong>{file?.name}</strong>
-                <span style={{ color: "#4b5563", marginLeft: "0.5rem" }}>
+                <span style={{ color: "#5c5c5c", marginLeft: "0.5rem" }}>
                   ({csvData.length} rows, {csvColumns.length} columns)
                 </span>
               </div>
             </div>
             
             <h3 style={{ marginTop: 0 }}>🔗 Map Columns</h3>
-            <p style={{ color: "#4b5563" }}>
+            <p style={{ color: "#5c5c5c" }}>
               Match your CSV columns to the lead fields. We've auto-matched {getMappedFieldsCount()} fields.
             </p>
             
@@ -545,7 +545,7 @@ function LeadsImport() {
         return (
           <div style={styles.card}>
             <h3 style={{ marginTop: 0 }}>👁️ Preview Import</h3>
-            <p style={{ color: "#4b5563" }}>
+            <p style={{ color: "#5c5c5c" }}>
               Review the first 5 rows before importing. {csvData.length} leads will be imported.
             </p>
             
@@ -605,7 +605,7 @@ function LeadsImport() {
             <div style={styles.successBox}>
               <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>✅</div>
               <h2 style={{ margin: 0, color: "#16a34a" }}>Import Complete!</h2>
-              <p style={{ color: "#4b5563", marginTop: "0.5rem" }}>
+              <p style={{ color: "#5c5c5c", marginTop: "0.5rem" }}>
                 {importResult?.imported || 0} leads imported successfully
                 {importResult?.skipped > 0 && `, ${importResult.skipped} skipped`}
               </p>
@@ -615,7 +615,7 @@ function LeadsImport() {
                   <p style={{ fontWeight: "500", color: "#dc2626" }}>
                     Some rows had errors:
                   </p>
-                  <ul style={{ color: "#4b5563", fontSize: "0.875rem" }}>
+                  <ul style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>
                     {importResult.errors.slice(0, 5).map((err, idx) => (
                       <li key={idx}>{err}</li>
                     ))}
@@ -669,8 +669,8 @@ function LeadsImport() {
               <div
                 style={{
                   ...styles.stepCircle,
-                  backgroundColor: step >= s.num ? "#e8890b" : "#e5e7eb",
-                  color: step >= s.num ? "#fff" : "#4b5563",
+                  backgroundColor: step >= s.num ? "#e8910a" : "#e8e4dc",
+                  color: step >= s.num ? "#fff" : "#5c5c5c",
                 }}
               >
                 {step > s.num ? "✓" : s.num}
@@ -678,7 +678,7 @@ function LeadsImport() {
               <span
                 style={{
                   ...styles.stepLabel,
-                  color: step >= s.num ? "#1a1a1a" : "#4b5563",
+                  color: step >= s.num ? "#1a1a1a" : "#5c5c5c",
                   fontWeight: step === s.num ? "600" : "400",
                 }}
               >
@@ -689,7 +689,7 @@ function LeadsImport() {
               <div
                 style={{
                   ...styles.stepConnector,
-                  backgroundColor: step > s.num ? "#e8890b" : "#e5e7eb",
+                  backgroundColor: step > s.num ? "#e8910a" : "#e8e4dc",
                 }}
               />
             )}

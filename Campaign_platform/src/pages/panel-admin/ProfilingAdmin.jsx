@@ -13,14 +13,14 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
 const card = {
   background: "#fff",
-  border: "1px solid #e5e7eb",
+  border: "1px solid #e8e4dc",
   borderRadius: "10px",
   padding: "1.25rem",
   marginBottom: "1.25rem",
 }
-const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#4b5563", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }
-const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f3f4f6" }
-const btn = { padding: "0.45rem 0.9rem", borderRadius: "8px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontSize: "0.85rem" }
+const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
+const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef" }
+const btn = { padding: "0.45rem 0.9rem", borderRadius: "8px", border: "1px solid #d4cec3", background: "#fff", cursor: "pointer", fontSize: "0.85rem" }
 const primary = { ...btn, background: "#4f46e5", borderColor: "#4f46e5", color: "#fff" }
 
 const LIST_LABELS = { insurers: "Insurers", banks: "Banks & card issuers", vehicle_makes: "Vehicle makes" }
@@ -79,7 +79,7 @@ function Stats({ stats }) {
           <thead><tr><th style={th}>Quality flag</th><th style={th}>Members</th></tr></thead>
           <tbody>
             {stats.flags.length === 0
-              ? <tr><td style={{ ...td, color: "#6b7280" }} colSpan={2}>None</td></tr>
+              ? <tr><td style={{ ...td, color: "#6f6f6f" }} colSpan={2}>None</td></tr>
               : stats.flags.map((f) => <tr key={f.rule}><td style={td}>{f.rule} · {RULES[f.rule] || ""}</td><td style={td}>{f.members.toLocaleString()}</td></tr>)}
           </tbody>
         </table>
@@ -123,19 +123,19 @@ function QualReview({ onChanged }) {
         <label style={{ fontSize: "0.85rem" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show reviewed members too</label>
       </div>
       {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
-      {!rows ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
-        <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>Nobody is waiting. Tier 1 members appear here once they answer the qual questions.</p>
+      {!rows ? <p style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
+        <p style={{ color: "#6f6f6f", fontSize: "0.875rem", margin: 0 }}>Nobody is waiting. Tier 1 members appear here once they answer the qual questions.</p>
       ) : rows.map((m) => (
-        <div key={m.userId} style={{ borderTop: "1px solid #f3f4f6", padding: "0.9rem 0" }}>
+        <div key={m.userId} style={{ borderTop: "1px solid #f5f3ef", padding: "0.9rem 0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-            <strong>{m.name || m.email} <span style={{ fontWeight: 400, color: "#6b7280" }}>· {m.email} · {m.country} · Tier {m.tier ?? "—"}{m.mysteryShopper ? " · mystery shopper" : ""}</span></strong>
-            <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+            <strong>{m.name || m.email} <span style={{ fontWeight: 400, color: "#6f6f6f" }}>· {m.email} · {m.country} · Tier {m.tier ?? "—"}{m.mysteryShopper ? " · mystery shopper" : ""}</span></strong>
+            <span style={{ fontSize: "0.8rem", color: "#6f6f6f" }}>
               Camera / mic: {m.techCheck ? `${m.techCheck.camera ? "✓" : "✗"} / ${m.techCheck.mic ? "✓" : "✗"}` : "not needed"}
               {m.openFlags.length ? ` · open flags: ${m.openFlags.join(", ")}` : ""}
             </span>
           </div>
-          <p style={{ fontSize: "0.8rem", color: "#4b5563", margin: "0.3rem 0" }}>Would do: {m.researchTypes.map((c) => RESEARCH[c] || c).join(", ")}</p>
-          <blockquote style={{ margin: "0.4rem 0", padding: "0.5rem 0.75rem", background: "#f9fafb", borderLeft: "3px solid #c7d2fe", fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{m.qual09}</blockquote>
+          <p style={{ fontSize: "0.8rem", color: "#5c5c5c", margin: "0.3rem 0" }}>Would do: {m.researchTypes.map((c) => RESEARCH[c] || c).join(", ")}</p>
+          <blockquote style={{ margin: "0.4rem 0", padding: "0.5rem 0.75rem", background: "#faf9f7", borderLeft: "3px solid #c7d2fe", fontSize: "0.875rem", whiteSpace: "pre-wrap" }}>{m.qual09}</blockquote>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", fontSize: "0.85rem" }}>
             <span>Articulation:{" "}
               {[1, 2, 3, 4, 5].map((n) => (
@@ -144,7 +144,7 @@ function QualReview({ onChanged }) {
               ))}
             </span>
             <span>Identity:{" "}
-              {m.qual.idVerifiedAt ? <span style={{ color: "#047857" }}>verified ({m.qual.idMethod})</span> : (
+              {m.qual.idVerifiedAt ? <span style={{ color: "#166534" }}>verified ({m.qual.idMethod})</span> : (
                 <>
                   <button type="button" style={btn} disabled={busy === m.userId} onClick={() => update(m.userId, { idVerified: true, idMethod: "recruiter video check" })}>Verified by video call</button>{" "}
                   <button type="button" style={btn} disabled={busy === m.userId} onClick={() => update(m.userId, { idVerified: true, idMethod: "KYC provider" })}>Verified by KYC provider</button>
@@ -155,7 +155,7 @@ function QualReview({ onChanged }) {
               <span>Mystery practice:{" "}
                 {["pass", "fail"].map((r) => (
                   <button key={r} type="button" disabled={busy === m.userId} onClick={() => update(m.userId, { mysPractice: r })}
-                    style={{ ...btn, padding: "0.25rem 0.6rem", marginRight: "0.2rem", ...(m.qual.mysPractice === r ? { background: r === "pass" ? "#047857" : "#b91c1c", color: "#fff" } : {}) }}>{r}</button>
+                    style={{ ...btn, padding: "0.25rem 0.6rem", marginRight: "0.2rem", ...(m.qual.mysPractice === r ? { background: r === "pass" ? "#166534" : "#b91c1c", color: "#fff" } : {}) }}>{r}</button>
                 ))}
               </span>
             )}
@@ -183,10 +183,10 @@ function FlagReview({ onChanged }) {
   return (
     <div style={card}>
       <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Quality flags to review</h3>
-      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>Open consistency flags keep a member out of Tier 1. Clear a flag once you have checked the answers are genuine.</p>
+      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6f6f6f" }}>Open consistency flags keep a member out of Tier 1. Clear a flag once you have checked the answers are genuine.</p>
       {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
-      {!rows ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
-        <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>No open flags.</p>
+      {!rows ? <p style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
+        <p style={{ color: "#6f6f6f", fontSize: "0.875rem", margin: 0 }}>No open flags.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -194,11 +194,11 @@ function FlagReview({ onChanged }) {
             <tbody>
               {rows.flatMap((m) => m.flags.map((f) => (
                 <tr key={`${m.userId}-${f.rule}-${f.at}`}>
-                  <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{m.email}</div></td>
+                  <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6f6f6f" }}>{m.email}</div></td>
                   <td style={td}>{m.country}</td>
                   <td style={td}>{f.rule} · {RULES[f.rule] || ""}{f.module ? ` (${f.module})` : ""}</td>
                   <td style={td}>{f.at ? new Date(f.at).toLocaleDateString() : ""}</td>
-                  <td style={td}>{["QC_02", "QC_03"].includes(f.rule) ? <span style={{ color: "#6b7280", fontSize: "0.8rem" }}>answers were reset</span> : <button type="button" style={btn} onClick={() => clear(m.userId, f.rule)}>Clear</button>}</td>
+                  <td style={td}>{["QC_02", "QC_03"].includes(f.rule) ? <span style={{ color: "#6f6f6f", fontSize: "0.8rem" }}>answers were reset</span> : <button type="button" style={btn} onClick={() => clear(m.userId, f.rule)}>Clear</button>}</td>
                 </tr>
               )))}
             </tbody>
@@ -222,9 +222,9 @@ function QualityReport() {
   const [error, setError] = useState("")
   useEffect(() => { call("/profiling/quality").then(setData).catch((e) => setError(e.message)) }, [])
   const tile = (label, value, tone) => (
-    <div style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem 1rem", minWidth: "150px", flex: "1 1 150px" }}>
+    <div style={{ background: "#faf9f7", borderRadius: "8px", padding: "0.75rem 1rem", minWidth: "150px", flex: "1 1 150px" }}>
       <p style={{ fontSize: "1.5rem", fontWeight: 700, color: tone, margin: 0 }}>{value}</p>
-      <p style={{ fontSize: "0.8rem", color: "#4b5563", margin: 0 }}>{label}</p>
+      <p style={{ fontSize: "0.8rem", color: "#5c5c5c", margin: 0 }}>{label}</p>
     </div>
   )
   const memberTable = (rows) => (
@@ -234,7 +234,7 @@ function QualityReport() {
         <tbody>
           {rows.map((m, i) => (
             <tr key={`${m.email}-${m.rule}-${i}`}>
-              <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{m.email} · {m.panelistId}</div></td>
+              <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6f6f6f" }}>{m.email} · {m.panelistId}</div></td>
               <td style={td}>{RULE_LABEL[m.rule] || m.rule}{m.count > 1 ? ` ×${m.count}` : ""}</td>
               <td style={td}>{m.section || "—"}</td>
               <td style={td}>{m.at ? new Date(m.at).toLocaleDateString() : ""}</td>
@@ -247,24 +247,24 @@ function QualityReport() {
   return (
     <div style={card}>
       <h3 style={{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Profile quality</h3>
-      <p style={{ margin: "0 0 0.9rem", fontSize: "0.8rem", color: "#6b7280" }}>
+      <p style={{ margin: "0 0 0.9rem", fontSize: "0.8rem", color: "#6f6f6f" }}>
         Speeders and straight-liners are caught while members answer (sections are reset and asked again; Quick start is flagged).
         Dropouts are members who started and haven't answered for {data?.thresholds?.dropoutHours || 24} hours.
       </p>
       {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
-      {!data ? <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>Loading…</p> : (
+      {!data ? <p style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>Loading…</p> : (
         <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
             {tile("Speeders", data.speeders.count, "#b45309")}
             {tile("Straight-liners", data.straightLiners.count, "#b45309")}
             {tile("Quick start dropouts", data.dropouts.quickStart, "#b91c1c")}
             {tile("Section dropouts", data.dropouts.sections, "#b91c1c")}
-            {tile("Older members — Quick start not started", data.dropouts.quickStartNotStarted || 0, "#4b5563")}
+            {tile("Older members — Quick start not started", data.dropouts.quickStartNotStarted || 0, "#5c5c5c")}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem" }}>
             <div>
               <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Where Quick start dropouts stopped (started, then left)</p>
-              {data.dropouts.quickStartStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>None</p> : (
+              {data.dropouts.quickStartStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6f6f6f" }}>None</p> : (
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>Question</th><th style={th}>Members</th></tr></thead>
                   <tbody>{data.dropouts.quickStartStops.map((q) => <tr key={q.id}><td style={td}>{q.text}</td><td style={td}>{q.count}</td></tr>)}</tbody>
@@ -273,7 +273,7 @@ function QualityReport() {
             </div>
             <div>
               <p style={{ fontWeight: 700, fontSize: "0.85rem", margin: "0 0 0.4rem" }}>Sections left unfinished</p>
-              {data.dropouts.sectionStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>None</p> : (
+              {data.dropouts.sectionStops.length === 0 ? <p style={{ fontSize: "0.85rem", color: "#6f6f6f" }}>None</p> : (
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>Section</th><th style={th}>Members</th></tr></thead>
                   <tbody>{data.dropouts.sectionStops.map((s) => <tr key={s.key}><td style={td}>{s.title}</td><td style={td}>{s.count}</td></tr>)}</tbody>
@@ -324,7 +324,7 @@ function ListEditor({ listKey, variant, items, onSaved }) {
     <div style={card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
         <h3 style={{ margin: 0, fontSize: "1rem" }}>{LIST_LABELS[listKey]} · {COUNTRY_LABELS[variant]}</h3>
-        <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{rows.filter((r) => r.active).length} active · "Other" and "Don't know" are added automatically</span>
+        <span style={{ fontSize: "0.8rem", color: "#6f6f6f" }}>{rows.filter((r) => r.active).length} active · "Other" and "Don't know" are added automatically</span>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -332,9 +332,9 @@ function ListEditor({ listKey, variant, items, onSaved }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.code} style={{ opacity: r.active ? 1 : 0.5 }}>
-                <td style={{ ...td, width: "5rem", color: "#6b7280" }}>{typeof r.code === "number" ? r.code : "new"}</td>
+                <td style={{ ...td, width: "5rem", color: "#6f6f6f" }}>{typeof r.code === "number" ? r.code : "new"}</td>
                 <td style={td}>
-                  <input value={r.label} onChange={(e) => update(r.code, { label: e.target.value })} style={{ width: "100%", padding: "0.35rem 0.5rem", border: "1px solid #d1d5db", borderRadius: "6px" }} />
+                  <input value={r.label} onChange={(e) => update(r.code, { label: e.target.value })} style={{ width: "100%", padding: "0.35rem 0.5rem", border: "1px solid #d4cec3", borderRadius: "6px" }} />
                 </td>
                 <td style={{ ...td, width: "5rem" }}>
                   <input type="checkbox" checked={r.active} onChange={(e) => update(r.code, { active: e.target.checked })} aria-label={`${r.label} active`} />
@@ -346,7 +346,7 @@ function ListEditor({ listKey, variant, items, onSaved }) {
       </div>
       <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
         <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Add a brand"
-          style={{ flex: "1 1 220px", padding: "0.45rem 0.6rem", border: "1px solid #d1d5db", borderRadius: "8px" }} />
+          style={{ flex: "1 1 220px", padding: "0.45rem 0.6rem", border: "1px solid #d4cec3", borderRadius: "8px" }} />
         <button type="button" style={btn} onClick={add}>Add</button>
         <button type="button" style={btn} onClick={() => setRows(items)} disabled={!dirty || saving}>Undo changes</button>
         <button type="button" style={primary} onClick={save} disabled={!dirty || saving}>{saving ? "Saving…" : "Save list"}</button>
@@ -377,7 +377,7 @@ export default function ProfilingAdmin({ embedded = false }) {
       {!embedded && (
         <>
           <h2 style={{ margin: "0 0 0.25rem" }}>Profiling</h2>
-          <p style={{ margin: "0 0 1.25rem", color: "#4b5563", fontSize: "0.9rem" }}>
+          <p style={{ margin: "0 0 1.25rem", color: "#5c5c5c", fontSize: "0.9rem" }}>
             Consumer-journey profile (questionnaire v1.1) on the SFW panel: who has finished it, which tier they are in, and the brand lists the questions use.
           </p>
         </>

@@ -1,13 +1,13 @@
 :root {
-  --bg: #f8fafc;
+  --bg: #faf9f7;
   --card: #ffffff;
-  --border: #e5e7eb;
+  --border: #e8e4dc;
   --text: #1a1a1a;
-  --muted: #4b5563;
-  --primary: #e8890b; /* blue-600 */
-  --primary-600: #c47209; /* blue-700 */
-  --success: #10b981; /* emerald-500 */
-  --danger: #ef4444; /* red-500 */
+  --muted: #5c5c5c;
+  --primary: #e8910a; /* blue-600 */
+  --primary-600: #d17f08; /* blue-700 */
+  --success: #16a34a; /* emerald-500 */
+  --danger: #dc2626; /* red-500 */
   --radius: 12px;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 8px 24px rgba(2, 6, 23, 0.08);
@@ -235,7 +235,7 @@
 
 .list-card.clickable:hover {
   border-color: var(--primary);
-  box-shadow: 0 8px 24px rgba(232, 137, 11, 0.12);
+  box-shadow: 0 8px 24px rgba(232, 145, 10, 0.12);
 }
 
 .card-header {
@@ -271,7 +271,7 @@
 }
 
 .delete-btn:hover {
-  background: #f5f5f5;
+  background: #f5f3ef;
 }
 
 .card-meta {
@@ -294,12 +294,12 @@
 }
 
 .status-badge.active {
-  background: rgba(232, 137, 11, 0.08);
+  background: rgba(232, 145, 10, 0.08);
   color: var(--primary);
 }
 
 .status-badge.inactive {
-  background: #f1f5f9;
+  background: #f5f3ef;
   color: #475569;
 }
 
@@ -420,7 +420,7 @@
 .form-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.12);
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.12);
 }
 
 .form-actions {
@@ -442,7 +442,7 @@
 
 .cancel-btn:hover {
   border-color: #ccc;
-  background: #f5f5f5;
+  background: #f5f3ef;
 }
 
 .create-list-btn {
@@ -518,7 +518,7 @@
 .contacts-table th {
   font-weight: 600;
   color: var(--text);
-  background: #f8f9fa;
+  background: #faf9f7;
 }
 
 .contacts-table td {
@@ -526,7 +526,7 @@
 }
 
 .contacts-table thead th {
-  background: #f3f4f6;
+  background: #f5f3ef;
   color: var(--text);
   font-weight: 600;
 }
@@ -544,7 +544,7 @@
 }
 
 .contacts-table tbody tr:hover {
-  background: #f1f5f9;
+  background: #f5f3ef;
 }
 
 .create-contacts-btn {
@@ -661,7 +661,7 @@
 .filter-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.12);
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.12);
 }
 
 .radio-group {
@@ -694,7 +694,7 @@
 }
 
 .filter-results {
-  background: #f8f9fa;
+  background: #faf9f7;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px 16px;

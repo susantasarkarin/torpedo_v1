@@ -182,7 +182,7 @@ export default function AgentProgress() {
 
   return (
     <div 
-      className={`fixed bottom-4 right-4 z-50 transition-all duration-300 ${
+      className={`fixed bottom-4 right-4 z-[1000] transition-all duration-300 ${
         isMinimized ? 'w-auto' : 'w-80'
       }`}
     >

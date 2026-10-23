@@ -285,8 +285,8 @@ export default function TrafficManagement() {
             key={status}
             className="stat-card clickable"
             style={{
-              backgroundColor: statusColors[status]?.bg || "#f5f5f5",
-              borderColor: statusColors[status]?.color || "#666",
+              backgroundColor: statusColors[status]?.bg || "#f5f3ef",
+              borderColor: statusColors[status]?.color || "#5c5c5c",
             }}
             onClick={() => setStatusFilter(status === statusFilter ? "" : status)}
           >
@@ -415,7 +415,7 @@ export default function TrafficManagement() {
                         <span
                           className="status-badge"
                           style={{
-                            backgroundColor: statusColors[record.status]?.bg || "#f5f5f5",
+                            backgroundColor: statusColors[record.status]?.bg || "#f5f3ef",
                             color: statusColors[record.status]?.color || "#333",
                           }}
                         >
@@ -453,7 +453,7 @@ export default function TrafficManagement() {
                                               ? "#fff3e0"
                                               : record.surveySource === "CINT_FALLBACK"
                                                 ? "#fce4ec"
-                                                : "#f5f5f5",
+                                                : "#f5f3ef",
                                         color:
                                           record.surveySource === "CPX"
                                             ? "#1565c0"

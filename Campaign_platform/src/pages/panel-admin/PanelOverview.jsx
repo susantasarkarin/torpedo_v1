@@ -77,7 +77,7 @@ export default function PanelOverview() {
                 <p style={{ margin: 0, color: colors.muted, fontSize: "0.875rem" }}>Nothing waiting — all clear.</p>
               ) : actionItems.map((a) => (
                 <div key={a.text} onClick={() => a.go && navigate(a.go)} role={a.go ? "button" : undefined}
-                  style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.6rem 0", borderBottom: "1px solid #f3f4f6", cursor: a.go ? "pointer" : "default" }}>
+                  style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.6rem 0", borderBottom: "1px solid #f5f3ef", cursor: a.go ? "pointer" : "default" }}>
                   <span style={{ width: 8, height: 8, borderRadius: 999, background: a.tone, flexShrink: 0 }} />
                   <span style={{ fontSize: "0.9rem" }}>{a.text}</span>
                   {a.go && <span style={{ marginLeft: "auto", color: colors.accent, fontSize: "0.8rem" }}>Open →</span>}
@@ -111,7 +111,7 @@ export default function PanelOverview() {
               <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Member journey</h3>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 {funnel.stages.map((s, i) => (
-                  <div key={s.key} style={{ flex: "1 1 110px", background: "#f9fafb", borderRadius: 8, padding: "0.6rem 0.75rem" }}>
+                  <div key={s.key} style={{ flex: "1 1 110px", background: "#faf9f7", borderRadius: 8, padding: "0.6rem 0.75rem" }}>
                     <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{s.reached}</div>
                     <div style={{ fontSize: "0.75rem", color: colors.muted }}>{s.label}</div>
                     {i > 0 && <div style={{ fontSize: "0.7rem", color: s.pctOfPrevious >= 70 ? colors.good : s.pctOfPrevious >= 40 ? colors.warn : colors.bad }}>{s.pctOfPrevious}% of previous</div>}

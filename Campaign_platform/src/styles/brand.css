@@ -20,73 +20,109 @@
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 
-  /* brand orange (guidelines: Primary #e8890b, Primary Dark #c47209,
-     Primary Light #f59e0b, Accent #fb9f1a, Accent Soft #fff7ed) */
-  --color-cogentix-orange: #e8890b;
-  --color-cogentix-orange-50: #fff7ed;
-  --color-cogentix-orange-100: #fffbeb;
-  --color-cogentix-orange-200: #fde68a;
-  --color-cogentix-orange-300: #fbbf5a;
-  --color-cogentix-orange-400: #fb9f1a;
-  --color-cogentix-orange-500: #e8890b;
-  --color-cogentix-orange-600: #c47209;
-  --color-cogentix-orange-700: #a25e07;
-  --color-cogentix-orange-800: #7f4a06;
-  --color-cogentix-orange-900: #5c3604;
-  --color-cogentix-orange-950: #3a2203;
+  /* brand orange (CRM design system 2026-10-23: primary #e8910a, hover #d17f08) */
+  --color-cogentix-orange: #e8910a;
+  --color-cogentix-orange-50: #fdf4e7;
+  --color-cogentix-orange-100: #fce8c8;
+  --color-cogentix-orange-200: #f9d398;
+  --color-cogentix-orange-300: #f5bb60;
+  --color-cogentix-orange-400: #efa533;
+  --color-cogentix-orange-500: #e8910a;
+  --color-cogentix-orange-600: #d17f08;
+  --color-cogentix-orange-700: #a15f06;
+  --color-cogentix-orange-800: #7a4805;
+  --color-cogentix-orange-900: #573404;
+  --color-cogentix-orange-950: #382102;
 
-  /* the old "navy" now means the brand's near-black neutrals */
+  /* the old "navy" now means the warm near-black neutrals */
   --color-cogentix-navy: #1a1a1a;
-  --color-cogentix-navy-50: #f7f7f7;
-  --color-cogentix-navy-100: #ececec;
-  --color-cogentix-navy-200: #d6d6d6;
-  --color-cogentix-navy-300: #b3b3b3;
+  --color-cogentix-navy-50: #f8f7f5;
+  --color-cogentix-navy-100: #f5f3ef;
+  --color-cogentix-navy-200: #e8e4dc;
+  --color-cogentix-navy-300: #d4cec3;
   --color-cogentix-navy-400: #8a8a8a;
-  --color-cogentix-navy-500: #6b6b6b;
-  --color-cogentix-navy-600: #4b5563;
-  --color-cogentix-navy-700: #4a4a4a;
+  --color-cogentix-navy-500: #6f6f6f;
+  --color-cogentix-navy-600: #5c5c5c;
+  --color-cogentix-navy-700: #464646;
   --color-cogentix-navy-800: #2b2b2b;
   --color-cogentix-navy-900: #1a1a1a;
   --color-cogentix-navy-950: #0f0f0f;
 
   /* success stays green -- status colours carry meaning */
-  --color-cogentix-green: #10b981;
-  --color-cogentix-green-50: #ecfdf5;
-  --color-cogentix-green-100: #d1fae5;
-  --color-cogentix-green-200: #a7f3d0;
-  --color-cogentix-green-500: #10b981;
-  --color-cogentix-green-600: #059669;
-  --color-cogentix-green-700: #047857;
+  --color-cogentix-green: #16a34a;
+  --color-cogentix-green-50: #f0fdf4;
+  --color-cogentix-green-100: #dcfce7;
+  --color-cogentix-green-200: #bbf7d0;
+  --color-cogentix-green-500: #16a34a;
+  --color-cogentix-green-600: #15803d;
+  --color-cogentix-green-700: #166534;
+
+  /* Tailwind's cool greys -> the design system's warm neutrals, so the
+     utility-class pages (gray-*, slate-*) match the shell */
+  --color-gray-50: #faf9f7;   --color-slate-50: #faf9f7;
+  --color-gray-100: #f5f3ef;  --color-slate-100: #f5f3ef;
+  --color-gray-200: #e8e4dc;  --color-slate-200: #e8e4dc;
+  --color-gray-300: #d4cec3;  --color-slate-300: #d4cec3;
+  --color-gray-400: #9a948b;  --color-slate-400: #9a948b;
+  --color-gray-500: #6f6f6f;  --color-slate-500: #6f6f6f;
+  --color-gray-600: #5c5c5c;  --color-slate-600: #5c5c5c;
+  --color-gray-700: #464646;  --color-slate-700: #464646;
+  --color-gray-800: #2b2b2b;  --color-slate-800: #2b2b2b;
+  --color-gray-900: #1a1a1a;  --color-slate-900: #1a1a1a;
+
+  /* names the UI kit uses (text-text-primary etc.) -- never defined before,
+     so those classes did nothing */
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #5c5c5c;
+  --color-text-muted: #6f6f6f;
+  --color-text-light: #8a8a8a;  /* placeholders only */
+  --color-surface: #ffffff;
+  --color-surface-hover: #f5f3ef;
+  --color-line: #e8e4dc;
 
   /* cards: soft orange-tinted shadow (guidelines §6) */
-  --shadow-card: 0 1px 3px 0 rgb(232 137 11 / 0.08), 0 1px 2px -1px rgb(26 26 26 / 0.06);
-  --shadow-card-hover: 0 10px 15px -3px rgb(232 137 11 / 0.12), 0 4px 6px -4px rgb(26 26 26 / 0.08);
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.04);
+  --shadow-card-hover: 0 2px 8px rgb(232 145 10 / 0.10), 0 4px 12px rgb(0 0 0 / 0.05);
   --shadow-button: 0 1px 2px 0 rgb(26 26 26 / 0.06);
-  --shadow-button-hover: 0 4px 10px -2px rgb(232 137 11 / 0.30);
+  --shadow-button-hover: 0 4px 10px -2px rgb(232 145 10 / 0.25);
 
   --radius-lg: 8px;   /* buttons */
   --radius-xl: 12px;  /* cards */
 }
 
 :root {
-  /* colour */
-  --cx-primary: #e8890b;
-  --cx-primary-dark: #c47209;
-  --cx-primary-text: #a25e07;  /* orange for TEXT on light backgrounds (5.1:1) */
-  --cx-primary-light: #f59e0b;
-  --cx-accent: #fb9f1a;
-  --cx-accent-soft: #fff7ed;
-  --cx-cream: #fffbeb;
-  --cx-cream-dark: #fde68a;
+  /* colour (CRM design system, 2026-10-23) */
+  --cx-primary: #e8910a;
+  --cx-primary-dark: #d17f08;   /* hover */
+  --cx-primary-soft: rgba(232, 145, 10, 0.1);
+  --cx-primary-text: #a15f06;   /* orange for TEXT: #e8910a is 2.5:1 on white, this is 5:1 */
+  --cx-primary-light: #efa533;
+  --cx-accent: #efa533;
+  --cx-accent-soft: #fdf4e7;
+  --cx-cream: #fdf4e7;
+  --cx-cream-dark: #f9d398;
   --cx-black: #1a1a1a;
-  --cx-text: #4a4a4a;       /* body copy */
-  --cx-gray: #4b5563;       /* secondary text */
+  --cx-text: #1a1a1a;            /* body copy */
+  --cx-text-secondary: #5c5c5c;
+  --cx-text-muted: #6f6f6f;      /* spec #8a8a8a is 3.2:1 on the page bg; this is the closest AA grey */
+  --cx-gray: #5c5c5c;            /* secondary text (old name) */
   --cx-white: #ffffff;
-  --cx-border: #ececec;
-  --cx-surface-muted: #fafafa;
-  --cx-success: #10b981;
+  --cx-bg: #f8f7f5;              /* page */
+  --cx-surface: #ffffff;         /* sidebar, top bar, cards */
+  --cx-surface-muted: #faf9f7;   /* table head, row hover */
+  --cx-hover: #f5f3ef;
+  --cx-border: #e8e4dc;
+  --cx-border-light: #ebe7e0;
+  --cx-border-strong: #d4cec3;
+  --cx-success: #16a34a;
   --cx-danger: #dc2626;
   --cx-warning: #d97706;
+  --cx-info: #2563eb;
+
+  /* shell */
+  --cx-sidebar-w: 240px;
+  --cx-radius: 10px;
+  --cx-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 
   /* type (guidelines §4) */
   --cx-font: "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
@@ -102,9 +138,9 @@
   /* shape and motion (guidelines §6) */
   --cx-radius-card: 12px;
   --cx-radius-button: 8px;
-  --cx-shadow-card: 0 1px 3px rgba(232, 137, 11, 0.08), 0 1px 2px rgba(26, 26, 26, 0.06);
-  --cx-shadow-card-hover: 0 10px 20px -6px rgba(232, 137, 11, 0.18);
-  --cx-transition: 0.3s ease;
+  --cx-shadow-card: var(--cx-shadow);
+  --cx-shadow-card-hover: 0 2px 8px rgba(232, 145, 10, 0.1), 0 4px 12px rgba(0, 0, 0, 0.05);
+  --cx-transition: 0.15s ease;
   --cx-container: 1200px;
 
   /* names the older page stylesheets use, pointed at the brand */
@@ -112,15 +148,22 @@
   --primary-hover: var(--cx-primary-dark);
   --primary-color: var(--cx-primary);
   --text: var(--cx-black);
-  --text-muted: var(--cx-gray);
+  --text-muted: var(--cx-text-muted);
+  --text-secondary: var(--cx-text-secondary);
+  --border: var(--cx-border);
+  --bg: var(--cx-bg);
+  --success: var(--cx-success);
+  --warning: var(--cx-warning);
+  --danger: var(--cx-danger);
 }
 
 /* ---- base ---------------------------------------------------------------- */
 body {
   font-family: var(--cx-font);
   color: var(--cx-text);
-  background: var(--cx-white);
-  line-height: 1.6;
+  background: var(--cx-bg);
+  font-size: 0.875rem;  /* 14px, the design system's body size and the owner's floor */
+  line-height: 1.5;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -132,16 +175,9 @@ h1, h2, h3, h4, h5, h6 {
 
 /* text on white needs 4.5:1: Primary Orange is 2.6:1, so links use the darker shade */
 a { color: var(--cx-primary-text); }
-a:hover { color: #7f4a06; }
+a:hover { color: #7a4805; }
 
 :focus-visible { outline: 2px solid var(--cx-primary); outline-offset: 2px; }
-
-/* ---- top bar: near black, white logo in proportion (guidelines §2) --------- */
-.top-navbar { background: var(--cx-black); padding: 0.75rem 1.5rem; }
-/* logo +70% (owner, 2026-10-02): 36px -> 61px; never wider than the bar allows */
-.logo-image { width: auto !important; height: 61px !important; max-width: 60vw; min-width: 120px; object-fit: contain; }
-.logo-dropdown-item:hover { color: var(--cx-primary); background: var(--cx-accent-soft); }
-.dropdown-arrow:hover { color: var(--cx-primary); }
 
 /* ---- buttons (guidelines §6): primary orange, dark, outline; 8px, 600 ----- */
 .btn-primary, .crm-btn--primary {
@@ -159,9 +195,9 @@ a:hover { color: #7f4a06; }
 }
 .btn-dark { background: var(--cx-black); color: #fff; border: 1px solid var(--cx-black);
   border-radius: var(--cx-radius-button); font-weight: 600; }
-.btn-outline { background: transparent; color: var(--cx-primary); border: 2px solid var(--cx-primary);
+.btn-outline { background: transparent; color: var(--cx-primary-text); border: 1px solid rgba(232, 145, 10, 0.5);
   border-radius: var(--cx-radius-button); font-weight: 600; }
-.btn-outline:hover { background: var(--cx-accent-soft); }
+.btn-outline:hover { background: var(--cx-primary-soft); }
 
 /* ===========================================================================
  * Shared components -- one look on every page.
@@ -177,7 +213,7 @@ a:hover { color: #7f4a06; }
    because most pages styled their title inline */
 .cx-page-title {
   font-family: var(--cx-font) !important;
-  font-size: 1.75rem !important;
+  font-size: 1.5rem !important;
   font-weight: 700 !important;
   line-height: 1.25 !important;
   color: var(--cx-black) !important;
@@ -203,10 +239,10 @@ a:hover { color: #7f4a06; }
 :is(.btn-primary, .crm-btn--primary, .save-button, .save-button-small, .create-contacts-btn):not(#cx):hover:not(:disabled) {
   background: var(--cx-primary-dark); border-color: var(--cx-primary-dark); color: #fff;
 }
-:is(.btn-secondary, .btn-cancel):not(#cx) { background: #fff; border: 1px solid #d6d6d6; color: var(--cx-black); }
-:is(.btn-secondary, .btn-cancel):not(#cx):hover:not(:disabled) { background: var(--cx-accent-soft); border-color: var(--cx-cream-dark); }
-.btn-outline:not(#cx) { background: transparent; border: 2px solid var(--cx-primary); color: var(--cx-primary); }
-.btn-outline:not(#cx):hover:not(:disabled) { background: var(--cx-accent-soft); }
+:is(.btn-secondary, .btn-cancel):not(#cx) { background: #fff; border: 1px solid var(--cx-border); color: var(--cx-text-secondary); }
+:is(.btn-secondary, .btn-cancel):not(#cx):hover:not(:disabled) { background: var(--cx-hover); color: var(--cx-black); }
+.btn-outline:not(#cx) { background: transparent; border: 1px solid rgba(232, 145, 10, 0.5); color: var(--cx-primary-text); }
+.btn-outline:not(#cx):hover:not(:disabled) { background: var(--cx-primary-soft); }
 .btn-dark:not(#cx) { background: var(--cx-black); border: 1px solid var(--cx-black); color: #fff; }
 :is(.btn-danger, .crm-btn--danger):not(#cx) { background: var(--cx-danger); border: 1px solid var(--cx-danger); color: #fff; }
 :is(.btn-danger, .crm-btn--danger):not(#cx):hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
@@ -217,7 +253,7 @@ a:hover { color: #7f4a06; }
 :is(.btn, .btn-primary, .btn-secondary, .btn-danger, .crm-btn, .pagination-btn):disabled:not(#cx) { opacity: 0.55; cursor: not-allowed; }
 
 /* modals */
-.modal-overlay:not(#cx) { background: rgba(26, 26, 26, 0.55); }
+.modal-overlay:not(#cx) { background: rgba(26, 26, 26, 0.45); }
 :is(.modal-content, .modal-container, .modal-box):not(#cx) {
   background: #fff; border-radius: var(--cx-radius-card);
   box-shadow: 0 24px 60px -12px rgba(26, 26, 26, 0.35);
@@ -231,7 +267,7 @@ a:hover { color: #7f4a06; }
   background: transparent; border: none; color: var(--cx-gray); border-radius: var(--cx-radius-button);
   cursor: pointer; line-height: 1;
 }
-.modal-close:not(#cx):hover { color: var(--cx-black); background: var(--cx-accent-soft); }
+.modal-close:not(#cx):hover { color: var(--cx-black); background: var(--cx-hover); }
 
 /* badges: shape only -- each status keeps its own colour */
 .status-badge:not(#cx) {
@@ -241,13 +277,12 @@ a:hover { color: #7f4a06; }
 
 /* stat cards */
 :is(.stat-card, .crm-card, .kpi-card):not(#cx) {
-  background: #fff; border: 1px solid var(--cx-border); border-radius: var(--cx-radius-card);
-  box-shadow: var(--cx-shadow-card); transition: box-shadow var(--cx-transition);
+  background: #fff; border: 1px solid var(--cx-border); border-radius: var(--cx-radius);
+  box-shadow: var(--cx-shadow); transition: border-color 0.2s;
 }
-.stat-label:not(#cx) {
-  font-size: 0.875rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--cx-gray);
-}
-.stat-value:not(#cx) { font-weight: 700; color: var(--cx-black); line-height: 1.2; }
+:is(.stat-card, .kpi-card):not(#cx):hover { border-color: rgba(232, 145, 10, 0.35); }
+.stat-label:not(#cx) { font-size: 0.875rem; font-weight: 500; color: var(--cx-text-muted); }
+.stat-value:not(#cx) { font-weight: 800; letter-spacing: -0.03em; color: var(--cx-black); line-height: 1.2; }
 
 /* empty and loading states */
 .empty-state:not(#cx) { text-align: center; color: var(--cx-gray); }
@@ -264,25 +299,31 @@ a:hover { color: #7f4a06; }
 /* form controls */
 :is(.form-group input:not([type="checkbox"]):not([type="radio"]), .form-group select, .form-group textarea,
     .filter-select, .search-input):not(#cx) {
-  border: 1px solid #d6d6d6; border-radius: var(--cx-radius-button); font-family: var(--cx-font);
+  border: 1px solid var(--cx-border); border-radius: var(--cx-radius-button); font-family: var(--cx-font);
   color: var(--cx-black); background-color: #fff;
 }
 :is(.form-group input, .form-group select, .form-group textarea, .filter-select, .search-input):not(#cx):focus {
-  outline: none; border-color: var(--cx-primary); box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.18);
+  outline: none; border-color: var(--cx-primary); box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.18);
 }
 .form-group label:not(#cx) { font-size: 0.9rem; font-weight: 500; color: var(--cx-black); }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--cx-primary); }
 
-/* tables: one header style */
-:is(table th, .data-table th, .crm-table th):not(#cx) { color: var(--cx-gray); font-weight: 600; }
+/* tables: the mockup's header row, on every table */
+:is(table th, .data-table th, .crm-table th):not(#cx) {
+  color: var(--cx-text-muted); font-weight: 600; font-size: 0.875rem;
+  text-transform: uppercase; letter-spacing: 0.04em; border-bottom-color: var(--cx-border);
+  background-color: var(--cx-surface-muted);
+}
+:is(table thead, .data-table thead, .crm-table thead):not(#cx) { background: var(--cx-surface-muted); }
+:is(table td, .data-table td, .crm-table td):not(#cx) { border-bottom-color: var(--cx-border-light); }
 
 /* buttons for features not built yet (they used to do nothing when clicked) */
 button:disabled[title$="not available yet"] { opacity: 0.4; cursor: not-allowed; }
 
 /* printing a page (e.g. an invoice via Download): just the content */
 @media print {
-  .top-navbar, .sidebar, .operations-sidebar, .right-sidebar, .finance-sidebar, .vendor-sidebar,
+  .cx-sidebar, .cx-topbar, .sidebar, .operations-sidebar, .right-sidebar, .finance-sidebar, .vendor-sidebar,
   .marketing-sidebar, .panel-sidebar, [class*="-sidebar"], .cx-no-print { display: none !important; }
-  .main-content, .content-area, main { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  .main-content, .cx-main, .cx-content, main { margin: 0 !important; padding: 0 !important; width: 100% !important; }
   body { background: #fff; }
 }

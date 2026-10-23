@@ -18,17 +18,17 @@ table {
 
 /* Table headers */
 thead {
-  background-color: #f8f9fa !important;
+  background-color: #faf9f7 !important;
 }
 
 thead tr {
-  border-bottom: 2px solid #e5e7eb !important;
+  border-bottom: 2px solid #e8e4dc !important;
 }
 
 thead th {
   padding: 0.75rem 1rem !important;
   font-weight: 600 !important;
-  color: #4b5563 !important;
+  color: #5c5c5c !important;
   text-align: left !important;
   font-size: 0.875rem;
   text-transform: uppercase;
@@ -38,12 +38,12 @@ thead th {
 
 /* Table body rows */
 tbody tr {
-  border-bottom: 1px solid #f3f4f6 !important;
+  border-bottom: 1px solid #f5f3ef !important;
   transition: background-color 0.15s ease !important;
 }
 
 tbody tr:hover {
-  background-color: #f9fafb !important;
+  background-color: #faf9f7 !important;
 }
 
 tbody td {
@@ -110,25 +110,25 @@ h1 {
 
 div[style*="header"] p,
 p {
-  color: #4b5563;
+  color: #5c5c5c;
   margin: 0;
   font-size: 0.95rem;
 }
 
 /* Primary button */
-button[style*="backgroundColor: #e8890b"] {
+button[style*="backgroundColor: #e8910a"] {
   border-radius: 6px !important;
   transition: all 0.2s ease !important;
   font-weight: 500 !important;
 }
 
-button[style*="backgroundColor: #e8890b"]:hover {
-  box-shadow: 0 2px 4px rgba(232, 137, 11, 0.3) !important;
+button[style*="backgroundColor: #e8910a"]:hover {
+  box-shadow: 0 2px 4px rgba(232, 145, 10, 0.3) !important;
 }
 
 /* Action buttons */
-button[style*="backgroundColor: #4b5563"],
-button[style*="backgroundColor: #ef4444"] {
+button[style*="backgroundColor: #5c5c5c"],
+button[style*="backgroundColor: #dc2626"] {
   border-radius: 4px !important;
   transition: all 0.2s ease !important;
 }

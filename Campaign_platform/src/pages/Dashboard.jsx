@@ -6,7 +6,7 @@ import { authFetch } from "../utils/api"
 const SEVERITY = {
   high: { bar: "#dc2626", bg: "#fef2f2", label: "Action needed" },
   normal: { bar: "#f59e0b", bg: "#fffbeb", label: "Review" },
-  low: { bar: "#9ca3af", bg: "#f9fafb", label: "FYI" },
+  low: { bar: "#8a8a8a", bg: "#faf9f7", label: "FYI" },
 }
 
 function AttentionItem({ item, onOpen }) {
@@ -25,9 +25,9 @@ function AttentionItem({ item, onOpen }) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, color: "#1a1a1a" }}>{item.title}</div>
-        {item.detail && <div style={{ fontSize: "0.875rem", color: "#4b5563" }}>{item.detail}</div>}
+        {item.detail && <div style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>{item.detail}</div>}
         {item.examples?.length > 0 && (
-          <div style={{ fontSize: "0.875rem", color: "#4b5563", marginTop: "2px",
+          <div style={{ fontSize: "0.875rem", color: "#5c5c5c", marginTop: "2px",
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {item.examples.join(" · ")}
           </div>
@@ -74,8 +74,8 @@ function Dashboard() {
   const stats = data?.stats || {}
   const items = data?.items || []
   const statCards = [
-    { label: "Active campaigns", value: stats.active_campaigns, color: "#a25e07", link: "/admin/sales/outreach" },
-    { label: "Leads", value: stats.leads, color: "#047857", link: "/admin/sales/leads" },
+    { label: "Active campaigns", value: stats.active_campaigns, color: "#a15f06", link: "/admin/sales/outreach" },
+    { label: "Leads", value: stats.leads, color: "#166534", link: "/admin/sales/leads" },
     { label: "Vendor leads", value: stats.vendor_leads, color: "#8b5cf6", link: "/admin/vendor/leads" },
     { label: "Open RFQs", value: stats.open_rfqs, color: "#b45309", link: "/admin/sales/rfq" },
   ]

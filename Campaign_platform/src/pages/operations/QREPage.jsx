@@ -308,11 +308,11 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                       <td><StatusBadge status={s.status} /></td>
                       <td>
                         {isMS ? (
-                          <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+                          <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
                             {s._ms_count} {s._ms_count === 1 ? "response" : "responses"}
                           </span>
                         ) : (
-                          <code style={{ fontSize: "0.875rem", color: "#4b5563", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
+                          <code style={{ fontSize: "0.875rem", color: "#5c5c5c", background: "#f5f3ef", padding: "1px 5px", borderRadius: 4 }}>
                             {s.id ? s.id.slice(0, 8) : "—"}
                           </code>
                         )}
@@ -322,10 +322,10 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                         {isMS && msScore?.pct !== null && msScore?.pct !== undefined
                           ? (() => {
                               const pct = msScore.pct;
-                              const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#e8890b" : pct >= 60 ? "#f59e0b" : "#dc2626";
+                              const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#e8910a" : pct >= 60 ? "#f59e0b" : "#dc2626";
                               return <span style={{ color, fontWeight: 700, fontSize: "0.875rem" }}>{pct}%</span>;
                             })()
-                          : <span style={{ color: "#d1d5db" }}>—</span>}
+                          : <span style={{ color: "#d4cec3" }}>—</span>}
                       </td>
                       <td>
                         <div className="actions-cell">
@@ -642,7 +642,7 @@ function OverviewTab({ studyId }) {
               <div className="qre-quota-grid">
                 {group.cells.map((q) => {
                   const fillPct = q.limit > 0 ? Math.min(100, Math.round((q.current / q.limit) * 100)) : 0;
-                  const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#e8890b";
+                  const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#e8910a";
                   return (
                     <div key={q.quota_key} className="qre-quota-card">
                       <div className="qre-quota-header">
@@ -817,7 +817,7 @@ function QuotasTab({ studyId }) {
                     const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
                     return (
                       <tr key={q.quota_key} style={{ background: q.is_full ? "#fff1f2" : undefined }}>
-                        <td style={{ color: "#4b5563", fontSize: "0.875rem" }}>
+                        <td style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>
                           {i === 0 ? group.groupLabel : ""}
                         </td>
                         <td>
@@ -956,7 +956,7 @@ function RedirectsTab({ studyId, studyType }) {
               className="qre-input"
               readOnly
               value={entryLink}
-              style={{ flex: 1, background: "#f8fafc", cursor: "text" }}
+              style={{ flex: 1, background: "#faf9f7", cursor: "text" }}
               onFocus={(e) => e.target.select()}
             />
             <button
@@ -1125,7 +1125,7 @@ export default function QREPage() {
               ← All Studies
             </button>
             <div className="qre-page-title-row">
-              <BarChart2 size={20} color="#e8890b" />
+              <BarChart2 size={20} color="#e8910a" />
               <h1 className="qre-page-title cx-page-title">{selectedStudy.name}</h1>
               <StatusBadge status={selectedStudy.status} />
             </div>
@@ -1154,7 +1154,7 @@ export default function QREPage() {
       <div className="qre-page-header">
         <div>
           <div className="qre-page-title-row">
-            <BarChart2 size={20} color="#e8890b" />
+            <BarChart2 size={20} color="#e8910a" />
             <h1 className="qre-page-title">QRE Platform</h1>
           </div>
           <p className="qre-page-subtitle">

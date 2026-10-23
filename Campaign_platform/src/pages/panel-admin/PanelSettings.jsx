@@ -17,11 +17,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("signup")}
             style={{
               cursor: "pointer",
-              border: activeSection === "signup" ? "2px solid #e8890b" : "1px solid #e5e7eb",
+              border: activeSection === "signup" ? "2px solid #e8910a" : "1px solid #e8e4dc",
             }}
           >
             <h3 className="card-title">Signup Configuration</h3>
-            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+            <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
               Control signup form fields, validation rules, and default values.
             </p>
           </div>
@@ -31,11 +31,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("email")}
             style={{
               cursor: "pointer",
-              border: activeSection === "email" ? "2px solid #e8890b" : "1px solid #e5e7eb",
+              border: activeSection === "email" ? "2px solid #e8910a" : "1px solid #e8e4dc",
             }}
           >
             <h3 className="card-title">Email Templates</h3>
-            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+            <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
               Customize welcome emails, reward notifications, and reminders.
             </p>
           </div>
@@ -45,11 +45,11 @@ function PanelSettings() {
             onClick={() => setActiveSection("branding")}
             style={{
               cursor: "pointer",
-              border: activeSection === "branding" ? "2px solid #e8890b" : "1px solid #e5e7eb",
+              border: activeSection === "branding" ? "2px solid #e8910a" : "1px solid #e8e4dc",
             }}
           >
             <h3 className="card-title">Panel Branding</h3>
-            <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+            <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
               Logo, colors, and panel landing page customization.
             </p>
           </div>
@@ -81,7 +81,7 @@ function PanelSettings() {
                 <label style={{ display: "block", fontWeight: "500", marginBottom: "0.5rem" }}>
                   Auto-approve signups
                 </label>
-                <select style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d1d5db" }}>
+                <select style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d4cec3" }}>
                   <option value="yes">Yes - Automatically activate new panelists</option>
                   <option value="no">No - Require manual approval</option>
                 </select>
@@ -94,7 +94,7 @@ function PanelSettings() {
                 <input
                   type="number"
                   defaultValue={50}
-                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d1d5db", width: "120px" }}
+                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d4cec3", width: "120px" }}
                 />
               </div>
 
@@ -118,12 +118,12 @@ function PanelSettings() {
                   key={template.name}
                   style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "1rem", borderBottom: "1px solid #f3f4f6",
+                    padding: "1rem", borderBottom: "1px solid #f5f3ef",
                   }}
                 >
                   <div>
                     <p style={{ fontWeight: "500" }}>{template.name}</p>
-                    <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>{template.desc}</p>
+                    <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>{template.desc}</p>
                   </div>
                   <button className="btn btn-outline">Edit</button>
                 </div>
@@ -144,7 +144,7 @@ function PanelSettings() {
                 <input
                   type="text"
                   defaultValue="SurveyFieldwork Panel"
-                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d1d5db", width: "100%", maxWidth: "400px" }}
+                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid #d4cec3", width: "100%", maxWidth: "400px" }}
                 />
               </div>
 
@@ -152,7 +152,7 @@ function PanelSettings() {
                 <label style={{ display: "block", fontWeight: "500", marginBottom: "0.5rem" }}>
                   Primary Color
                 </label>
-                <input type="color" defaultValue="#e8890b" style={{ width: "60px", height: "40px", cursor: "pointer" }} />
+                <input type="color" defaultValue="#e8910a" style={{ width: "60px", height: "40px", cursor: "pointer" }} />
               </div>
 
               <div style={{ marginBottom: "1.5rem" }}>

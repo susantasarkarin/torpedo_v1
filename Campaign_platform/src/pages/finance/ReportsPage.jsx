@@ -32,7 +32,7 @@ function ReportsPage() {
   const styles = {
     container: {
       minHeight: "100vh",
-      backgroundColor: "#f3f4f6",
+      backgroundColor: "#f5f3ef",
       padding: "1.5rem",
     },
     header: {
@@ -49,12 +49,12 @@ function ReportsPage() {
     },
     subtitle: {
       fontSize: "0.95rem",
-      color: "#4b5563",
+      color: "#5c5c5c",
       margin: "0",
     },
     btnPrimary: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#e8890b",
+      backgroundColor: "#e8910a",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -68,7 +68,7 @@ function ReportsPage() {
     section: {
       marginBottom: "2rem",
       paddingBottom: "1.5rem",
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
     },
     sectionTitle: {
       fontSize: "1.1rem",
@@ -85,14 +85,14 @@ function ReportsPage() {
     },
     cardHeader: {
       padding: "1.5rem",
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
     },
     cardContent: {
       padding: "1.5rem",
     },
     button: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#4b5563",
+      backgroundColor: "#5c5c5c",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -204,7 +204,7 @@ function ReportsPage() {
           </CardContent>
         </Card>
 
-        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #c47209, #f3f4f6)" }}>
+        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #d17f08, #f5f3ef)" }}>
           <CardContent style={styles.cardContent}>
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
@@ -333,7 +333,7 @@ function ReportsPage() {
           </Card>
         </div>
 
-        <Card style={{ ...styles.card, backgroundColor: "#f3f4f6" }}>
+        <Card style={{ ...styles.card, backgroundColor: "#f5f3ef" }}>
           <CardContent style={styles.cardContent}>
             <div className="flex justify-between items-center">
               <span className="text-xl font-semibold text-slate-900">Total Outstanding</span>
@@ -408,7 +408,7 @@ function ReportsPage() {
             <p className="text-2xl font-bold text-orange-600">{formatCurrency(reportData.input_gst)}</p>
           </CardContent>
         </Card>
-        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #c47209, #f3f4f6)" }}>
+        <Card style={{ ...styles.card, backgroundImage: "linear-gradient(to right, #d17f08, #f5f3ef)" }}>
           <CardContent style={styles.cardContent}>
             <div className="w-12 h-12 bg-cogentix-navy-100 rounded-lg flex items-center justify-center mx-auto mb-4">
               <Calculator className="w-6 h-6 text-cogentix-navy-600" />
@@ -521,8 +521,8 @@ function ReportsPage() {
                   key={report.id}
                   style={{
                     ...styles.tabButton,
-                    backgroundColor: activeReport === report.id ? "#c47209" : "#4b5563",
-                    color: activeReport === report.id ? "white" : "#f3f4f6",
+                    backgroundColor: activeReport === report.id ? "#d17f08" : "#5c5c5c",
+                    color: activeReport === report.id ? "white" : "#f5f3ef",
                   }}
                   onClick={() => setActiveReport(report.id)}
                 >
@@ -579,7 +579,7 @@ function ReportsPage() {
       {/* Report Content */}
       {renderReport()}
       {!loading && reportData?.basis && (
-        <p style={{ marginTop: "1rem", color: "#4b5563" }}>
+        <p style={{ marginTop: "1rem", color: "#5c5c5c" }}>
           All amounts in INR. {reportData.basis}.
           {reportData.fx_rates && Object.keys(reportData.fx_rates).length > 0 && (
             <> Foreign-currency amounts converted at {reportData.fx_source || "each document's own-date rate"}. Today's rates for reference: {Object.entries(reportData.fx_rates).map(([c, r]) => `1 ${c} = ₹${Number(r).toFixed(2)}`).join(", ")}.</>

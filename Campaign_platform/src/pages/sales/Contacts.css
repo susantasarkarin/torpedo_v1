@@ -18,17 +18,17 @@ table {
 
 /* Table headers */
 thead {
-  background-color: #f8f9fa !important;
+  background-color: #faf9f7 !important;
 }
 
 thead tr {
-  border-bottom: 2px solid #e5e7eb !important;
+  border-bottom: 2px solid #e8e4dc !important;
 }
 
 thead th {
   padding: 0.75rem 1rem !important;
   font-weight: 600 !important;
-  color: #4b5563 !important;
+  color: #5c5c5c !important;
   text-align: left !important;
   font-size: 0.875rem;
   text-transform: uppercase;
@@ -38,12 +38,12 @@ thead th {
 
 /* Table body rows */
 tbody tr {
-  border-bottom: 1px solid #f3f4f6 !important;
+  border-bottom: 1px solid #f5f3ef !important;
   transition: background-color 0.15s ease !important;
 }
 
 tbody tr:hover {
-  background-color: #f9fafb !important;
+  background-color: #faf9f7 !important;
 }
 
 tbody td {
@@ -83,14 +83,14 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 }
 
 .contacts-header p {
-  color: #666;
+  color: #5c5c5c;
   margin: 0.25rem 0 0;
   font-size: 0.9rem;
 }
 
 .refresh-btn {
   padding: 0.5rem 1rem;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -100,7 +100,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #c47209;
+  background: #d17f08;
 }
 
 .refresh-btn:disabled {
@@ -125,7 +125,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 .search-box input {
   width: 100%;
   padding: 0.5rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   background: white;
 }
@@ -146,14 +146,14 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   padding: 4rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #e0e0e0;
-  border-top-color: #e8890b;
+  border: 4px solid #e8e4dc;
+  border-top-color: #e8910a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
@@ -179,18 +179,18 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 }
 
 .contacts-table th {
-  background: #f8f9fa;
+  background: #faf9f7;
   padding: 0.75rem 1rem;
   text-align: left;
   font-weight: 600;
   color: #333;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid #e8e4dc;
   white-space: nowrap;
 }
 
 .contacts-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
   vertical-align: middle;
 }
 
@@ -200,7 +200,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 }
 
 .contacts-table tbody tr.clickable-row:hover {
-  background: #f9fafb;
+  background: #faf9f7;
 }
 
 .status-badge {
@@ -225,7 +225,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 
 .pagination-info {
   font-size: 0.875rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .pagination-controls {
@@ -236,7 +236,7 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 
 .pagination-btn {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   background: white;
   border-radius: 6px;
   cursor: pointer;
@@ -245,8 +245,8 @@ div[style*="paginationContainer"] button:hover:not(:disabled) {
 }
 
 .pagination-btn:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #e8890b;
+  background: #faf9f7;
+  border-color: #e8910a;
 }
 
 .pagination-btn:disabled {

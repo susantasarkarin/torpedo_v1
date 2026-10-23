@@ -10,24 +10,24 @@ import { authFetch } from "../../utils/api"
 import "./campaign/AILeads.css"
 
 const BASKET_COLORS = {
-  A: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+  A: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
   B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-  C: { bg: "#fff7ed", color: "#c47209", border: "#fde68a" },
+  C: { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
   D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-  E: { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db" },
+  E: { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
 }
 
 const TIER_STYLE = {
   1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
   2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
-  3: { bg: "#fff7ed", color: "#c47209", border: "#7dd3fc", icon: "❄️" },
+  3: { bg: "#fdf4e7", color: "#d17f08", border: "#7dd3fc", icon: "❄️" },
 }
 
 const LEAD_STATUS_STYLE = {
   Positive: { bg: "#dcfce7", color: "#15803d", border: "#86efac", icon: "✅" },
   "Needs Human": { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", icon: "🙋" },
   Negative: { bg: "#fee2e2", color: "#b91c1c", border: "#fca5a5", icon: "🚫" },
-  Neutral:  { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db", icon: "⬜" },
+  Neutral:  { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3", icon: "⬜" },
 }
 
 const STATUS_OPTIONS = ["Positive", "Needs Human", "Neutral", "Negative"]
@@ -43,7 +43,7 @@ function ReplyCell({ lead }) {
   const t = lead.reply_triage
   const n = lead.nurture
   const m = lead.mail_pool
-  if (!t && !n && !m) return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>
+  if (!t && !n && !m) return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>
   const mailSummary = m ? (m.model_summary || m.last_summary || "") : ""
   const title = t
     ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
@@ -60,14 +60,14 @@ function ReplyCell({ lead }) {
           <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {mailSummary.replace(/\s+/g, " ").slice(0, 70) || m.last_subject}
           </div>
-          <div style={{ color: "#4b5563" }}>
+          <div style={{ color: "#5c5c5c" }}>
             Mail: {m.messages_in} in / {m.messages_out} out
             {m.last_contact_at ? ` · last ${String(m.last_contact_at).slice(0, 10)}` : ""}
           </div>
         </>
       )}
       {n?.status && (
-        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#e8890b", fontWeight: 600 }}>
+        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#e8910a", fontWeight: 600 }}>
           {NURTURE_LABEL[n.status] || n.status}
           {n.status === "active" ? ` · step ${n.step || 0}/4` : ""}
         </div>
@@ -277,12 +277,12 @@ function Leads() {
           placeholder="Search name, email, company…"
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem", minWidth: 240 }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem", minWidth: 240 }}
         />
         <select
           value={basket}
           onChange={e => { setBasket(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem" }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
         >
           <option value="">All ICP Baskets</option>
           <option value="A">A — Survey Fieldwork</option>
@@ -294,7 +294,7 @@ function Leads() {
         <select
           value={fitTier}
           onChange={e => { setFitTier(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem" }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
         >
           <option value="">All Fit Tiers</option>
           <option value="1">🔥 Tier 1 — Hot</option>
@@ -304,7 +304,7 @@ function Leads() {
         <select
           value={source}
           onChange={e => { setSource(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem" }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
         >
           <option value="">All Sources</option>
           <option value="gmail">✉️ Gmail</option>
@@ -315,7 +315,7 @@ function Leads() {
         <select
           value={leadStatus}
           onChange={e => { setLeadStatus(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem" }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
         >
           <option value="">All Statuses</option>
           <option value="Positive">✅ Positive</option>
@@ -339,7 +339,7 @@ function Leads() {
             <span>Loading leads…</span>
           </div>
         ) : leads.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 64, color: "#4b5563" }}>
+          <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
             <p>No leads found matching your filters.</p>
           </div>
         ) : (
@@ -399,7 +399,7 @@ function Leads() {
                           {lead.classification_basket} — {bname}
                         </span>
                       )
-                    })() : <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>}
+                    })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
                   </td>
                   {/* Fit Tier */}
                   <td>
@@ -410,7 +410,7 @@ function Leads() {
                           {s.icon} {lead.fit_tier_label || `Tier ${lead.fit_tier}`}
                         </span>
                       )
-                    })() : <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>}
+                    })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
                   </td>
                   <td><ReplyCell lead={lead} /></td>
                   {/* Lead Status */}
@@ -434,13 +434,13 @@ function Leads() {
           <button
             disabled={page <= 1}
             onClick={() => setPage(p => p - 1)}
-            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.5 : 1, background: "#fff" }}
+            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e8e4dc", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.5 : 1, background: "#fff" }}
           >←</button>
           <span style={{ fontSize: "0.9rem", color: "#4a4a4a" }}>Page {page} of {totalPages}</span>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage(p => p + 1)}
-            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page >= totalPages ? "not-allowed" : "pointer", opacity: page >= totalPages ? 0.5 : 1, background: "#fff" }}
+            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e8e4dc", cursor: page >= totalPages ? "not-allowed" : "pointer", opacity: page >= totalPages ? 0.5 : 1, background: "#fff" }}
           >→</button>
         </div>
       )}

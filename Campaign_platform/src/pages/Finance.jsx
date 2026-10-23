@@ -103,13 +103,13 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       subtitle: `${displayKpis.revenue.total_invoices} invoices`,
       trend: "+12% vs last month",
       trendDirection: "up",
-      color: "#a25e07",
+      color: "#a15f06",
     },
     {
       title: "Total Expenses",
       value: formatCurrency(displayKpis.expenses.total),
       subtitle: "Purchases + Operating",
-      color: "#4b5563",
+      color: "#5c5c5c",
     },
     {
       title: "Net Profit",
@@ -117,7 +117,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       subtitle: `${displayKpis.profitability.profit_margin.toFixed(1)}% margin`,
       trend: "+5% improvement",
       trendDirection: "up",
-      color: "#047857",
+      color: "#166534",
     },
     {
       title: "Cash Flow",
@@ -136,19 +136,19 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
       title: "Payables",
       value: formatCurrency(displayKpis.payables.outstanding),
       subtitle: "Outstanding bills",
-      color: "#ef4444",
+      color: "#dc2626",
     },
   ]
 
   const quickActions = [
-    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#a25e07" },
+    { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#a15f06" },
     { href: "/admin/finance/vendors", icon: "🏢", label: "Vendors", color: "#8b5cf6" },
     { href: "/admin/finance/estimates", icon: "📝", label: "Estimates", color: "#b45309" },
-    { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#047857" },
-    { href: "/admin/finance/bills", icon: "🧾", label: "Bills", color: "#ef4444" },
+    { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#166534" },
+    { href: "/admin/finance/bills", icon: "🧾", label: "Bills", color: "#dc2626" },
     { href: "/admin/finance/expenses", icon: "💸", label: "Expenses", color: "#ec4899" },
-    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#a25e07" },
-    { href: "/admin/finance/settings", icon: "⚙️", label: "Settings", color: "#4b5563" },
+    { href: "/admin/finance/reports", icon: "📊", label: "Reports", color: "#a15f06" },
+    { href: "/admin/finance/settings", icon: "⚙️", label: "Settings", color: "#5c5c5c" },
   ]
 
   return (
@@ -205,7 +205,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
             <div style={styles.kpiValue}>{kpi.value}</div>
             <div style={styles.kpiSubtitle}>{kpi.subtitle}</div>
             {kpi.trend && (
-              <div style={{ ...styles.kpiTrend, color: kpi.trendDirection === "up" ? "#10b981" : "#ef4444" }}>
+              <div style={{ ...styles.kpiTrend, color: kpi.trendDirection === "up" ? "#16a34a" : "#dc2626" }}>
                 {kpi.trendDirection === "up" ? "↗" : "↘"} {kpi.trend}
               </div>
             )}
@@ -239,7 +239,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
                     </div>
                     <div style={styles.activityAmount}>
                       <p
-                        style={{ ...styles.activityValue, color: activity.type === "payment" ? "#10b981" : "#4a4a4a" }}
+                        style={{ ...styles.activityValue, color: activity.type === "payment" ? "#16a34a" : "#4a4a4a" }}
                       >
                         {formatCurrency(activity.amount)}
                       </p>
@@ -316,7 +316,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
                   e.currentTarget.style.backgroundColor = action.color + "08"
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "#e5e7eb"
+                  e.currentTarget.style.borderColor = "#e8e4dc"
                   e.currentTarget.style.backgroundColor = "white"
                 }}
               >
@@ -337,7 +337,7 @@ const styles = {
     margin: "0 auto",
     padding: "2rem",
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#faf9f7",
     minHeight: "100vh",
   },
   header: {
@@ -355,7 +355,7 @@ const styles = {
     color: "#1a1a1a",
   },
   subtitle: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "0",
     fontSize: "0.95rem",
   },
@@ -366,7 +366,7 @@ const styles = {
   },
   btnPrimary: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "0.5rem",
@@ -379,7 +379,7 @@ const styles = {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
     fontWeight: "500",
@@ -396,14 +396,14 @@ const styles = {
   loadingSpinner: {
     width: "2rem",
     height: "2rem",
-    border: "3px solid #e5e7eb",
-    borderTop: "3px solid #e8890b",
+    border: "3px solid #e8e4dc",
+    borderTop: "3px solid #e8910a",
     borderRadius: "50%",
     animation: "spin 1s linear infinite",
     marginBottom: "1rem",
   },
   loadingText: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     fontSize: "0.95rem",
   },
   notificationBanner: {
@@ -465,7 +465,7 @@ const styles = {
   kpiTitle: {
     fontSize: "0.875rem",
     fontWeight: "600",
-    color: "#4b5563",
+    color: "#5c5c5c",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
   },
@@ -486,7 +486,7 @@ const styles = {
   },
   kpiSubtitle: {
     fontSize: "0.875rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
   },
   kpiTrend: {
     fontSize: "0.875rem",
@@ -507,7 +507,7 @@ const styles = {
   },
   cardHeader: {
     padding: "1.25rem",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
@@ -520,12 +520,12 @@ const styles = {
   },
   cardSubtitle: {
     fontSize: "0.875rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "0",
   },
   viewAllLink: {
     fontSize: "0.875rem",
-    color: "#a25e07",
+    color: "#a15f06",
     textDecoration: "none",
     fontWeight: "500",
   },
@@ -543,7 +543,7 @@ const styles = {
   },
   emptyText: {
     fontSize: "0.875rem",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
     margin: "0",
   },
   activityList: {
@@ -556,13 +556,13 @@ const styles = {
     alignItems: "flex-start",
     gap: "0.75rem",
     paddingBottom: "1rem",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
   },
   activityIcon: {
     width: "2.5rem",
     height: "2.5rem",
     borderRadius: "0.5rem",
-    backgroundColor: "#f3f4f6",
+    backgroundColor: "#f5f3ef",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -581,12 +581,12 @@ const styles = {
   },
   activityDescription: {
     fontSize: "0.875rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "0 0 0.25rem 0",
   },
   activityTime: {
     fontSize: "0.875rem",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
     margin: "0",
   },
   activityAmount: {
@@ -606,8 +606,8 @@ const styles = {
     textTransform: "capitalize",
   },
   statusPaid: {
-    backgroundColor: "#d1fae5",
-    color: "#065f46",
+    backgroundColor: "#dcfce7",
+    color: "#166534",
   },
   statusPending: {
     backgroundColor: "#fef3c7",
@@ -628,14 +628,14 @@ const styles = {
     gap: "0.75rem",
     padding: "0.75rem",
     borderRadius: "0.5rem",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     transition: "all 0.2s",
   },
   customerRank: {
     width: "2rem",
     height: "2rem",
     borderRadius: "50%",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     display: "flex",
     alignItems: "center",
@@ -656,13 +656,13 @@ const styles = {
   },
   customerInvoices: {
     fontSize: "0.875rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "0",
   },
   customerRevenue: {
     fontSize: "0.875rem",
     fontWeight: "600",
-    color: "#047857",
+    color: "#166534",
   },
   quickActionsGrid: {
     display: "grid",
@@ -675,7 +675,7 @@ const styles = {
     alignItems: "center",
     padding: "1rem",
     borderRadius: "0.75rem",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8e4dc",
     backgroundColor: "white",
     transition: "all 0.2s",
     cursor: "pointer",

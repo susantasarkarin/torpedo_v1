@@ -1,6 +1,6 @@
 .rate-card-page {
   padding: 20px;
-  background-color: #f5f5f5;
+  background-color: #f5f3ef;
   min-height: calc(100vh - var(--cx-nav-h, 90px));
 }
 
@@ -23,19 +23,19 @@
 
 .page-header p {
   margin: 0;
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 14px;
 }
 
 .page-header .last-refresh {
   margin-top: 4px;
   font-size: 14px;
-  color: #6b6b6b;
+  color: #6f6f6f;
 }
 
 .refresh-button {
   border: none;
-  background: #e8890b;
+  background: #e8910a;
   color: #ffffff;
   padding: 8px 14px;
   border-radius: 6px;
@@ -74,7 +74,7 @@
 
 .filter-group select {
   padding: 8px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 14px;
   min-width: 160px;
@@ -84,8 +84,8 @@
 
 .filter-group select:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.15);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.15);
 }
 
 .markup-control {
@@ -101,19 +101,19 @@
   width: 70px;
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   font-size: 14px;
 }
 
 .markup-control input:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.15);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.15);
 }
 
 .count-pill {
-  background: #fff7ed;
-  color: #c47209;
+  background: #fdf4e7;
+  color: #d17f08;
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 14px;
@@ -138,27 +138,27 @@
 .matrix-table td {
   padding: 8px 10px;
   text-align: center;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   font-size: 14px;
 }
 
 .matrix-table thead th {
-  background: #c47209;
+  background: #d17f08;
   color: #ffffff;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .matrix-table .corner-cell {
-  background: #c47209;
+  background: #d17f08;
   color: #ffffff;
   font-weight: 700;
   text-align: center;
 }
 
 .matrix-table .row-header {
-  background: #fff7ed;
-  color: #c47209;
+  background: #fdf4e7;
+  color: #d17f08;
   font-weight: 600;
   text-align: right;
   white-space: nowrap;
@@ -172,13 +172,13 @@
 }
 
 .rate-cell.has-data {
-  background: #ecfdf5;
-  color: #047857;
+  background: #f0fdf4;
+  color: #166534;
 }
 
 .rate-cell.from-previous {
-  background: #fff7ed;
-  color: #c47209;
+  background: #fdf4e7;
+  color: #d17f08;
 }
 
 .rate-cell.estimated {
@@ -211,13 +211,13 @@
 }
 
 .legend-dot.has-data {
-  background: #ecfdf5;
-  border: 1px solid #047857;
+  background: #f0fdf4;
+  border: 1px solid #166534;
 }
 
 .legend-dot.from-previous {
-  background: #fff7ed;
-  border: 1px solid #c47209;
+  background: #fdf4e7;
+  border: 1px solid #d17f08;
 }
 
 .legend-dot.estimated {

@@ -8,7 +8,7 @@
 .finance-main-content {
   flex: 1;
   overflow-y: auto;
-  background-color: #f8f9fa;
+  background-color: #faf9f7;
 }
 
 @keyframes spin {

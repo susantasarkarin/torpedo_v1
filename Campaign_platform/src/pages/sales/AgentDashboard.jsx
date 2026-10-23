@@ -356,7 +356,7 @@ export default function AgentDashboard() {
 
         {/* Quick Run Modal */}
         {quickRunOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
             <Card className="w-full max-w-md mx-4">
               <CardHeader>
                 <CardTitle>Quick Run Agents</CardTitle>

@@ -19,7 +19,7 @@
 .pd-loading {
   text-align: center;
   padding: 4rem;
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 1rem;
   background: white;
   border-radius: 10px;
@@ -42,7 +42,7 @@
   gap: 0.35rem;
   padding: 0.4rem 0.85rem;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
@@ -54,8 +54,8 @@
 }
 
 .pd-back-btn:hover {
-  border-color: #e8890b;
-  color: #a25e07;
+  border-color: #e8910a;
+  color: #a15f06;
   background: #f5f3ff;
 }
 
@@ -100,7 +100,7 @@
   border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 500;
-  background: #f3f4f6;
+  background: #f5f3ef;
   color: #4a4a4a;
   white-space: nowrap;
 }
@@ -127,8 +127,8 @@
 }
 
 .pd-status-badge.status-close {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #f5f3ef;
+  color: #5c5c5c;
 }
 
 /* ---- Stats strip ---- */
@@ -185,7 +185,7 @@
 
 .pd-stat-label {
   font-size: 0.875rem;
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -194,7 +194,7 @@
 
 .pd-stat-sub {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   margin-top: 0.1rem;
 }
 
@@ -217,13 +217,13 @@
 
 .pd-progress-pct {
   font-weight: 700;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .pd-progress-bar {
   width: 100%;
   height: 8px;
-  background: #e5e7eb;
+  background: #e8e4dc;
   border-radius: 999px;
   overflow: hidden;
 }
@@ -267,11 +267,11 @@
   margin: 0 0 0.85rem 0;
   font-size: 0.875rem;
   font-weight: 700;
-  color: #4b5563;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding-bottom: 0.6rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
 }
 
 /* Key-value grid */
@@ -294,7 +294,7 @@
 .pd-k {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #6b6b6b;
+  color: #6f6f6f;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -309,7 +309,7 @@
 .pd-v.mono {
   font-family: monospace;
   font-size: 0.875rem;
-  background: #f3f4f6;
+  background: #f5f3ef;
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
   display: inline-block;
@@ -325,7 +325,7 @@
 
 /* ---- Live link card ---- */
 .pd-live-link-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -333,12 +333,12 @@
 .pd-live-link-label {
   font-size: 0.875rem;
   font-weight: 700;
-  color: #6b6b6b;
+  color: #6f6f6f;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0.45rem 0.75rem;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: #faf9f7;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .pd-live-link-row {
@@ -352,7 +352,7 @@
 .pd-live-link-url {
   flex: 1;
   font-size: 0.875rem;
-  color: #a25e07;
+  color: #a15f06;
   text-decoration: none;
   word-break: break-all;
   min-width: 0;
@@ -367,7 +367,7 @@
   align-items: center;
   gap: 0.3rem;
   padding: 0.3rem 0.65rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   background: white;
   font-size: 0.875rem;
@@ -380,15 +380,15 @@
 }
 
 .pd-copy-btn:hover {
-  border-color: #e8890b;
-  color: #a25e07;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 /* ---- URL rows table ---- */
 .pd-urls-table {
   display: flex;
   flex-direction: column;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -399,7 +399,7 @@
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
   min-width: 0;
 }
 
@@ -413,7 +413,7 @@
   gap: 0.3rem;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #4b5563;
+  color: #5c5c5c;
   white-space: nowrap;
   min-width: 80px;
   flex-shrink: 0;
@@ -430,7 +430,7 @@
 
 .pd-url-value {
   font-size: 0.875rem;
-  color: #a25e07;
+  color: #a15f06;
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -444,7 +444,7 @@
 
 .pd-url-empty {
   font-size: 0.875rem;
-  color: #d1d5db;
+  color: #d4cec3;
   font-style: italic;
 }
 
@@ -460,18 +460,18 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 5px;
   background: white;
   cursor: pointer;
-  color: #4b5563;
+  color: #5c5c5c;
   text-decoration: none;
   transition: all 0.15s ease;
 }
 
 .pd-icon-btn:hover {
-  border-color: #e8890b;
-  color: #a25e07;
+  border-color: #e8910a;
+  color: #a15f06;
   background: #f5f3ff;
 }
 

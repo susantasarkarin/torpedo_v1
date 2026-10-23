@@ -1,97 +1,50 @@
-"use client"
-
 import { Outlet, useLocation } from "react-router-dom"
-import Navbar from "./Navbar"
-import RightSidebar from "./RightSidebar"
-import OperationsSidebar from "./OperationsSidebar"
-import FinanceSidebar from "./FinanceSidebar"
-import VendorSidebar from "./VendorSidebar"
-import MarketingSidebar from "./MarketingSidebar"
-import PanelSidebar from "./PanelSidebar"
-import Footer from "./Footer"
 import { useState, useEffect } from "react"
+import Sidebar from "./shell/Sidebar"
+import Topbar from "./shell/Topbar"
+import { moduleKeyFromPath } from "./shell/navConfig"
 
-// Helper to determine section from pathname
-function getSectionFromPath(pathname) {
-  if (pathname.startsWith("/admin/sales")) return "sales"
-  if (pathname.startsWith("/admin/finance")) return "finance"
-  if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs" ||
-      pathname.startsWith("/admin/surveys")) return "operations"
-  if (pathname.startsWith("/admin/vendor")) return "vendor"
-  if (pathname.startsWith("/admin/marketing")) return "marketing"
-  if (pathname.startsWith("/admin/panel-admin")) return "panel-admin"
-  return null
-}
-
+// App shell: one white sidebar on the left (a drawer on phones), a sticky top
+// bar, and the page. Pages outside a module (dashboard, settings, profile)
+// keep the module that was open last, as the old section sidebars did.
 function Layout() {
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
-  const [mainDropdownOpen, setMainDropdownOpen] = useState(false)
   const location = useLocation()
-  
-  // Initialize selectedSection based on current URL path
-  const [selectedSection, setSelectedSection] = useState(() => getSectionFromPath(location.pathname))
+  const [moduleKey, setModuleKey] = useState(() => moduleKeyFromPath(location.pathname))
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
-  // Keep selectedSection in sync with route changes
   useEffect(() => {
-    const section = getSectionFromPath(location.pathname)
-    if (section !== null && section !== selectedSection) {
-      setSelectedSection(section)
-    }
+    const key = moduleKeyFromPath(location.pathname)
+    if (key !== null) setModuleKey(key)
+    setDrawerOpen(false)
   }, [location.pathname])
 
+  useEffect(() => {
+    if (!drawerOpen) return undefined
+    const onKey = (e) => e.key === "Escape" && setDrawerOpen(false)
+    document.addEventListener("keydown", onKey)
+    document.body.classList.add("cx-drawer-lock")
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      document.body.classList.remove("cx-drawer-lock")
+    }
+  }, [drawerOpen])
+
   return (
-    <div className="app-container">
-      <Navbar
-        profileDropdownOpen={profileDropdownOpen}
-        setProfileDropdownOpen={setProfileDropdownOpen}
-        mainDropdownOpen={mainDropdownOpen}
-        setMainDropdownOpen={setMainDropdownOpen}
-        selectedSection={selectedSection}
-        setSelectedSection={setSelectedSection}
+    <div className="cx-shell">
+      <Sidebar
+        moduleKey={moduleKey}
+        onModuleChange={setModuleKey}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
       />
+      {drawerOpen && <div className="cx-scrim" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
 
-      <div className="main-layout">
-        {/* ✅ Operations sidebar (left) */}
-        {(selectedSection === "operations" || location.pathname === "/admin/logs") && <OperationsSidebar />}
-
-        {/* ✅ Finance sidebar (left) */}
-        {selectedSection === "finance" && <FinanceSidebar />}
-
-        {/* ✅ Vendor sidebar (left) */}
-        {selectedSection === "vendor" && <VendorSidebar />}
-
-        {/* ✅ Marketing sidebar (left) */}
-        {selectedSection === "marketing" && <MarketingSidebar />}
-
-        {/* ✅ Panel sidebar (left) */}
-        {selectedSection === "panel-admin" && <PanelSidebar />}
-
-        {/* ✅ Sales sidebar (right) */}
-        {selectedSection === "sales" && <RightSidebar />}
-
-        {/* ✅ Content area shifts depending on sidebar */}
-        <div
-          className={`content-area ${
-            selectedSection === "operations" || location.pathname === "/admin/logs"
-              ? "with-left-sidebar"
-              : selectedSection === "sales"
-              ? "with-right-sidebar"
-              : selectedSection === "finance"
-              ? "with-left-sidebar"
-              : selectedSection === "vendor"
-              ? "with-left-sidebar"
-              : selectedSection === "marketing"
-              ? "with-left-sidebar"
-              : selectedSection === "panel-admin"
-              ? "with-left-sidebar"
-              : ""
-          }`}
-        >
+      <div className="cx-main">
+        <Topbar onMenu={() => setDrawerOpen(true)} />
+        <main className="cx-content">
           <Outlet />
-        </div>
+        </main>
       </div>
-
-      <Footer />
     </div>
   )
 }

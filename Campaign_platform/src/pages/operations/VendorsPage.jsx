@@ -392,7 +392,7 @@ function VendorsPage() {
                 <div style={styles.formGroup}>
                   <label style={styles.label}>VID {!editingId && "(Auto-generated)"}</label>
                   <input
-                    style={{...styles.input, backgroundColor: editingId ? '#f3f4f6' : '#fff', cursor: editingId ? 'not-allowed' : 'default'}}
+                    style={{...styles.input, backgroundColor: editingId ? '#f5f3ef' : '#fff', cursor: editingId ? 'not-allowed' : 'default'}}
                     value={editingId ? (formData.vid || "") : ""}
                     disabled={editingId}
                     readOnly
@@ -404,7 +404,7 @@ function VendorsPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Router link (no pid)</label>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <input style={{ ...styles.input, backgroundColor: "#f3f4f6" }} value={routerLinkFor(formData.vid)} readOnly />
+                      <input style={{ ...styles.input, backgroundColor: "#f5f3ef" }} value={routerLinkFor(formData.vid)} readOnly />
                       <button
                         type="button"
                         style={{ ...styles.input, width: "auto", cursor: "pointer" }}
@@ -416,7 +416,7 @@ function VendorsPage() {
                         Copy
                       </button>
                     </div>
-                    <small style={{ color: "#6b7280", fontSize: 12 }}>
+                    <small style={{ color: "#6f6f6f", fontSize: 12 }}>
                       For sources that don't target one project: Torpedo qualifies each respondent and routes them to an
                       eligible live survey in their country. Replace [%CC%] / [%RID%] with this vendor's own macros.
                       Your panel and single-project traffic keep using each project's entry link (with pid).
@@ -478,7 +478,7 @@ function VendorsPage() {
                         <option value="tiktok">TikTok</option>
                         <option value="other">Other</option>
                       </select>
-                      <small style={{ color: "#6b7280", fontSize: 12 }}>
+                      <small style={{ color: "#6f6f6f", fontSize: 12 }}>
                         Paid Ads respondents are asked for name, email, phone and panel consent on the landing page.
                       </small>
                     </div>
@@ -558,7 +558,7 @@ const styles = {
     margin: '0 auto',
     padding: '2rem',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#faf9f7',
     minHeight: '100vh',
   },
   header: {
@@ -574,13 +574,13 @@ const styles = {
     color: '#1a1a1a',
   },
   subtitle: {
-    color: '#4b5563',
+    color: '#5c5c5c',
     margin: '0',
     fontSize: '0.95rem',
   },
   btnPrimary: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#e8890b',
+    backgroundColor: '#e8910a',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -611,13 +611,13 @@ const styles = {
     flex: '1',
     maxWidth: '400px',
     padding: '0.75rem 1rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid #d4cec3',
     borderRadius: '0.5rem',
     fontSize: '0.95rem',
   },
   recordsPerPageSelect: {
     padding: '0.75rem 1rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid #d4cec3',
     borderRadius: '0.5rem',
     fontSize: '0.95rem',
     backgroundColor: 'white',
@@ -627,7 +627,7 @@ const styles = {
     display: 'flex',
     gap: '2rem',
     fontSize: '0.9rem',
-    color: '#4b5563',
+    color: '#5c5c5c',
   },
   tableContainer: {
     backgroundColor: 'white',
@@ -640,8 +640,8 @@ const styles = {
     borderCollapse: 'collapse',
   },
   thead: {
-    backgroundColor: '#f9fafb',
-    borderBottom: '2px solid #e5e7eb',
+    backgroundColor: '#faf9f7',
+    borderBottom: '2px solid #e8e4dc',
   },
   th: {
     padding: '1rem',
@@ -649,11 +649,11 @@ const styles = {
     fontSize: '0.875rem',
     fontWeight: '600',
     textTransform: 'uppercase',
-    color: '#4b5563',
+    color: '#5c5c5c',
     letterSpacing: '0.05em',
   },
   tr: {
-    borderBottom: '1px solid #e5e7eb',
+    borderBottom: '1px solid #e8e4dc',
     transition: 'background-color 0.15s',
   },
   td: {
@@ -663,7 +663,7 @@ const styles = {
   },
   vid: {
     fontWeight: '600',
-    color: '#a25e07',
+    color: '#a15f06',
     fontFamily: 'monospace',
     fontSize: '0.95rem',
   },
@@ -676,12 +676,12 @@ const styles = {
     textTransform: 'capitalize',
   },
   statusActive: {
-    backgroundColor: '#d1fae5',
-    color: '#065f46',
+    backgroundColor: '#dcfce7',
+    color: '#166534',
   },
   statusInactive: {
-    backgroundColor: '#e5e7eb',
-    color: '#4b5563',
+    backgroundColor: '#e8e4dc',
+    color: '#5c5c5c',
   },
   typeBadge: {
     display: 'inline-block',
@@ -691,16 +691,16 @@ const styles = {
     fontWeight: '600',
   },
   typePanel: {
-    backgroundColor: '#fff7ed',
-    color: '#c47209',
+    backgroundColor: '#fdf4e7',
+    color: '#d17f08',
   },
   typeAffiliate: {
     backgroundColor: '#fce7f3',
     color: '#9f1239',
   },
   typeAPI: {
-    backgroundColor: '#fff7ed',
-    color: '#c47209',
+    backgroundColor: '#fdf4e7',
+    color: '#d17f08',
   },
   actionButtons: {
     display: 'flex',
@@ -708,7 +708,7 @@ const styles = {
   },
   btnEdit: {
     padding: '0.5rem 0.75rem',
-    backgroundColor: '#4b5563',
+    backgroundColor: '#5c5c5c',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -717,7 +717,7 @@ const styles = {
   },
   btnDelete: {
     padding: '0.5rem 0.75rem',
-    backgroundColor: '#ef4444',
+    backgroundColor: '#dc2626',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -727,7 +727,7 @@ const styles = {
   emptyState: {
     textAlign: 'center',
     padding: '3rem',
-    color: '#6b6b6b',
+    color: '#6f6f6f',
   },
   modal: {
     position: 'fixed',
@@ -755,7 +755,7 @@ const styles = {
   },
   modalHeader: {
     padding: '1.5rem',
-    borderBottom: '1px solid #e5e7eb',
+    borderBottom: '1px solid #e8e4dc',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -771,7 +771,7 @@ const styles = {
     background: 'none',
     border: 'none',
     fontSize: '2rem',
-    color: '#6b6b6b',
+    color: '#6f6f6f',
     cursor: 'pointer',
     padding: '0',
     width: '2rem',
@@ -789,7 +789,7 @@ const styles = {
   section: {
     marginBottom: '2rem',
     paddingBottom: '1.5rem',
-    borderBottom: '1px solid #e5e7eb',
+    borderBottom: '1px solid #e8e4dc',
   },
   sectionTitle: {
     fontSize: '1.1rem',
@@ -814,11 +814,11 @@ const styles = {
     color: '#4a4a4a',
   },
   required: {
-    color: '#ef4444',
+    color: '#dc2626',
   },
   input: {
     padding: '0.75rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid #d4cec3',
     borderRadius: '0.5rem',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
@@ -826,7 +826,7 @@ const styles = {
   },
   select: {
     padding: '0.75rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid #d4cec3',
     borderRadius: '0.5rem',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
@@ -835,7 +835,7 @@ const styles = {
   },
   textarea: {
     padding: '0.75rem',
-    border: '1px solid #d1d5db',
+    border: '1px solid #d4cec3',
     borderRadius: '0.5rem',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
@@ -844,7 +844,7 @@ const styles = {
   },
   modalFooter: {
     padding: '1rem 1.5rem',
-    borderTop: '1px solid #e5e7eb',
+    borderTop: '1px solid #e8e4dc',
     display: 'flex',
     justifyContent: 'flex-end',
     gap: '0.75rem',
@@ -852,7 +852,7 @@ const styles = {
   },
   btnCancel: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#4b5563',
+    backgroundColor: '#5c5c5c',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -862,7 +862,7 @@ const styles = {
   },
   btnSave: {
     padding: '0.75rem 1.5rem',
-    backgroundColor: '#e8890b',
+    backgroundColor: '#e8910a',
     color: 'white',
     border: 'none',
     borderRadius: '0.5rem',
@@ -883,7 +883,7 @@ const styles = {
   },
   paginationBtn: {
     padding: '0.5rem 1rem',
-    backgroundColor: '#e8890b',
+    backgroundColor: '#e8910a',
     color: 'white',
     border: 'none',
     borderRadius: '0.375rem',
@@ -893,13 +893,13 @@ const styles = {
     transition: 'all 0.2s',
   },
   paginationBtnDisabled: {
-    backgroundColor: '#d1d5db',
+    backgroundColor: '#d4cec3',
     cursor: 'not-allowed',
     opacity: '0.6',
   },
   pageInfo: {
     fontSize: '0.9rem',
-    color: '#4b5563',
+    color: '#5c5c5c',
     minWidth: '150px',
     textAlign: 'center',
   },

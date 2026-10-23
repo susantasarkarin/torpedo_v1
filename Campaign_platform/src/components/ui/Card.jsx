@@ -11,16 +11,16 @@ export function Card({
   const paddingClasses = {
     none: '',
     sm: 'p-4',
-    md: 'p-6',
-    lg: 'p-8',
+    md: 'p-5',
+    lg: 'p-6',
   };
 
   return (
     <div
       className={clsx(
-        'bg-white rounded-xl border border-slate-100 shadow-card',
+        'bg-white rounded-[10px] border border-line shadow-card',
         paddingClasses[padding],
-        hover && 'transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5',
+        hover && 'transition-colors duration-200 hover:border-cogentix-orange/35',
         className
       )}
       {...props}
@@ -81,7 +81,7 @@ export function CardDescription({ children, className = '' }) {
 
 export function CardFooter({ children, className = '' }) {
   return (
-    <div className={clsx('mt-4 pt-4 border-t border-slate-100', className)}>
+    <div className={clsx('mt-4 pt-4 border-t border-line', className)}>
       {children}
     </div>
   );
@@ -102,14 +102,14 @@ export function KPICard({
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-sm font-medium text-text-muted">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-text-primary">{value}</p>
+          <p className="mt-1.5 text-[1.7rem] leading-tight font-extrabold tracking-tight text-text-primary">{value}</p>
           {subtitle && (
             <p className="mt-1 text-sm text-text-muted">{subtitle}</p>
           )}
           {trend && (
             <div className={clsx(
-              'mt-2 inline-flex items-center text-sm font-medium',
-              trendDirection === 'up' ? 'text-cogentix-green' : 'text-red-500'
+              'mt-1 inline-flex items-center text-sm font-semibold',
+              trendDirection === 'up' ? 'text-green-600' : 'text-red-600'
             )}>
               {trendDirection === 'up' ? (
                 <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -125,7 +125,7 @@ export function KPICard({
           )}
         </div>
         {icon && (
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-cogentix-orange-50 text-cogentix-orange-700">
+          <div className="flex items-center justify-center w-11 h-11 rounded-lg bg-cogentix-orange/10 text-cogentix-orange-700">
             {icon}
           </div>
         )}

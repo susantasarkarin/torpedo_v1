@@ -3,8 +3,8 @@ import { clsx } from 'clsx';
 
 export function Table({ children, className = '' }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <table className={clsx('min-w-full divide-y divide-slate-200', className)}>
+    <div className="overflow-x-auto rounded-xl border border-line bg-white shadow-card">
+      <table className={clsx('min-w-full divide-y divide-line', className)}>
         {children}
       </table>
     </div>
@@ -13,7 +13,7 @@ export function Table({ children, className = '' }) {
 
 export function TableHead({ children, className = '' }) {
   return (
-    <thead className={clsx('bg-slate-50', className)}>
+    <thead className={clsx('bg-gray-50', className)}>
       {children}
     </thead>
   );
@@ -21,7 +21,7 @@ export function TableHead({ children, className = '' }) {
 
 export function TableBody({ children, className = '' }) {
   return (
-    <tbody className={clsx('divide-y divide-slate-100 bg-white', className)}>
+    <tbody className={clsx('divide-y divide-[#ebe7e0] bg-white', className)}>
       {children}
     </tbody>
   );
@@ -33,8 +33,8 @@ export function TableRow({ children, className = '', hover = true, selected = fa
       onClick={onClick}
       className={clsx(
         'transition-colors',
-        hover && 'hover:bg-slate-50',
-        selected && 'bg-cogentix-orange-50',
+        hover && 'hover:bg-gray-50',
+        selected && 'bg-cogentix-orange/10',
         onClick && 'cursor-pointer',
         className
       )}
@@ -63,7 +63,7 @@ export function TableHeaderCell({
       scope="col"
       onClick={sortable ? onSort : undefined}
       className={clsx(
-        'px-4 py-3 text-sm font-semibold text-text-secondary uppercase tracking-wider',
+        'px-4 py-3 text-sm font-semibold text-text-muted uppercase tracking-wide whitespace-nowrap',
         alignClasses[align],
         sortable && 'cursor-pointer hover:text-cogentix-navy select-none',
         className
@@ -108,7 +108,7 @@ export function TableCell({ children, className = '', align = 'left' }) {
   };
 
   return (
-    <td className={clsx('px-4 py-4 text-sm text-text-primary whitespace-nowrap', alignClasses[align], className)}>
+    <td className={clsx('px-4 py-3 text-sm text-text-primary whitespace-nowrap align-middle', alignClasses[align], className)}>
       {children}
     </td>
   );

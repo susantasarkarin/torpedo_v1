@@ -107,7 +107,7 @@ const ConfirmDialog = forwardRef(({
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-description"
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-[1000] flex items-center justify-center"
       onKeyDown={handleKeyDown}
     >
       {/* Overlay */}

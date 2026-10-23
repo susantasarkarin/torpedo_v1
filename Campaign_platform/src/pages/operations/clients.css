@@ -15,7 +15,7 @@
 }
 
 .clients-page > p {
-  color: #666;
+  color: #5c5c5c;
   margin-bottom: 2rem;
   font-size: 0.9375rem;
 }
@@ -40,12 +40,12 @@
 }
 
 .btn-primary {
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: #c47209;
+  background-color: #d17f08;
 }
 
 /* Search and Stats Section */
@@ -67,21 +67,21 @@
 .search-box input {
   width: 100%;
   padding: 0.625rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 0.375rem;
   font-size: 0.9375rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .search-box input::placeholder {
-  color: #6b6b6b;
+  color: #6f6f6f;
 }
 
 .stats {
   display: flex;
   gap: 1.5rem;
   font-size: 0.875rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .stats span {
@@ -103,7 +103,7 @@ table {
 }
 
 thead {
-  background-color: #f8f9fa;
+  background-color: #faf9f7;
 }
 
 thead th {
@@ -111,13 +111,13 @@ thead th {
   text-align: left;
   font-weight: 600;
   color: #333;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid #e8e4dc;
   white-space: nowrap;
   font-size: 0.9375rem;
 }
 
 tbody tr {
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
   transition: background-color 0.15s ease;
 }
 
@@ -126,7 +126,7 @@ tbody tr.clickable-row {
 }
 
 tbody tr:hover {
-  background: #f9fafb;
+  background: #faf9f7;
 }
 
 tbody td {
@@ -147,13 +147,13 @@ tbody td {
 }
 
 .status.active {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .status.inactive {
-  background-color: #e5e7eb;
-  color: #4b5563;
+  background-color: #e8e4dc;
+  color: #5c5c5c;
 }
 
 /* Action Buttons */
@@ -176,16 +176,16 @@ tbody td {
 }
 
 .edit-btn {
-  background-color: #4b5563;
+  background-color: #5c5c5c;
   color: white;
 }
 
 .edit-btn:hover {
-  background-color: #4b5563;
+  background-color: #5c5c5c;
 }
 
 .delete-btn {
-  background-color: #ef4444;
+  background-color: #dc2626;
   color: white;
 }
 
@@ -222,7 +222,7 @@ tbody td {
 
 .modal-header {
   padding: 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8e4dc;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -243,7 +243,7 @@ tbody td {
   background: none;
   border: none;
   font-size: 1.5rem;
-  color: #6b6b6b;
+  color: #6f6f6f;
   cursor: pointer;
   padding: 0;
   width: 2rem;
@@ -255,7 +255,7 @@ tbody td {
 }
 
 .close-btn:hover {
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .modal-body {
@@ -279,7 +279,7 @@ tbody td {
 }
 
 .form-group label .required {
-  color: #ef4444;
+  color: #dc2626;
   margin-left: 0.125rem;
 }
 
@@ -288,7 +288,7 @@ tbody td {
 .form-group textarea {
   width: 100%;
   padding: 0.625rem 0.875rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 0.375rem;
   font-size: 0.9375rem;
   color: #1a1a1a;
@@ -302,13 +302,13 @@ tbody td {
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 .form-group input::placeholder,
 .form-group textarea::placeholder {
-  color: #6b6b6b;
+  color: #6f6f6f;
 }
 
 .form-group select {
@@ -323,7 +323,7 @@ tbody td {
 
 .modal-footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
@@ -334,21 +334,21 @@ tbody td {
 }
 
 .btn-cancel {
-  background-color: #4b5563;
+  background-color: #5c5c5c;
   color: white;
 }
 
 .btn-cancel:hover {
-  background-color: #4b5563;
+  background-color: #5c5c5c;
 }
 
 .btn-save {
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
 }
 
 .btn-save:hover {
-  background-color: #c47209;
+  background-color: #d17f08;
 }
 
 /* Form Grid Layout (Optional - for side-by-side fields) */

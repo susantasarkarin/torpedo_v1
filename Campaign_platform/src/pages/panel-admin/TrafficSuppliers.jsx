@@ -19,7 +19,7 @@ const toRupees = (paise) => ((paise || 0) / 100).toLocaleString("en-IN", { maxim
 
 const card = {
   background: "#fff",
-  border: "1px solid #e5e7eb",
+  border: "1px solid #e8e4dc",
   borderRadius: "10px",
   padding: "1.25rem",
   marginBottom: "1.25rem",
@@ -41,7 +41,7 @@ function CopyField({ label, value, hint }) {
 
   return (
     <div style={{ marginTop: "0.75rem" }}>
-      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#5c5c5c", textTransform: "uppercase", letterSpacing: "0.03em" }}>
         {label}
       </div>
       <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
@@ -50,22 +50,22 @@ function CopyField({ label, value, hint }) {
           value={value}
           onFocus={(e) => e.target.select()}
           style={{
-            flex: 1, padding: "0.5rem 0.65rem", border: "1px solid #e5e7eb", borderRadius: "6px",
-            fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.875rem", background: "#f9fafb", color: "#1a1a1a",
+            flex: 1, padding: "0.5rem 0.65rem", border: "1px solid #e8e4dc", borderRadius: "6px",
+            fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.875rem", background: "#faf9f7", color: "#1a1a1a",
           }}
         />
         <button
           onClick={copy}
           style={{
-            padding: "0.5rem 0.9rem", borderRadius: "6px", border: "1px solid #d1d5db",
-            background: copied ? "#059669" : "#fff", color: copied ? "#fff" : "#4a4a4a",
+            padding: "0.5rem 0.9rem", borderRadius: "6px", border: "1px solid #d4cec3",
+            background: copied ? "#15803d" : "#fff", color: copied ? "#fff" : "#4a4a4a",
             fontWeight: 600, fontSize: "0.875rem", cursor: "pointer", whiteSpace: "nowrap",
           }}
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      {hint && <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: "0.3rem 0 0" }}>{hint}</p>}
+      {hint && <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.3rem 0 0" }}>{hint}</p>}
     </div>
   )
 }
@@ -81,13 +81,13 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
   const remove = (i) => onChange(rows.filter((_, idx) => idx !== i))
 
   const cell = {
-    padding: "0.45rem 0.6rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem",
+    padding: "0.45rem 0.6rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem",
   }
 
   return (
     <div>
       <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a" }}>Per-country rates</div>
-      <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: "0.2rem 0 0.5rem" }}>
+      <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.2rem 0 0.5rem" }}>
         Optional. Any country without a row here is paid at the default rate
         {fallbackRate ? ` (₹${fallbackRate})` : ""}. The rate that applies to a conversion is
         frozen when it converts, so changing a rate later never re-prices what you have already been invoiced for.
@@ -99,13 +99,13 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
             placeholder="IN" maxLength={2} value={r.country}
             onChange={(e) => set(i, { country: e.target.value.toUpperCase().replace(/[^A-Z]/g, "") })}
           />
-          <span style={{ color: "#4b5563", fontSize: "0.875rem" }}>₹</span>
+          <span style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>₹</span>
           <input
             style={{ ...cell, width: "7rem" }} type="number" step="0.01" min="0"
             placeholder="25.00" value={r.rate}
             onChange={(e) => set(i, { rate: e.target.value })}
           />
-          <span style={{ color: "#4b5563", fontSize: "0.875rem" }}>per profile-complete</span>
+          <span style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>per profile-complete</span>
           <button type="button" onClick={() => remove(i)} style={{
             marginLeft: "auto", border: "none", background: "none", color: "#dc2626",
             cursor: "pointer", fontSize: "0.875rem", fontWeight: 600,
@@ -113,7 +113,7 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
         </div>
       ))}
       <button type="button" onClick={add} style={{
-        marginTop: "0.25rem", padding: "0.4rem 0.8rem", border: "1px dashed #d1d5db",
+        marginTop: "0.25rem", padding: "0.4rem 0.8rem", border: "1px dashed #d4cec3",
         borderRadius: "6px", background: "#fff", fontSize: "0.875rem", fontWeight: 600,
         color: "#4a4a4a", cursor: "pointer",
       }}>+ Add country rate</button>
@@ -225,7 +225,7 @@ export default function TrafficSuppliers({ embedded = false }) {
   }
 
   const input = {
-    width: "100%", padding: "0.55rem 0.7rem", border: "1px solid #d1d5db",
+    width: "100%", padding: "0.55rem 0.7rem", border: "1px solid #d4cec3",
     borderRadius: "6px", fontSize: "0.9rem", marginTop: "0.25rem",
   }
   const label = { fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a" }
@@ -235,7 +235,7 @@ export default function TrafficSuppliers({ embedded = false }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
         <div>
           {!embedded && <h2 className="cx-page-title" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>}
-          <p style={{ color: "#4b5563", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
+          <p style={{ color: "#5c5c5c", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
             Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
             A signup counts as <strong>payable once the panelist completes their profile</strong> — the point they can be routed to a survey.
           </p>
@@ -268,7 +268,7 @@ export default function TrafficSuppliers({ embedded = false }) {
               <input style={input} required value={form.slug} placeholder="quora"
                 pattern="[a-z0-9][a-z0-9_-]{1,40}"
                 onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase() })} />
-              <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: "0.25rem 0 0" }}>
+              <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.25rem 0 0" }}>
                 Appears in the link. Lowercase, no spaces. Cannot be changed later.
               </p>
             </div>
@@ -277,7 +277,7 @@ export default function TrafficSuppliers({ embedded = false }) {
               <input style={input} type="number" step="0.01" min="0" value={form.payoutPerConversionPaise}
                 placeholder="25.00"
                 onChange={(e) => setForm({ ...form, payoutPerConversionPaise: e.target.value })} />
-              <p style={{ fontSize: "0.875rem", color: "#4b5563", margin: "0.25rem 0 0" }}>
+              <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.25rem 0 0" }}>
                 Used for any country without its own rate below.
               </p>
             </div>
@@ -294,7 +294,7 @@ export default function TrafficSuppliers({ embedded = false }) {
             </div>
           </div>
 
-          <div style={{ marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid #f3f4f6" }}>
+          <div style={{ marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid #f5f3ef" }}>
             <CountryRateEditor
               rows={form.countryRates}
               fallbackRate={form.payoutPerConversionPaise}
@@ -313,11 +313,11 @@ export default function TrafficSuppliers({ embedded = false }) {
       )}
 
       {loading ? (
-        <p style={{ color: "#4b5563" }}>Loading…</p>
+        <p style={{ color: "#5c5c5c" }}>Loading…</p>
       ) : suppliers.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "2.5rem 1.25rem" }}>
           <p style={{ fontWeight: 700, color: "#1a1a1a", margin: 0 }}>No suppliers yet</p>
-          <p style={{ color: "#4b5563", fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
+          <p style={{ color: "#5c5c5c", fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
             Add one for each traffic source — Facebook, Google, Quora, or a panel vendor — and send them their tracked signup link.
             Signups that arrive without a link are recorded as organic.
           </p>
@@ -336,7 +336,7 @@ export default function TrafficSuppliers({ embedded = false }) {
                     background: s.status === "active" ? "#dcfce7" : "#fef3c7",
                     color: s.status === "active" ? "#166534" : "#92400e",
                   }}>{s.status}</span>
-                  <div style={{ color: "#4b5563", fontSize: "0.875rem", marginTop: "0.2rem" }}>
+                  <div style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "0.2rem" }}>
                     <code>{s.slug}</code>
                     {s.postbackEnabled && " · postback on"}
                   </div>
@@ -350,15 +350,15 @@ export default function TrafficSuppliers({ embedded = false }) {
                       })),
                     })}
                     style={{
-                      padding: "0.4rem 0.8rem", border: "1px solid #d1d5db", borderRadius: "6px",
+                      padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
                       background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
                     }}>Rates</button>
                   <button onClick={() => toggleStatus(s)} style={{
-                    padding: "0.4rem 0.8rem", border: "1px solid #d1d5db", borderRadius: "6px",
+                    padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
                     background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
                   }}>{s.status === "active" ? "Pause" : "Activate"}</button>
                   <button onClick={() => rotate(s)} style={{
-                    padding: "0.4rem 0.8rem", border: "1px solid #d1d5db", borderRadius: "6px",
+                    padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
                     background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
                   }}>Rotate link</button>
                 </div>
@@ -375,7 +375,7 @@ export default function TrafficSuppliers({ embedded = false }) {
                   ["Accrued", `₹${toRupees(s.accruedPaise)}`],
                 ].map(([k, v]) => (
                   <div key={k}>
-                    <div style={{ fontSize: "0.875rem", color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.03em" }}>{k}</div>
+                    <div style={{ fontSize: "0.875rem", color: "#5c5c5c", textTransform: "uppercase", letterSpacing: "0.03em" }}>{k}</div>
                     <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#1a1a1a" }}>{v}</div>
                   </div>
                 ))}
@@ -386,7 +386,7 @@ export default function TrafficSuppliers({ embedded = false }) {
                   {s.countryRates.map((r) => (
                     <span key={r.country} style={{
                       fontSize: "0.875rem", fontWeight: 600, padding: "0.2rem 0.55rem",
-                      borderRadius: "99px", background: "#f3f4f6", color: "#4a4a4a",
+                      borderRadius: "99px", background: "#f5f3ef", color: "#4a4a4a",
                     }}>{r.country} ₹{toRupees(r.payoutPerConversionPaise)}</span>
                   ))}
                   <span style={{
@@ -397,7 +397,7 @@ export default function TrafficSuppliers({ embedded = false }) {
               )}
 
               {editingRates?.slug === s.slug && (
-                <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #f3f4f6" }}>
+                <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #f5f3ef" }}>
                   <CountryRateEditor
                     rows={editingRates.rows}
                     fallbackRate={toRupees(s.payoutPerConversionPaise)}
@@ -409,7 +409,7 @@ export default function TrafficSuppliers({ embedded = false }) {
                       borderRadius: "6px", fontWeight: 700, fontSize: "0.875rem", cursor: "pointer",
                     }}>Save rates</button>
                     <button onClick={() => setEditingRates(null)} style={{
-                      padding: "0.45rem 1rem", background: "#fff", border: "1px solid #d1d5db",
+                      padding: "0.45rem 1rem", background: "#fff", border: "1px solid #d4cec3",
                       borderRadius: "6px", fontWeight: 600, fontSize: "0.875rem", cursor: "pointer",
                     }}>Cancel</button>
                   </div>

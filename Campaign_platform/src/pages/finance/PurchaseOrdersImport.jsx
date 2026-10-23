@@ -72,7 +72,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "0.5rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     background: "none",
     border: "none",
     cursor: "pointer",
@@ -90,7 +90,7 @@ const styles = {
     margin: 0,
   },
   subtitle: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     marginTop: "0.25rem",
   },
   progressBar: {
@@ -125,11 +125,11 @@ const styles = {
     background: "#fff",
     borderRadius: "12px",
     boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8e4dc",
     padding: "2rem",
   },
   dropZone: {
-    border: "2px dashed #d1d5db",
+    border: "2px dashed #d4cec3",
     borderRadius: "8px",
     padding: "3rem",
     textAlign: "center",
@@ -137,13 +137,13 @@ const styles = {
     transition: "all 0.2s",
   },
   dropZoneHover: {
-    borderColor: "#e8890b",
-    backgroundColor: "#fff7ed",
+    borderColor: "#e8910a",
+    backgroundColor: "#fdf4e7",
   },
   templateSection: {
     marginTop: "2rem",
     padding: "1rem",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
     display: "flex",
     alignItems: "center",
@@ -163,7 +163,7 @@ const styles = {
     alignItems: "center",
     gap: "1rem",
     padding: "0.75rem 0",
-    borderBottom: "1px solid #f3f4f6",
+    borderBottom: "1px solid #f5f3ef",
   },
   mappingLabel: {
     width: "200px",
@@ -175,7 +175,7 @@ const styles = {
     flex: 1,
     padding: "0.5rem 0.75rem",
     borderRadius: "6px",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     fontSize: "0.875rem",
     backgroundColor: "#fff",
   },
@@ -191,19 +191,19 @@ const styles = {
   previewTh: {
     textAlign: "left",
     padding: "0.75rem",
-    backgroundColor: "#f9fafb",
-    borderBottom: "1px solid #e5e7eb",
+    backgroundColor: "#faf9f7",
+    borderBottom: "1px solid #e8e4dc",
     fontWeight: "600",
     color: "#4a4a4a",
   },
   previewTd: {
     padding: "0.75rem",
-    borderBottom: "1px solid #f3f4f6",
-    color: "#4b5563",
+    borderBottom: "1px solid #f5f3ef",
+    color: "#5c5c5c",
   },
   btnPrimary: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "#fff",
     border: "none",
     borderRadius: "6px",
@@ -217,7 +217,7 @@ const styles = {
     padding: "0.625rem 1.25rem",
     backgroundColor: "#fff",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "6px",
     cursor: "pointer",
     fontWeight: "500",
@@ -256,7 +256,7 @@ const styles = {
     justifyContent: "space-between",
     marginTop: "2rem",
     paddingTop: "1.5rem",
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid #e8e4dc",
   },
 }
 
@@ -468,8 +468,8 @@ function PurchaseOrdersImport() {
             <div
               style={{
                 ...styles.stepCircle,
-                backgroundColor: step >= s.num ? "#e8890b" : "#e5e7eb",
-                color: step >= s.num ? "#fff" : "#4b5563",
+                backgroundColor: step >= s.num ? "#e8910a" : "#e8e4dc",
+                color: step >= s.num ? "#fff" : "#5c5c5c",
               }}
             >
               {step > s.num ? <CheckCircle style={{ width: "16px", height: "16px" }} /> : s.num}
@@ -477,7 +477,7 @@ function PurchaseOrdersImport() {
             <span
               style={{
                 ...styles.stepLabel,
-                color: step >= s.num ? "#1a1a1a" : "#9ca3af",
+                color: step >= s.num ? "#1a1a1a" : "#8a8a8a",
                 fontWeight: step >= s.num ? "500" : "400",
               }}
             >
@@ -487,7 +487,7 @@ function PurchaseOrdersImport() {
               <div
                 style={{
                   ...styles.stepConnector,
-                  backgroundColor: step > s.num ? "#e8890b" : "#e5e7eb",
+                  backgroundColor: step > s.num ? "#e8910a" : "#e8e4dc",
                 }}
               />
             )}
@@ -511,7 +511,7 @@ function PurchaseOrdersImport() {
               style={{
                 width: "64px",
                 height: "64px",
-                backgroundColor: "#fff7ed",
+                backgroundColor: "#fdf4e7",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
@@ -519,12 +519,12 @@ function PurchaseOrdersImport() {
                 margin: "0 auto 1rem",
               }}
             >
-              <Upload style={{ width: "32px", height: "32px", color: "#a25e07" }} />
+              <Upload style={{ width: "32px", height: "32px", color: "#a15f06" }} />
             </div>
             <h2 style={{ fontSize: "1.125rem", fontWeight: "600", marginBottom: "0.5rem" }}>
               Upload your CSV file
             </h2>
-            <p style={{ color: "#4b5563" }}>Select a CSV file containing your purchase order data</p>
+            <p style={{ color: "#5c5c5c" }}>Select a CSV file containing your purchase order data</p>
           </div>
 
           {/* Drop Zone */}
@@ -545,18 +545,18 @@ function PurchaseOrdersImport() {
               onChange={(e) => handleFileSelect(e.target.files[0])}
               style={{ display: "none" }}
             />
-            <FileSpreadsheet style={{ width: "48px", height: "48px", color: "#6b6b6b", margin: "0 auto 1rem" }} />
-            <p style={{ color: "#4b5563", marginBottom: "0.5rem" }}>
-              <span style={{ color: "#a25e07", fontWeight: "500" }}>Click to upload</span> or drag and drop
+            <FileSpreadsheet style={{ width: "48px", height: "48px", color: "#6f6f6f", margin: "0 auto 1rem" }} />
+            <p style={{ color: "#5c5c5c", marginBottom: "0.5rem" }}>
+              <span style={{ color: "#a15f06", fontWeight: "500" }}>Click to upload</span> or drag and drop
             </p>
-            <p style={{ fontSize: "0.875rem", color: "#6b6b6b" }}>CSV files only</p>
+            <p style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>CSV files only</p>
           </div>
 
           {/* Template Download */}
           <div style={styles.templateSection}>
             <div>
               <h3 style={{ fontWeight: "500", color: "#1a1a1a", marginBottom: "0.25rem" }}>Need a template?</h3>
-              <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+              <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
                 Download our CSV template to format your data correctly
               </p>
             </div>
@@ -564,8 +564,8 @@ function PurchaseOrdersImport() {
               onClick={handleDownloadTemplate}
               style={{
                 ...styles.btnSecondary,
-                color: "#a25e07",
-                borderColor: "#e8890b",
+                color: "#a15f06",
+                borderColor: "#e8910a",
               }}
             >
               <Download style={{ width: "16px", height: "16px" }} />
@@ -591,11 +591,11 @@ function PurchaseOrdersImport() {
                 justifyContent: "center",
               }}
             >
-              <CheckCircle style={{ width: "24px", height: "24px", color: "#047857" }} />
+              <CheckCircle style={{ width: "24px", height: "24px", color: "#166534" }} />
             </div>
             <div style={{ flex: 1 }}>
               <h3 style={{ fontWeight: "500", color: "#1a1a1a" }}>{file?.name}</h3>
-              <p style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+              <p style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
                 {csvData.length} rows found • {csvColumns.length} columns detected
               </p>
             </div>
@@ -610,11 +610,11 @@ function PurchaseOrdersImport() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <h3 style={{ fontWeight: "600", color: "#1a1a1a" }}>Map Columns</h3>
-                  <p style={{ fontSize: "0.875rem", color: "#4b5563", marginTop: "0.25rem" }}>
+                  <p style={{ fontSize: "0.875rem", color: "#5c5c5c", marginTop: "0.25rem" }}>
                     Match your CSV columns to purchase order fields. We've auto-matched what we could.
                   </p>
                 </div>
-                <span style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+                <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
                   {getMappingStats().mapped} of {csvColumns.length} columns mapped
                 </span>
               </div>
@@ -627,7 +627,7 @@ function PurchaseOrdersImport() {
                     {field.label}
                     {field.required && <span style={{ color: "#dc2626", marginLeft: "4px" }}>*</span>}
                   </div>
-                  <ArrowRight style={{ width: "20px", height: "20px", color: "#6b6b6b" }} />
+                  <ArrowRight style={{ width: "20px", height: "20px", color: "#6f6f6f" }} />
                   <select
                     value={getMappedValue(field.key)}
                     onChange={(e) => handleMappingChange(field.key, e.target.value)}
@@ -644,7 +644,7 @@ function PurchaseOrdersImport() {
                     ))}
                   </select>
                   {getMappedValue(field.key) && (
-                    <CheckCircle style={{ width: "20px", height: "20px", color: "#047857" }} />
+                    <CheckCircle style={{ width: "20px", height: "20px", color: "#166534" }} />
                   )}
                 </div>
               ))}
@@ -759,12 +759,12 @@ function PurchaseOrdersImport() {
                 margin: "0 auto 1.5rem",
               }}
             >
-              <CheckCircle style={{ width: "32px", height: "32px", color: "#047857" }} />
+              <CheckCircle style={{ width: "32px", height: "32px", color: "#166534" }} />
             </div>
             <h2 style={{ fontSize: "1.25rem", fontWeight: "600", color: "#1a1a1a", marginBottom: "0.5rem" }}>
               Import Complete!
             </h2>
-            <p style={{ color: "#4b5563", marginBottom: "1.5rem" }}>{importResult.message}</p>
+            <p style={{ color: "#5c5c5c", marginBottom: "1.5rem" }}>{importResult.message}</p>
 
             {importResult.errors && importResult.errors.length > 0 && (
               <div

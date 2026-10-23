@@ -10,9 +10,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* Updated background to use secondary color */
-  background: #f9fafb;
+  background: #faf9f7;
   /* Updated text color to use body text color */
-  color: #4b5563;
+  color: #5c5c5c;
   line-height: 1.6;
   letter-spacing: -0.01em;
   min-height: 100vh;
@@ -36,7 +36,7 @@ h6 {
   display: flex;
   flex-direction: column;
   /* Updated background to use secondary color */
-  background-color: #f9fafb;
+  background-color: #faf9f7;
 }
 
 /* New top navbar styling */
@@ -69,7 +69,7 @@ h6 {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.12);
-  color: #e5e7eb;
+  color: #e8e4dc;
   font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -89,7 +89,7 @@ h6 {
   width: 40px;
   height: 40px;
   /* Updated logo icon to use accent orange */
-  background: #e8890b;
+  background: #e8910a;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -181,7 +181,7 @@ h6 {
 .logo-dropdown-item:hover {
   background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
   /* Updated hover color to use accent orange */
-  color: #e8890b;
+  color: #e8910a;
   padding-left: 1.5rem;
 }
 
@@ -296,7 +296,7 @@ h6 {
   align-items: center;
   padding: 1rem 1.5rem;
   /* Updated nav link color to use medium gray */
-  color: #4b5563;
+  color: #5c5c5c;
   text-decoration: none;
   transition: all 0.3s ease;
   border-left: 4px solid transparent;
@@ -307,7 +307,7 @@ h6 {
   background: rgba(255, 255, 255, 0.1);
   color: white;
   /* Updated border color to use accent orange */
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
   padding-left: 2rem;
 }
 
@@ -315,7 +315,7 @@ h6 {
   /* Updated active background to use accent orange with opacity */
   background: rgba(244, 124, 32, 0.2);
   color: white;
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
 }
 
 /* Campaign dropdown in left sidebar */
@@ -330,7 +330,7 @@ h6 {
   width: 100%;
   background: none;
   border: none;
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 500;
   font-size: 0.95rem;
   font-family: var(--cx-font);
@@ -344,7 +344,7 @@ h6 {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   font-weight: 600;
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
   padding-left: 2rem;
 }
 
@@ -363,7 +363,7 @@ h6 {
 .campaign-submenu-item {
   display: block;
   padding: 0.75rem 3rem;
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 500;
   font-size: 0.95rem;
   font-family: var(--cx-font);
@@ -376,7 +376,7 @@ h6 {
   background: rgba(244, 124, 32, 0.2);
   color: #ffffff;
   font-weight: 600;
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
   padding-left: 3.5rem;
 }
 
@@ -384,7 +384,7 @@ h6 {
   background: rgba(244, 124, 32, 0.3);
   color: #ffffff;
   font-weight: 600;
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
 }
 
 /* Updated profile section */
@@ -401,7 +401,7 @@ h6 {
   align-items: center;
   gap: 0.75rem;
   background: white;
-  border: 2px solid #e2e8f0;
+  border: 2px solid #e8e4dc;
   border-radius: 12px;
   padding: 0.5rem 1rem;
   cursor: pointer;
@@ -414,7 +414,7 @@ h6 {
 
 .profile-button:hover {
   /* Updated border color to use accent orange */
-  border-color: #e8890b;
+  border-color: #e8910a;
   box-shadow: 0 4px 12px rgba(244, 124, 32, 0.15);
   transform: translateY(-1px);
 }
@@ -424,7 +424,7 @@ h6 {
   height: 36px;
   border-radius: 50%;
   /* Updated avatar background to use accent orange */
-  background: #e8890b;
+  background: #e8910a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -443,7 +443,7 @@ h6 {
   transition: transform 0.3s ease;
   font-size: 0.875rem;
   /* Updated dropdown arrow color to use medium gray */
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .profile-menu {
@@ -451,7 +451,7 @@ h6 {
   top: 100%;
   right: 0;
   background: white;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
   border-radius: 12px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
   min-width: 200px;
@@ -486,7 +486,7 @@ h6 {
 .profile-menu-item:hover {
   background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
   /* Updated hover color to use accent orange */
-  color: #e8890b;
+  color: #e8910a;
   padding-left: 1.5rem;
 }
 
@@ -517,7 +517,7 @@ h6 {
 .profile-menu-divider {
   border: none;
   height: 1px;
-  background: #e2e8f0;
+  background: #e8e4dc;
   margin: 0.5rem 0;
 }
 
@@ -528,7 +528,7 @@ h6 {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 25px rgba(0, 0, 0, 0.1);
   padding: 2rem;
   margin-bottom: 1.5rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
@@ -542,7 +542,7 @@ h6 {
   right: 0;
   height: 4px;
   /* Updated card accent to use accent orange and primary navy */
-  background: linear-gradient(90deg, #e8890b, #1a1a1a);
+  background: linear-gradient(90deg, #e8910a, #1a1a1a);
 }
 
 .card:hover {
@@ -566,7 +566,7 @@ h6 {
 
 .card-description {
   /* Updated card description color to use medium gray */
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 1rem;
   line-height: 1.6;
 }
@@ -607,7 +607,7 @@ h6 {
 
 .btn-primary {
   /* Updated primary button to use accent orange */
-  background: #e8890b;
+  background: #e8910a;
   color: white;
 }
 
@@ -634,14 +634,14 @@ h6 {
 .btn-outline {
   background: transparent;
   /* Updated outline button color to use accent orange */
-  color: #e8890b;
-  border: 2px solid #e8890b;
+  color: #e8910a;
+  border: 2px solid #e8910a;
   box-shadow: none;
 }
 
 .btn-outline:hover:not(:disabled) {
   /* Updated outline button hover to use accent orange */
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(244, 124, 32, 0.3);
@@ -664,7 +664,7 @@ h6 {
 .form-input {
   width: 100%;
   padding: 1rem 1.25rem;
-  border: 2px solid #e2e8f0;
+  border: 2px solid #e8e4dc;
   border-radius: 12px;
   font-size: 1rem;
   transition: all 0.3s ease;
@@ -675,7 +675,7 @@ h6 {
 .form-input:focus {
   outline: none;
   /* Updated focus border color to use accent orange */
-  border-color: #e8890b;
+  border-color: #e8910a;
   box-shadow: 0 0 0 4px rgba(244, 124, 32, 0.1), 0 4px 12px rgba(0, 0, 0, 0.1);
   background: #fefefe;
 }
@@ -712,7 +712,7 @@ table th {
 
 table td {
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f5f3ef;
   font-size: 0.95rem;
 }
 
@@ -752,23 +752,23 @@ table tbody tr:last-child td {
 
 .status-completed {
   /* Updated completed status to use accent orange */
-  background: #e8890b;
+  background: #e8910a;
   color: white;
 }
 
 .status-draft {
-  background: linear-gradient(135deg, #a0aec0 0%, #4b5563 100%);
+  background: linear-gradient(135deg, #a0aec0 0%, #5c5c5c 100%);
   color: white;
 }
 
 /* Footer */
 .footer {
   background: white;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e8e4dc;
   padding: 1.5rem 2rem;
   text-align: center;
   /* Updated footer color to use medium gray */
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.9rem;
   box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.02);
 }
@@ -884,7 +884,7 @@ table tbody tr:last-child td {
 /* Enhanced accessibility */
 *:focus-visible {
   /* Updated focus outline color to use accent orange */
-  outline: 2px solid #e8890b;
+  outline: 2px solid #e8910a;
   outline-offset: 2px;
 }
 

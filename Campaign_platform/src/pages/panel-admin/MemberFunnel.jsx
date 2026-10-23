@@ -9,10 +9,10 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
  * to redeeming points, and the stages that lose the most members.
  */
 
-const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
-const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#4b5563", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }
-const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f3f4f6" }
-const select = { padding: "0.4rem 0.6rem", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "0.85rem", background: "#fff" }
+const card = { background: "#fff", border: "1px solid #e8e4dc", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
+const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
+const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef" }
+const select = { padding: "0.4rem 0.6rem", borderRadius: "8px", border: "1px solid #d4cec3", fontSize: "0.85rem", background: "#fff" }
 
 const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", GB: "United Kingdom", US: "United States", "??": "Unknown" }
 const PERIODS = [
@@ -23,7 +23,7 @@ const PERIODS = [
 ]
 
 // Colour a stage-to-stage conversion: green healthy, amber weak, red roadblock.
-const tone = (pct) => (pct >= 70 ? "#059669" : pct >= 40 ? "#d97706" : "#dc2626")
+const tone = (pct) => (pct >= 70 ? "#15803d" : pct >= 40 ? "#d97706" : "#dc2626")
 
 export default function MemberFunnel({ embedded = false }) {
   const [country, setCountry] = useState("")
@@ -60,7 +60,7 @@ export default function MemberFunnel({ embedded = false }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
         <div>
           {!embedded && <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Member Funnel</h1>}
-          <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.875rem" }}>
+          <p style={{ margin: "0.25rem 0 0", color: "#6f6f6f", fontSize: "0.875rem" }}>
             Where every Panel member stands, from signup to redeeming points, and where they get stuck.
           </p>
         </div>
@@ -86,9 +86,9 @@ export default function MemberFunnel({ embedded = false }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
               {data.roadblocks.map((r, i) => (
                 <div key={r.key} style={{ ...card, marginBottom: 0, borderLeft: `4px solid ${i === 0 ? "#dc2626" : "#d97706"}` }}>
-                  <p style={{ margin: 0, fontSize: "0.75rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>Roadblock {i + 1}</p>
+                  <p style={{ margin: 0, fontSize: "0.75rem", color: "#6f6f6f", textTransform: "uppercase", letterSpacing: "0.04em" }}>Roadblock {i + 1}</p>
                   <p style={{ margin: "0.25rem 0", fontWeight: 700 }}>{r.label}</p>
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#4b5563" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#5c5c5c" }}>
                     <b>{r.members}</b> member{r.members === 1 ? "" : "s"} stuck · {r.quietOverAWeek} quiet for over a week
                   </p>
                 </div>
@@ -103,23 +103,23 @@ export default function MemberFunnel({ embedded = false }) {
                 <div style={{ fontSize: "0.875rem", fontWeight: 600 }}>
                   {s.label}
                   {s.skipped > 0 && (
-                    <div style={{ fontSize: "0.7rem", fontWeight: 400, color: "#9ca3af" }} title="Members past this stage who never did it — they joined before this step existed">
+                    <div style={{ fontSize: "0.7rem", fontWeight: 400, color: "#8a8a8a" }} title="Members past this stage who never did it — they joined before this step existed">
                       incl. {s.skipped} who skipped it
                     </div>
                   )}
                 </div>
-                <div style={{ background: "#f3f4f6", borderRadius: "6px", height: "26px", position: "relative" }}>
+                <div style={{ background: "#f5f3ef", borderRadius: "6px", height: "26px", position: "relative" }}>
                   <div style={{ width: `${Math.max((s.reached / max) * 100, s.reached ? 1 : 0)}%`, height: "100%", borderRadius: "6px", background: "#6366f1" }} />
                   <span style={{ position: "absolute", left: "8px", top: "4px", fontSize: "0.8rem", fontWeight: 700, color: s.reached / max > 0.12 ? "#fff" : "#1f2937" }}>
                     {s.reached.toLocaleString()} · {s.pctOfSignups}%
                   </span>
                 </div>
-                <div style={{ fontSize: "0.8rem", color: i === 0 ? "#9ca3af" : tone(s.pctOfPrevious), fontWeight: 600 }}>
+                <div style={{ fontSize: "0.8rem", color: i === 0 ? "#8a8a8a" : tone(s.pctOfPrevious), fontWeight: 600 }}>
                   {i === 0 ? "start" : `${s.pctOfPrevious}% of previous`}
                 </div>
               </div>
             ))}
-            <p style={{ margin: "0.75rem 0 0", fontSize: "0.75rem", color: "#6b7280" }}>
+            <p style={{ margin: "0.75rem 0 0", fontSize: "0.75rem", color: "#6f6f6f" }}>
               Bar = members who reached the stage or went past it (and % of signups). Right = conversion from the stage above: green ≥ 70%, amber 40–70%, red below 40%.
               "Skipped" = older members who joined before that step existed.
             </p>
@@ -127,7 +127,7 @@ export default function MemberFunnel({ embedded = false }) {
 
           <div style={card}>
             <h3 style={{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Where members are stuck</h3>
-            <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6b7280" }}>Members whose furthest stage is this one, by when they were last active.</p>
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6f6f6f" }}>Members whose furthest stage is this one, by when they were last active.</p>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -153,7 +153,7 @@ export default function MemberFunnel({ embedded = false }) {
             <div style={{ ...card, marginBottom: 0 }}>
               <h3 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Finished Quick start, never clicked a survey</h3>
               <p style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>{data.blockers.neverClicked.members}</p>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>
+              <p style={{ margin: 0, fontSize: "0.8rem", color: "#6f6f6f" }}>
                 members · typically {data.blockers.neverClicked.medianDaysSinceQuickStart} days since Quick start. Usually: no surveys on their wall, or no reminder email.
               </p>
             </div>
@@ -166,7 +166,7 @@ export default function MemberFunnel({ embedded = false }) {
                   <tr><td style={td}>Other outcome in Torpedo</td><td style={{ ...td, fontWeight: 700 }}>{data.blockers.noResultAttempts.other}</td></tr>
                 </tbody>
               </table>
-              <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "#6b7280" }}>Survey attempts by members at this stage.</p>
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "#6f6f6f" }}>Survey attempts by members at this stage.</p>
             </div>
             <div style={{ ...card, marginBottom: 0 }}>
               <h3 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Got results, never completed</h3>
@@ -176,7 +176,7 @@ export default function MemberFunnel({ embedded = false }) {
                   <tr><td style={td}>Survey full (quota full)</td><td style={{ ...td, fontWeight: 700 }}>{data.blockers.screenedOutResults.quotafull}</td></tr>
                 </tbody>
               </table>
-              <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "#6b7280" }}>Many screen-outs = surveys poorly matched to the member's profile.</p>
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.75rem", color: "#6f6f6f" }}>Many screen-outs = surveys poorly matched to the member's profile.</p>
             </div>
           </div>
 
@@ -197,7 +197,7 @@ export default function MemberFunnel({ embedded = false }) {
                       {c.counts.map((n, i) => (
                         <td key={i} style={td}>
                           {n}
-                          {i > 0 && c.counts[0] > 0 && <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}> ({Math.round((n / c.counts[0]) * 100)}%)</span>}
+                          {i > 0 && c.counts[0] > 0 && <span style={{ color: "#8a8a8a", fontSize: "0.75rem" }}> ({Math.round((n / c.counts[0]) * 100)}%)</span>}
                         </td>
                       ))}
                     </tr>

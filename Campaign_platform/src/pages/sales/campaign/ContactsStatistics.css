@@ -2,7 +2,7 @@
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
-  background-color: #f8fafc;
+  background-color: #faf9f7;
   min-height: 100vh;
 }
 
@@ -19,15 +19,15 @@
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   text-align: center;
-  border-left: 4px solid #e2e8f0;
+  border-left: 4px solid #e8e4dc;
 }
 
 .stat-card.total {
-  border-left-color: #e8890b;
+  border-left-color: #e8910a;
 }
 
 .stat-card.subscribed {
-  border-left-color: #10b981;
+  border-left-color: #16a34a;
 }
 
 .stat-card.unsubscribed {
@@ -35,7 +35,7 @@
 }
 
 .stat-card.bounced {
-  border-left-color: #ef4444;
+  border-left-color: #dc2626;
 }
 
 .stat-number {
@@ -47,7 +47,7 @@
 
 .stat-label {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 500;
 }
 
@@ -68,7 +68,7 @@
 }
 
 .date-range-value {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
 }
 
@@ -85,8 +85,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px 24px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-bottom: 1px solid #e8e4dc;
+  background: #faf9f7;
 }
 
 .table-header h3 {
@@ -114,18 +114,18 @@
 .contacts-table td {
   padding: 12px 16px;
   text-align: left;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .contacts-table th {
-  background: #f9fafb;
+  background: #faf9f7;
   font-weight: 600;
   color: #4a4a4a;
   font-size: 0.875rem;
 }
 
 .contacts-table tbody tr:hover {
-  background: #f9fafb;
+  background: #faf9f7;
 }
 
 .contact-name {
@@ -134,12 +134,12 @@
 }
 
 .contact-email {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .contact-phone,
 .contact-company {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
 }
 
@@ -176,7 +176,7 @@
 }
 
 .action-btn:hover {
-  background: #f3f4f6;
+  background: #f5f3ef;
 }
 
 .bottom-actions {
@@ -185,7 +185,7 @@
   align-items: center;
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
 }
 
 .btn-primary,
@@ -199,22 +199,22 @@
 }
 
 .btn-primary {
-  background: #e8890b;
+  background: #e8910a;
   color: white;
 }
 
 .btn-primary:hover {
-  background: #e8890b;
+  background: #e8910a;
 }
 
 .btn-secondary {
-  background: #f3f4f6;
+  background: #f5f3ef;
   color: #4a4a4a;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
 }
 
 .btn-secondary:hover {
-  background: #e5e7eb;
+  background: #e8e4dc;
 }
 
 @media (max-width: 768px) {

@@ -16,7 +16,7 @@
 }
 
 .settings-subtitle {
-  color: #666;
+  color: #5c5c5c;
   margin-top: 0.25rem;
   font-size: 0.9rem;
 }
@@ -34,7 +34,7 @@
   width: 40px;
   height: 40px;
   border: 3px solid #f3f3f3;
-  border-top: 3px solid #e8890b;
+  border-top: 3px solid #e8910a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -52,9 +52,9 @@
 }
 
 .settings-message.success {
-  background-color: #d1fae5;
-  color: #065f46;
-  border: 1px solid #a7f3d0;
+  background-color: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
 }
 
 .settings-message.error {
@@ -66,7 +66,7 @@
 .settings-tabs {
   display: flex;
   gap: 0.5rem;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid #e8e4dc;
   margin-bottom: 2rem;
 }
 
@@ -80,17 +80,17 @@
   cursor: pointer;
   font-size: 1rem;
   font-weight: 500;
-  color: #4b5563;
+  color: #5c5c5c;
   position: relative;
   transition: all 0.2s;
 }
 
 .tab-button:hover {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .tab-button.active {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .tab-button.active::after {
@@ -100,7 +100,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background-color: #e8890b;
+  background-color: #e8910a;
 }
 
 .tab-icon {
@@ -125,7 +125,7 @@
 }
 
 .section-description {
-  color: #666;
+  color: #5c5c5c;
   margin-bottom: 1.5rem;
   font-size: 0.875rem;
 }
@@ -144,7 +144,7 @@
 .settings-group {
   margin-bottom: 1rem;
   padding: 1.25rem;
-  background: #f9fafb;
+  background: #faf9f7;
   border-radius: 8px;
   height: fit-content;
 }
@@ -158,7 +158,7 @@
   align-items: center;
   gap: 0.5rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .setting-row {
@@ -183,7 +183,7 @@
 .setting-row input[type="number"] {
   width: 100%;
   padding: 0.6rem 0.875rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 0.9rem;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -191,18 +191,18 @@
 
 .setting-row input:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 .setting-row input:disabled {
-  background-color: #f3f4f6;
+  background-color: #f5f3ef;
   cursor: not-allowed;
 }
 
 .setting-hint {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   margin-top: 0.35rem;
   line-height: 1.4;
 }
@@ -218,8 +218,8 @@
 
 .test-button {
   padding: 0.6rem 0.875rem;
-  background-color: #f3f4f6;
-  border: 1px solid #d1d5db;
+  background-color: #f5f3ef;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
@@ -230,7 +230,7 @@
 }
 
 .test-button:hover:not(:disabled) {
-  background-color: #e5e7eb;
+  background-color: #e8e4dc;
 }
 
 .test-button:disabled {
@@ -249,7 +249,7 @@
 }
 
 .unit {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
 }
 
@@ -287,7 +287,7 @@
   width: 18px;
   height: 18px;
   cursor: pointer;
-  accent-color: #e8890b;
+  accent-color: #e8910a;
 }
 
 .checkbox-label span {
@@ -297,7 +297,7 @@
 .settings-actions {
   margin-top: 1.5rem;
   padding-top: 1.25rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
   display: flex;
   justify-content: flex-end;
   position: sticky;
@@ -308,7 +308,7 @@
 
 .save-button {
   padding: 0.65rem 1.75rem;
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
   border: none;
   border-radius: 8px;
@@ -319,7 +319,7 @@
 }
 
 .save-button:hover:not(:disabled) {
-  background-color: #c47209;
+  background-color: #d17f08;
 }
 
 .save-button:disabled {
@@ -378,14 +378,14 @@
   gap: 0.75rem;
   padding: 2rem;
   justify-content: center;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .spinner-small {
   width: 24px;
   height: 24px;
   border: 2px solid #f3f3f3;
-  border-top: 2px solid #e8890b;
+  border-top: 2px solid #e8910a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -403,13 +403,13 @@
 
 .group-description {
   font-size: 0.9rem;
-  color: #4b5563;
+  color: #5c5c5c;
   margin: -0.5rem 0 1.5rem 0;
 }
 
 .add-button {
   padding: 0.5rem 1rem;
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -420,7 +420,7 @@
 }
 
 .add-button:hover {
-  background-color: #c47209;
+  background-color: #d17f08;
 }
 
 .add-form {
@@ -428,7 +428,7 @@
   padding: 1.5rem;
   border-radius: 8px;
   margin-bottom: 1.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
 }
 
 .form-actions {
@@ -456,7 +456,7 @@
 
 .save-button-small {
   padding: 0.75rem 1.5rem;
-  background-color: #10b981;
+  background-color: #16a34a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -467,7 +467,7 @@
 }
 
 .save-button-small:hover:not(:disabled) {
-  background-color: #059669;
+  background-color: #15803d;
 }
 
 .save-button-small:disabled {
@@ -483,10 +483,10 @@
 }
 
 .signature-item {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   padding: 1rem;
-  background: #f8fafc;
+  background: #faf9f7;
 }
 
 .signature-header {
@@ -503,15 +503,15 @@
 }
 
 .signature-name {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
   font-style: italic;
 }
 
 .badge {
   display: inline-block;
-  background: #fff7ed;
-  color: #a25e07;
+  background: #fdf4e7;
+  color: #a15f06;
   padding: 0.25rem 0.75rem;
   border-radius: 12px;
   font-size: 0.875rem;
@@ -537,20 +537,20 @@
 }
 
 .no-signature {
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-style: italic;
   font-size: 0.9rem;
   margin: 0;
 }
 
 .no-data-message {
-  color: #4b5563;
+  color: #5c5c5c;
   text-align: center;
   padding: 2rem 1rem;
   font-style: italic;
   border: 1px dashed #cbd5e1;
   border-radius: 6px;
-  background: #f8fafc;
+  background: #faf9f7;
 }
 
 .group-header {
@@ -567,11 +567,11 @@
 }
 .empty-message {
   text-align: center;
-  color: #4b5563;
+  color: #5c5c5c;
   padding: 2rem;
   background: white;
   border-radius: 8px;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d4cec3;
 }
 
 .accounts-list {
@@ -583,7 +583,7 @@
 .account-card {
   background: white;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   overflow: hidden;
 }
 
@@ -592,8 +592,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: #faf9f7;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .account-info {
@@ -609,7 +609,7 @@
 }
 
 .account-name {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.9rem;
 }
 
@@ -630,8 +630,8 @@
 }
 
 .status-badge.authenticated {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .status-badge.not-authenticated {
@@ -651,7 +651,7 @@
   align-items: center;
   justify-content: center;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   cursor: pointer;
   font-size: 1rem;
@@ -659,12 +659,12 @@
 }
 
 .action-button:hover {
-  background-color: #f3f4f6;
+  background-color: #f5f3ef;
 }
 
 .action-button.sync:hover {
-  background-color: #fff7ed;
-  border-color: #e8890b;
+  background-color: #fdf4e7;
+  border-color: #e8910a;
 }
 
 .action-button.auth {
@@ -679,12 +679,12 @@
 
 .action-button.delete:hover {
   background-color: #fee2e2;
-  border-color: #ef4444;
+  border-color: #dc2626;
 }
 
 .aliases-section {
   padding: 1rem 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
   background: #fafafa;
 }
 
@@ -704,8 +704,8 @@
 .add-alias-button {
   padding: 0.25rem 0.75rem;
   background: none;
-  border: 1px solid #e8890b;
-  color: #a25e07;
+  border: 1px solid #e8910a;
+  color: #a15f06;
   border-radius: 4px;
   font-size: 0.875rem;
   cursor: pointer;
@@ -713,7 +713,7 @@
 }
 
 .add-alias-button:hover {
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
 }
 
@@ -728,19 +728,19 @@
   flex: 1;
   min-width: 150px;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 4px;
   font-size: 0.875rem;
 }
 
 .add-alias-form input:focus {
   outline: none;
-  border-color: #e8890b;
+  border-color: #e8910a;
 }
 
 .save-alias-button {
   padding: 0.5rem 1rem;
-  background-color: #10b981;
+  background-color: #16a34a;
   color: white;
   border: none;
   border-radius: 4px;
@@ -750,7 +750,7 @@
 }
 
 .save-alias-button:hover {
-  background-color: #059669;
+  background-color: #15803d;
 }
 
 .aliases-list {
@@ -764,7 +764,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.375rem 0.75rem;
-  background-color: #f3f4f6;
+  background-color: #f5f3ef;
   border-radius: 20px;
   font-size: 0.875rem;
 }
@@ -774,14 +774,14 @@
 }
 
 .alias-name {
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-size: 0.875rem;
 }
 
 .primary-badge {
   padding: 0.125rem 0.375rem;
-  background-color: #fff7ed;
-  color: #c47209;
+  background-color: #fdf4e7;
+  color: #d17f08;
   border-radius: 3px;
   font-size: 0.875rem;
   font-weight: 600;
@@ -795,7 +795,7 @@
   justify-content: center;
   background: none;
   border: none;
-  color: #6b6b6b;
+  color: #6f6f6f;
   cursor: pointer;
   font-size: 1.1rem;
   border-radius: 50%;
@@ -803,12 +803,12 @@
 }
 
 .remove-alias-button:hover {
-  color: #ef4444;
+  color: #dc2626;
   background-color: #fee2e2;
 }
 
 .no-aliases {
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-size: 0.875rem;
   font-style: italic;
 }
@@ -849,7 +849,7 @@
 .import-section {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed #e8e4dc;
 }
 
 .import-controls {
@@ -861,13 +861,13 @@
 
 .import-label {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 500;
 }
 
 .import-days-select {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 0.875rem;
   background-color: white;
@@ -876,7 +876,7 @@
 
 .import-button {
   padding: 0.5rem 1rem;
-  background-color: #e8890b;
+  background-color: #e8910a;
   color: white;
   border: none;
   border-radius: 6px;
@@ -887,18 +887,18 @@
 }
 
 .import-button:hover:not(:disabled) {
-  background-color: #e8890b;
+  background-color: #e8910a;
 }
 
 .import-button:disabled {
-  background-color: #9ca3af;
+  background-color: #8a8a8a;
   cursor: not-allowed;
 }
 
 .import-progress {
   margin-top: 0.75rem;
   padding: 0.75rem;
-  background-color: #f9fafb;
+  background-color: #faf9f7;
   border-radius: 6px;
 }
 
@@ -923,8 +923,8 @@
 }
 
 .progress-badge.completed {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .progress-badge.error {
@@ -934,13 +934,13 @@
 
 .progress-count {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   font-weight: 500;
 }
 
 .progress-bar-container {
   height: 12px;
-  background-color: #e5e7eb;
+  background-color: #e8e4dc;
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 0.75rem;
@@ -949,7 +949,7 @@
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #e8890b, #fb9f1a, #e8890b);
+  background: linear-gradient(90deg, #e8910a, #fb9f1a, #e8910a);
   background-size: 200% 100%;
   animation: progressShine 2s ease-in-out infinite;
   transition: width 0.3s ease;
@@ -970,7 +970,7 @@
 }
 
 .progress-stats span {
-  background: #f3f4f6;
+  background: #f5f3ef;
   padding: 4px 10px;
   border-radius: 4px;
 }
@@ -978,9 +978,9 @@
 .import-progress {
   margin-top: 12px;
   padding: 12px;
-  background: #f8fafc;
+  background: #faf9f7;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
 }
 
 /* IDLE Status Section Styles */
@@ -991,7 +991,7 @@
   flex-wrap: wrap;
   gap: 1rem;
   padding: 1rem;
-  background-color: #f9fafb;
+  background-color: #faf9f7;
   border-radius: 8px;
 }
 
@@ -1009,8 +1009,8 @@
 }
 
 .idle-status-badge.running {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: #dcfce7;
+  color: #166534;
 }
 
 .idle-status-badge.stopped {
@@ -1019,13 +1019,13 @@
 }
 
 .idle-status-badge.unavailable {
-  background-color: #f3f4f6;
-  color: #4b5563;
+  background-color: #f5f3ef;
+  color: #5c5c5c;
 }
 
 .watcher-count {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .idle-actions {
@@ -1044,16 +1044,16 @@
 }
 
 .idle-button.start {
-  background-color: #10b981;
+  background-color: #16a34a;
   color: white;
 }
 
 .idle-button.start:hover:not(:disabled) {
-  background-color: #059669;
+  background-color: #15803d;
 }
 
 .idle-button.stop {
-  background-color: #ef4444;
+  background-color: #dc2626;
   color: white;
 }
 
@@ -1062,8 +1062,8 @@
 }
 
 .idle-button:disabled {
-  background-color: #e5e7eb;
-  color: #6b6b6b;
+  background-color: #e8e4dc;
+  color: #6f6f6f;
   cursor: not-allowed;
 }
 
@@ -1097,9 +1097,9 @@
 .aliases-section {
   margin-top: 16px;
   padding: 12px 16px;
-  background-color: #f8fafc;
+  background-color: #faf9f7;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
 }
 
 .aliases-header {
@@ -1138,7 +1138,7 @@
   padding: 8px 12px;
   background-color: white;
   border-radius: 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
 }
 
 .alias-email {
@@ -1149,14 +1149,14 @@
 
 .alias-name {
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .primary-badge {
   font-size: 14px;
   padding: 2px 6px;
-  background-color: #fff7ed;
-  color: #c47209;
+  background-color: #fdf4e7;
+  color: #d17f08;
   border-radius: 4px;
   font-weight: 500;
 }
@@ -1187,7 +1187,7 @@
 
 .no-aliases {
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
   font-style: italic;
   margin: 0;
 }
@@ -1197,7 +1197,7 @@
   gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e8e4dc;
   flex-wrap: wrap;
 }
 
@@ -1205,22 +1205,22 @@
   flex: 1;
   min-width: 150px;
   padding: 8px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 14px;
 }
 
 .alias-input:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.1);
 }
 
 .cancel-button-small {
   padding: 8px 16px;
-  background-color: #f3f4f6;
+  background-color: #f5f3ef;
   color: #4a4a4a;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 14px;
   cursor: pointer;
@@ -1228,7 +1228,7 @@
 }
 
 .cancel-button-small:hover {
-  background-color: #e5e7eb;
+  background-color: #e8e4dc;
 }
 
 @media (max-width: 768px) {
@@ -1266,7 +1266,7 @@
   flex: 1;
   max-width: 400px;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 14px;
   background: #fff;
@@ -1274,13 +1274,13 @@
 
 .signature-selector select:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.1);
 }
 
 .signature-editor {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: #faf9f7;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   padding: 20px;
 }
@@ -1298,14 +1298,14 @@
 
 .signature-editor .field-hint {
   font-size: 14px;
-  color: #4b5563;
+  color: #5c5c5c;
   margin: 0 0 8px 0;
 }
 
 .signature-textarea {
   width: 100%;
   padding: 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
   font-size: 14px;
@@ -1316,14 +1316,14 @@
 
 .signature-textarea:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.1);
 }
 
 .signature-textarea-plain {
   width: 100%;
   padding: 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-family: inherit;
   font-size: 14px;
@@ -1334,15 +1334,15 @@
 
 .signature-textarea-plain:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.1);
 }
 
 .signature-preview {
   margin-top: 20px;
   padding: 16px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
 }
 
@@ -1356,7 +1356,7 @@
 .signature-preview-content {
   padding: 16px;
   background: #fafafa;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed #d4cec3;
   border-radius: 4px;
   min-height: 80px;
 }
@@ -1402,8 +1402,8 @@
 }
 
 .signature-item {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #faf9f7;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   padding: 1rem;
 }
@@ -1421,7 +1421,7 @@
 }
 
 .signature-name {
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
 }
 
@@ -1429,17 +1429,17 @@
   font-size: 0.875rem;
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
 }
 
 .signature-item .badge.primary {
-  background: #10b981;
+  background: #16a34a;
 }
 
 .signature-item .signature-preview {
   background: white;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8e4dc;
   border-radius: 4px;
   padding: 0.75rem;
   font-size: 0.875rem;
@@ -1448,22 +1448,22 @@
 }
 
 .signature-item .no-signature {
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-style: italic;
   margin: 0;
 }
 
 .no-data-message {
-  color: #4b5563;
+  color: #5c5c5c;
   font-style: italic;
   padding: 1rem;
   text-align: center;
-  background: #f8fafc;
+  background: #faf9f7;
   border-radius: 8px;
 }
 
 .refresh-button {
-  background: #f1f5f9;
+  background: #f5f3ef;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 0.4rem 0.75rem;
@@ -1474,7 +1474,7 @@
 }
 
 .refresh-button:hover:not(:disabled) {
-  background: #e2e8f0;
+  background: #e8e4dc;
   border-color: #94a3b8;
 }
 
@@ -1484,7 +1484,7 @@
 }
 
 .save-button-small {
-  background: linear-gradient(135deg, #e8890b 0%, #c47209 100%);
+  background: linear-gradient(135deg, #e8910a 0%, #d17f08 100%);
   color: white;
   border: none;
   border-radius: 6px;

@@ -249,7 +249,7 @@ function BillsPage() {
   const styles = {
     container: {
       minHeight: "100vh",
-      backgroundColor: "#f9fafb",
+      backgroundColor: "#faf9f7",
       padding: "1.5rem",
     },
     header: {
@@ -265,7 +265,7 @@ function BillsPage() {
       color: "#1a1a1a",
     },
     subtitle: {
-      color: "#4b5563",
+      color: "#5c5c5c",
       margin: "0",
       fontSize: "0.95rem",
     },
@@ -287,13 +287,13 @@ function BillsPage() {
       paddingRight: "1rem",
       paddingTop: "0.75rem",
       paddingBottom: "0.75rem",
-      border: "1px solid #d1d5db",
+      border: "1px solid #d4cec3",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
     },
     statusSelect: {
       padding: "0.75rem 1rem",
-      border: "1px solid #d1d5db",
+      border: "1px solid #d4cec3",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
       backgroundColor: "white",
@@ -301,7 +301,7 @@ function BillsPage() {
     },
     recordsPerPageSelect: {
       padding: "0.75rem 1rem",
-      border: "1px solid #d1d5db",
+      border: "1px solid #d4cec3",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
       backgroundColor: "white",
@@ -311,7 +311,7 @@ function BillsPage() {
       display: "flex",
       gap: "2rem",
       fontSize: "0.9rem",
-      color: "#4b5563",
+      color: "#5c5c5c",
     },
     tableContainer: {
       backgroundColor: "white",
@@ -324,8 +324,8 @@ function BillsPage() {
       borderCollapse: "collapse",
     },
     thead: {
-      backgroundColor: "#f9fafb",
-      borderBottom: "2px solid #e5e7eb",
+      backgroundColor: "#faf9f7",
+      borderBottom: "2px solid #e8e4dc",
     },
     th: {
       padding: "1rem",
@@ -333,11 +333,11 @@ function BillsPage() {
       fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      color: "#4b5563",
+      color: "#5c5c5c",
       letterSpacing: "0.05em",
     },
     tr: {
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
       transition: "background-color 0.15s",
     },
     td: {
@@ -352,8 +352,8 @@ function BillsPage() {
       fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      backgroundColor: "#d1fae5",
-      color: "#065f46",
+      backgroundColor: "#dcfce7",
+      color: "#166534",
     },
     badgeOrange: {
       display: "inline-block",
@@ -382,8 +382,8 @@ function BillsPage() {
       fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      backgroundColor: "#fff7ed",
-      color: "#c47209",
+      backgroundColor: "#fdf4e7",
+      color: "#d17f08",
     },
     actionButtons: {
       display: "flex",
@@ -392,7 +392,7 @@ function BillsPage() {
     btnIcon: {
       padding: "0.5rem",
       backgroundColor: "transparent",
-      color: "#4b5563",
+      color: "#5c5c5c",
       border: "none",
       borderRadius: "0.375rem",
       cursor: "pointer",
@@ -401,7 +401,7 @@ function BillsPage() {
     },
     btnEdit: {
       padding: "0.5rem 0.75rem",
-      backgroundColor: "#4b5563",
+      backgroundColor: "#5c5c5c",
       color: "white",
       border: "none",
       borderRadius: "0.375rem",
@@ -413,7 +413,7 @@ function BillsPage() {
     emptyState: {
       textAlign: "center",
       padding: "3rem",
-      color: "#6b6b6b",
+      color: "#6f6f6f",
     },
     paginationContainer: {
       display: "flex",
@@ -428,7 +428,7 @@ function BillsPage() {
     },
     paginationBtn: {
       padding: "0.5rem 1rem",
-      backgroundColor: "#e8890b",
+      backgroundColor: "#e8910a",
       color: "white",
       border: "none",
       borderRadius: "0.375rem",
@@ -438,13 +438,13 @@ function BillsPage() {
       transition: "all 0.2s",
     },
     paginationBtnDisabled: {
-      backgroundColor: "#d1d5db",
+      backgroundColor: "#d4cec3",
       cursor: "not-allowed",
       opacity: "0.6",
     },
     pageInfo: {
       fontSize: "0.9rem",
-      color: "#4b5563",
+      color: "#5c5c5c",
       minWidth: "150px",
       textAlign: "center",
     },
@@ -474,7 +474,7 @@ function BillsPage() {
     },
     modalHeader: {
       padding: "1.5rem",
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
@@ -489,7 +489,7 @@ function BillsPage() {
       background: "none",
       border: "none",
       fontSize: "1.5rem",
-      color: "#6b6b6b",
+      color: "#6f6f6f",
       cursor: "pointer",
       padding: "0",
     },
@@ -501,7 +501,7 @@ function BillsPage() {
     section: {
       marginBottom: "2rem",
       paddingBottom: "1.5rem",
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
     },
     sectionTitle: {
       fontSize: "1.1rem",
@@ -528,11 +528,11 @@ function BillsPage() {
       color: "#4a4a4a",
     },
     required: {
-      color: "#ef4444",
+      color: "#dc2626",
     },
     input: {
       padding: "0.75rem",
-      border: "1px solid #d1d5db",
+      border: "1px solid #d4cec3",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
       transition: "all 0.2s",
@@ -540,7 +540,7 @@ function BillsPage() {
     },
     select: {
       padding: "0.75rem",
-      border: "1px solid #d1d5db",
+      border: "1px solid #d4cec3",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
       cursor: "pointer",
@@ -552,9 +552,9 @@ function BillsPage() {
       borderCollapse: "collapse",
     },
     lineItemsHead: {
-      backgroundColor: "#f9fafb",
-      borderTop: "1px solid #e5e7eb",
-      borderBottom: "1px solid #e5e7eb",
+      backgroundColor: "#faf9f7",
+      borderTop: "1px solid #e8e4dc",
+      borderBottom: "1px solid #e8e4dc",
     },
     lineItemsHeadCell: {
       padding: "0.75rem",
@@ -562,18 +562,18 @@ function BillsPage() {
       fontSize: "0.875rem",
       fontWeight: "600",
       textTransform: "uppercase",
-      color: "#4b5563",
+      color: "#5c5c5c",
       letterSpacing: "0.05em",
     },
     lineItemsBody: {
-      borderBottom: "1px solid #e5e7eb",
+      borderBottom: "1px solid #e8e4dc",
     },
     lineItemsBodyCell: {
       padding: "0.75rem",
-      borderRight: "1px solid #f3f4f6",
+      borderRight: "1px solid #f5f3ef",
     },
     totalsSection: {
-      backgroundColor: "#f9fafb",
+      backgroundColor: "#faf9f7",
       borderRadius: "0.5rem",
       padding: "1rem",
       marginTop: "1rem",
@@ -592,18 +592,18 @@ function BillsPage() {
       fontWeight: "700",
       marginTop: "0.75rem",
       paddingTop: "0.75rem",
-      borderTop: "2px solid #e5e7eb",
+      borderTop: "2px solid #e8e4dc",
     },
     modalFooter: {
       padding: "1rem 1.5rem",
-      borderTop: "1px solid #e5e7eb",
+      borderTop: "1px solid #e8e4dc",
       display: "flex",
       justifyContent: "flex-end",
       gap: "0.75rem",
     },
     btnCancel: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#4b5563",
+      backgroundColor: "#5c5c5c",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -614,7 +614,7 @@ function BillsPage() {
     },
     btnPrimary: {
       padding: "0.75rem 1.5rem",
-      backgroundColor: "#e8890b",
+      backgroundColor: "#e8910a",
       color: "white",
       border: "none",
       borderRadius: "0.5rem",
@@ -693,7 +693,7 @@ function BillsPage() {
               transform: "translateY(-50%)",
               width: "16px",
               height: "16px",
-              color: "#6b6b6b",
+              color: "#6f6f6f",
             }}
           />
           <input
@@ -735,10 +735,10 @@ function BillsPage() {
                 height: "32px",
                 animation: "spin 1s linear infinite",
                 margin: "0 auto 1rem",
-                color: "#a25e07",
+                color: "#a15f06",
               }}
             />
-            <p style={{ color: "#4b5563" }}>Loading bills…</p>
+            <p style={{ color: "#5c5c5c" }}>Loading bills…</p>
           </div>
         </div>
       ) : (
@@ -763,7 +763,7 @@ function BillsPage() {
                     <code
                       style={{
                         fontSize: "0.875rem",
-                        backgroundColor: "#f3f4f6",
+                        backgroundColor: "#f5f3ef",
                         padding: "0.375rem 0.75rem",
                         borderRadius: "0.375rem",
                         fontFamily: "monospace",
@@ -1027,7 +1027,7 @@ function BillsPage() {
                           </td>
                           <td style={styles.lineItemsBodyCell}>
                             <button style={styles.btnIcon} type="button" onClick={() => removeLineItem(index)}>
-                              <Trash2 style={{ width: "1rem", height: "1rem", color: "#ef4444" }} />
+                              <Trash2 style={{ width: "1rem", height: "1rem", color: "#dc2626" }} />
                             </button>
                           </td>
                         </tr>
@@ -1052,7 +1052,7 @@ function BillsPage() {
                 </div>
                 <div style={styles.totalRowBold}>
                   <span>Grand Total:</span>
-                  <span style={{ color: "#a25e07" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
+                  <span style={{ color: "#a15f06" }}>{formatCurrency(calculateSubtotal() + calculateTax())}</span>
                 </div>
               </div>
             </form>

@@ -7,7 +7,7 @@ function Sales() {
       {/* Main Dashboard Card - Prominent */}
       <div className="card" style={{ marginBottom: "1.5rem", background: "linear-gradient(135deg, #1a1a1a 0%, #1a1a1a 100%)", border: "1px solid #4a4a4a" }}>
         <div className="card-header">
-          <h2 className="card-title" style={{ color: "#f8fafc", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <h2 className="card-title" style={{ color: "#faf9f7", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <BarChart3 size={24} />
             Sales Dashboard
           </h2>
@@ -21,7 +21,7 @@ function Sales() {
             alignItems: "center",
             gap: "0.5rem",
             padding: "0.75rem 1.5rem",
-            backgroundColor: "#e8890b",
+            backgroundColor: "#e8910a",
             color: "white",
             textDecoration: "none",
             borderRadius: "0.5rem",

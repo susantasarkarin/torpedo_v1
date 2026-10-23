@@ -16,6 +16,10 @@ export {
   TableEmptyState 
 } from './Table';
 export { PageHeader, QuickAction } from './PageHeader';
+export { Avatar, AvatarLabel } from './Avatar';
+export { FilterChip, FilterChips, ViewToggle, Toolbar } from './FilterChip';
+export { StatCard, StatRow } from './StatCard';
+export { Drawer } from './Drawer';
 export { EmptyState, NoResultsState, NoDataState } from './EmptyState';
 
 // Page Layout Components

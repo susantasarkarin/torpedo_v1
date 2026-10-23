@@ -1670,15 +1670,15 @@ function AILeads() {
           >
             🔄 Create Workflow
           </button>
-          <button className="btn btn-sm" onClick={handleBulkTransferToContacts} style={{ backgroundColor: "#e8890b", color: "#fff", borderColor: "#e8890b" }}>
+          <button className="btn btn-sm" onClick={handleBulkTransferToContacts} style={{ backgroundColor: "#e8910a", color: "#fff", borderColor: "#e8910a" }}>
             👤 Transfer to Contacts
           </button>
           <button className="btn btn-sm btn-success" onClick={handleBulkTransferToVendorLeads} style={{ backgroundColor: "#22c55e", borderColor: "#22c55e" }}>
             🎯 Transfer to Vendor Leads
           </button>
-          <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
-          <span style={{ fontSize: "0.875rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag as:</span>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("BIMwave")} style={{ backgroundColor: "#fff7ed", color: "#c47209", borderColor: "#fde68a", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
+          <span style={{ borderLeft: "1px solid #d4cec3", height: "24px", margin: "0 4px" }}></span>
+          <span style={{ fontSize: "0.875rem", color: "#5c5c5c", whiteSpace: "nowrap" }}>Tag as:</span>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("BIMwave")} style={{ backgroundColor: "#fdf4e7", color: "#d17f08", borderColor: "#fde68a", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
             BIMwave
           </button>
           <button className="btn btn-sm" onClick={() => handleBulkServiceType("SFW")} style={{ backgroundColor: "#dcfce7", color: "#166534", borderColor: "#86efac", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
@@ -1687,8 +1687,8 @@ function AILeads() {
           <button className="btn btn-sm" onClick={() => handleBulkServiceType("Cogentix")} style={{ backgroundColor: "#ede9fe", color: "#5b21b6", borderColor: "#c4b5fd", fontSize: "0.875rem", padding: "0.25rem 0.5rem" }}>
             Cogentix
           </button>
-          <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
-          <span style={{ fontSize: "0.875rem", color: "#4b5563", whiteSpace: "nowrap" }}>Tag ICP:</span>
+          <span style={{ borderLeft: "1px solid #d4cec3", height: "24px", margin: "0 4px" }}></span>
+          <span style={{ fontSize: "0.875rem", color: "#5c5c5c", whiteSpace: "nowrap" }}>Tag ICP:</span>
           <select
             className="filter-select"
             style={{ fontSize: "0.875rem", padding: "0.25rem 0.4rem", height: "auto" }}
@@ -1831,21 +1831,21 @@ function AILeads() {
                           const code = lead.classification_basket;
                           const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
                           const BASKET_COLORS = {
-                            A: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+                            A: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
                             B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-                            C: { bg: "#fff7ed", color: "#c47209", border: "#fde68a" },
+                            C: { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
                             D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-                            E: { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db" },
+                            E: { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
                           };
                           const PALETTE = {
-                            survey_fieldwork: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+                            survey_fieldwork: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
                             cogentix:         { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-                            bimwave:          { bg: "#fff7ed", color: "#c47209", border: "#fde68a" },
+                            bimwave:          { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
                             dual_fit:         { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-                            nurture:          { bg: "#f3f4f6", color: "#4b5563", border: "#d1d5db" },
+                            nurture:          { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
                           };
                           if (!code && tags.length === 0) {
-                            return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>;
+                            return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>;
                           }
                           return (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
@@ -1867,11 +1867,11 @@ function AILeads() {
                         {(() => {
                           const tier = lead.fit_tier;
                           const label = lead.fit_tier_label;
-                          if (!tier) return <span style={{ color: "#6b6b6b", fontSize: "0.875rem" }}>—</span>;
+                          if (!tier) return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>;
                           const TIER_STYLE = {
                             1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
                             2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
-                            3: { bg: "#fff7ed", color: "#c47209", border: "#7dd3fc", icon: "❄️" },
+                            3: { bg: "#fdf4e7", color: "#d17f08", border: "#7dd3fc", icon: "❄️" },
                           };
                           const s = TIER_STYLE[tier] || TIER_STYLE[3];
                           return (
@@ -2098,8 +2098,8 @@ function AILeads() {
                     marginBottom: "1rem",
                     padding: "0.75rem 1rem",
                     borderRadius: "8px",
-                    border: "1px solid " + (searchControl.circuit_breaker_open ? "#fecaca" : searchControl.global_paused ? "#fed7aa" : "#e5e7eb"),
-                    backgroundColor: searchControl.circuit_breaker_open ? "#fef2f2" : searchControl.global_paused ? "#fff7ed" : "#f9fafb"
+                    border: "1px solid " + (searchControl.circuit_breaker_open ? "#fecaca" : searchControl.global_paused ? "#fed7aa" : "#e8e4dc"),
+                    backgroundColor: searchControl.circuit_breaker_open ? "#fef2f2" : searchControl.global_paused ? "#fdf4e7" : "#faf9f7"
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -2108,7 +2108,7 @@ function AILeads() {
                           width: "10px", 
                           height: "10px", 
                           borderRadius: "50%", 
-                          backgroundColor: searchControl.circuit_breaker_open ? "#ef4444" : 
+                          backgroundColor: searchControl.circuit_breaker_open ? "#dc2626" : 
                                            searchControl.global_paused ? "#f59e0b" : "#22c55e"
                         }} />
                         <span style={{ fontWeight: "500", color: "#4a4a4a" }}>
@@ -2118,8 +2118,8 @@ function AILeads() {
                         {searchControl.active_jobs_count > 0 && (
                           <span style={{ 
                             fontSize: "0.875rem", 
-                            backgroundColor: "#fff7ed", 
-                            color: "#c47209", 
+                            backgroundColor: "#fdf4e7", 
+                            color: "#d17f08", 
                             padding: "0.125rem 0.5rem", 
                             borderRadius: "9999px" 
                           }}>
@@ -2309,9 +2309,9 @@ function AILeads() {
                       backgroundColor: webSearchProgress.status === "running" ? "#f0fdf4" : 
                                        webSearchProgress.status === "quota_exceeded" ? "#fef3c7" :
                                        webSearchProgress.status === "api_error" ? "#fef2f2" :
-                                       webSearchProgress.status === "completed" ? "#ecfdf5" : "#f9fafb",
+                                       webSearchProgress.status === "completed" ? "#f0fdf4" : "#faf9f7",
                       borderRadius: "8px",
-                      border: "1px solid " + (webSearchProgress.status === "api_error" ? "#fecaca" : "#e5e7eb")
+                      border: "1px solid " + (webSearchProgress.status === "api_error" ? "#fecaca" : "#e8e4dc")
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                         <div className="progress-text" style={{ fontWeight: "600", color: webSearchProgress.status === "api_error" ? "#dc2626" : "#4a4a4a" }}>
@@ -2326,7 +2326,7 @@ function AILeads() {
                         {webSearchProgress.job_id && webSearchProgress.status === "running" && (
                           <button
                             className="btn btn-sm"
-                            style={{ backgroundColor: "#ef4444", color: "white", padding: "0.25rem 0.75rem" }}
+                            style={{ backgroundColor: "#dc2626", color: "white", padding: "0.25rem 0.75rem" }}
                             onClick={async () => {
                               try {
                                 const res = await authFetch(
@@ -2371,7 +2371,7 @@ function AILeads() {
                       <div style={{ 
                         width: "100%", 
                         height: "8px", 
-                        backgroundColor: "#e5e7eb", 
+                        backgroundColor: "#e8e4dc", 
                         borderRadius: "4px", 
                         overflow: "hidden",
                         marginBottom: "0.75rem"
@@ -2380,8 +2380,8 @@ function AILeads() {
                           width: `${webSearchProgress.progress_percent || 0}%`, 
                           height: "100%", 
                           backgroundColor: webSearchProgress.status === "running" ? "#22c55e" : 
-                                          webSearchProgress.status === "api_error" ? "#ef4444" :
-                                          webSearchProgress.status === "quota_exceeded" ? "#f59e0b" : "#e8890b",
+                                          webSearchProgress.status === "api_error" ? "#dc2626" :
+                                          webSearchProgress.status === "quota_exceeded" ? "#f59e0b" : "#e8910a",
                           transition: "width 0.3s ease"
                         }} />
                       </div>
@@ -2394,28 +2394,28 @@ function AILeads() {
                         fontSize: "0.875rem"
                       }}>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#059669" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#15803d" }}>
                             {webSearchProgress.imported || 0}
                           </div>
-                          <div style={{ color: "#4b5563" }}>Imported</div>
+                          <div style={{ color: "#5c5c5c" }}>Imported</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#a25e07" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#a15f06" }}>
                             {webSearchProgress.classified || 0}
                           </div>
-                          <div style={{ color: "#4b5563" }}>Classified</div>
+                          <div style={{ color: "#5c5c5c" }}>Classified</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
                           <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#8b5cf6" }}>
                             {webSearchProgress.emails_found || 0}
                           </div>
-                          <div style={{ color: "#4b5563" }}>Emails</div>
+                          <div style={{ color: "#5c5c5c" }}>Emails</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#4b5563" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#5c5c5c" }}>
                             {webSearchProgress.progress_percent || 0}%
                           </div>
-                          <div style={{ color: "#4b5563" }}>Progress</div>
+                          <div style={{ color: "#5c5c5c" }}>Progress</div>
                         </div>
                       </div>
                       
@@ -2423,9 +2423,9 @@ function AILeads() {
                       <div style={{ 
                         marginTop: "0.75rem", 
                         paddingTop: "0.75rem", 
-                        borderTop: "1px solid #e5e7eb",
+                        borderTop: "1px solid #e8e4dc",
                         fontSize: "0.875rem",
-                        color: "#4b5563"
+                        color: "#5c5c5c"
                       }}>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
                           <span>Mode: Continuous (stop manually)</span>
@@ -2445,8 +2445,8 @@ function AILeads() {
                     </div>
                   )}
                   
-                  <div className="web-search-info" style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#fff7ed", borderRadius: "8px" }}>
-                    <p style={{ margin: 0, fontSize: "0.875rem", color: "#c47209" }}>
+                  <div className="web-search-info" style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#fdf4e7", borderRadius: "8px" }}>
+                    <p style={{ margin: 0, fontSize: "0.875rem", color: "#d17f08" }}>
                       💡 <strong>Tip:</strong> Configure your Google API key in Settings → Google API Settings.
                       The system will run multiple search queries combining your selections.
                     </p>
@@ -2621,13 +2621,13 @@ function AILeads() {
                               <span style={{ flex: 1, marginLeft: "8px" }}>
                                 <strong>{account.email}</strong>
                                 {account.display_name && account.display_name !== account.email.split("@")[0] && (
-                                  <span style={{ color: "#666", marginLeft: "8px" }}>({account.display_name})</span>
+                                  <span style={{ color: "#5c5c5c", marginLeft: "8px" }}>({account.display_name})</span>
                                 )}
                               </span>
                               {account.email_count && (
                                 <span style={{ 
                                   backgroundColor: "#e8f4fd", 
-                                  color: "#1976d2", 
+                                  color: "#2563eb", 
                                   padding: "2px 8px", 
                                   borderRadius: "12px", 
                                   fontSize: "14px" 
@@ -2647,17 +2647,17 @@ function AILeads() {
                     <div style={{ 
                       marginTop: "1rem", 
                       padding: "1rem", 
-                      backgroundColor: gmailImportProgress.status === "running" ? "#f0fdf4" : "#f9fafb",
+                      backgroundColor: gmailImportProgress.status === "running" ? "#f0fdf4" : "#faf9f7",
                       borderRadius: "8px",
-                      border: "1px solid #e5e7eb"
+                      border: "1px solid #e8e4dc"
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
                         <span style={{ fontWeight: "600" }}>
                           {gmailImportProgress.status === "running" ? "🔄 Processing…" : "✅ Complete"}
                         </span>
-                        <span style={{ color: "#4b5563" }}>{gmailImportProgress.progress || 0}%</span>
+                        <span style={{ color: "#5c5c5c" }}>{gmailImportProgress.progress || 0}%</span>
                       </div>
-                      <div style={{ width: "100%", height: "6px", backgroundColor: "#e5e7eb", borderRadius: "3px" }}>
+                      <div style={{ width: "100%", height: "6px", backgroundColor: "#e8e4dc", borderRadius: "3px" }}>
                         <div style={{ 
                           width: `${gmailImportProgress.progress || 0}%`, 
                           height: "100%", 
@@ -2666,7 +2666,7 @@ function AILeads() {
                           transition: "width 0.3s"
                         }} />
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem", fontSize: "0.875rem", color: "#4b5563" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem", fontSize: "0.875rem", color: "#5c5c5c" }}>
                         <span>Extracted: {gmailImportProgress.extracted || 0}</span>
                         <span>Enriched: {gmailImportProgress.enriched || 0}</span>
                         <span>Duplicates: {gmailImportProgress.duplicates || 0}</span>
@@ -2696,7 +2696,7 @@ function AILeads() {
 
             {/* CSV background-job progress bar */}
             {importMethod === "csv" && csvImportProgress && (
-              <div style={{ padding: "0.75rem 1.5rem", borderTop: "1px solid #e5e7eb" }}>
+              <div style={{ padding: "0.75rem 1.5rem", borderTop: "1px solid #e8e4dc" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem", marginBottom: "0.35rem", color: "#4a4a4a" }}>
                   <span>
                     {csvImportProgress.status === "running" && "⏳ Processing…"}
@@ -2707,11 +2707,11 @@ function AILeads() {
                     {csvImportProgress.imported} imported · {csvImportProgress.duplicates} skipped · {csvImportProgress.percent}%
                   </span>
                 </div>
-                <div style={{ height: "6px", backgroundColor: "#e5e7eb", borderRadius: "4px", overflow: "hidden" }}>
+                <div style={{ height: "6px", backgroundColor: "#e8e4dc", borderRadius: "4px", overflow: "hidden" }}>
                   <div style={{
                     height: "100%",
                     width: `${csvImportProgress.percent}%`,
-                    backgroundColor: csvImportProgress.status === "failed" ? "#ef4444" : "#22c55e",
+                    backgroundColor: csvImportProgress.status === "failed" ? "#dc2626" : "#22c55e",
                     transition: "width 0.4s ease"
                   }} />
                 </div>

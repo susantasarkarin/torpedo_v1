@@ -29,7 +29,7 @@
 }
 
 .pp-title-icon {
-  color: #a25e07;
+  color: #a15f06;
   flex-shrink: 0;
 }
 
@@ -75,7 +75,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 1rem;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   border: none;
   border-radius: 8px;
@@ -87,7 +87,7 @@
 }
 
 .pp-btn-primary:hover {
-  background: #c47209;
+  background: #d17f08;
 }
 
 /* ---- Toolbar ---- */
@@ -110,14 +110,14 @@
   left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #6b6b6b;
+  color: #6f6f6f;
   pointer-events: none;
 }
 
 .pp-search {
   width: 100%;
   padding: 0.5rem 0.75rem 0.5rem 2.25rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   font-size: 0.875rem;
   background: white;
@@ -126,14 +126,14 @@
 }
 
 .pp-search:focus {
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 .pp-per-page,
 .pp-status-filter {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   font-size: 0.875rem;
   background: white;
@@ -167,15 +167,15 @@
 }
 
 .pp-table th {
-  background: #f8f9fa;
+  background: #faf9f7;
   padding: 0.7rem 1rem;
   text-align: left;
   font-size: 0.875rem;
   font-weight: 700;
-  color: #4b5563;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid #e8e4dc;
   white-space: nowrap;
 }
 
@@ -185,19 +185,19 @@
 
 .pp-table td {
   padding: 0.7rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
   vertical-align: middle;
   font-size: 0.875rem;
   color: #4a4a4a;
 }
 
 .pp-table tbody tr:hover {
-  background: #f9fafb;
+  background: #faf9f7;
 }
 
 /* Project name link */
 .pp-project-name {
-  color: #a25e07;
+  color: #a15f06;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -211,7 +211,7 @@
 .pp-survey-no {
   font-family: monospace;
   font-size: 0.875rem;
-  background: #f3f4f6;
+  background: #f5f3ef;
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   color: #4a4a4a;
@@ -227,7 +227,7 @@
 
 .pp-td-date {
   white-space: nowrap;
-  color: #4b5563;
+  color: #5c5c5c;
   font-size: 0.875rem;
 }
 
@@ -258,8 +258,8 @@
 }
 
 .pp-status-close {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #f5f3ef;
+  color: #5c5c5c;
 }
 
 /* Action buttons */
@@ -275,18 +275,18 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   background: white;
   cursor: pointer;
   transition: all 0.15s ease;
-  color: #4b5563;
+  color: #5c5c5c;
 }
 
 .pp-act-view:hover {
-  background: #fff7ed;
-  border-color: #e8890b;
-  color: #a25e07;
+  background: #fdf4e7;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 .pp-act-edit:hover {
@@ -305,7 +305,7 @@
 .pp-empty {
   text-align: center;
   padding: 3rem !important;
-  color: #6b6b6b;
+  color: #6f6f6f;
 }
 
 .pp-empty p {
@@ -327,7 +327,7 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.45rem 0.9rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   background: white;
   font-size: 0.875rem;
@@ -338,8 +338,8 @@
 }
 
 .pp-page-btn:hover:not(:disabled) {
-  border-color: #e8890b;
-  color: #a25e07;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 .pp-page-btn:disabled {
@@ -349,7 +349,7 @@
 
 .pp-page-info {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #5c5c5c;
   min-width: 60px;
   text-align: center;
 }
@@ -384,7 +384,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e8e4dc;
   flex-shrink: 0;
 }
 
@@ -405,12 +405,12 @@
   background: transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: #4b5563;
+  color: #5c5c5c;
   transition: background 0.15s ease;
 }
 
 .pp-modal-close:hover {
-  background: #f3f4f6;
+  background: #f5f3ef;
   color: #4a4a4a;
 }
 
@@ -426,7 +426,7 @@
 
 /* Fieldsets */
 .pp-fieldset {
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   padding: 1rem 1.25rem;
   margin: 0;
@@ -435,7 +435,7 @@
 .pp-fieldset legend {
   font-size: 0.875rem;
   font-weight: 700;
-  color: #4b5563;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0 0.5rem;
@@ -470,7 +470,7 @@
 .pp-field select,
 .pp-field textarea {
   padding: 0.45rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 6px;
   font-size: 0.875rem;
   background: white;
@@ -484,8 +484,8 @@
 .pp-field input:focus,
 .pp-field select:focus,
 .pp-field textarea:focus {
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 .pp-req {
@@ -494,21 +494,21 @@
 }
 
 .pp-readonly {
-  background: #f9fafb !important;
-  color: #4b5563 !important;
+  background: #faf9f7 !important;
+  color: #5c5c5c !important;
   cursor: default;
 }
 
 .pp-hint {
   font-size: 0.875rem;
-  color: #6b6b6b;
+  color: #6f6f6f;
   margin-top: 0.15rem;
 }
 
 /* Vendor URL summary */
 .pp-vendor-urls {
   margin-top: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   overflow: hidden;
   font-size: 0.875rem;
@@ -519,7 +519,7 @@
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f5f3ef;
 }
 
 .pp-vendor-url-row:last-child {
@@ -528,7 +528,7 @@
 
 .pp-vendor-url-label {
   font-weight: 600;
-  color: #4b5563;
+  color: #5c5c5c;
   min-width: 90px;
   flex-shrink: 0;
 }
@@ -545,7 +545,7 @@
   gap: 0.4rem;
   max-height: 180px;
   overflow-y: auto;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }
@@ -566,14 +566,14 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e4dc;
   flex-shrink: 0;
   background: #fafafa;
 }
 
 .pp-btn-cancel {
   padding: 0.5rem 1.25rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d4cec3;
   border-radius: 8px;
   background: white;
   font-size: 0.875rem;
@@ -584,15 +584,15 @@
 }
 
 .pp-btn-cancel:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: #faf9f7;
+  border-color: #8a8a8a;
 }
 
 .pp-btn-save {
   padding: 0.5rem 1.25rem;
   border: none;
   border-radius: 8px;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   font-size: 0.875rem;
   font-weight: 600;
@@ -601,7 +601,7 @@
 }
 
 .pp-btn-save:hover:not(:disabled) {
-  background: #c47209;
+  background: #d17f08;
 }
 
 .pp-btn-save:disabled {

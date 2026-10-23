@@ -17,7 +17,7 @@ export default function Pagination({
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", gap: 16, flexWrap: "wrap" }}>
       {/* Left: showing X-Y of Z */}
-      <div style={{ fontSize: "0.875rem", color: "#4b5563" }}>
+      <div style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
         {totalRecords > 0 ? (
           <>Showing <strong>{start}</strong>–<strong>{end}</strong> of <strong>{totalRecords.toLocaleString()}</strong></>
         ) : (
@@ -68,14 +68,14 @@ export default function Pagination({
 
       {/* Right: records per page */}
       {onPageSizeChange && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.875rem", color: "#4b5563" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.875rem", color: "#5c5c5c" }}>
           <span>Rows:</span>
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
             disabled={loading}
             style={{
-              padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0",
+              padding: "4px 8px", borderRadius: 6, border: "1px solid #e8e4dc",
               background: "#fff", fontSize: "0.875rem", cursor: "pointer",
             }}
           >
@@ -93,7 +93,7 @@ function btnStyle(disabled) {
   return {
     padding: "6px 8px",
     borderRadius: 6,
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     background: "#fff",
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.4 : 1,

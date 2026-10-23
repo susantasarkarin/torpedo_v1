@@ -58,13 +58,13 @@ function CompanyDetail() {
 
   const getStageStyle = (stage) => {
     const colors = {
-      RFQ: { bg: "#fff7ed", text: "#c47209" },
+      RFQ: { bg: "#fdf4e7", text: "#d17f08" },
       Proposal: { bg: "#fef3c7", text: "#92400e" },
       Negotiation: { bg: "#e9d5ff", text: "#6b21a8" },
-      Won: { bg: "#d1fae5", text: "#065f46" },
+      Won: { bg: "#dcfce7", text: "#166534" },
       Lost: { bg: "#fee2e2", text: "#991b1b" },
     };
-    const style = colors[stage] || { bg: "#f3f4f6", text: "#4a4a4a" };
+    const style = colors[stage] || { bg: "#f5f3ef", text: "#4a4a4a" };
     return {
       backgroundColor: style.bg,
       color: style.text,
@@ -129,8 +129,8 @@ function CompanyDetail() {
                     {contact.emailStatus && (
                       <span style={{
                         ...styles.badge,
-                        backgroundColor: contact.emailStatus === "Valid" ? "#d1fae5" : "#fee2e2",
-                        color: contact.emailStatus === "Valid" ? "#065f46" : "#991b1b",
+                        backgroundColor: contact.emailStatus === "Valid" ? "#dcfce7" : "#fee2e2",
+                        color: contact.emailStatus === "Valid" ? "#166534" : "#991b1b",
                       }}>
                         {contact.emailStatus}
                       </span>
@@ -213,7 +213,7 @@ const styles = {
   },
   backButton: {
     background: "none",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8e4dc",
     padding: "6px 12px",
     borderRadius: "6px",
     cursor: "pointer",
@@ -228,7 +228,7 @@ const styles = {
   },
   subtitle: {
     fontSize: "14px",
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: "4px 0",
   },
   errorAlert: {
@@ -241,13 +241,13 @@ const styles = {
   loadingText: {
     textAlign: "center",
     padding: "40px",
-    color: "#4b5563",
+    color: "#5c5c5c",
   },
   emptyState: {
     textAlign: "center",
     padding: "60px 20px",
-    color: "#4b5563",
-    backgroundColor: "#f9fafb",
+    color: "#5c5c5c",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
   },
   tableContainer: {
@@ -262,7 +262,7 @@ const styles = {
     borderCollapse: "collapse",
   },
   th: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     padding: "12px 16px",
     textAlign: "left",
     fontWeight: "600",
@@ -270,10 +270,10 @@ const styles = {
     color: "#4a4a4a",
     textTransform: "uppercase",
     letterSpacing: "0.5px",
-    borderBottom: "2px solid #e5e7eb",
+    borderBottom: "2px solid #e8e4dc",
   },
   tr: {
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e8e4dc",
   },
   td: {
     padding: "12px 16px",
@@ -290,7 +290,7 @@ const styles = {
   },
   subText: {
     fontSize: "14px",
-    color: "#4b5563",
+    color: "#5c5c5c",
   },
   badge: {
     padding: "2px 8px",
@@ -300,7 +300,7 @@ const styles = {
     marginLeft: "8px",
   },
   link: {
-    color: "#a25e07",
+    color: "#a15f06",
     textDecoration: "none",
   },
   companyDetails: {
@@ -312,7 +312,7 @@ const styles = {
     display: "flex",
     gap: "24px",
     padding: "20px",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
   },
   stat: {
@@ -322,7 +322,7 @@ const styles = {
   },
   statLabel: {
     fontSize: "14px",
-    color: "#4b5563",
+    color: "#5c5c5c",
   },
   statValue: {
     fontSize: "18px",

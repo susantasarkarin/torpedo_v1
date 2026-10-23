@@ -876,7 +876,7 @@ function Settings() {
 
               {/* Email Rate Limits Section */}
               <div className="settings-group">
-                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.875rem', color: '#6b6b6b', fontWeight: 400 }}>Loading…</span>}</h3>
+                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.875rem', color: '#6f6f6f', fontWeight: 400 }}>Loading…</span>}</h3>
 
                 <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
@@ -1198,9 +1198,9 @@ function Settings() {
               </div>
 
               {showBuNewForm && (
-                <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "8px", marginBottom: "1rem", border: "1px solid #e5e7eb" }}>
+                <div style={{ padding: "1rem", backgroundColor: "#faf9f7", borderRadius: "8px", marginBottom: "1rem", border: "1px solid #e8e4dc" }}>
                   <div className="setting-row">
-                    <label>Slug <small style={{ color: "#6b6b6b", fontWeight: 400 }}>(lowercase, used as filename)</small></label>
+                    <label>Slug <small style={{ color: "#6f6f6f", fontWeight: 400 }}>(lowercase, used as filename)</small></label>
                     <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
                       <input
                         type="text"
@@ -1212,16 +1212,16 @@ function Settings() {
                       <button className="save-button-small" onClick={createBuConfig} disabled={!newBuSlug.trim()}>Create</button>
                       <button className="refresh-button" onClick={() => setShowBuNewForm(false)}>Cancel</button>
                     </div>
-                    <small style={{ color: "#4b5563", marginTop: "4px" }}>A template will be pre-filled — edit and save to activate.</small>
+                    <small style={{ color: "#5c5c5c", marginTop: "4px" }}>A template will be pre-filled — edit and save to activate.</small>
                   </div>
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 0, height: "520px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden" }}>
+              <div style={{ display: "flex", gap: 0, height: "520px", border: "1px solid #e8e4dc", borderRadius: "8px", overflow: "hidden" }}>
                 {/* BU list sidebar */}
-                <div style={{ width: "210px", borderRight: "1px solid #e5e7eb", overflowY: "auto", flexShrink: 0, backgroundColor: "#f9fafb" }}>
+                <div style={{ width: "210px", borderRight: "1px solid #e8e4dc", overflowY: "auto", flexShrink: 0, backgroundColor: "#faf9f7" }}>
                   {buUnits.length === 0 && !buLoading && (
-                    <p style={{ padding: "1rem", fontSize: "0.875rem", color: "#6b6b6b", fontStyle: "italic" }}>No configs yet.<br />Create one above →</p>
+                    <p style={{ padding: "1rem", fontSize: "0.875rem", color: "#6f6f6f", fontStyle: "italic" }}>No configs yet.<br />Create one above →</p>
                   )}
                   {buUnits.map(unit => (
                     <button
@@ -1231,13 +1231,13 @@ function Settings() {
                         width: "100%",
                         padding: "0.75rem 1rem",
                         textAlign: "left",
-                        background: buSelected === unit.slug ? "#fff7ed" : "transparent",
-                        borderLeft: `3px solid ${buSelected === unit.slug ? "#e8890b" : "transparent"}`,
+                        background: buSelected === unit.slug ? "#fdf4e7" : "transparent",
+                        borderLeft: `3px solid ${buSelected === unit.slug ? "#e8910a" : "transparent"}`,
                         border: "none",
-                        borderBottom: "1px solid #f3f4f6",
+                        borderBottom: "1px solid #f5f3ef",
                         cursor: "pointer",
                         fontSize: "0.875rem",
-                        color: buSelected === unit.slug ? "#c47209" : "#4a4a4a",
+                        color: buSelected === unit.slug ? "#d17f08" : "#4a4a4a",
                         fontWeight: buSelected === unit.slug ? "600" : "400",
                         transition: "all 0.15s",
                       }}
@@ -1252,12 +1252,12 @@ function Settings() {
                   {buSelected ? (
                     <>
                       {/* Toolbar */}
-                      <div style={{ padding: "0.625rem 1rem", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#f9fafb" }}>
+                      <div style={{ padding: "0.625rem 1rem", borderBottom: "1px solid #e8e4dc", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#faf9f7" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                           <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#1a1a1a" }}>
                             {buUnits.find(u => u.slug === buSelected)?.name || buSelected}
                           </span>
-                          <span style={{ fontFamily: "monospace", fontSize: "0.875rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#4b5563" }}>
+                          <span style={{ fontFamily: "monospace", fontSize: "0.875rem", background: "#e8e4dc", padding: "2px 8px", borderRadius: "4px", color: "#5c5c5c" }}>
                             {buSelected}.txt
                           </span>
                           {buDirty && (
@@ -1301,7 +1301,7 @@ function Settings() {
                       />
                     </>
                   ) : (
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6b6b6b" }}>
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6f6f6f" }}>
                       <p>Select a business unit from the left to edit</p>
                     </div>
                   )}
@@ -1336,8 +1336,8 @@ function Settings() {
                       </button>
                     </div>
                     <p style={{ marginBottom: '0.5rem' }}><strong>Agent:</strong> {prompt.agent_type}</p>
-                    <p style={{ color: '#666', fontSize: '0.9rem' }}>{prompt.description}</p>
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#6b6b6b' }}>
+                    <p style={{ color: '#5c5c5c', fontSize: '0.9rem' }}>{prompt.description}</p>
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#6f6f6f' }}>
                       Version: {prompt.version} • Updated: {formatDate(prompt.updated_at)}
                     </div>
                   </div>
@@ -1382,7 +1382,7 @@ function Settings() {
                   </div>
 
                   {testPromptResult && (
-                    <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8f9fa', borderRadius: '4px', maxHeight: '200px', overflow: 'auto' }}>
+                    <div style={{ marginTop: '1rem', padding: '1rem', background: '#faf9f7', borderRadius: '4px', maxHeight: '200px', overflow: 'auto' }}>
                       <strong>Test Result:</strong>
                       <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(testPromptResult, null, 2)}</pre>
                     </div>

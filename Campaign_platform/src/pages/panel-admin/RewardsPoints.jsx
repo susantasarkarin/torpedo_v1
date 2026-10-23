@@ -10,9 +10,9 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
  * Amazon gift cards still to be sent.
  */
 
-const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
-const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#4b5563", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }
-const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f3f4f6" }
+const card = { background: "#fff", border: "1px solid #e8e4dc", borderRadius: "10px", padding: "1.25rem", marginBottom: "1.25rem" }
+const th = { textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#5c5c5c", borderBottom: "1px solid #e8e4dc", whiteSpace: "nowrap" }
+const td = { padding: "0.5rem 0.6rem", fontSize: "0.875rem", color: "#1a1a1a", borderBottom: "1px solid #f5f3ef" }
 const btn = { padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #4f46e5", background: "#4f46e5", color: "#fff", cursor: "pointer", fontSize: "0.8rem" }
 const COUNTRY_LABELS = { IN: "India", UK: "United Kingdom", GB: "United Kingdom", US: "United States" }
 const n = (v) => (v || 0).toLocaleString()
@@ -68,9 +68,9 @@ function RewardsPoints({ embedded = false }) {
 
   const tile = (label, value, sub, color) => (
     <div style={{ ...card, marginBottom: 0 }}>
-      <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>{label}</p>
+      <p style={{ margin: 0, fontSize: "0.8rem", color: "#6f6f6f" }}>{label}</p>
       <p style={{ margin: "0.25rem 0 0", fontSize: "1.6rem", fontWeight: 700, color }}>{value}</p>
-      {sub && <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{sub}</p>}
+      {sub && <p style={{ margin: 0, fontSize: "0.75rem", color: "#8a8a8a" }}>{sub}</p>}
     </div>
   )
 
@@ -80,7 +80,7 @@ function RewardsPoints({ embedded = false }) {
     <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1200px" }}>
       {!embedded && <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Rewards & Points</h1>}
       {!embedded && (
-        <p style={{ margin: "0.25rem 0 1.25rem", color: "#6b7280", fontSize: "0.875rem" }}>
+        <p style={{ margin: "0.25rem 0 1.25rem", color: "#6f6f6f", fontSize: "0.875rem" }}>
           Live from the SurveyFieldwork Panel. 100 points = ₹10 / £1 / $1.
         </p>
       )}
@@ -91,9 +91,9 @@ function RewardsPoints({ embedded = false }) {
       {data && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
-            {tile("Gift cards to send", n(data.totals.toSend), "redeemed, not yet marked sent", data.totals.toSend ? "#dc2626" : "#059669")}
-            {tile("On hold for review", n(data.totals.onHold), "release or keep holding", data.totals.onHold ? "#d97706" : "#059669")}
-            {tile("Points earned", n(data.totals.earnedPoints), "credited to balances", "#047857")}
+            {tile("Gift cards to send", n(data.totals.toSend), "redeemed, not yet marked sent", data.totals.toSend ? "#dc2626" : "#15803d")}
+            {tile("On hold for review", n(data.totals.onHold), "release or keep holding", data.totals.onHold ? "#d97706" : "#15803d")}
+            {tile("Points earned", n(data.totals.earnedPoints), "credited to balances", "#166534")}
             {tile("Points on hold", n(data.totals.onHoldPoints), "released when the profile is complete", "#d97706")}
             {tile("Points redeemed", n(data.totals.redeemedPoints), "as gift cards", "#4f46e5")}
             {tile("Points in balances", n(data.totals.balancePoints), "owed to members if redeemed", "#1f2937")}
@@ -102,7 +102,7 @@ function RewardsPoints({ embedded = false }) {
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
               <h3 style={{ margin: 0, fontSize: "1rem" }}>Gift-card redemptions</h3>
-              <div style={{ display: "flex", gap: "0.25rem", background: "#f3f4f6", borderRadius: "8px", padding: "0.2rem" }}>
+              <div style={{ display: "flex", gap: "0.25rem", background: "#f5f3ef", borderRadius: "8px", padding: "0.2rem" }}>
                 {[["toSend", "To send"], ["held", "On hold"], ["sent", "Sent"], ["all", "All"]].map(([k, label]) => (
                   <button key={k} type="button" onClick={() => setFilter(k)}
                     style={{ border: "none", borderRadius: "6px", padding: "0.3rem 0.75rem", fontSize: "0.8rem", cursor: "pointer", background: filter === k ? "#fff" : "transparent", fontWeight: filter === k ? 600 : 400 }}>
@@ -112,7 +112,7 @@ function RewardsPoints({ embedded = false }) {
               </div>
             </div>
             {redemptions.length === 0 ? (
-              <p style={{ color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>{filter === "toSend" ? "Nothing to send — all redemptions are done." : "No redemptions."}</p>
+              <p style={{ color: "#6f6f6f", fontSize: "0.875rem", margin: 0 }}>{filter === "toSend" ? "Nothing to send — all redemptions are done." : "No redemptions."}</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -123,17 +123,17 @@ function RewardsPoints({ embedded = false }) {
                     {redemptions.map((r) => (
                       <tr key={r.id}>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>{new Date(r.at).toLocaleString()}</td>
-                        <td style={td}>{r.name || "—"}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{r.email} · {r.panelistId}</div></td>
+                        <td style={td}>{r.name || "—"}<div style={{ fontSize: "0.75rem", color: "#6f6f6f" }}>{r.email} · {r.panelistId}</div></td>
                         <td style={td}>{COUNTRY_LABELS[r.country] || r.country || "—"}</td>
                         <td style={{ ...td, fontWeight: 700 }}>{r.giftCard}</td>
                         <td style={td}>{n(r.points)}</td>
                         <td style={td}>
                           {r.fulfilledAt ? (
-                            <span style={{ color: "#059669" }}>Sent {new Date(r.fulfilledAt).toLocaleDateString()}{r.fulfilledBy ? ` · ${r.fulfilledBy}` : ""}</span>
+                            <span style={{ color: "#15803d" }}>Sent {new Date(r.fulfilledAt).toLocaleDateString()}{r.fulfilledBy ? ` · ${r.fulfilledBy}` : ""}</span>
                           ) : r.onHold ? (
                             <div>
                               <span style={{ color: "#d97706", fontWeight: 600 }}>On hold{r.suspended ? " · member suspended" : ""}</span>
-                              <ul style={{ margin: "0.25rem 0 0.4rem", paddingLeft: "1rem", fontSize: "0.75rem", color: "#6b7280" }}>
+                              <ul style={{ margin: "0.25rem 0 0.4rem", paddingLeft: "1rem", fontSize: "0.75rem", color: "#6f6f6f" }}>
                                 {r.holdReasons.map((h) => <li key={h}>{h}</li>)}
                               </ul>
                               {!r.suspended && (

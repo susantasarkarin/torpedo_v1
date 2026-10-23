@@ -108,10 +108,10 @@ function VendorsPage() {
 
   const getTypeBadge = (type) => {
     const styles = {
-      panel: { backgroundColor: "#fff7ed", color: "#c47209" },
+      panel: { backgroundColor: "#fdf4e7", color: "#d17f08" },
       billing: { backgroundColor: "#fef3c7", color: "#92400e" }
     }
-    return styles[type] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
+    return styles[type] || { backgroundColor: "#f5f3ef", color: "#4a4a4a" }
   }
 
   const getStatusBadge = (status) => {
@@ -119,7 +119,7 @@ function VendorsPage() {
       active: { backgroundColor: "#dcfce7", color: "#166534" },
       inactive: { backgroundColor: "#fee2e2", color: "#991b1b" }
     }
-    return styles[status] || { backgroundColor: "#f3f4f6", color: "#4a4a4a" }
+    return styles[status] || { backgroundColor: "#f5f3ef", color: "#4a4a4a" }
   }
 
   const openCreate = () => {
@@ -222,7 +222,7 @@ function VendorsPage() {
             setRecordsPerPage(parseInt(e.target.value))
             setCurrentPage(1)
           }}
-          style={{ padding: "10px 16px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+          style={{ padding: "10px 16px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
         >
           <option value={10}>10 per page</option>
           <option value={20}>20 per page</option>
@@ -333,33 +333,33 @@ function VendorsPage() {
                 placeholder="Vendor Name"
                 value={formData.name}
                 onChange={e => setFormData({ ...formData, name: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="email"
                 placeholder="Email"
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="text"
                 placeholder="Contact Person"
                 value={formData.contact_person}
                 onChange={e => setFormData({ ...formData, contact_person: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <input
                 type="text"
                 placeholder="Phone"
                 value={formData.phone}
                 onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               />
               <select
                 value={formData.type}
                 onChange={e => setFormData({ ...formData, type: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               >
                 <option value="panel">Panel Vendor</option>
                 <option value="billing">Billing Vendor</option>
@@ -367,7 +367,7 @@ function VendorsPage() {
               <select
                 value={formData.status}
                 onChange={e => setFormData({ ...formData, status: e.target.value })}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e8e4dc" }}
               >
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>

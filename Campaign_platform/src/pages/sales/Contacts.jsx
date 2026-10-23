@@ -327,7 +327,7 @@ function Contacts() {
   const getStageBadgeStyle = (stageId) => {
     const stageStyle = getPipelineStageStyle(stageId);
     return {
-      backgroundColor: stageStyle?.bg || stageStyle?.backgroundColor || "#f3f4f6",
+      backgroundColor: stageStyle?.bg || stageStyle?.backgroundColor || "#f5f3ef",
       color: stageStyle?.color || "#4a4a4a",
     };
   };
@@ -473,7 +473,7 @@ function Contacts() {
                             alignItems: 'center',
                             padding: '2px 6px',
                             fontSize: '14px',
-                            background: '#10b981',
+                            background: '#16a34a',
                             color: 'white',
                             borderRadius: '4px',
                             cursor: 'pointer',
@@ -496,8 +496,8 @@ function Contacts() {
                             alignItems: 'center',
                             padding: '2px 6px',
                             fontSize: '14px',
-                            background: '#e5e7eb',
-                            color: '#4b5563',
+                            background: '#e8e4dc',
+                            color: '#5c5c5c',
                             borderRadius: '4px',
                             fontWeight: '500'
                           }}

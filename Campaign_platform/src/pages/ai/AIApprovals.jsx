@@ -52,13 +52,13 @@ function PendingQueue() {
       {error && <div className="crm-error">{error}</div>}
 
       {!loading && items.length === 0 && !error && (
-        <div className="crm-empty"><CheckCircle2 size={28} style={{ color: "#047857" }} /><div style={{ marginTop: "0.5rem" }}>Nothing pending. The AI queue is clear.</div></div>
+        <div className="crm-empty"><CheckCircle2 size={28} style={{ color: "#166534" }} /><div style={{ marginTop: "0.5rem" }}>Nothing pending. The AI queue is clear.</div></div>
       )}
 
       {items.map((item) => (
         <div key={item._id} className="crm-queue-item">
           <div className="crm-queue-item__head">
-            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#a25e07" }} /> {item.agent_name}</span>
+            <span className="crm-queue-item__agent"><Bot size={16} style={{ color: "#a15f06" }} /> {item.agent_name}</span>
             <code className="crm-mono">{item.action_type}</code>
             <span className={`crm-badge risk-${item.risk}`}>{item.risk || "—"}</span>
             <span className="crm-badge">{item.autonomy_mode}</span>
@@ -136,7 +136,7 @@ export default function AIApprovals() {
   return (
     <div className="crm-page">
       <div className="crm-head__titles" style={{ marginBottom: "1.25rem" }}>
-        <ShieldAlert size={28} style={{ color: "#a25e07" }} />
+        <ShieldAlert size={28} style={{ color: "#a15f06" }} />
         <div>
           <h1 className="crm-title cx-page-title">AI Approvals</h1>
           <p className="crm-subtitle">Review and approve AI-proposed actions. Nothing here has run yet.</p>

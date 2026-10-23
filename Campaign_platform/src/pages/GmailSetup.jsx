@@ -453,8 +453,8 @@ function GmailSetup() {
         {message && (
           <div style={{
             ...styles.message,
-            backgroundColor: message.type === "success" ? "#d1fae5" : message.type === "info" ? "#fff7ed" : "#fee2e2",
-            color: message.type === "success" ? "#065f46" : message.type === "info" ? "#c47209" : "#991b1b"
+            backgroundColor: message.type === "success" ? "#dcfce7" : message.type === "info" ? "#fdf4e7" : "#fee2e2",
+            color: message.type === "success" ? "#166534" : message.type === "info" ? "#d17f08" : "#991b1b"
           }}>
             {message.text}
             <button 
@@ -634,8 +634,8 @@ function GmailSetup() {
                       )}
                       <span style={{
                         ...styles.statusBadge,
-                        backgroundColor: mailbox.is_active ? "#d1fae5" : "#fee2e2",
-                        color: mailbox.is_active ? "#065f46" : "#991b1b"
+                        backgroundColor: mailbox.is_active ? "#dcfce7" : "#fee2e2",
+                        color: mailbox.is_active ? "#166534" : "#991b1b"
                       }}>
                         {mailbox.is_active ? "Active" : "Inactive"}
                       </span>
@@ -659,8 +659,8 @@ function GmailSetup() {
                             style={{
                               ...styles.progressBarInner,
                               width: `${progress.percent}%`,
-                              backgroundColor: progress.status === "error" ? "#ef4444" : 
-                                             progress.status === "complete" ? "#22c55e" : "#e8890b"
+                              backgroundColor: progress.status === "error" ? "#dc2626" : 
+                                             progress.status === "complete" ? "#22c55e" : "#e8910a"
                             }}
                           />
                         </div>
@@ -775,7 +775,7 @@ function GmailSetup() {
 const styles = {
   container: {
     padding: "2rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     minHeight: "100vh",
     display: "flex",
     justifyContent: "center"
@@ -799,7 +799,7 @@ const styles = {
   },
   subtitle: {
     margin: "0.5rem 0 0",
-    color: "#4b5563"
+    color: "#5c5c5c"
   },
   message: {
     padding: "1rem",
@@ -818,10 +818,10 @@ const styles = {
   },
   configSection: {
     padding: "1.5rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
     marginBottom: "2rem",
-    border: "1px solid #e5e7eb"
+    border: "1px solid #e8e4dc"
   },
   configHeader: {
     display: "flex",
@@ -831,8 +831,8 @@ const styles = {
   },
   configuredBadge: {
     padding: "0.25rem 0.75rem",
-    backgroundColor: "#d1fae5",
-    color: "#065f46",
+    backgroundColor: "#dcfce7",
+    color: "#166534",
     borderRadius: "9999px",
     fontSize: "0.875rem",
     fontWeight: "500"
@@ -854,7 +854,7 @@ const styles = {
     padding: "0.5rem 1rem",
     backgroundColor: "white",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "6px",
     cursor: "pointer",
     fontSize: "0.875rem"
@@ -868,13 +868,13 @@ const styles = {
   setupSteps: {
     margin: "0 0 1rem",
     paddingLeft: "1.5rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     fontSize: "0.875rem",
     lineHeight: "1.75"
   },
   uploadBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -899,9 +899,9 @@ const styles = {
   },
   addForm: {
     padding: "1.5rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
-    border: "1px solid #e5e7eb"
+    border: "1px solid #e8e4dc"
   },
   formTitle: {
     margin: "0 0 1rem",
@@ -921,7 +921,7 @@ const styles = {
   input: {
     width: "100%",
     padding: "0.625rem 0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "6px",
     fontSize: "1rem",
     boxSizing: "border-box"
@@ -932,7 +932,7 @@ const styles = {
   },
   submitBtn: {
     padding: "0.625rem 1.25rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -944,7 +944,7 @@ const styles = {
     padding: "0.625rem 1.25rem",
     backgroundColor: "white",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "6px",
     cursor: "pointer",
     fontSize: "0.875rem"
@@ -960,16 +960,16 @@ const styles = {
   loading: {
     textAlign: "center",
     padding: "2rem",
-    color: "#4b5563"
+    color: "#5c5c5c"
   },
   empty: {
     textAlign: "center",
     padding: "2rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px"
   },
   emptyHint: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     fontSize: "0.875rem"
   },
   mailboxList: {
@@ -982,9 +982,9 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     padding: "1rem 1.5rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
-    border: "1px solid #e5e7eb"
+    border: "1px solid #e8e4dc"
   },
   mailboxInfo: {
     flex: 1
@@ -999,7 +999,7 @@ const styles = {
     marginBottom: "0.5rem"
   },
   displayName: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     fontWeight: "400"
   },
   emailIcon: {
@@ -1013,7 +1013,7 @@ const styles = {
   },
   metaItem: {
     fontSize: "0.875rem",
-    color: "#4b5563"
+    color: "#5c5c5c"
   },
   statusBadge: {
     padding: "0.125rem 0.5rem",
@@ -1034,8 +1034,8 @@ const styles = {
   },
   testBtn: {
     padding: "0.5rem 0.75rem",
-    backgroundColor: "#fff7ed",
-    color: "#c47209",
+    backgroundColor: "#fdf4e7",
+    color: "#d17f08",
     border: "none",
     borderRadius: "6px",
     cursor: "pointer",
@@ -1043,7 +1043,7 @@ const styles = {
   },
   syncBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -1061,13 +1061,13 @@ const styles = {
   },
   helpSection: {
     padding: "1.5rem",
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#fdf4e7",
     borderRadius: "8px",
     marginBottom: "2rem"
   },
   helpTitle: {
     margin: "0 0 1rem",
-    color: "#c47209",
+    color: "#d17f08",
     fontSize: "1rem"
   },
   helpList: {
@@ -1087,7 +1087,7 @@ const styles = {
   },
   navBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -1098,7 +1098,7 @@ const styles = {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
     color: "#4a4a4a",
-    border: "1px solid #e5e7eb",
+    border: "1px solid #e8e4dc",
     borderRadius: "8px",
     fontSize: "1rem",
     cursor: "pointer"
@@ -1130,14 +1130,14 @@ const styles = {
     color: "#1a1a1a"
   },
   modalText: {
-    color: "#4b5563",
+    color: "#5c5c5c",
     marginBottom: "1.5rem"
   },
   fileUpload: {
     padding: "1.5rem",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     borderRadius: "8px",
-    border: "2px dashed #d1d5db",
+    border: "2px dashed #d4cec3",
     marginBottom: "1.5rem",
     textAlign: "center"
   },
@@ -1156,7 +1156,7 @@ const styles = {
   },
   uploadConfirmBtn: {
     padding: "0.75rem 1.5rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "8px",
@@ -1168,7 +1168,7 @@ const styles = {
     padding: "0.75rem 1.5rem",
     backgroundColor: "white",
     color: "#4a4a4a",
-    border: "1px solid #d1d5db",
+    border: "1px solid #d4cec3",
     borderRadius: "8px",
     cursor: "pointer",
     fontSize: "1rem"
@@ -1188,7 +1188,7 @@ const styles = {
   },
   syncAllBtn: {
     padding: "0.5rem 1rem",
-    backgroundColor: "#e8890b",
+    backgroundColor: "#e8910a",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -1223,13 +1223,13 @@ const styles = {
   },
   progressStats: {
     fontSize: "0.875rem",
-    color: "#4b5563",
+    color: "#5c5c5c",
     fontWeight: "500"
   },
   progressBarOuter: {
     width: "100%",
     height: "8px",
-    backgroundColor: "#e5e7eb",
+    backgroundColor: "#e8e4dc",
     borderRadius: "9999px",
     overflow: "hidden"
   },

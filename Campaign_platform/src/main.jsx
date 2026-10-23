@@ -7,6 +7,7 @@ import App from "./App.jsx"
 import { PanelAuthProvider } from "./panel/context/PanelAuthContext"
 import "./styles/index.css"
 import "./styles/brand.css"
+import "./styles/shell.css"
 import { API_BASE_URL } from "./config"
 
 // Every call to our own API carries the admin session when one exists

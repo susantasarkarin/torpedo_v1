@@ -228,11 +228,11 @@ export default function AccountTimeline() {
           ) : (
             <>
               {/* ---- editable profile ---- */}
-              <div style={{ borderBottom: "1px solid #f3f4f6", paddingBottom: "0.9rem", marginBottom: "1rem" }}>
+              <div style={{ borderBottom: "1px solid #f5f3ef", paddingBottom: "0.9rem", marginBottom: "1rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                   <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#1a1a1a" }}>{selected.name}</h2>
                   <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                    {notice && <span style={{ color: "#059669", fontSize: "0.875rem" }}>{notice}</span>}
+                    {notice && <span style={{ color: "#15803d", fontSize: "0.875rem" }}>{notice}</span>}
                     <button className="crm-btn crm-btn--primary" disabled={!dirty || busy} onClick={saveAccount}>
                       <Save size={14} /> Save
                     </button>
@@ -240,7 +240,7 @@ export default function AccountTimeline() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "0.5rem", marginTop: "0.7rem" }}>
                   {EDIT_FIELDS.map(([f, label]) => (
-                    <label key={f} style={{ fontSize: "0.875rem", color: "#4b5563", fontWeight: 600 }}>
+                    <label key={f} style={{ fontSize: "0.875rem", color: "#5c5c5c", fontWeight: 600 }}>
                       {label}
                       <input style={{ ...inputStyle, marginTop: "0.15rem", fontSize: "0.875rem" }}
                         value={edit[f] || ""}
@@ -257,7 +257,7 @@ export default function AccountTimeline() {
                   {detail.contacts.length === 0 ? (
                     <p className="crm-muted" style={{ fontSize: "0.875rem" }}>No linked contacts.</p>
                   ) : detail.contacts.map((c) => (
-                    <div key={c._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
+                    <div key={c._id} className="crm-row" style={{ border: "1px solid #f5f3ef", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontWeight: 600 }}>{c.name || c.email}</span>
                         <span className="crm-muted" style={{ fontSize: "0.875rem", marginLeft: "0.4rem" }}>
@@ -279,7 +279,7 @@ export default function AccountTimeline() {
                   {detail.opportunities.length === 0 ? (
                     <p className="crm-muted" style={{ fontSize: "0.875rem" }}>No opportunities for this account.</p>
                   ) : detail.opportunities.map((o) => (
-                    <div key={o._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
+                    <div key={o._id} className="crm-row" style={{ border: "1px solid #f5f3ef", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                       <span style={{ flex: 1 }}>{o.title}</span>
                       <span className="crm-mono">{o.stage}</span>
                       <span style={{ fontWeight: 600 }}>
@@ -307,12 +307,12 @@ export default function AccountTimeline() {
                   {(detail.timeline?.tasks || []).map((t) => {
                     const overdue = t.status !== "done" && t.due_date && new Date(t.due_date) < new Date();
                     return (
-                      <div key={t._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
+                      <div key={t._id} className="crm-row" style={{ border: "1px solid #f5f3ef", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
                         <input type="checkbox" checked={t.status === "done"} onChange={() => toggleTask(t)} />
                         <span style={{ flex: 1, textDecoration: t.status === "done" ? "line-through" : "none" }}>{t.title}</span>
                         {t.owner_id && <span className="crm-muted" style={{ fontSize: "0.875rem" }}>{t.owner_id}</span>}
                         {t.due_date && (
-                          <span style={{ fontSize: "0.875rem", color: overdue ? "#b91c1c" : "#4b5563", fontWeight: overdue ? 700 : 400 }}>
+                          <span style={{ fontSize: "0.875rem", color: overdue ? "#b91c1c" : "#5c5c5c", fontWeight: overdue ? 700 : 400 }}>
                             {formatDate(t.due_date)}
                           </span>
                         )}
@@ -396,7 +396,7 @@ export default function AccountTimeline() {
           ) : (
             <>
               <p style={{ fontWeight: 600, marginTop: 0 }}>{draftResult.subject}</p>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.875rem", background: "#f9fafb", padding: "0.7rem", borderRadius: "0.4rem" }}>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.875rem", background: "#faf9f7", padding: "0.7rem", borderRadius: "0.4rem" }}>
                 {draftResult.body}
               </pre>
               <p className="crm-muted" style={{ fontSize: "0.875rem" }}>

@@ -9,8 +9,8 @@ import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 import { formatDate } from "../../utils/format"
 
 const statusColors = {
-  draft:   { background: "#f3f4f6", color: "#4a4a4a" },
-  sent:    { background: "#fff7ed", color: "#c47209" },
+  draft:   { background: "#f5f3ef", color: "#4a4a4a" },
+  sent:    { background: "#fdf4e7", color: "#d17f08" },
   paid:    { background: "#dcfce7", color: "#15803d" },
   overdue: { background: "#fee2e2", color: "#b91c1c" },
   partial: { background: "#fef9c3", color: "#854d0e" },
@@ -61,7 +61,7 @@ export default function InvoiceDetailPage() {
 
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
-      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#a25e07" }} />
+      <Loader2 style={{ width: 32, height: 32, animation: "spin 1s linear infinite", color: "#a15f06" }} />
     </div>
   )
 
@@ -88,12 +88,12 @@ export default function InvoiceDetailPage() {
         {/* Title row */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <FileText size={24} color="#e8890b" />
+            <FileText size={24} color="#e8910a" />
             <div>
               <h2 className="cx-page-title" style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "#111" }}>
                 {invoice.invoice_number || "—"}
               </h2>
-              <p style={{ margin: 0, color: "#4b5563", fontSize: "0.875rem" }}>Invoice</p>
+              <p style={{ margin: 0, color: "#5c5c5c", fontSize: "0.875rem" }}>Invoice</p>
             </div>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -158,9 +158,9 @@ export default function InvoiceDetailPage() {
                 </thead>
                 <tbody>
                   {items.map((item, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                    <tr key={i} style={{ borderBottom: "1px solid #f5f3ef" }}>
                       <td style={styles.td}>{item.name || "—"}</td>
-                      <td style={{ ...styles.td, color: "#4b5563", fontSize: "0.875rem" }}>{item.description || "—"}</td>
+                      <td style={{ ...styles.td, color: "#5c5c5c", fontSize: "0.875rem" }}>{item.description || "—"}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.quantity ?? 1}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{formatCurrency(item.rate, cur)}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{item.tax_percent ?? item.tax_rate ?? 0}%</td>
@@ -197,7 +197,7 @@ export default function InvoiceDetailPage() {
               <span>− {formatCurrency(invoice.discount_value, cur)}</span>
             </div>
           )}
-          <div style={{ ...styles.totalRow, fontWeight: 700, fontSize: "1.05rem", borderTop: "2px solid #e5e7eb", paddingTop: "0.5rem", marginTop: "0.25rem" }}>
+          <div style={{ ...styles.totalRow, fontWeight: 700, fontSize: "1.05rem", borderTop: "2px solid #e8e4dc", paddingTop: "0.5rem", marginTop: "0.25rem" }}>
             <span>Total</span>
             <span>{formatCurrency(invoice.total_amount ?? invoice.total, cur)}</span>
           </div>
@@ -230,18 +230,18 @@ const styles = {
   topBar: { marginBottom: "1rem" },
   backBtn: {
     display: "inline-flex", alignItems: "center", gap: 4,
-    background: "none", border: "1px solid #d1d5db", borderRadius: 6,
+    background: "none", border: "1px solid #d4cec3", borderRadius: 6,
     padding: "0.4rem 0.9rem", cursor: "pointer", fontSize: "0.875rem", color: "#4a4a4a",
   },
   card: { background: "#fff", borderRadius: 10, padding: "2rem", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" },
-  metaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "1rem", background: "#f9fafb", borderRadius: 8, padding: "1rem" },
+  metaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "1rem", background: "#faf9f7", borderRadius: 8, padding: "1rem" },
   metaBlock: { display: "flex", flexDirection: "column", gap: 2 },
-  metaLabel: { fontSize: "0.875rem", color: "#6b6b6b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" },
+  metaLabel: { fontSize: "0.875rem", color: "#6f6f6f", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" },
   metaValue: { fontSize: "0.95rem", color: "#1a1a1a", fontWeight: 500 },
   sectionTitle: { fontSize: "0.9rem", fontWeight: 700, color: "#4a4a4a", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" },
   table: { width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" },
-  thead: { background: "#f9fafb" },
-  th: { padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "#4a4a4a", borderBottom: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  thead: { background: "#faf9f7" },
+  th: { padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "#4a4a4a", borderBottom: "2px solid #e8e4dc", whiteSpace: "nowrap" },
   td: { padding: "0.6rem 0.75rem", color: "#1a1a1a" },
   totalsBox: { marginTop: "1.5rem", marginLeft: "auto", maxWidth: 340, display: "flex", flexDirection: "column", gap: "0.4rem" },
   totalRow: { display: "flex", justifyContent: "space-between", fontSize: "0.9rem", color: "#4a4a4a", padding: "0.15rem 0" },

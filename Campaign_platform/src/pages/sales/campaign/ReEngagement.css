@@ -4,7 +4,7 @@
   max-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 12px;
 }
 
@@ -16,7 +16,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .reengagement-header h1 {
@@ -26,7 +26,7 @@
 }
 
 .reengagement-header p {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.95rem;
 }
 
@@ -42,12 +42,12 @@
   padding: 1rem 1.5rem;
   background: #f0f4f8;
   border-radius: 8px;
-  border: 1px solid #dde1e6;
+  border: 1px solid #e8e4dc;
 }
 
 .stat-label {
   font-size: 0.875rem;
-  color: #666;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.5rem;
@@ -56,7 +56,7 @@
 .stat-value {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .success-banner {
@@ -89,7 +89,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .strategy-section h2 {
@@ -105,7 +105,7 @@
 }
 
 .strategy-card {
-  border: 2px solid #dde1e6;
+  border: 2px solid #e8e4dc;
   border-radius: 10px;
   padding: 1.5rem;
   cursor: pointer;
@@ -114,15 +114,15 @@
 }
 
 .strategy-card:hover {
-  border-color: #e8890b;
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.1);
   transform: translateY(-2px);
 }
 
 .strategy-card.active {
-  border-color: #e8890b;
-  background: #fff7ed;
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.2);
+  border-color: #e8910a;
+  background: #fdf4e7;
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.2);
 }
 
 .strategy-icon {
@@ -137,14 +137,14 @@
 }
 
 .strategy-card p {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.9rem;
   margin-bottom: 1rem;
 }
 
 .timeline-info {
   font-size: 0.875rem;
-  color: #a25e07;
+  color: #a15f06;
   font-weight: 500;
   padding: 0.75rem;
   background: white;
@@ -158,7 +158,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .templates-section h2 {
@@ -190,7 +190,7 @@
 
 .phase-input {
   padding: 0.75rem;
-  border: 1px solid #dde1e6;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   font-size: 0.9rem;
   transition: border-color 0.2s;
@@ -198,8 +198,8 @@
 
 .phase-input:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 /* Sender Configuration */
@@ -208,7 +208,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .sender-section h2 {
@@ -231,7 +231,7 @@
 }
 
 .toggle-input:checked {
-  accent-color: #e8890b;
+  accent-color: #e8910a;
 }
 
 .sender-toggle label {
@@ -241,7 +241,7 @@
 }
 
 .sender-help {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.9rem;
   margin-top: 0.5rem;
 }
@@ -252,7 +252,7 @@
   background: white;
   padding: 1.5rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .filter-toggle {
@@ -269,13 +269,13 @@
 }
 
 .filter-toggle:hover {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .filters-panel {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 8px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -300,7 +300,7 @@
 }
 
 .filter-row span {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.9rem;
   font-weight: 500;
 }
@@ -311,7 +311,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .leads-section h2 {
@@ -323,7 +323,7 @@
 .loading-state {
   text-align: center;
   padding: 2rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .empty-state {
@@ -332,7 +332,7 @@
   align-items: center;
   justify-content: center;
   padding: 3rem 2rem;
-  color: #666;
+  color: #5c5c5c;
   text-align: center;
 }
 
@@ -342,15 +342,15 @@
 }
 
 .leads-table-wrapper {
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   overflow: hidden;
 }
 
 .leads-table-header {
   padding: 1rem 1.5rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e0e0e0;
+  background: #faf9f7;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .select-all-checkbox {
@@ -372,8 +372,8 @@
 }
 
 .leads-table thead {
-  background: #f8f9fa;
-  border-bottom: 2px solid #dde1e6;
+  background: #faf9f7;
+  border-bottom: 2px solid #e8e4dc;
 }
 
 .leads-table th {
@@ -388,20 +388,20 @@
 
 .leads-table td {
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e8e4dc;
   color: #1a1a1a;
 }
 
 .leads-table tbody tr:hover {
-  background: #f8f9fa;
+  background: #faf9f7;
 }
 
 .leads-table tbody tr.selected {
-  background: #fff7ed;
+  background: #fdf4e7;
 }
 
 .leads-table tbody tr.selected td {
-  color: #a25e07;
+  color: #a15f06;
 }
 
 .leads-table input[type="checkbox"] {
@@ -423,7 +423,7 @@
 
 .position-cell {
   font-size: 0.9rem;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .score-cell {
@@ -440,7 +440,7 @@
 }
 
 .score-0 {
-  background: #ef4444;
+  background: #dc2626;
 }
 
 .score-1 {
@@ -461,12 +461,12 @@
 
 .inactive-cell {
   text-align: center;
-  color: #666;
+  color: #5c5c5c;
   font-weight: 500;
 }
 
 .date-cell {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.9rem;
 }
 
@@ -475,7 +475,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
   text-align: center;
 }
 
@@ -484,7 +484,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 2rem;
-  background: #e8890b;
+  background: #e8910a;
   color: white;
   border: none;
   border-radius: 8px;
@@ -496,13 +496,13 @@
 }
 
 .btn-create-campaign:hover:not(:disabled) {
-  background: #e8890b;
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.3);
+  background: #e8910a;
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.3);
   transform: translateY(-2px);
 }
 
 .btn-create-campaign:disabled {
-  background: #d1d5db;
+  background: #d4cec3;
   cursor: not-allowed;
 }
 
@@ -523,7 +523,7 @@
 }
 
 .campaign-info {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.9rem;
   margin: 0;
 }

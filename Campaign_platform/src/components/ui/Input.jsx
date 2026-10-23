@@ -38,11 +38,11 @@ const Input = forwardRef(({
           ref={ref}
           className={clsx(
             'block w-full rounded-lg border bg-white transition-all duration-200',
-            'focus:outline-none focus:ring-2 focus:ring-cogentix-orange-400 focus:border-cogentix-orange',
+            'focus:outline-none focus:ring-[3px] focus:ring-cogentix-orange/20 focus:border-cogentix-orange',
             'placeholder:text-text-light',
             error
               ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-              : 'border-slate-200 hover:border-slate-300',
+              : 'border-line hover:border-gray-300',
             inputSizes[size],
             leftIcon && 'pl-10',
             rightIcon && 'pr-10',
@@ -92,11 +92,11 @@ export const Textarea = forwardRef(({
         rows={rows}
         className={clsx(
           'block w-full rounded-lg border bg-white transition-all duration-200 px-3.5 py-2.5 text-sm',
-          'focus:outline-none focus:ring-2 focus:ring-cogentix-orange-400 focus:border-cogentix-orange',
+          'focus:outline-none focus:ring-[3px] focus:ring-cogentix-orange/20 focus:border-cogentix-orange',
           'placeholder:text-text-light resize-none',
           error
             ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-            : 'border-slate-200 hover:border-slate-300',
+            : 'border-line hover:border-gray-300',
           className
         )}
         {...props}

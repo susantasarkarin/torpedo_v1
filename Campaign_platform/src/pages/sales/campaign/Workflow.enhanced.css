@@ -4,7 +4,7 @@
   max-width: 1600px;
   margin: 0 auto;
   padding: 2rem;
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 12px;
 }
 
@@ -13,7 +13,7 @@
   background: white;
   padding: 2rem;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
 }
 
 .workflow-header h1 {
@@ -23,7 +23,7 @@
 }
 
 .workflow-header p {
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.95rem;
 }
 
@@ -37,7 +37,7 @@
 
 .info-card {
   background: white;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
   border-radius: 8px;
   padding: 1.5rem;
   display: flex;
@@ -48,7 +48,7 @@
 
 .info-card .label {
   font-size: 0.875rem;
-  color: #666;
+  color: #5c5c5c;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.5rem;
@@ -57,7 +57,7 @@
 .info-card .value {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #a25e07;
+  color: #a15f06;
 }
 
 /* Workflow Editor Layout */
@@ -71,7 +71,7 @@
 .workflow-canvas {
   background: white;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
   padding: 2rem;
   min-height: 600px;
   overflow-x: auto;
@@ -97,7 +97,7 @@
 .step-card {
   width: 100%;
   background: white;
-  border: 2px solid #dde1e6;
+  border: 2px solid #e8e4dc;
   border-radius: 10px;
   padding: 1.5rem;
   margin: 1rem 0;
@@ -107,14 +107,14 @@
 }
 
 .step-card:hover {
-  border-color: #e8890b;
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.1);
 }
 
 .step-card.active {
-  border-color: #e8890b;
-  background: #fff7ed;
-  box-shadow: 0 4px 12px rgba(232, 137, 11, 0.2);
+  border-color: #e8910a;
+  background: #fdf4e7;
+  box-shadow: 0 4px 12px rgba(232, 145, 10, 0.2);
 }
 
 .step-header {
@@ -123,13 +123,13 @@
   align-items: center;
   margin-bottom: 1.5rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e8e4dc;
 }
 
 .step-number {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #a25e07;
+  color: #a15f06;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -145,27 +145,27 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid #dde1e6;
-  background: #f8f9fa;
+  border: 1px solid #e8e4dc;
+  background: #faf9f7;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  color: #666;
+  color: #5c5c5c;
 }
 
 .step-btn:hover {
-  border-color: #e8890b;
-  background: #fff7ed;
-  color: #a25e07;
+  border-color: #e8910a;
+  background: #fdf4e7;
+  color: #a15f06;
 }
 
 .step-btn.danger {
-  color: #ef4444;
+  color: #dc2626;
 }
 
 .step-btn.danger:hover {
   background: #fee2e2;
-  border-color: #ef4444;
+  border-color: #dc2626;
 }
 
 /* Step Config */
@@ -200,32 +200,32 @@
   justify-content: center;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid #dde1e6;
+  border: 1px solid #e8e4dc;
   background: white;
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #666;
+  color: #5c5c5c;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .channel-btn:hover {
-  border-color: #e8890b;
-  color: #a25e07;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 .channel-btn.active {
-  background: #fff7ed;
-  border-color: #e8890b;
-  color: #a25e07;
+  background: #fdf4e7;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 .delay-input,
 .template-input,
 .personalization-select {
   padding: 0.6rem;
-  border: 1px solid #dde1e6;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   font-size: 0.9rem;
   font-family: inherit;
@@ -236,13 +236,13 @@
 .template-input:focus,
 .personalization-select:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 3px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 3px rgba(232, 145, 10, 0.1);
 }
 
 /* Branches Section */
 .branches-section {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #e8e4dc;
   padding-top: 1rem;
 }
 
@@ -254,11 +254,11 @@
 }
 
 .no-branches {
-  color: #6b6b6b;
+  color: #6f6f6f;
   font-size: 0.875rem;
   margin: 0;
   padding: 0.75rem;
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 4px;
   text-align: center;
 }
@@ -313,14 +313,14 @@
 
 .delete-branch:hover {
   background: #fee;
-  color: #ef4444;
+  color: #dc2626;
 }
 
 .branch-condition,
 .branch-action,
 .branch-template {
   padding: 0.4rem 0.5rem;
-  border: 1px solid #dde1e6;
+  border: 1px solid #e8e4dc;
   border-radius: 4px;
   font-size: 0.875rem;
   font-family: inherit;
@@ -331,8 +331,8 @@
 .branch-action:focus,
 .branch-template:focus {
   outline: none;
-  border-color: #e8890b;
-  box-shadow: 0 0 0 2px rgba(232, 137, 11, 0.1);
+  border-color: #e8910a;
+  box-shadow: 0 0 0 2px rgba(232, 145, 10, 0.1);
 }
 
 .add-branch-btn {
@@ -367,10 +367,10 @@
   max-width: 400px;
   padding: 1rem;
   margin: 2rem auto 0;
-  border: 2px dashed #e8890b;
+  border: 2px dashed #e8910a;
   background: white;
   border-radius: 8px;
-  color: #a25e07;
+  color: #a15f06;
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
@@ -378,14 +378,14 @@
 }
 
 .add-step-btn:hover {
-  background: #fff7ed;
-  border-color: #e8890b;
+  background: #fdf4e7;
+  border-color: #e8910a;
 }
 
 /* Step Arrow */
 .step-arrow {
   font-size: 1.5rem;
-  color: #a25e07;
+  color: #a15f06;
   margin: -0.5rem 0;
   animation: bounce 2s infinite;
 }
@@ -403,7 +403,7 @@
 .workflow-sidebar {
   background: white;
   border-radius: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e8e4dc;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
@@ -415,7 +415,7 @@
 
 /* Preview Section */
 .preview-section {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e8e4dc;
   padding-bottom: 1.5rem;
 }
 
@@ -425,8 +425,8 @@
   gap: 0.5rem;
   width: 100%;
   padding: 0.75rem;
-  background: #f8f9fa;
-  border: 1px solid #dde1e6;
+  background: #faf9f7;
+  border: 1px solid #e8e4dc;
   border-radius: 6px;
   color: #1a1a1a;
   font-weight: 600;
@@ -436,9 +436,9 @@
 }
 
 .preview-toggle:hover {
-  background: #fff7ed;
-  border-color: #e8890b;
-  color: #a25e07;
+  background: #fdf4e7;
+  border-color: #e8910a;
+  color: #a15f06;
 }
 
 .preview-content {
@@ -452,7 +452,7 @@
 }
 
 .sample-info {
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 6px;
   padding: 1rem;
   margin-bottom: 1rem;
@@ -469,7 +469,7 @@
 
 .sample-field .label {
   font-weight: 600;
-  color: #666;
+  color: #5c5c5c;
   font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -491,18 +491,18 @@
 }
 
 .preview-box {
-  background: #fff7ed;
+  background: #fdf4e7;
   border: 1px solid #fde68a;
   border-radius: 6px;
   padding: 0.75rem;
   font-size: 0.875rem;
   line-height: 1.6;
-  color: #c47209;
+  color: #d17f08;
 }
 
 /* Send Section */
 .send-section {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #e8e4dc;
   padding-top: 1.5rem;
 }
 
@@ -513,7 +513,7 @@
 }
 
 .send-info {
-  background: #f8f9fa;
+  background: #faf9f7;
   border-radius: 6px;
   padding: 1rem;
   margin-bottom: 1.5rem;
@@ -526,7 +526,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.9rem;
-  color: #666;
+  color: #5c5c5c;
   margin: 0;
 }
 
@@ -560,7 +560,7 @@
 }
 
 .btn-send-workflow:disabled {
-  background: #d1d5db;
+  background: #d4cec3;
   cursor: not-allowed;
 }
 
@@ -608,7 +608,7 @@
   content: "✓";
   position: absolute;
   left: 0;
-  color: #047857;
+  color: #166534;
   font-weight: bold;
 }
 

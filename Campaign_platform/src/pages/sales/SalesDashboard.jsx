@@ -23,7 +23,7 @@ import { authFetch } from "../../utils/api"
 const styles = {
   page: {
     height: "100vh",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#faf9f7",
     padding: "16px",
     overflow: "hidden",
     display: "flex",
@@ -44,7 +44,7 @@ const styles = {
   },
   subtitle: {
     fontSize: "14px",
-    color: "#4b5563",
+    color: "#5c5c5c",
     marginTop: "2px"
   },
   controls: {
@@ -58,7 +58,7 @@ const styles = {
     gap: "6px",
     backgroundColor: "white",
     borderRadius: "6px",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     padding: "6px 10px"
   },
   dateInput: {
@@ -72,7 +72,7 @@ const styles = {
   select: {
     padding: "6px 12px",
     backgroundColor: "white",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     borderRadius: "6px",
     fontSize: "14px",
     color: "#475569",
@@ -83,7 +83,7 @@ const styles = {
     width: "80px",
     padding: "6px 10px",
     backgroundColor: "white",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     borderRadius: "6px",
     fontSize: "14px",
     color: "#475569",
@@ -123,12 +123,12 @@ const styles = {
   card: {
     backgroundColor: "white",
     borderRadius: "10px",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     boxShadow: "0 1px 2px rgba(0,0,0,0.04)"
   },
   cardHeader: {
     padding: "10px 14px",
-    borderBottom: "1px solid #f1f5f9",
+    borderBottom: "1px solid #f5f3ef",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between"
@@ -154,13 +154,13 @@ const styles = {
   kpiCard: {
     backgroundColor: "white",
     borderRadius: "8px",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #e8e4dc",
     padding: "12px"
   },
   kpiLabel: {
     fontSize: "14px",
     fontWeight: "500",
-    color: "#4b5563",
+    color: "#5c5c5c",
     margin: 0
   },
   kpiValue: {
@@ -171,13 +171,13 @@ const styles = {
   },
   kpiSubtitle: {
     fontSize: "14px",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
     marginTop: "2px"
   },
   kpiIcon: {
     padding: "8px",
     borderRadius: "6px",
-    backgroundColor: "#fff7ed"
+    backgroundColor: "#fdf4e7"
   },
   // Compact Funnel
   funnelStage: {
@@ -225,7 +225,7 @@ const styles = {
   velocityCard: {
     padding: "10px",
     borderRadius: "6px",
-    border: "1px solid #e2e8f0"
+    border: "1px solid #e8e4dc"
   },
   velocityName: {
     fontSize: "14px",
@@ -240,7 +240,7 @@ const styles = {
   },
   velocityTarget: {
     fontSize: "14px",
-    color: "#6b6b6b"
+    color: "#6f6f6f"
   },
   badge: {
     padding: "1px 6px",
@@ -271,7 +271,7 @@ const styles = {
   },
   agingAmount: {
     fontSize: "14px",
-    color: "#4b5563"
+    color: "#5c5c5c"
   },
   // Forecast
   forecastRow: {
@@ -286,7 +286,7 @@ const styles = {
   },
   forecastLabel: {
     fontSize: "14px",
-    color: "#4b5563",
+    color: "#5c5c5c",
     textTransform: "uppercase"
   },
   forecastValue: {
@@ -296,7 +296,7 @@ const styles = {
   },
   progressBar: {
     height: "8px",
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#f5f3ef",
     borderRadius: "4px",
     overflow: "hidden",
     marginBottom: "10px"
@@ -320,7 +320,7 @@ const styles = {
   footer: {
     textAlign: "center",
     fontSize: "14px",
-    color: "#6b6b6b",
+    color: "#6f6f6f",
     marginTop: "8px",
     flexShrink: 0
   }
@@ -331,13 +331,13 @@ const formatCurrency = (amount) => formatMoney(amount || 0, "USD")
 
 const formatPercent = (value) => `${(value || 0).toFixed(1)}%`
 
-const funnelColors = ["#e8890b", "#e8890b", "#8b5cf6", "#d946ef", "#22c55e"]
+const funnelColors = ["#e8910a", "#e8910a", "#8b5cf6", "#d946ef", "#22c55e"]
 
 // ============== COMPONENTS ==============
 
 function KPICard({ title, value, subtitle, icon: Icon, alert }) {
-  const alertBorder = alert === "critical" ? "2px solid #ef4444" : alert === "warning" ? "2px solid #fbbf24" : "1px solid #e2e8f0"
-  const iconBg = alert === "critical" ? "#fee2e2" : alert === "warning" ? "#fef3c7" : "#fff7ed"
+  const alertBorder = alert === "critical" ? "2px solid #dc2626" : alert === "warning" ? "2px solid #fbbf24" : "1px solid #e8e4dc"
+  const iconBg = alert === "critical" ? "#fee2e2" : alert === "warning" ? "#fef3c7" : "#fdf4e7"
   const iconColor = alert === "critical" ? "#dc2626" : alert === "warning" ? "#d97706" : "#ea580c"
 
   return (
@@ -368,7 +368,7 @@ function CompactFunnel({ funnel }) {
           <Target size={14} style={{ color: "#c2410c" }} />
           Sales Funnel
         </h3>
-        <span style={{ fontSize: "14px", color: "#4b5563" }}>
+        <span style={{ fontSize: "14px", color: "#5c5c5c" }}>
           E2E: <strong style={{ color: funnel.end_to_end_rate > 1 ? "#16a34a" : "#dc2626" }}>
             {formatPercent(funnel.end_to_end_rate)}
           </strong>
@@ -401,7 +401,7 @@ function CompactFunnel({ funnel }) {
                 <div style={styles.conversionArrow}>
                   <div style={{
                     ...styles.conversionBadge,
-                    backgroundColor: isWorst ? "#fee2e2" : "#f1f5f9",
+                    backgroundColor: isWorst ? "#fee2e2" : "#f5f3ef",
                     color: isWorst ? "#dc2626" : "#475569"
                   }}>
                     <ArrowDown size={10} />
@@ -474,7 +474,7 @@ function RFQAgingSection({ aging }) {
           <AlertTriangle size={14} style={{ color: "#c2410c" }} />
           RFQ Aging
         </h3>
-        <span style={{ fontSize: "14px", color: "#4b5563" }}>{totalCount} open</span>
+        <span style={{ fontSize: "14px", color: "#5c5c5c" }}>{totalCount} open</span>
       </div>
       <div style={styles.cardContent}>
         <div style={styles.agingGrid}>
@@ -483,7 +483,7 @@ function RFQAgingSection({ aging }) {
             return (
               <div key={idx} style={{
                 ...styles.agingCard,
-                backgroundColor: isRisk ? "#fee2e2" : "#f8fafc"
+                backgroundColor: isRisk ? "#fee2e2" : "#faf9f7"
               }}>
                 <div style={{ ...styles.agingLabel, color: isRisk ? "#dc2626" : "#475569" }}>
                   {bucket.bucket}d
@@ -531,11 +531,11 @@ function ForecastSection({ forecast }) {
           <div style={{
             ...styles.progressFill,
             width: `${progressPercent}%`,
-            backgroundColor: progressPercent >= 100 ? "#22c55e" : progressPercent >= 70 ? "#eab308" : "#ef4444"
+            backgroundColor: progressPercent >= 100 ? "#22c55e" : progressPercent >= 70 ? "#eab308" : "#dc2626"
           }} />
         </div>
         <div style={styles.forecastRow}>
-          <div style={{ ...styles.forecastCard, backgroundColor: "#f8fafc" }}>
+          <div style={{ ...styles.forecastCard, backgroundColor: "#faf9f7" }}>
             <div style={styles.forecastLabel}>Target</div>
             <div style={{ ...styles.forecastValue, color: "#1a1a1a" }}>{formatCurrency(forecast.target)}</div>
           </div>
@@ -543,9 +543,9 @@ function ForecastSection({ forecast }) {
             <div style={styles.forecastLabel}>Actual</div>
             <div style={{ ...styles.forecastValue, color: "#16a34a" }}>{formatCurrency(forecast.actual)}</div>
           </div>
-          <div style={{ ...styles.forecastCard, backgroundColor: "#fff7ed" }}>
+          <div style={{ ...styles.forecastCard, backgroundColor: "#fdf4e7" }}>
             <div style={styles.forecastLabel}>Forecast</div>
-            <div style={{ ...styles.forecastValue, color: "#a25e07" }}>{formatCurrency(forecast.forecast)}</div>
+            <div style={{ ...styles.forecastValue, color: "#a15f06" }}>{formatCurrency(forecast.forecast)}</div>
           </div>
           <div style={{ ...styles.forecastCard, backgroundColor: forecast.gap_to_target > 0 ? "#fee2e2" : "#dcfce7" }}>
             <div style={styles.forecastLabel}>Gap</div>
@@ -600,7 +600,7 @@ export default function SalesDashboard() {
       <div style={styles.page}>
         <div style={styles.loading}>
           <RefreshCw size={20} style={{ color: "#c2410c" }} />
-          <span style={{ marginLeft: "8px", color: "#4b5563", fontSize: "14px" }}>Loading…</span>
+          <span style={{ marginLeft: "8px", color: "#5c5c5c", fontSize: "14px" }}>Loading…</span>
         </div>
       </div>
     )
@@ -610,9 +610,9 @@ export default function SalesDashboard() {
     return (
       <div style={styles.page}>
         <div style={{ ...styles.card, ...styles.errorCard }}>
-          <XCircle size={40} style={{ color: "#ef4444", marginBottom: "12px" }} />
+          <XCircle size={40} style={{ color: "#dc2626", marginBottom: "12px" }} />
           <h3 style={{ color: "#1a1a1a", marginBottom: "8px", fontSize: "16px" }}>Failed to load</h3>
-          <p style={{ color: "#4b5563", marginBottom: "12px", fontSize: "14px" }}>{error}</p>
+          <p style={{ color: "#5c5c5c", marginBottom: "12px", fontSize: "14px" }}>{error}</p>
           <button style={styles.refreshBtn} onClick={fetchDashboard}>
             <RefreshCw size={14} /> Retry
           </button>
@@ -639,14 +639,14 @@ export default function SalesDashboard() {
         </div>
         <div style={styles.controls}>
           <div style={styles.dateContainer}>
-            <Calendar size={12} style={{ color: "#6b6b6b" }} />
+            <Calendar size={12} style={{ color: "#6f6f6f" }} />
             <input
               type="date"
               value={dateRange.start_date}
               onChange={(e) => setDateRange(prev => ({ ...prev, start_date: e.target.value }))}
               style={styles.dateInput}
             />
-            <span style={{ color: "#6b6b6b", fontSize: "14px" }}>to</span>
+            <span style={{ color: "#6f6f6f", fontSize: "14px" }}>to</span>
             <input
               type="date"
               value={dateRange.end_date}
