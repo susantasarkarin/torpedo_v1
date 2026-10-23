@@ -211,6 +211,14 @@ def _deliver(lead: Dict[str, Any], rendered: Dict[str, str], box: Dict[str, Opti
     signature = svc.get_signature(box["email"])
     if _auto_send():
         import html as _html
+        try:
+            from messaging import facade as _facade
+        except ImportError:  # pragma: no cover - packaging fallback
+            from backend.messaging import facade as _facade
+        blocked = _facade.gate((lead.get("email") or "").strip().lower(), identity=box["email"],
+                               channel="nurture", raw=lead.get("email"), subject=rendered["subject"])
+        if blocked:
+            return {"mode": "blocked", "error": f"{blocked[1]}: {blocked[0]}", "success": False}
         res = svc.send_email(from_email=box["email"], to=[lead["email"]],
                              subject=rendered["subject"],
                              body_html=_html.escape(rendered["body"]).replace("\n", "<br>"),

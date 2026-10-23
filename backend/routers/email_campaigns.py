@@ -54,7 +54,14 @@ def render_template(template_html: str, contact: dict, sender: dict) -> str:
 
 def send_email(to_email: str, subject: str, html_body: str) -> bool:
     """Send email via SMTP (or simulate if credentials not configured)"""
-    
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    if _facade.gate((to_email or "").strip().lower(), identity=os.getenv("SMTP_USER") or "legacy_smtp",
+                    channel="campaign", raw=to_email, subject=subject):
+        return False
+
     # Check if SMTP is configured
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = os.getenv("SMTP_PORT", "587")

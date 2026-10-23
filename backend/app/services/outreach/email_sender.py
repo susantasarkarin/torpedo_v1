@@ -66,6 +66,15 @@ class EmailSenderService:
 			if not to_email:
 				return SendEmailResult(success=False, provider="smtp", error="Missing recipient email")
 
+			try:
+				from messaging import facade as _facade
+			except ImportError:  # pragma: no cover - packaging fallback
+				from backend.messaging import facade as _facade
+			_blocked = _facade.gate(to_email.strip().lower(), identity=getattr(sender, "email", None) or "outreach_smtp",
+									channel="outreach", raw=to_email, subject=subject)
+			if _blocked:
+				return SendEmailResult(success=False, provider="smtp", error=f"{_blocked[1]}: {_blocked[0]}")
+
 			# ── Testing override (env-var controlled, defaults to OFF) ───────
 			_test_mode = os.getenv("OUTREACH_TEST_MODE", "false").lower() == "true"
 			_test_email = os.getenv("OUTREACH_TEST_EMAIL", "")

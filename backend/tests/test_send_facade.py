@@ -22,6 +22,13 @@ def _compliance_env(monkeypatch):
     monkeypatch.setenv("OUTREACH_SENDER_POSTAL_ADDRESS", "1 Test St, Kolkata")
     monkeypatch.setenv("OUTREACH_UNSUBSCRIBE_URL", "https://example.com/u")
     monkeypatch.setenv("SENDING_ENABLED", "true")
+    monkeypatch.delenv("MAIL_MODE", raising=False)
+    monkeypatch.delenv("MAIL_MODE_OUTREACH", raising=False)
+    # No Mongo in these tests: the outreach kill switch reads as "not paused"
+    # unless a test says otherwise, and side-effect writes are no-ops.
+    monkeypatch.setattr(facade, "outreach_paused", lambda: False)
+    monkeypatch.setattr(facade, "_audit_block", lambda **kw: None)
+    monkeypatch.setattr(facade, "_preview", lambda **kw: "preview-1")
 
 
 @pytest.fixture
@@ -138,6 +145,97 @@ def test_kill_switch_is_read_at_call_time(transport, monkeypatch):
     assert facade.sending_enabled() is False
     monkeypatch.setenv("SENDING_ENABLED", "true")
     assert facade.sending_enabled() is True
+
+
+# ------------------------------------------------------ outreach kill switch
+# torpedo.outreach_kill_switch used to be read only by cold_outreach_router;
+# every channel that mails leads now honours it through gate().
+@pytest.mark.parametrize("channel", ["outreach", "sales_outreach", "campaign", "nurture", "reengagement"])
+def test_outreach_kill_switch_blocks_every_lead_channel(transport, monkeypatch, channel):
+    monkeypatch.setattr(facade, "outreach_paused", lambda: True)
+    audited = []
+    monkeypatch.setattr(facade, "_audit_block", lambda **kw: audited.append(kw))
+    with patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport, channel=channel)
+
+    assert result.delivered is False
+    assert result.category == "disabled"   # callers HOLD on disabled, never retire the lead
+    transport.assert_not_called()
+    assert audited and audited[0]["channel"] == channel
+
+
+@pytest.mark.parametrize("channel,transactional", [("panel_invite", True), ("finance", True), ("panel_drip", True)])
+def test_outreach_kill_switch_does_not_stop_panel_or_transactional_mail(transport, monkeypatch, channel, transactional):
+    monkeypatch.setattr(facade, "outreach_paused", lambda: True)
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport, channel=channel, transactional=transactional)
+
+    assert result.delivered is True
+    transport.assert_called_once()
+
+
+def test_outreach_kill_switch_unreadable_counts_as_paused(monkeypatch):
+    monkeypatch.undo()  # drop the autouse stub so the real reader runs
+    with patch("database.get_database", side_effect=RuntimeError("mongo down")):
+        assert facade.outreach_paused() is True
+
+
+# ----------------------------------------------------------------- MAIL_MODE
+def test_mail_mode_defaults_to_live(monkeypatch):
+    assert facade.mail_mode("outreach") == "live"
+
+
+def test_mail_mode_channel_override_and_bad_value(monkeypatch):
+    monkeypatch.setenv("MAIL_MODE", "live")
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "shadow")
+    assert facade.mail_mode("outreach") == "shadow"
+    assert facade.mail_mode("panel_invite") == "live"
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "liev")      # typo fails safe
+    assert facade.mail_mode("outreach") == "sandbox"
+
+
+def test_sandbox_writes_preview_and_never_reaches_transport(transport, monkeypatch):
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "sandbox")
+    previews = []
+    monkeypatch.setattr(facade, "_preview", lambda **kw: previews.append(kw) or "preview-9")
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport)
+
+    assert result.delivered is False
+    assert result.category == "sandbox"
+    assert result.metadata["outbox_preview_id"] == "preview-9"
+    transport.assert_not_called()
+    assert len(previews) == 1 and previews[0]["body_text"] == "hi"
+
+
+def test_sandbox_still_applies_suppression_first(transport, monkeypatch):
+    """A suppressed address must never even appear in the preview outbox."""
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "sandbox")
+    previews = []
+    monkeypatch.setattr(facade, "_preview", lambda **kw: previews.append(kw))
+    with patch.object(facade._suppression, "is_suppressed", return_value=True), \
+         patch.object(facade._suppression, "reason_for", return_value="unsubscribed"), \
+         patch.object(facade._log, "record", return_value="log-1"):
+        result = _send(transport)
+
+    assert result.category == "suppressed"
+    assert previews == []
+
+
+def test_gate_only_callers_get_mode_category_and_a_preview(monkeypatch):
+    monkeypatch.setenv("MAIL_MODE_SALES_OUTREACH", "shadow")
+    previews = []
+    monkeypatch.setattr(facade, "_preview", lambda **kw: previews.append(kw))
+    with patch.object(facade._suppression, "is_suppressed", return_value=False), \
+         patch.object(facade._budget, "allows", return_value=None):
+        blocked = facade.gate("person@kantar.com", identity="sales_outreach",
+                              channel="sales_outreach", subject="s")
+    assert blocked[1] == "shadow"
+    assert previews and previews[0]["channel"] == "sales_outreach"
 
 
 # -------------------------------------------------------------- compliance

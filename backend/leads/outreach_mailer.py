@@ -548,6 +548,11 @@ def run(send: bool = False, bucket: Optional[str] = None,
             logger.warning("stopping: %s", result.reason)
             stats["cap_stopped"] += 1
             break
+        elif result.category in ("sandbox", "shadow"):
+            # MAIL_MODE: written to outbox_preview, nothing delivered.
+            stats.setdefault("previewed", 0)
+            stats["previewed"] += 1
+            continue
         elif result.category == "suppressed":
             stats.setdefault("suppressed", 0)
             stats["suppressed"] += 1

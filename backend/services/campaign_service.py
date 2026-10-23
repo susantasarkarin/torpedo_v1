@@ -72,6 +72,14 @@ def send_email_html_sync(to_email: str, subject: str, html_content: str) -> None
     Send a single HTML email via SMTP (blocking).
     Raises on misconfiguration or delivery failure.
     """
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    blocked = _facade.gate((to_email or "").strip().lower(), identity=SMTP_USER or "legacy_smtp",
+                           channel="campaign", raw=to_email, subject=subject)
+    if blocked:
+        raise _facade.SendBlocked(*blocked)
     if not SMTP_USER or not SMTP_PASSWORD:
         raise RuntimeError(
             "SMTP credentials not configured — set SMTP_USER and SMTP_PASSWORD env vars."

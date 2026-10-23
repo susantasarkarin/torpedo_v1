@@ -3372,9 +3372,15 @@ def send_email_html(to_email: str, subject: str, html_content: str) -> bool:
     Raises:
         Exception if SMTP is not configured or sending fails
     """
+    from messaging import facade as _facade
+    blocked = _facade.gate((to_email or "").strip().lower(), identity=SMTP_USER or "legacy_smtp",
+                           channel="campaign", raw=to_email, subject=subject)
+    if blocked:
+        raise _facade.SendBlocked(*blocked)
+
     if not SMTP_USER or not SMTP_PASSWORD:
         raise Exception("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
-    
+
     # Create the email message
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

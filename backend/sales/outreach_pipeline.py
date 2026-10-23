@@ -26,6 +26,11 @@ from typing import Dict, Any, List, Optional
 from celery_app import celery_app
 from db_pools import get_background_db
 
+try:
+    from messaging.facade import SendBlocked
+except ImportError:  # pragma: no cover - packaging fallback
+    from backend.messaging.facade import SendBlocked
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────
@@ -89,6 +94,20 @@ def _send_via_gmail(
     import base64
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
+
+    # Cold mail to a lead: it must obey the outreach kill switch, suppression
+    # and MAIL_MODE like every other outreach path (it read none of them
+    # before 2026-10-24).
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    blocked = _facade.gate((to_email or "").strip().lower(), identity="sales_outreach",
+                           channel="sales_outreach", raw=to_email, subject=subject)
+    if blocked:
+        reason, category = blocked
+        logger.info("sales_outreach send gated (%s) to=%s: %s", category, to_email, reason)
+        raise _facade.SendBlocked(reason, category)
 
     msg = MIMEMultipart("alternative")
     msg["To"] = to_email
@@ -309,6 +328,9 @@ def send_initial_outreach(self, lead_id: str) -> Dict[str, Any]:
         schedule_followups.delay(lead_id, gmail_thread_id, gmail_message_id, step=1)
         return {"status": "sent", "gmail_message_id": gmail_message_id}
 
+    except SendBlocked as e:
+        # Kill switch / suppression / MAIL_MODE: a decision, not a failure — never retry.
+        return {"status": "blocked", "category": e.category, "reason": e.reason}
     except Exception as e:
         logger.error(f"[Outreach] Send failed for {lead_id}: {e}")
         raise self.retry(exc=e, countdown=300)
@@ -500,6 +522,8 @@ def send_followup_email(
         schedule_followups.delay(lead_id, thread_id, gmail_message_id, step=step)
         return {"status": "sent", "step": step, "gmail_message_id": gmail_message_id}
 
+    except SendBlocked as e:
+        return {"status": "blocked", "step": step, "category": e.category, "reason": e.reason}
     except Exception as e:
         logger.error(f"[Followup] Step {step} failed for {lead_id}: {e}")
         raise self.retry(exc=e, countdown=300)

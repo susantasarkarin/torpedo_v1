@@ -2697,7 +2697,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 error=_reason,
                 metadata={"campaign_id": lead_record.get("campaign_id"),
                           "lead_id": lead_record.get("lead_id")})
-            if _category in ("config", "disabled"):
+            if _category in ("config", "disabled", "sandbox", "shadow"):
                 # A deployment problem (e.g. no postal address) or a global stop
                 # (SENDING_ENABLED=false), not a fact about this lead. Leave
                 # workflow_status alone so the lead stays selectable and sends

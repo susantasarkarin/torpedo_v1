@@ -88,6 +88,80 @@ def sending_enabled() -> bool:
         "0", "false", "no", "off")
 
 
+# Mail to leads/prospects. These obey the OUTREACH kill switch
+# (torpedo.outreach_kill_switch, the one cold_outreach_router already honours)
+# in addition to SENDING_ENABLED. Before 2026-10-24 only cold_outreach_router
+# read that document, so sales_outreach, nurture auto-send and campaign sends
+# could still mail leads while "outreach" was paused.
+OUTREACH_CHANNELS = frozenset({"outreach", "sales_outreach", "campaign", "nurture", "reengagement"})
+
+MAIL_MODES = ("sandbox", "shadow", "live")
+
+
+def outreach_paused() -> bool:
+    """True when torpedo.outreach_kill_switch says paused. Unreadable = paused (fail safe),
+    matching cold_outreach_router.process_due_outreach_sends."""
+    try:
+        try:
+            from database import get_database
+        except ImportError:
+            from ..database import get_database
+        doc = get_database("torpedo")["outreach_kill_switch"].find_one({"_id": "global"})
+    except Exception:
+        logger.exception("outreach kill switch unreadable; treating as paused")
+        return True
+    return (not doc) or bool(doc.get("paused", True))
+
+
+def mail_mode(channel: str) -> str:
+    """CRM plan 3.1: sandbox (write outbox_preview only) | shadow (drafts/preview only,
+    real classification upstream) | live. MAIL_MODE_<CHANNEL> overrides MAIL_MODE.
+    Unset = live, which is what every channel did before this existed; only the
+    owner switches a channel back to live once it has been set otherwise.
+    An unknown value fails safe to sandbox."""
+    raw = (os.getenv(f"MAIL_MODE_{channel.upper()}") or os.getenv("MAIL_MODE") or "live").strip().lower()
+    return raw if raw in MAIL_MODES else "sandbox"
+
+
+def _preview(*, addr: str, identity: str, channel: str, subject: Optional[str],
+             mode: str, body_text: Optional[str] = None, body_html: Optional[str] = None,
+             metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Write the would-be send to email_automation.outbox_preview. Best effort."""
+    try:
+        from datetime import datetime
+        try:
+            from database import get_database
+        except ImportError:
+            from ..database import get_database
+        res = get_database("email_automation")["outbox_preview"].insert_one({
+            "created_at": datetime.utcnow(), "mode": mode, "channel": channel,
+            "identity": identity, "to_email": addr, "subject": subject,
+            "body_text": body_text, "body_html": body_html, "metadata": metadata or {},
+        })
+        return str(res.inserted_id)
+    except Exception:
+        logger.exception("could not write outbox_preview for %s", addr)
+        return None
+
+
+def _audit_block(*, addr: str, identity: str, channel: str, reason: str, category: str) -> None:
+    """Record a refused automated send in crm_db.audit_log (CRM plan 3.1 audit log). Best effort."""
+    try:
+        from datetime import datetime
+        try:
+            from database import get_database
+        except ImportError:
+            from ..database import get_database
+        get_database("crm_db")["audit_log"].insert_one({
+            "timestamp": datetime.utcnow(), "user_id": "system", "action": "send",
+            "entity_type": "email", "entity_id": addr, "changes": None,
+            "metadata": {"blocked": True, "reason": reason, "category": category,
+                         "channel": channel, "identity": identity, "source": "messaging.facade.gate"},
+        })
+    except Exception:
+        logger.exception("could not audit-log blocked send to %s", addr)
+
+
 def _compliance_problem(transactional: bool) -> Optional[str]:
     """
     Bulk mail needs a working unsubscribe path. The rule lives here so it
@@ -112,7 +186,8 @@ def _compliance_problem(transactional: bool) -> Optional[str]:
 def gate(addr: str, *, identity: str, channel: str,
          transactional: bool = False, skip_suppression: bool = False,
          check_budget: bool = True, allow_free_webmail: bool = False,
-         raw: Optional[str] = None):
+         raw: Optional[str] = None, subject: Optional[str] = None,
+         preview: bool = True):
     """
     Run every pre-send check and return (reason, category) if the send must be
     refused, or None if it may proceed.
@@ -148,6 +223,11 @@ def gate(addr: str, *, identity: str, channel: str,
     if not sending_enabled():
         return ("SENDING_ENABLED=false (kill switch active)", "disabled")
 
+    if not transactional and channel in OUTREACH_CHANNELS and outreach_paused():
+        reason = "outreach kill switch paused (torpedo.outreach_kill_switch)"
+        _audit_block(addr=addr, identity=identity, channel=channel, reason=reason, category="disabled")
+        return (reason, "disabled")
+
     # "config", not "compliance": a missing setting says nothing about THIS
     # address, and callers must be able to tell the two apart. "compliance" is a
     # property of the lead (malformed, placeholder or free-webmail address) and
@@ -180,6 +260,14 @@ def gate(addr: str, *, identity: str, channel: str,
         blocked = _budget.allows(identity, transactional=transactional)
         if blocked:
             return (blocked, "budget")
+
+    # MAIL_MODE last: a sandboxed send must still have passed every real check,
+    # so the preview shows exactly what live mode would deliver.
+    mode = mail_mode(channel)
+    if mode != "live":
+        if preview:
+            _preview(addr=addr, identity=identity, channel=channel, subject=subject, mode=mode)
+        return (f"MAIL_MODE={mode} for channel {channel}: written to outbox_preview, not sent", mode)
 
     return None
 
@@ -240,8 +328,15 @@ def send(
 
     blocked_reason = gate(addr, identity=identity, transactional=transactional,
                           skip_suppression=skip_suppression, channel=channel,
-                          raw=to_email)
+                          raw=to_email, subject=subject, preview=False)
     if blocked_reason:
+        if blocked_reason[1] in ("sandbox", "shadow"):
+            pid = _preview(addr=addr, identity=identity, channel=channel, subject=subject,
+                           mode=blocked_reason[1], body_text=body_text, body_html=body_html,
+                           metadata=meta)
+            meta["outbox_preview_id"] = pid
+            return SendResult(delivered=False, reason=blocked_reason[0],
+                              category=blocked_reason[1], metadata=meta)
         return _blocked(*blocked_reason)
 
     # 3. Deliver.

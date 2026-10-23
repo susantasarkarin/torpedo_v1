@@ -177,6 +177,16 @@ Unsubscribe: {unsubscribe}
 def _send_one_drip(stage_key: str, to_email: str, first_name: str) -> Tuple[bool, Dict[str, Any]]:
     stage = STAGES[stage_key]
 
+    # Same shared checks as panel invitations (SENDING_ENABLED, unified
+    # suppression, MAIL_MODE). Drips went straight to the Gmail sender before
+    # 2026-10-24 and so ignored the process-wide kill switch.
+    from services.panel_email_service import _panel_gate
+    blocked = _panel_gate(to_email, "panel_drip")
+    if blocked:
+        reason, category = blocked
+        logger.info("[drip-%s] gated (%s) to=%s: %s", stage_key, category, to_email, reason)
+        return False, {"error": category, "message": reason}
+
     try:
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
