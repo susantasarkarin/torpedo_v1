@@ -82,7 +82,7 @@ def safe_redirect(url: str, cfg=DEFAULTS) -> Optional[str]:
     return None
 
 
-EVENT_TYPES = {"page_view", "time_on_page", "scroll", "cta_click", "form_start", "form_submit"}
+EVENT_TYPES = {"page_view", "time_on_page", "scroll", "cta_click", "form_start", "form_submit", "consent"}
 
 
 def clean_event(e: Dict[str, Any], *, visitor: str, ip: str, ua: str, now: datetime, cfg=DEFAULTS) -> Optional[Dict[str, Any]]:

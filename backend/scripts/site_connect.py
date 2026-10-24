@@ -129,6 +129,52 @@ def convert_page(html: str, *, origin: str, bu: str, thanks: str, mode: str, han
     return html, rep
 
 
+VM_IP = "139.59.32.72"
+DNS = {  # where each domain's DNS lives (nameservers checked 2026-10-24)
+    "business.surveyfieldwork.com": ("Hostinger hPanel → Domains → surveyfieldwork.com → DNS / Nameservers → DNS records",
+                                     "t.business", "Hostinger"),
+    "bimwavesolutions.com": ("Hostinger hPanel → Domains → bimwavesolutions.com → DNS / Nameservers → DNS records", "t", "Hostinger"),
+    "cogentixresearch.com": ("Cloudflare dashboard → cogentixresearch.com → DNS → Records", "t", "Cloudflare"),
+}
+
+
+def write_guide(changed_dir: str, domain: str, bu: str, report: dict) -> None:
+    where, name, provider = DNS.get(domain, ("your DNS provider", "t", "DNS"))
+    files = sorted(report["pages"])
+    changed = [p for p in files if report["pages"][p]["tracker_added"]]
+    proxy = ("<li><b>Proxy status: DNS only</b> (grey cloud). Orange-cloud would stop the certificate from being issued.</li>"
+             if provider == "Cloudflare" else "")
+    rows = "".join(f"<li><code>{html_lib.escape(p)}</code></li>" for p in changed)
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{domain}: connect to Torpedo</title>
+<style>body{{font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#111}}
+code{{background:#f2f2f2;padding:1px 4px;border-radius:3px}} h2{{margin-top:28px}} li{{margin:4px 0}}</style></head><body>
+<h1>{domain} ({bu}): connect to Torpedo</h1>
+<p>Three steps, about 15 minutes. Hosting does not move.</p>
+<h2>1. Add one DNS record</h2>
+<p>Where: {where}</p>
+<ul><li>Type: <b>A</b></li><li>Name / Host: <b>{name}</b></li><li>Points to / IPv4: <b>{VM_IP}</b></li><li>TTL: default</li>{proxy}</ul>
+<p>Torpedo checks every hour; within an hour of the record resolving, <code>https://t.{domain}/api/track/t.js</code>
+gets a certificate and starts working. Do step 2 after that URL opens in a browser.</p>
+<h2>2. Replace these files</h2>
+<p>Hostinger hPanel → Websites → {domain} → File Manager → <code>public_html</code>{"" if domain != "business.surveyfieldwork.com" else " (the folder of the business subdomain)"}.</p>
+<ol><li><b>Back up first:</b> select <code>public_html</code> → Compress → download the zip. That zip is your rollback.</li>
+<li>Upload <code>{domain}-changed-files.zip</code> into <code>public_html</code> → Extract → overwrite when asked.</li>
+<li>Delete the uploaded zip from <code>public_html</code>.</li></ol>
+<p>Files replaced ({len(changed)}):</p><ul>{rows}</ul>
+<p>No other file changes. Images, CSS and the site's own JavaScript stay as they are.</p>
+<h2>3. Check</h2>
+<ol><li>Open the site in a private window: the cookie banner appears at the bottom.</li>
+<li>Click <b>Accept</b>, then send a test enquiry from the contact page with your own email.</li>
+<li>In Torpedo, the enquiry appears in <b>Review Queue → Website enquiries</b> with a draft reply.</li></ol>
+<h2>Rollback</h2>
+<ol><li>File Manager → <code>public_html</code> → upload the backup zip from step 2.1 → Extract → overwrite.</li>
+<li>Optional: delete the <code>{name}</code> DNS record. Leaving it does no harm.</li></ol>
+<p>If Torpedo is ever down, the site keeps working: visitors still see the normal thank-you, and an enquiry is sent the next time they open a page.</p>
+</body></html>"""
+    with open(os.path.join(changed_dir, "..", f"{domain}-HOSTINGER-STEPS.html"), "w", encoding="utf-8") as fh:
+        fh.write(page)
+
+
 def run(src: str, out: str, domain: str, bu: str, origin: str = None):
     origin = origin or f"https://t.{domain}"
     site_dir, changed_dir = os.path.join(out, "site"), os.path.join(out, "changed")
@@ -154,6 +200,7 @@ def run(src: str, out: str, domain: str, bu: str, origin: str = None):
                 dst = os.path.join(changed_dir, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(p, dst)
+    write_guide(changed_dir, domain, bu, report)
     zpath = os.path.join(out, f"{domain}-changed-files.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for root, _, files in os.walk(changed_dir):
