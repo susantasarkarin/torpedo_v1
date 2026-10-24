@@ -91,6 +91,18 @@ def _draft(to: List[str], subject: str, body: str,
 def _send(to: List[str], subject: str, body_html: str, body_plain: str,
           attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Send (not draft) from the finance mailbox. Attachments: content as bytes."""
+    try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    # Transactional: exempt from the outreach kill switch and from an outreach
+    # unsubscribe, never from a complaint, a bounce or an explicit do-not-contact.
+    blocked = _facade.gate_recipients(to, identity=_from_mailbox(), channel="finance",
+                                      allow_suppressed_reasons=_facade.FINANCE_ALLOWED, subject=subject)
+    if blocked:
+        reason, category, addr = blocked
+        logger.info("finance send gated (%s) to=%s: %s", category, addr, reason)
+        return {"success": False, "error": f"{category}: {reason}", "blocked": True}
     from app.services.gmail_workspace_service import GmailWorkspaceService
     svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
                                 db_name="torpedo_gmail")

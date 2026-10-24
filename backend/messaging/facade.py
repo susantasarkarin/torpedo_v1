@@ -197,7 +197,7 @@ def gate(addr: str, *, identity: str, channel: str,
          transactional: bool = False, skip_suppression: bool = False,
          check_budget: bool = True, allow_free_webmail: bool = False,
          raw: Optional[str] = None, subject: Optional[str] = None,
-         preview: bool = True):
+         preview: bool = True, allow_suppressed_reasons: tuple = ()):
     """
     Run every pre-send check and return (reason, category) if the send must be
     refused, or None if it may proceed.
@@ -255,7 +255,13 @@ def gate(addr: str, *, identity: str, channel: str,
                        "only happen for unskippable mail", addr, channel)
     elif _suppression.is_suppressed(addr):
         reason = _suppression.reason_for(addr) or "unknown"
-        return (f"suppressed ({reason})", "suppressed")
+        # CRM plan 3.1: finance mail to active clients is exempt from OUTREACH
+        # DND (an unsubscribe from cold mail) but never from an explicit
+        # do-not-contact, a complaint or a hard bounce. Callers name the
+        # reasons they may pass; "unknown" is never passable (fails closed).
+        if reason not in allow_suppressed_reasons:
+            return (f"suppressed ({reason})", "suppressed")
+        logger.info("suppression reason %r allowed for %s on channel=%s", reason, addr, channel)
 
     # 2. Budget, across every channel using this identity.
     #
@@ -370,6 +376,55 @@ def send(
                          transactional=transactional, metadata=meta)
     return SendResult(delivered=True, provider_message_id=provider_id,
                       log_id=log_id, metadata=meta)
+
+
+# Suppression reasons each non-lead audience may pass (CRM plan 3.1).
+# "unsubscribed" is an opt-out from bulk/outreach mail; it must not stop an
+# invoice, a password reset, or a person's own 1:1 reply. Bounces, complaints
+# and manual do-not-contact still block.
+FINANCE_ALLOWED = ("unsubscribed",)
+ACCOUNT_MAIL_ALLOWED = ("unsubscribed",)
+MANUAL_ALLOWED = ("unsubscribed", "bounced", "ses_suppressed")
+
+
+def _flatten(*groups):
+    out = []
+    for g in groups:
+        if not g:
+            continue
+        if isinstance(g, str):
+            g = [p for p in g.replace(";", ",").split(",")]
+        out += [a.strip() for a in g if a and a.strip()]
+    return out
+
+
+def manual_compose_block(identity: str, to=None, cc=None, bcc=None, subject: Optional[str] = None) -> Optional[str]:
+    """For a person's own compose/reply screens: the error to show, or None to send.
+    Blocks only complaints, explicit do-not-contact and placeholder addresses;
+    a past bounce or an outreach unsubscribe does not stop a human 1:1 mail."""
+    blocked = gate_recipients(_flatten(to, cc, bcc), identity=identity or "manual", channel="manual",
+                              allow_suppressed_reasons=MANUAL_ALLOWED, subject=subject)
+    if blocked:
+        reason, category, addr = blocked
+        return f"Not sent: {addr} is blocked ({reason})."
+    return None
+
+
+def gate_recipients(addrs, *, identity: str, channel: str, allow_suppressed_reasons: tuple,
+                    subject: Optional[str] = None, check_budget: bool = False,
+                    allow_free_webmail: bool = True):
+    """gate() for every recipient of one message (to/cc/bcc). Returns None, or
+    (reason, category, address) for the first refused recipient. Transactional:
+    the bulk unsubscribe-URL rule does not apply and the outreach kill switch is
+    not consulted."""
+    for raw in [a for a in (addrs or []) if a]:
+        addr = _suppression.normalize(raw)
+        blocked = gate(addr, identity=identity, channel=channel, transactional=True,
+                       check_budget=check_budget, allow_free_webmail=allow_free_webmail,
+                       raw=raw, subject=subject, allow_suppressed_reasons=allow_suppressed_reasons)
+        if blocked:
+            return (blocked[0], blocked[1], addr)
+    return None
 
 
 def _build_message(*, to_email: str, subject: str, identity: str,

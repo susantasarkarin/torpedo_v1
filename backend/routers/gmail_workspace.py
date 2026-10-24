@@ -621,9 +621,15 @@ async def send_email(request: Request, send_request: SendEmailRequest):
                 raise HTTPException(status_code=400, detail="No mailboxes configured")
             from_email = mailboxes[0]["email"]
         
+        from messaging import facade as _facade
+        _why = _facade.manual_compose_block(from_email, send_request.to, send_request.cc,
+                                            getattr(send_request, "bcc", None), send_request.subject)
+        if _why:
+            raise HTTPException(status_code=403, detail=_why)
+
         # Build HTML body
         html_body = send_request.html_body or send_request.body.replace("\n", "<br>")
-        
+
         # Send email
         result = service.send_email(
             from_email=from_email,

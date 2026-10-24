@@ -68,3 +68,68 @@ def test_nurture_auto_send_is_gated(monkeypatch):
                                {"email": "in@surveyfieldwork.com", "thread_id": None})
     assert out["mode"] == "blocked" and out["success"] is False
     svc.send_email.assert_not_called()
+
+
+# ------------------------------------------- non-lead mail: transactional rules
+def _supp(reason):
+    return patch.multiple(facade._suppression, is_suppressed=MagicMock(return_value=True),
+                          reason_for=MagicMock(return_value=reason))
+
+
+@pytest.fixture
+def _no_side_effects(monkeypatch):
+    monkeypatch.setenv("SENDING_ENABLED", "true")
+    monkeypatch.setattr(facade, "outreach_paused", lambda: True)   # must not matter for these channels
+    monkeypatch.setattr(facade, "_audit_block", lambda **kw: None)
+    monkeypatch.setattr(facade, "_preview", lambda **kw: None)
+
+
+@pytest.mark.parametrize("reason,blocked", [("unsubscribed", False), ("bounced", True),
+                                            ("complaint", True), ("manual", True), ("unknown", True)])
+def test_finance_passes_outreach_unsubscribe_only(_no_side_effects, reason, blocked):
+    with _supp(reason):
+        out = facade.gate_recipients(["ap@hansaresearch.com"], identity="accounts@surveyfieldwork.com",
+                                     channel="finance", allow_suppressed_reasons=facade.FINANCE_ALLOWED)
+    assert (out is not None) is blocked
+
+
+@pytest.mark.parametrize("reason,blocked", [("unsubscribed", False), ("bounced", False),
+                                            ("complaint", True), ("manual", True)])
+def test_manual_compose_blocks_only_complaint_and_do_not_contact(_no_side_effects, reason, blocked):
+    with _supp(reason):
+        why = facade.manual_compose_block("in@surveyfieldwork.com", ["x@kantar.com"], None, None, "hi")
+    assert (why is not None) is blocked
+
+
+def test_manual_compose_checks_cc_and_bcc(_no_side_effects):
+    def is_supp(addr):
+        return addr == "dnc@kantar.com"
+    with patch.object(facade._suppression, "is_suppressed", side_effect=is_supp), \
+         patch.object(facade._suppression, "reason_for", return_value="manual"):
+        why = facade.manual_compose_block("in@surveyfieldwork.com", "ok@kantar.com", [], "dnc@kantar.com", "s")
+    assert why and "dnc@kantar.com" in why
+
+
+def test_finance_send_is_gated_before_gmail(_no_side_effects):
+    from app.services import finance_automation
+    with _supp("complaint"), patch("app.services.gmail_workspace_service.GmailWorkspaceService") as svc:
+        out = finance_automation._send(["ap@hansaresearch.com"], "Statement", "<p>x</p>", "x")
+    assert out["success"] is False and out["blocked"] is True
+    svc.assert_not_called()
+
+
+def test_panel_account_mail_is_gated_before_gmail(_no_side_effects):
+    from services import panel_transactional_email as pte
+    with _supp("complaint"), patch("services.panel_gmail_sender.send_message") as send:
+        ok, details = pte._send("member@gmail.com", "Reset your password", "<p>x</p>", "x", "reset")
+    assert ok is False and details["error"] == "suppressed"
+    send.assert_not_called()
+
+
+def test_panel_account_mail_ignores_marketing_unsubscribe(_no_side_effects):
+    from services import panel_transactional_email as pte
+    with _supp("unsubscribed"), patch("services.panel_gmail_sender.send_message",
+                                      return_value=(True, {"gmail_message_id": "g1"})) as send:
+        ok, _ = pte._send("member@gmail.com", "Reset your password", "<p>x</p>", "x", "reset")
+    assert ok is True
+    send.assert_called_once()

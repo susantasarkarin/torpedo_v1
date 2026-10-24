@@ -580,6 +580,11 @@ async def send_email(
     gmail: GmailService = Depends(get_gmail_service)
 ):
     """Send email via Gmail API"""
+    from messaging import facade as _facade
+    _why = _facade.manual_compose_block(str(request.mailbox_id), request.to, request.cc,
+                                        request.bcc, request.subject)
+    if _why:
+        raise HTTPException(403, _why)
     message_id = gmail.send_email(
         mailbox_id=request.mailbox_id,
         to=request.to,

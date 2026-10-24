@@ -133,6 +133,17 @@ def _cta(link: str, label: str) -> str:
 def _send(to_email: str, subject: str, html: str, plain: str, tag: str) -> Tuple[bool, Dict[str, Any]]:
     """Send one transactional message via SES."""
     try:
+        from messaging import facade as _facade
+    except ImportError:  # pragma: no cover - packaging fallback
+        from backend.messaging import facade as _facade
+    # Account mail (verification, password reset): a panel/marketing unsubscribe
+    # must not lock someone out of their account; bounces, complaints and
+    # explicit do-not-contact still block.
+    blocked = _facade.gate_recipients([to_email], identity="panel_account_mail", channel=f"panel_{tag}",
+                                      allow_suppressed_reasons=_facade.ACCOUNT_MAIL_ALLOWED, subject=subject)
+    if blocked:
+        return False, {"error": blocked[1], "message": blocked[0]}
+    try:
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
         msg["Subject"] = subject

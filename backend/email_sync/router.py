@@ -1182,6 +1182,12 @@ async def send_email(
         if not smtp_password:
             raise HTTPException(status_code=400, detail="SMTP password not configured for this account")
         
+        from messaging import facade as _facade
+        _why = _facade.manual_compose_block(request.account_email, request.to, getattr(request, "cc", None),
+                                            getattr(request, "bcc", None), request.subject)
+        if _why:
+            raise HTTPException(status_code=403, detail=_why)
+
         # Create the email message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = request.subject
@@ -1242,6 +1248,8 @@ async def send_email(
             "subject": request.subject
         }
         
+    except HTTPException:
+        raise
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP auth error: {e}")
         raise HTTPException(status_code=401, detail="SMTP authentication failed. Check credentials.")
