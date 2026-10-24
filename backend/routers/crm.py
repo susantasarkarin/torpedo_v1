@@ -55,6 +55,26 @@ def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/360/account/{account_id}")
+def account_360(account_id: str, category: Optional[str] = None, _user: str = Depends(require_read)):
+    """CRM plan 3.8: communication, RFQs, projects, quotations, invoices/payments with
+    balance, DND and BU for one account, on one page."""
+    from crm360.view import account_view
+    out = account_view(account_id, category)
+    if out is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    return out
+
+
+@router.get("/360/contact/{contact_id}")
+def contact_360(contact_id: str, category: Optional[str] = None, _user: str = Depends(require_read)):
+    from crm360.view import contact_view
+    out = contact_view(contact_id, category)
+    if out is None:
+        raise HTTPException(status_code=404, detail="contact not found")
+    return out
+
+
 @router.post("/rfq")
 def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
     """RFQ -> creates an Opportunity and a Project stub, cross-linked."""

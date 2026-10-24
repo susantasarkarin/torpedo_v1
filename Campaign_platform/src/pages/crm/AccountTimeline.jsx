@@ -5,6 +5,7 @@
  * logging, and the full activity timeline.
  */
 import { useEffect, useState, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
 import { streamBatches } from "../../hooks/useBatchedList";
 import {
   Building2, Search, Mail, Phone, FileText, CheckSquare, Clock, Save,
@@ -230,7 +231,10 @@ export default function AccountTimeline() {
               {/* ---- editable profile ---- */}
               <div style={{ borderBottom: "1px solid #f5f3ef", paddingBottom: "0.9rem", marginBottom: "1rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#1a1a1a" }}>{selected.name}</h2>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#1a1a1a" }}>
+                    {selected.name}{" "}
+                    <Link to={`/admin/crm/accounts/${selected._id}`} style={{ fontSize: "0.8rem", fontWeight: 500 }}>Open 360 view →</Link>
+                  </h2>
                   <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                     {notice && <span style={{ color: "#15803d", fontSize: "0.875rem" }}>{notice}</span>}
                     <button className="crm-btn crm-btn--primary" disabled={!dirty || busy} onClick={saveAccount}>
