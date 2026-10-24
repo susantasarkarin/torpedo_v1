@@ -1348,3 +1348,73 @@
     margin-top: 8px;
   }
 }
+
+/* ============== SALES > LEADS: RESIZABLE COLUMNS ============== */
+/* Widths come from <colgroup>; the shared per-column caps and nowrap above
+   would otherwise fight the dragged width. Content reflows to the column. */
+.classified-table.resizable-table {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+.classified-table.resizable-table th,
+.classified-table.resizable-table td {
+  max-width: none;
+  white-space: normal;
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.classified-table.resizable-table .resizable-th {
+  position: relative;
+  user-select: none;
+}
+
+.resizable-th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  right: 3px;
+  width: 2px;
+  height: 50%;
+  border-radius: 1px;
+  background: #d4cec3;
+}
+
+.col-resize-handle:hover::after,
+.col-resize-handle:active::after {
+  background: var(--primary, #e8910a);
+  top: 0;
+  height: 100%;
+}
+
+.resizable-table .cell-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resizable-table .clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

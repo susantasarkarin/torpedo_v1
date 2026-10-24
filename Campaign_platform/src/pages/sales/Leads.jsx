@@ -32,6 +32,73 @@ const LEAD_STATUS_STYLE = {
 
 const STATUS_OPTIONS = ["Positive", "Needs Human", "Neutral", "Negative"]
 
+// Basket E ("Nurture / Unqualified") is not an ICP segment — it is where a
+// lead sits until it qualifies — so it shows in Status instead. Only a
+// derived default: a status someone set by hand still wins.
+const ICP_BASKETS = ["A", "B", "C"]
+const NURTURE_STYLE = { bg: "#ecfdf5", color: "#047857", border: "#a7f3d0", icon: "🌱" }
+
+// Column widths are dragged by the handle on each header's right edge and
+// remembered per browser. Cell content wraps or clips to whatever width the
+// column has, so a wider column shows more of the email, reply and segment.
+const COLUMNS = [
+  { key: "lead", label: "Lead", width: 200 },
+  { key: "email", label: "Email", width: 220 },
+  { key: "company", label: "Company", width: 170 },
+  { key: "icp", label: "ICP Segment", width: 190 },
+  { key: "fit", label: "Fit Tier", width: 110 },
+  { key: "reply", label: "Reply / Nurture", width: 340 },
+  { key: "status", label: "Status", width: 170 },
+]
+const MIN_COL_WIDTH = 60
+const WIDTHS_KEY = "sales_leads_col_widths"
+
+function loadWidths() {
+  const defaults = Object.fromEntries(COLUMNS.map(c => [c.key, c.width]))
+  try {
+    const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) || "{}")
+    for (const c of COLUMNS) {
+      if (Number.isFinite(saved[c.key])) defaults[c.key] = Math.max(MIN_COL_WIDTH, saved[c.key])
+    }
+  } catch (_) {}
+  return defaults
+}
+
+function saveWidths(widths) {
+  try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(widths)) } catch (_) {}
+}
+
+function ResizableHeader({ col, width, onResize, onReset }) {
+  const startDrag = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = width
+    const move = (ev) => onResize(col.key, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX), false)
+    const up = (ev) => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      onResize(col.key, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX), true)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+  }
+  return (
+    <th className="resizable-th">
+      <span className="resizable-th-label">{col.label}</span>
+      <span
+        className="col-resize-handle"
+        onPointerDown={startDrag}
+        onDoubleClick={() => onReset(col.key)}
+        title="Drag to resize · double-click to reset"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`Resize ${col.label} column`}
+      />
+    </th>
+  )
+}
+
 const NURTURE_LABEL = {
   active: "Nurturing",
   paused_new_reply: "Paused — they replied",
@@ -49,16 +116,16 @@ function ReplyCell({ lead }) {
     ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
     : m ? `${m.last_subject || ""}\n\n${mailSummary}${m.triage?.reason ? `\n\nTriage: ${m.triage.reason}` : ""}` : ""
   return (
-    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, maxWidth: 420, whiteSpace: "normal" }} title={title}>
+    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, whiteSpace: "normal" }} title={title}>
       {t?.reply_text && (
-        <div style={{ color: "#4a4a4a" }}>
-          “{t.reply_text.replace(/\s+/g, " ").slice(0, 160)}”
+        <div className="clamp-3" style={{ color: "#4a4a4a" }}>
+          “{t.reply_text.replace(/\s+/g, " ").slice(0, 600)}”
         </div>
       )}
       {!t && m && (
         <>
-          <div style={{ color: "#4a4a4a" }}>
-            {mailSummary.replace(/\s+/g, " ").slice(0, 160) || m.last_subject}
+          <div className="clamp-3" style={{ color: "#4a4a4a" }}>
+            {mailSummary.replace(/\s+/g, " ").slice(0, 600) || m.last_subject}
           </div>
           <div style={{ color: "#5c5c5c" }}>
             Mail: {m.messages_in} in / {m.messages_out} out
@@ -78,8 +145,9 @@ function ReplyCell({ lead }) {
 
 function LeadStatusBadge({ lead, sessionId, onUpdated }) {
   const [saving, setSaving] = useState(false)
-  const current = lead.lead_status || "Neutral"
-  const s = LEAD_STATUS_STYLE[current] || LEAD_STATUS_STYLE.Neutral
+  const isNurture = !lead.lead_status && lead.classification_basket === "E"
+  const current = lead.lead_status || (isNurture ? "Nurture" : "Neutral")
+  const s = isNurture ? NURTURE_STYLE : (LEAD_STATUS_STYLE[current] || LEAD_STATUS_STYLE.Neutral)
 
   const handleChange = async (e) => {
     e.stopPropagation()
@@ -106,9 +174,10 @@ function LeadStatusBadge({ lead, sessionId, onUpdated }) {
         style={{
           padding: "2px 6px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 600,
           background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-          cursor: "pointer", appearance: "auto",
+          cursor: "pointer", appearance: "auto", maxWidth: "100%",
         }}
       >
+        {isNurture && <option value="Nurture" disabled>{NURTURE_STYLE.icon} Nurture</option>}
         {STATUS_OPTIONS.map(opt => (
           <option key={opt} value={opt}>{LEAD_STATUS_STYLE[opt].icon} {opt}</option>
         ))}
@@ -135,6 +204,18 @@ function Leads() {
   const [importingRfqs, setImportingRfqs] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [syncingReplies, setSyncingReplies] = useState(false)
+  const [colWidths, setColWidths] = useState(loadWidths)
+
+  const resizeColumn = (key, width, commit) => {
+    setColWidths(prev => {
+      const next = { ...prev, [key]: width }
+      if (commit) saveWidths(next)
+      return next
+    })
+  }
+  const resetColumn = (key) => {
+    resizeColumn(key, COLUMNS.find(c => c.key === key).width, true)
+  }
 
   const fetchLeads = useCallback(async () => {
     if (!sessionId) { navigate("/login"); return }
@@ -288,8 +369,6 @@ function Leads() {
           <option value="A">A — Survey Fieldwork</option>
           <option value="B">B — Cogentix Research</option>
           <option value="C">C — BIMwave</option>
-          <option value="D">D — Dual Fit</option>
-          <option value="E">E — Nurture</option>
         </select>
         <select
           value={fitTier}
@@ -321,6 +400,7 @@ function Leads() {
           <option value="Positive">✅ Positive</option>
           <option value="Needs Human">🙋 Needs Human</option>
           <option value="Neutral">⬜ Neutral</option>
+          <option value="Nurture">🌱 Nurture</option>
           <option value="Negative">🚫 Negative</option>
         </select>
       </div>
@@ -343,15 +423,24 @@ function Leads() {
             <p>No leads found matching your filters.</p>
           </div>
         ) : (
-          <table className="data-table classified-table compact-view">
+          <table
+            className="data-table classified-table compact-view resizable-table"
+            style={{ width: COLUMNS.reduce((sum, c) => sum + colWidths[c.key], 0) }}
+          >
+            <colgroup>
+              {COLUMNS.map(c => <col key={c.key} style={{ width: colWidths[c.key] }} />)}
+            </colgroup>
             <thead>
               <tr>
-                <th>Lead</th>
-                <th>Company</th>
-                <th>ICP Segment</th>
-                <th>Fit Tier</th>
-                <th style={{ minWidth: 320 }}>Reply / Nurture</th>
-                <th>Status</th>
+                {COLUMNS.map(c => (
+                  <ResizableHeader
+                    key={c.key}
+                    col={c}
+                    width={colWidths[c.key]}
+                    onResize={resizeColumn}
+                    onReset={resetColumn}
+                  />
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -361,39 +450,35 @@ function Leads() {
                   className="clickable-row"
                   onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
                 >
-                  {/* Lead: name, then title/seniority and email. Each line only
-                      renders when the field is filled — most Gmail-sourced
-                      leads have no title or seniority yet. */}
-                  <td className="name-cell" style={{ maxWidth: 280, whiteSpace: "normal" }}>
-                    <div className="name-link">{lead.name || lead.email || "—"}</div>
+                  {/* Lead: name, then title/seniority when filled — most
+                      Gmail-sourced leads have neither yet. */}
+                  <td className="name-cell">
+                    <div className="name-link cell-clip" title={lead.name || ""}>{lead.name || "—"}</div>
                     {(() => {
                       const seniority = lead.seniority_level && lead.seniority_level !== "Unknown" ? lead.seniority_level : null
                       const role = [lead.title, seniority].filter(Boolean).join(" · ")
-                      return role ? <div style={{ fontSize: "0.8rem", color: "#4a4a4a" }}>{role}</div> : null
+                      return role ? <div className="cell-clip" style={{ fontSize: "0.8rem", color: "#4a4a4a" }} title={role}>{role}</div> : null
                     })()}
-                    {lead.name && lead.email && (
-                      <div style={{ fontSize: "0.8rem", color: "#6f6f6f", overflow: "hidden", textOverflow: "ellipsis" }} title={lead.email}>
-                        {lead.email}
-                      </div>
-                    )}
+                  </td>
+                  <td className="email-cell">
+                    <div className="cell-clip" title={lead.email || ""}>{lead.email || "—"}</div>
                     {(lead.email_status || "").toLowerCase() === "bounced" && (
                       <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#b91c1c" }}>Email bounced</span>
                     )}
                   </td>
-                  <td style={{ maxWidth: 220, whiteSpace: "normal" }}>
-                    <div>{lead.company_name || "—"}</div>
+                  <td>
+                    <div className="cell-clip" title={lead.company_name || ""}>{lead.company_name || "—"}</div>
                     {lead.company_industry && (
-                      <div style={{ fontSize: "0.8rem", color: "#6f6f6f" }}>{lead.company_industry}</div>
+                      <div className="cell-clip" style={{ fontSize: "0.8rem", color: "#6f6f6f" }} title={lead.company_industry}>{lead.company_industry}</div>
                     )}
                   </td>
-                  {/* ICP Segment — the shared table CSS caps cells at 150px,
-                      which cut the segment name off mid-word. */}
-                  <td style={{ maxWidth: "none" }}>
-                    {lead.classification_basket ? (() => {
-                      const c = BASKET_COLORS[lead.classification_basket] || BASKET_COLORS.E
+                  {/* ICP Segment — A/B/C only; basket E shows as Nurture in Status. */}
+                  <td>
+                    {ICP_BASKETS.includes(lead.classification_basket) ? (() => {
+                      const c = BASKET_COLORS[lead.classification_basket]
                       const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || lead.classification_basket
                       return (
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`, whiteSpace: "nowrap" }}>
+                        <span className="cell-clip" title={`${lead.classification_basket} — ${bname}`} style={{ display: "inline-block", maxWidth: "100%", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
                           {lead.classification_basket} — {bname}
                         </span>
                       )
@@ -404,15 +489,15 @@ function Leads() {
                     {lead.fit_tier ? (() => {
                       const s = TIER_STYLE[lead.fit_tier] || TIER_STYLE[3]
                       return (
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+                        <span className="cell-clip" style={{ display: "inline-block", maxWidth: "100%", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
                           {s.icon} {lead.fit_tier_label || `Tier ${lead.fit_tier}`}
                         </span>
                       )
                     })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
                   </td>
-                  <td style={{ maxWidth: "none", whiteSpace: "normal" }}><ReplyCell lead={lead} /></td>
+                  <td><ReplyCell lead={lead} /></td>
                   {/* Lead Status */}
-                  <td style={{ maxWidth: "none" }} onClick={e => e.stopPropagation()}>
+                  <td onClick={e => e.stopPropagation()}>
                     <LeadStatusBadge
                       lead={lead}
                       sessionId={sessionId}

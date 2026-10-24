@@ -695,8 +695,19 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
             {"email": {"$regex": filters.search, "$options": "i"}},
         ]
 
+    # Match what the Sales > Leads badge shows: a lead nobody has set a status
+    # on reads as "Nurture" when it sits in basket E, otherwise "Neutral".
     if getattr(filters, "lead_status", None):
-        query["lead_status"] = filters.lead_status
+        unset = {"lead_status": {"$in": [None, ""]}}
+        if filters.lead_status == "Nurture":
+            query.setdefault("$and", []).extend([unset, {"classification_basket": "E"}])
+        elif filters.lead_status == "Neutral":
+            query.setdefault("$and", []).append({"$or": [
+                {"lead_status": "Neutral"},
+                {"$and": [unset, {"classification_basket": {"$ne": "E"}}]},
+            ]})
+        else:
+            query["lead_status"] = filters.lead_status
 
     total = leads_enriched_collection.count_documents(query)
     
