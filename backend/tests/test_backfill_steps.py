@@ -61,3 +61,8 @@ def test_estimates_archive_dry_run_writes_nothing():
     rep = steps.estimates_archive(_C(finance_db=fin, crm_db=crm), apply=False, now=datetime(2026, 10, 24))
     assert rep == {"linked_kept": 1, "archived": 1}
     assert not any(e.get("archived_backlog") for e in fin["estimates"].docs)
+
+
+def test_plausible_domain_rejects_sentence_domains():
+    assert steps.plausible_domain("unilever.com")
+    assert not steps.plausible_domain("unibailafterfirstjoiningthecompanywestfieldinaustraliain1999hewas.com")

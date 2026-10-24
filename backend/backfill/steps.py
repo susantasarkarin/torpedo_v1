@@ -72,6 +72,11 @@ def majority_domain(emails: List[str]) -> Optional[str]:
     return top if n * 2 > len(doms) else None
 
 
+def plausible_domain(d: str) -> bool:
+    label = d.split(".")[0]
+    return 2 <= len(label) <= 30 and not re.search(r"\d{5,}", label)
+
+
 def subject_bu(subject: str) -> Optional[str]:
     hits = {TAG_BU[m.upper()] for m in SUBJECT_TAG.findall(subject or "")}
     return hits.pop() if len(hits) == 1 else None
@@ -148,6 +153,8 @@ def account_domains(c, apply=False, now=None):
     emails = defaultdict(list)
     for ct in c.crm_db.contacts.find({"account_id": {"$nin": [None, ""]}, "email": {"$type": "string"}}, {"account_id": 1, "email": 1}):
         emails[str(ct["account_id"])].append(ct["email"])
+    from reengage.runner import domain_last_seen
+    mailed = set(domain_last_seen(c.torpedo_gmail.email_metadata))      # domains we actually exchanged mail with
     taken = defaultdict(set)
     for a in c.crm_db.accounts.find({"domain": {"$nin": [None, ""]}}, {"domain": 1}):
         taken[business_domain(a["domain"])].add(str(a["_id"]))
@@ -158,6 +165,9 @@ def account_domains(c, apply=False, now=None):
         d = majority_domain(emails.get(str(a["_id"]), []))
         if not d:
             rep["no_majority_domain"] += 1
+            continue
+        if not plausible_domain(d) or d not in mailed:
+            rep["domain_never_mailed_or_implausible"] += 1      # guessed contact emails, not evidence
             continue
         if taken.get(d):
             rep["domain_already_on_another_account"] += 1      # duplicate account: entity_link review
