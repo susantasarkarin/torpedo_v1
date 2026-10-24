@@ -2322,6 +2322,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Ops daily run scheduled (12:30 UTC / 18:00 IST, mode from config ops.mode)")
 
+            def _vendor_bids_job():
+                try:
+                    from vendors.runner import run
+                    run()
+                except Exception as e:
+                    print(f"[Vendors] Error: {e}")
+
+            scheduler.add_job(_vendor_bids_job, IntervalTrigger(minutes=15),
+                              id="vendor_bids", name="Vendor bids: follow-up, no_bid, parse replies (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Vendor bid run scheduled (every 15 min, mode from config vendors.mode)")
+
             def _reengagement_job():
                 try:
                     from app.services.reengagement import run
