@@ -1,5 +1,5 @@
-import { Suspense, lazy } from "react"
-import { Routes, Route, Navigate } from "react-router-dom"
+import { Component, Suspense, lazy as reactLazy } from "react"
+import { Routes, Route, Navigate, useLocation } from "react-router-dom"
 
 import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
@@ -155,12 +155,72 @@ const NotFound = lazy(() => import("./pages/NotFound"))
 const MarketingWebsites = lazy(() => import("./pages/marketing/MarketingWebsites"))
 const MarketingMedia = lazy(() => import("./pages/marketing/MarketingMedia"))
 
-// Wrapper for lazy loaded pages with consistent loading state
-const LazyPage = ({ children }) => (
-  <Suspense fallback={<PageLoading />}>
-    {children}
-  </Suspense>
-)
+// Wrapper for lazy loaded pages with consistent loading state. The error
+// boundary keeps the shell (sidebar, top bar) when a page fails, and resets
+// when you navigate away.
+const LazyPage = ({ children }) => {
+  const location = useLocation()
+  return (
+    <PageErrorBoundary key={location.pathname}>
+      <Suspense fallback={<PageLoading />}>
+        {children}
+      </Suspense>
+    </PageErrorBoundary>
+  )
+}
+
+class PageErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Page crashed:", error, info?.componentStack)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div role="alert" style={{ padding: 32, maxWidth: 560 }}>
+        <h2 style={{ marginBottom: 8 }}>This page could not be shown</h2>
+        <p style={{ color: "#5c5c5c", marginBottom: 16 }}>
+          {String(this.state.error?.message || this.state.error)}
+        </p>
+        <button className="btn btn-primary" onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    )
+  }
+}
+
+// A tab opened before a deploy still runs the old bundle and asks for page
+// chunks the new build no longer has; the import fails and the page used to
+// go blank. Reload once to pick up the new build; if it still fails, the
+// error reaches PageErrorBoundary.
+function lazy(factory) {
+  return reactLazy(() =>
+    factory().then(
+      (module) => {
+        try { sessionStorage.removeItem("chunk-reload") } catch (_) {}
+        return module
+      },
+      (error) => {
+        let reloaded = false
+        try { reloaded = sessionStorage.getItem("chunk-reload") === "1" } catch (_) {}
+        if (!reloaded) {
+          try { sessionStorage.setItem("chunk-reload", "1") } catch (_) {}
+          window.location.reload()
+          return new Promise(() => {})
+        }
+        throw error
+      },
+    ),
+  )
+}
 
 function App() {
   return (
