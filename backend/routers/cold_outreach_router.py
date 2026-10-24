@@ -42,7 +42,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cold-outreach", tags=["Cold Outreach"])
 
-SEQUENCE_STEPS = [0, 3, 6, 11]   # Day offsets: Day 1, 4, 7, 12 (0-indexed)
+SEQUENCE_STEPS = [0, 3, 6, 11]   # legacy default; live offsets come from _sequence_offsets()
+
+
+def _sequence_offsets(campaign: Optional[dict] = None) -> List[int]:
+    """Day offsets per step (CRM plan 3.2.5: cold mail + follow-ups at day
+    3, 7, 12, 18, 25), from config deliverability.sequence_day_offsets. A
+    campaign only runs as many steps as it has template copy, so steps 5-6
+    start once their (client-facing) copy is written."""
+    try:
+        from messaging import deliverability as _dlv
+        offsets = [int(x) for x in _dlv.load_config().get("sequence_day_offsets") or SEQUENCE_STEPS]
+        if not offsets or any(o < 0 for o in offsets):
+            offsets = list(SEQUENCE_STEPS)
+    except Exception:
+        offsets = list(SEQUENCE_STEPS)
+    if campaign is not None:
+        templated = sum(1 for st in (campaign.get("steps") or [])
+                        if (st.get("subject") or st.get("body_html") or st.get("body_text")))
+        if templated:
+            offsets = offsets[:templated]
+    return offsets
 DUAL_FIT_GAP_DAYS = 21           # Gap between sequences for Dual Fit leads
 SEQUENCE_DURATION_DAYS = 12      # Last step offset â†’ total sequence window
 
@@ -326,7 +346,7 @@ def create_campaign(req: CreateCampaignRequest):
     basket = BUSINESS_BASKET[req.business]
     campaign_id = str(uuid.uuid4())
     default_steps = []
-    for i, day_offset in enumerate(SEQUENCE_STEPS):
+    for i, day_offset in enumerate(_sequence_offsets()):
         default_steps.append({
             "step_number": i + 1,
             "day_offset": day_offset,
@@ -800,7 +820,8 @@ def campaign_stats(campaign_id: str):
     step_stats = []
     for row in sends.aggregate(step_pipeline):
         step_num = row.pop("_id")
-        day_offset = SEQUENCE_STEPS[step_num] if step_num < len(SEQUENCE_STEPS) else step_num
+        _offs = _sequence_offsets()
+        day_offset = _offs[step_num] if step_num < len(_offs) else step_num
         row["step_number"] = step_num + 1
         row["day_offset"] = day_offset
         row["open_rate"] = round(row["opened"] / max(row["sent"], 1) * 100, 1)
@@ -2562,7 +2583,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         next_step_number = steps_sent + 1  # 1-indexed
 
         # Check that this step exists in the sequence (we have 4 steps: 1–4)
-        if next_step_number > len(SEQUENCE_STEPS):
+        _offsets = _sequence_offsets(campaign)
+        if next_step_number > len(_offsets):
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"workflow_status": "completed", "updated_at": datetime.utcnow()}}
@@ -3150,9 +3172,9 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         except Exception as _ps_err:
             logger.debug(f"[PatternFeedback] send_success hook failed: {_ps_err}")
 
-        # Advance workflow: compute next send date from SEQUENCE_STEPS offsets
-        if next_step_number < len(SEQUENCE_STEPS):
-            days_to_next = SEQUENCE_STEPS[next_step_number] - SEQUENCE_STEPS[next_step_number - 1]
+        # Advance workflow: compute next send date from the configured offsets
+        if next_step_number < len(_offsets):
+            days_to_next = _offsets[next_step_number] - _offsets[next_step_number - 1]
             next_send_at = now + timedelta(days=max(days_to_next, 1))
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},

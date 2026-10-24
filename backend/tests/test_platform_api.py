@@ -34,3 +34,16 @@ def test_resolve_passes_the_user_as_actor(monkeypatch):
     monkeypatch.setattr(review_queue, "resolve", lambda i, a, actor, **k: seen.update(actor=actor, action=a) or {"ok": True})
     r = _client(monkeypatch).post("/api/platform/review-queue/abc/approve", json={})
     assert r.status_code == 200 and seen == {"actor": "owner", "action": "approve"}
+
+
+def test_lead_export_builds_a_spreadsheet_with_header_and_rows():
+    from datetime import datetime
+    from openpyxl import load_workbook
+    import io
+    from routers.lead_export import build_workbook, COLUMNS
+    data = build_workbook([{"name": "Asha", "company_name": "Acme", "outreach_bucket": "SFW",
+                            "created_at": datetime(2026, 10, 1), "outreach_bucket_confidence": 0.9}])
+    ws = load_workbook(io.BytesIO(data)).active
+    rows = list(ws.values)
+    assert rows[0][0] == "Name" and len(rows[0]) == len(COLUMNS)
+    assert rows[1][0] == "Asha" and rows[1][2] == "Acme" and "SFW" in rows[1]

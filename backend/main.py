@@ -1344,6 +1344,9 @@ try:
     from routers import platform_api as platform_api_router
     app.include_router(platform_api_router.router)
     print("✅ Platform router included")
+    from routers import lead_export as lead_export_router
+    app.include_router(lead_export_router.router)
+    print("✅ Lead export router included")
 except Exception as e:
     raise RuntimeError(
         f"Router mount failed: Platform router. Refusing to start a partially "

@@ -177,12 +177,22 @@ def check_exclusion(lead: Dict[str, Any]) -> Optional[str]:
 # ============================================================
 
 def _bucket_briefing() -> str:
+    """BU descriptions for the prompt. CRM plan "config, not code": the
+    config store (section "bu", editable in the UI) wins over the defaults
+    in leads/outreach_config.py."""
+    try:
+        from platform_core import config_store
+        overrides = config_store.get("bu").get("descriptions") or {}
+    except Exception:
+        overrides = {}
+    key_map = {"SFW": "SFW", "COGENTIX_RESEARCH": "COGENTIX", "BIM": "BIM"}
     lines = []
     for key, cfg in BUCKETS.items():
+        o = overrides.get(key_map.get(key, key)) or {}
         lines.append(
-            f'- "{key}" ({cfg["label"]})\n'
-            f'    What we sell: {cfg["description"]}\n'
-            f'    Ideal buyer:  {cfg["ideal_buyer"]}'
+            f'- "{key}" ({o.get("label") or cfg["label"]})\n'
+            f'    What we sell: {o.get("what_we_sell") or cfg["description"]}\n'
+            f'    Ideal buyer:  {o.get("ideal_buyer") or cfg["ideal_buyer"]}'
         )
     return "\n".join(lines)
 
@@ -374,6 +384,62 @@ def rule_bucket(lead: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "method": "rules"}
 
 
+_WEBMAIL = {"gmail.com", "yahoo.com", "yahoo.co.in", "outlook.com", "hotmail.com", "live.com", "icloud.com",
+            "rediffmail.com", "aol.com", "protonmail.com"}
+_BU_TO_BUCKET = {"SFW": "SFW", "COGENTIX": "COGENTIX_RESEARCH", "BIM": "BIM"}
+MODEL_METHODS = ("cheap", "smart_escalation")
+
+
+def company_domain(lead: Dict[str, Any]) -> Optional[str]:
+    """Registrable company domain of a lead (website first, else work email)."""
+    import re as _re
+    for v in (lead.get("company_domain"), lead.get("company_website"), lead.get("website"), lead.get("email")):
+        if not v or not isinstance(v, str):
+            continue
+        v = v.strip().lower()
+        v = v.rsplit("@", 1)[1] if "@" in v else _re.sub(r"^[a-z]+://", "", v).split("/")[0]
+        v = _re.sub(r"^www\d?\.", "", v).strip(".")
+        parts = v.split(".")
+        if len(parts) < 2 or v in _WEBMAIL:
+            continue
+        if len(parts) >= 3 and parts[-2] in {"co", "com", "org", "net", "ac", "gov"} and len(parts[-1]) == 2:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
+    return None
+
+
+def company_bucket(lead: Dict[str, Any], threshold: float = CONFIDENCE_THRESHOLD,
+                   accounts=None, raw=None) -> Optional[Dict[str, Any]]:
+    """The bucket the company already has, if any:
+    1. a live CRM account on this domain with a `bu` (it keeps its BU)
+    2. another lead at this domain the model bucketed at >= threshold."""
+    dom = company_domain(lead)
+    if not dom:
+        return None
+    try:
+        if accounts is None:
+            from database import get_database
+            accounts = get_database("crm_db")["accounts"]
+        acc = accounts.find_one({"$or": [{"domain": dom}, {"root_domain": dom}],
+                                 "status": {"$nin": ["deleted", "merged"]}, "bu": {"$in": list(_BU_TO_BUCKET)}},
+                                {"bu": 1, "name": 1})
+        if acc:
+            return {"bucket": _BU_TO_BUCKET[acc["bu"]], "confidence": 1.0, "method": "account_bu",
+                    "reason": f"company already an account ({acc.get('name') or dom}) with BU {acc['bu']}"}
+        col = raw if raw is not None else leads_raw
+        prev = col.find_one({"company_domain": dom, "_id": {"$ne": lead.get("_id")},
+                             "outreach_bucket": {"$in": list(VALID_BUCKETS)},
+                             "outreach_bucket_method": {"$in": list(MODEL_METHODS) + ["company_reuse"]},
+                             "outreach_bucket_confidence": {"$gte": threshold}},
+                            {"outreach_bucket": 1, "outreach_bucket_confidence": 1})
+        if prev:
+            return {"bucket": prev["outreach_bucket"], "confidence": float(prev["outreach_bucket_confidence"]),
+                    "method": "company_reuse", "reason": f"company {dom} already bucketed (lead {prev['_id']})"}
+    except Exception:
+        logger.warning("company bucket lookup failed for %s", dom, exc_info=True)
+    return None
+
+
 def classify_lead(lead: Dict[str, Any],
                   threshold: float = CONFIDENCE_THRESHOLD) -> Dict[str, Any]:
     """
@@ -395,6 +461,15 @@ def classify_lead(lead: Dict[str, Any],
     if ruled:
         logger.info("lead=%s bucket=%s method=rules reason=%s", lead_id, ruled["bucket"], ruled["reason"])
         return ruled
+
+    # --- Step 1b': the company is already decided (CRM plan 3.2.2-3.2.3) --
+    # A company already in Accounts keeps its BU; a company another lead was
+    # already bucketed for reuses that bucket. Person-level exclusions above
+    # still apply first. Only companies with no decision reach the model.
+    known = company_bucket(lead, threshold)
+    if known:
+        logger.info("lead=%s bucket=%s method=%s", lead_id, known["bucket"], known["method"])
+        return known
 
     # --- Step 1c: model switched off -> a person decides ----------------
     if not MODEL_CLASSIFICATION_ENABLED:

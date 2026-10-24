@@ -93,3 +93,11 @@ def test_monitor_pauses_breaching_mailbox_and_records_null_complaints(monkeypatc
     assert doc["complaint_rate"] is None
     assert doc["domains"]["surveyfieldwork.com"]["all_pass"] is False
     assert inserted
+
+
+def test_sequence_offsets_follow_config_and_stop_at_templated_steps(monkeypatch):
+    import routers.cold_outreach_router as r
+    monkeypatch.setattr(d, "load_config", lambda db=None: dict(d.DEFAULTS))
+    assert r._sequence_offsets() == [0, 3, 7, 12, 18, 25]
+    camp = {"steps": [{"subject": "a"}, {"subject": "b"}, {"body_html": "c"}, {"body_text": "d"}, {"subject": ""}]}
+    assert r._sequence_offsets(camp) == [0, 3, 7, 12]        # steps 5-6 wait for their copy
