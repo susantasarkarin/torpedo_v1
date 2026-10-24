@@ -1347,6 +1347,9 @@ try:
     from routers import lead_export as lead_export_router
     app.include_router(lead_export_router.router)
     print("✅ Lead export router included")
+    from routers import service_delivery as service_delivery_router
+    app.include_router(service_delivery_router.router)
+    print("✅ Service Delivery router included")
 except Exception as e:
     raise RuntimeError(
         f"Router mount failed: Platform router. Refusing to start a partially "
@@ -2333,6 +2336,30 @@ async def startup_event():
                               id="vendor_bids", name="Vendor bids: follow-up, no_bid, parse replies (shadow by default)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Vendor bid run scheduled (every 15 min, mode from config vendors.mode)")
+
+            def _reengagement_nightly_job():
+                try:
+                    from reengage.runner import run
+                    run()
+                except Exception as e:
+                    print(f"[Reengagement] Error: {e}")
+
+            scheduler.add_job(_reengagement_nightly_job, CronTrigger(hour=20, minute=30),  # 02:00 IST
+                              id="reengagement_nightly", name="Accounts: engagement status + dormant sequence (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Re-engagement nightly scheduled (20:30 UTC / 02:00 IST)")
+
+            def _service_delivery_job():
+                try:
+                    from service_delivery.runner import run
+                    run()
+                except Exception as e:
+                    print(f"[ServiceDelivery] Error: {e}")
+
+            scheduler.add_job(_service_delivery_job, CronTrigger(hour=3, minute=30),  # 09:00 IST
+                              id="service_delivery_daily", name="Service Delivery: milestone + review reminders (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Service Delivery reminders scheduled (03:30 UTC / 09:00 IST)")
 
             def _reengagement_job():
                 try:
