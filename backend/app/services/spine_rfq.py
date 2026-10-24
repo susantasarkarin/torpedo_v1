@@ -261,15 +261,31 @@ def attach_lead_records(rfqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     (mail, summary, lead information) is keyed by the leads_enriched record —
     linking the spine contact id there is what produced the error page.
     """
+    ea = crm_service._col("opportunities").database.client["email_automation"]
     emails = {(r.get("contact_email") or "").strip().lower() for r in rfqs} - {""}
-    if not emails:
-        return rfqs
-    leads = crm_service._col("opportunities").database.client["email_automation"]["leads_enriched"]
     ids = {}
-    for d in leads.find({"email": {"$in": list(emails)}}, {"email": 1}):
-        ids.setdefault((d.get("email") or "").lower(), str(d["_id"]))
+    if emails:
+        for d in ea["leads_enriched"].find({"email": {"$in": list(emails)}}, {"email": 1}):
+            ids.setdefault((d.get("email") or "").lower(), str(d["_id"]))
     for r in rfqs:
         r["lead_record_id"] = ids.get((r.get("contact_email") or "").strip().lower())
+
+    # Most RFQs rebuilt from invoices carry only a company name — no contact,
+    # no linked account. Resolve the name to the Accounts page's own record
+    # (case-insensitive exact match) so the name still opens something.
+    names = {r["account_name"] for r in rfqs
+             if not r.get("account_id") and not r["lead_record_id"] and r.get("account_name")}
+    by_name = {}
+    if names:
+        for a in ea["sales_accounts"].find(
+                {"$or": [{"account_name": {"$in": list(names)}}, {"company_name": {"$in": list(names)}}]},
+                {"account_name": 1, "company_name": 1},
+                collation={"locale": "en", "strength": 2}):
+            for n in (a.get("account_name"), a.get("company_name")):
+                if n:
+                    by_name.setdefault(n.lower(), str(a["_id"]))
+    for r in rfqs:
+        r["account_link_id"] = r.get("account_id") or by_name.get((r.get("account_name") or "").lower())
     return rfqs
 
 

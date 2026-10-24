@@ -16,7 +16,7 @@ import { authFetch } from "../../utils/api"
 // (the old target) is not a route, so every click ended on the error page.
 function personHref(rfq) {
   if (rfq.lead_record_id) return `/admin/sales/campaign/ai-leads/${rfq.lead_record_id}`
-  if (rfq.account_id) return `/admin/sales/account?account=${rfq.account_id}`
+  if (rfq.account_link_id) return `/admin/sales/account?account=${rfq.account_link_id}`
   return null
 }
 
@@ -758,7 +758,7 @@ function RFQ() {
                     <td>
                       {rfq.account_name ? (
                         <Link
-                          to={rfq.account_id ? `/admin/sales/account?account=${rfq.account_id}` : "/admin/sales/account"}
+                          to={rfq.account_link_id ? `/admin/sales/account?account=${rfq.account_link_id}` : "/admin/sales/account"}
                           className="lead-link"
                           onClick={(e) => e.stopPropagation()}
                         >
