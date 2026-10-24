@@ -19,6 +19,12 @@ const MODULE_LABEL = {
   pricing: "Pricing",
   finance: "Finance",
   deliverability: "Deliverability",
+  web: "Website enquiries",
+  ops: "Operations",
+  vendors: "Vendors",
+  service_delivery: "Service Delivery",
+  reengagement: "Re-engagement",
+  mail_pipeline: "Inbound mail",
 }
 
 function age(iso) {

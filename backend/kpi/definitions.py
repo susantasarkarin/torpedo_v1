@@ -38,6 +38,10 @@ _K = [
     ("inbox_placement", "deliverability", "Inbox placement %", "Seed test (needs seed inboxes)", [], True, "%", None),
     # 3 Website
     ("visitors", "web", "Visitors", "Distinct visitor cookies in the period", ["email_automation.web_events"], True, "count", "visitors"),
+    ("visitors_by_site", "web", "Visitors by site", "Distinct visitors per company site", ["email_automation.web_events"], True, "count", "visitors_by_site"),
+    ("form_leads_by_site", "web", "Website enquiries by site", "Form submissions captured as leads, per site",
+     ["crm_db.leads"], True, "count", "form_leads_by_site"),
+    ("sites_silent", "web", "Sites not sending data", "Installed sites with no tracker data in 24 h", ["email_automation.web_site_checks"], False, "count", "sites_silent"),
     ("identified_pct", "web", "Identified visitors %", "Visitors tied to a contact", ["email_automation.web_visitors"], True, "%", "identified_pct"),
     # 4 Replies
     ("inbound_processed", "replies", "Inbound mails processed", "Mail pipeline decisions in the period",

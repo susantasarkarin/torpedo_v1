@@ -165,6 +165,32 @@ def visitors(gd, since, until, bu):
     return len(gd("email_automation")["web_events"].distinct("visitor_id", q))
 
 
+def visitors_by_site(gd, since, until, bu):
+    out = {}
+    for r in gd("email_automation")["web_events"].aggregate([
+            {"$match": {"at": {"$gte": since, "$lt": until}, **({"bu": bu} if bu else {})}},
+            {"$group": {"_id": {"h": "$host", "v": "$visitor_id"}}},
+            {"$group": {"_id": "$_id.h", "n": {"$sum": 1}}}]):
+        out[r["_id"] or "?"] = r["n"]
+    return out
+
+
+def form_leads_by_site(gd, since, until, bu):
+    out = {}
+    for r in gd("crm_db")["leads"].aggregate([
+            {"$match": {"web_submissions.at": {"$gte": since, "$lt": until}, **({"bus": bu} if bu else {})}},
+            {"$unwind": "$web_submissions"},
+            {"$match": {"web_submissions.at": {"$gte": since, "$lt": until}}},
+            {"$group": {"_id": "$web_submissions.site", "n": {"$sum": 1}}}]):
+        out[r["_id"] or "?"] = r["n"]
+    return out
+
+
+def sites_silent(gd, since, until, bu):
+    chk = gd("email_automation")["web_site_checks"].find_one({}, sort=[("at", -1)])
+    return sum(1 for s in (chk or {}).get("sites", []) if s["status"] == "silent" and (not bu or s["bu"] == bu)) if chk else None
+
+
 def identified_pct(gd, since, until, bu):
     v = gd("email_automation")["web_visitors"]
     n = v.count_documents({"last_seen": {"$gte": since, "$lt": until}})
@@ -341,6 +367,11 @@ def needs_attention(gd, now: Optional[datetime] = None, cfg: Optional[Dict[str, 
     for j in gd("torpedo_settings")["job_runs"].find({"status": {"$in": ["error", "missed"]}}):
         add("system", f"Scheduled job {j['_id']}: {j['status']} {j.get('last_error') or ''}".strip(), None,
             j.get("last_run_at") or j.get("last_missed_at"), None, "/admin/dashboards/system", True)
+    chk = gd("email_automation")["web_site_checks"].find_one({}, sort=[("at", -1)])
+    for st in (chk or {}).get("sites", []):
+        if st["status"] == "silent":
+            add("web", f"Tracker silent on {st['domain']} since {st['last_event_at']:%d %b %H:%M} UTC", None,
+                st["last_event_at"], None, "/admin/dashboards/web", True)
     nfail = gd("ai_governance")["qwen_jobs"].count_documents({"status": "failed"})
     if nfail:
         add("system", f"{nfail} Qwen jobs failed", None, now, None, "/admin/review-queue?tab=failed", nfail > 10)

@@ -2395,6 +2395,17 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Web scoring (30 min) + audience sync (daily) scheduled")
 
+            def _web_site_check_job():
+                try:
+                    from web_tracking.site_check import run
+                    run()
+                except Exception as e:
+                    print(f"[WebSiteCheck] Error: {e}")
+
+            scheduler.add_job(_web_site_check_job, CronTrigger(hour=2, minute=30),  # 08:00 IST
+                              id="web_site_check", name="Company sites: tracker receiving data from each",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             def _kpi_snapshot_job():
                 try:
                     from database import get_database

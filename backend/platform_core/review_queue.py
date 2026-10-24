@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 ACTIONS = ("approve", "correct", "reject", "reassign")
 TYPES = ("ai_low_confidence", "ai_invalid_output", "rfq_extraction", "entity_link", "rfq_missing_data",
          "unusual_price", "finance_mismatch", "vendor_bid", "mailbox_paused", "positive_reply_draft",
-         "neutral_reply", "invoice_request", "other")
+         "neutral_reply", "invoice_request", "inbound_lead", "other")
 _HANDLERS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Any]] = {}
 
 

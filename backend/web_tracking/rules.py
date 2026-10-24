@@ -13,10 +13,18 @@ from typing import Any, Dict, List, Optional
 
 DEFAULTS: Dict[str, Any] = {
     "mode": "shadow",
-    "allowed_redirect_hosts": ["surveyfieldwork.com", "www.surveyfieldwork.com", "cogentixresearch.com",
+    "allowed_redirect_hosts": ["surveyfieldwork.com", "www.surveyfieldwork.com", "business.surveyfieldwork.com", "cogentixresearch.com",
                                "www.cogentixresearch.com", "bimwavesolutions.com", "www.bimwavesolutions.com",
                                "torpedo.cogentixresearch.com"],
     "site_bu": {"surveyfieldwork.com": "SFW", "cogentixresearch.com": "COGENTIX", "bimwavesolutions.com": "BIM"},
+    # the company websites (Hostinger / Cloudflare), each with its first-party tracker host t.<domain>
+    "sites": [
+        {"domain": "business.surveyfieldwork.com", "bu": "SFW", "aliases": ["www.business.surveyfieldwork.com"], "tags": {}},
+        {"domain": "cogentixresearch.com", "bu": "COGENTIX", "aliases": ["www.cogentixresearch.com"], "tags": {}},
+        {"domain": "bimwavesolutions.com", "bu": "BIM", "aliases": ["www.bimwavesolutions.com"], "tags": {}},
+    ],
+    "staging_hosts": {},               # e.g. {"staging-sfw.torpedo.cogentixresearch.com": "business.surveyfieldwork.com"}
+    "site_silence_alert_hours": 24,
     "high_intent_paths": ["/pricing", "/panel-book", "/panel", "/rate", "/contact"],
     "weights": {"high_intent_page": 50, "repeat_visit_7d": 40, "time_over_60s": 20, "bounce": -10},
     "high_score": 50,
@@ -25,6 +33,16 @@ DEFAULTS: Dict[str, Any] = {
     "tags": {"google_ads_id": "", "linkedin_partner_id": "", "meta_pixel_id": ""},   # owner supplies IDs
     "audience_window_days": 30,
 }
+
+
+def site_for_host(host: str, cfg=DEFAULTS) -> Optional[Dict[str, Any]]:
+    """The configured company site for a hostname (domain, www/aliases, staging copy)."""
+    h = (host or "").lower().strip(".")
+    h = (cfg.get("staging_hosts") or {}).get(h, h)
+    for s in cfg.get("sites") or []:
+        if h == s["domain"] or h in (s.get("aliases") or []):
+            return s
+    return None
 
 
 def _key(secret: str) -> bytes:
@@ -73,10 +91,12 @@ def clean_event(e: Dict[str, Any], *, visitor: str, ip: str, ua: str, now: datet
     from urllib.parse import parse_qs, urlparse
     url = str(e.get("url") or "")[:500]
     u = urlparse(url)
-    host = (u.hostname or "").lower().removeprefix("www.")
+    raw_host = (u.hostname or "").lower()
+    site = site_for_host(raw_host, cfg)
+    host = site["domain"] if site else raw_host.removeprefix("www.")
     utm = {k: v[0][:100] for k, v in parse_qs(u.query).items() if k.startswith("utm_")}
     return {"visitor_id": visitor[:64], "type": e["type"], "url": url, "host": host, "path": u.path[:200],
-            "bu": cfg["site_bu"].get(host), "utm": utm, "referrer": str(e.get("referrer") or "")[:300],
+            "bu": site["bu"] if site else cfg["site_bu"].get(host), "utm": utm, "referrer": str(e.get("referrer") or "")[:300],
             "value": e.get("value") if isinstance(e.get("value"), (int, float)) else None,
             "form_email": (str(e.get("email"))[:200].lower() if e.get("type") in ("form_start", "form_submit")
                            and "@" in str(e.get("email") or "") else None),
