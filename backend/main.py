@@ -1353,6 +1353,9 @@ try:
     from routers import web_tracking as web_tracking_router
     app.include_router(web_tracking_router.router)
     print("✅ Web tracking router included")
+    from routers import kpi_dashboard as kpi_dashboard_router
+    app.include_router(kpi_dashboard_router.router)
+    print("✅ KPI dashboard router included")
 except Exception as e:
     raise RuntimeError(
         f"Router mount failed: Platform router. Refusing to start a partially "
@@ -2386,6 +2389,23 @@ async def startup_event():
                               id="web_audience_sync", name="Retargeting audiences per BU (sizes; sync needs ad IDs)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Web scoring (30 min) + audience sync (daily) scheduled")
+
+            def _kpi_snapshot_job():
+                try:
+                    from database import get_database
+                    from kpi.compute import snapshot
+                    from kpi.definitions import all_definitions
+                    col = get_database("email_automation")["kpi_definitions"]
+                    for d in all_definitions():
+                        col.update_one({"key": d["key"]}, {"$set": d}, upsert=True)
+                    snapshot(get_database)
+                except Exception as e:
+                    print(f"[KPISnapshot] Error: {e}")
+
+            scheduler.add_job(_kpi_snapshot_job, CronTrigger(hour=19, minute=0),  # 00:30 IST
+                              id="kpi_snapshot", name="KPI snapshot (yesterday, per BU)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ KPI snapshot scheduled (19:00 UTC / 00:30 IST)")
 
             def _reengagement_job():
                 try:

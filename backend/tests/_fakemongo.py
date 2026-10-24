@@ -31,6 +31,12 @@ def _match(doc, q):
                     return False
                 if op == "$gte" and (v is None or v < arg):
                     return False
+                if op == "$gt" and (v is None or v <= arg):
+                    return False
+                if op == "$lt" and (v is None or v >= arg):
+                    return False
+                if op == "$lte" and (v is None or v > arg):
+                    return False
                 if op == "$exists" and (v is not None) != arg:
                     return False
         elif v != cond:

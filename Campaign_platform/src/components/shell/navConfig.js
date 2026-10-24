@@ -194,6 +194,7 @@ export const MODULES = [
 
 // the profile menu's links (was the top-right dropdown)
 export const ACCOUNT_LINKS = [
+  { label: "Command Centre", icon: "🧭", to: "/admin/command-centre" },
   { label: "Review Queue", icon: "✅", to: "/admin/review-queue" },
   { label: "My Profile", icon: "👤", to: "/admin/profile" },
   { label: "Settings", icon: "⚙️", to: "/admin/settings" },
