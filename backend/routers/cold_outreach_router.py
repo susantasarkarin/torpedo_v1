@@ -1047,6 +1047,8 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
         "lead_status": {"$ne": "Negative"},
         # A company that sells to us was moved to Vendor > Leads; never pitch it
         "transferred_to_vendor_leads": {"$ne": True},
+        # The person's old address at a previous employer; mail would bounce
+        "superseded_by": {"$exists": False},
         # Exclude a lead the AI classifier has since explicitly rejected or flagged
         # uncertain (leads/bucket_classifier.py). classification_basket is written by
         # a SEPARATE, earlier, rule-based classifier (canonical_ingestion.compute_icp_basket,
@@ -1177,7 +1179,8 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             if (lead.get("email_status") or "").lower() in ("bounced", "invalid", "hard_bounce"):
                 skipped_suppressed += 1
                 continue
-            if (lead.get("lead_status") or "") == "Negative" or lead.get("transferred_to_vendor_leads"):
+            if (lead.get("lead_status") or "") == "Negative" or lead.get("transferred_to_vendor_leads") \
+                    or lead.get("superseded_by"):
                 skipped_suppressed += 1
                 continue
             # CONTAINMENT (2026-08-28): this enrollment path had zero

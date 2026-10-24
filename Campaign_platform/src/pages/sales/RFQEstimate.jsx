@@ -58,7 +58,7 @@ function RFQEstimate() {
       try {
         const [rfqRes, custRes] = await Promise.all([
           authFetch(buildApiUrl(`/api/rfq/${rfqId}`), { headers }),
-          authFetch(buildApiUrl(`/finance/customers/`), { headers }),
+          authFetch(buildApiUrl(`/finance/customers/?page_size=200`), { headers }),
         ])
         const rfqData = await rfqRes.json()
         if (!rfqRes.ok) throw new Error(rfqData.detail || "RFQ not found")
@@ -66,7 +66,12 @@ function RFQEstimate() {
         setRfq(r)
         setLines([lineFromRfq(r)])
         setForm(f => ({ ...f, currency: (r.final_currency || r.extracted_currency || "USD").toUpperCase() }))
-        if (custRes.ok) setCustomers((await custRes.json()) || [])
+        // The endpoint is paginated: { customers: [...], total, ... }. Treating
+        // that object as the list crashed the whole page (blank screen).
+        if (custRes.ok) {
+          const c = await custRes.json()
+          setCustomers(Array.isArray(c) ? c : c?.customers || [])
+        }
       } catch (e) {
         setError(e.message)
       }
