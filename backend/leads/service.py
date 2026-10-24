@@ -1023,7 +1023,9 @@ def build_ai_summary(lead: dict, emails: List[dict]) -> Tuple[str, str]:
     if triage.get("reason"):
         return triage["reason"], "reply_triage"
     seen, parts = set(), []
-    for e in emails:  # newest first
+    # Only what the lead wrote: summaries of our own outbound pitches describe
+    # us, not them.
+    for e in (m for m in emails if m.get("direction") == "inbox"):  # newest first
         s = (e.get("ai_summary") or "").strip()
         if s and s not in seen:
             seen.add(s)
