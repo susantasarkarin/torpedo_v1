@@ -762,7 +762,7 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
             {"$skip": skip},
             {"$limit": filters.limit},
             {"$project": {"_blank": 0}},
-        ], allowDiskUse=True))
+        ], allowDiskUse=True, collation={"locale": "en", "strength": 1}))
     else:
         leads = list(leads_enriched_collection.find(query)
                      .sort("classified_at", DESCENDING)

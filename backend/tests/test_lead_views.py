@@ -76,7 +76,7 @@ class _Collection:
     def count_documents(self, query):
         return sum(1 for d in self.docs if _match(d, query))
 
-    def aggregate(self, pipeline, allowDiskUse=False):
+    def aggregate(self, pipeline, allowDiskUse=False, collation=None):
         """Only the sort pipeline get_leads builds: match, blank flag, sort, page."""
         stages = {next(iter(st)): st[next(iter(st))] for st in pipeline}
         rows = [dict(d) for d in self.docs if _match(d, stages["$match"])]
