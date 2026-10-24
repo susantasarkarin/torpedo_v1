@@ -56,6 +56,28 @@ class _CappedModel:
         return qwen_gateway.run(**kw)
 
 
+def set_po(gd, a: Dict[str, Any]) -> None:
+    """Fill (never overwrite) the PO on the RFQ, its Operations project(s), work
+    order and quotation. Without an rfq_id the thread finds the RFQ."""
+    from bson import ObjectId
+    crm, ea, fin = gd("crm_db"), gd("email_automation"), gd("finance_db")
+    po = a["po_numbers"][0]
+    opp_id = a.get("rfq_id")
+    if not opp_id and a.get("gmail_thread_id"):
+        o = crm["opportunities"].find_one({"$or": [{"metadata.rfq.gmail_thread_id": a["gmail_thread_id"]},
+                                                   {"metadata.rfq.gmail_thread_ids": a["gmail_thread_id"]}]}, {"_id": 1})
+        opp_id = str(o["_id"]) if o else None
+    empty = {"$in": [None, ""]}
+    if opp_id and ObjectId.is_valid(str(opp_id)):
+        crm["opportunities"].update_one({"_id": ObjectId(str(opp_id)), "po_number": empty},
+                                        {"$set": {"po_number": po, "metadata.rfq.po_number": po}})
+        ea["projects"].update_many({"opportunity_id": str(opp_id), "po_number": empty}, {"$set": {"po_number": po}})
+        fin["work_orders"].update_many({"opportunity_id": str(opp_id), "client_po_number": empty}, {"$set": {"client_po_number": po}})
+        fin["estimates"].update_many({"opportunity_id": str(opp_id), "po_number": empty}, {"$set": {"po_number": po}})
+    if a.get("project_id") and ObjectId.is_valid(str(a["project_id"])):
+        ea["projects"].update_one({"_id": ObjectId(str(a["project_id"])), "po_number": empty}, {"$set": {"po_number": po}})
+
+
 def apply_actions(decision: Dict[str, Any], gd) -> list:
     """Live mode only. Every action is audit-logged; mail is never sent here
     (drafts go to the Review Queue, events go to the modules that own them)."""
@@ -88,6 +110,8 @@ def apply_actions(decision: Dict[str, Any], gd) -> list:
                 ea["mail_events"].insert_one({"event": a["event"], "message_id": decision["message_id"],
                                               "gmail_thread_id": decision.get("gmail_thread_id"),
                                               "link": decision["link"], "status": "new", "created_at": datetime.utcnow()})
+            elif t == "set_po" and a.get("po_numbers"):
+                set_po(gd, a)
             elif t == "review":
                 review_queue.enqueue(type=a.get("review_type", "other"), module="mail_pipeline",
                                      ref={"collection": "torpedo_gmail.email_metadata", "id": decision["message_id"]},

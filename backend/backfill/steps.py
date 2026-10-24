@@ -617,3 +617,15 @@ def lead_links(c, apply=False, now=None):
 
 
 STEPS.append(("lead_links", lead_links))
+
+
+def zoho_link(c, apply=False, now=None):
+    """Zoho invoices -> the completed projects still marked 'no invoice'
+    (the pending finance review items). See backfill/zoho_link.py."""
+    from backfill import zoho_link as zl
+    ids = {str((it.get("ref") or {}).get("id")) for it in c.email_automation.review_queue_items.find(
+        {"status": "pending", "type": "invoice_request", "ref.collection": "email_automation.projects"}, {"ref": 1})}
+    return zl.run(c, project_ids=ids, apply=apply, now=now)
+
+
+STEPS.append(("zoho_link", zoho_link))

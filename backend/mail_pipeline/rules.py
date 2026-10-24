@@ -176,3 +176,19 @@ def signals(text: str) -> Dict[str, bool]:
         "rfq": bool(_RFQ_SIGNAL.search(t) and _SPEC.search(t)) or bool(re.search(r"(?<![a-z])rfq(?![a-z])", t, re.I)),
         "has_spec": bool(_SPEC.search(t)),
     }
+
+
+_PO = re.compile(r"\b(?:P\.?\s?O\.?|Purchase\s+Order)\s*(?:No\.?|Number|Num|#|Ref(?:erence)?)?\s*[:#.\-]?\s*"
+                 r"([A-Z0-9][A-Z0-9/\-]{3,30})", re.I)
+_QUOTED = re.compile(r"\nOn .{5,120}wrote:|\nFrom: |\n-{3,} ?Original Message")
+
+
+def po_numbers(text: str) -> List[str]:
+    """Client PO numbers ("PO", "P.O.", "Purchase Order", "PO No") in the new part of a mail."""
+    t = _QUOTED.split(text or "")[0]
+    out = []
+    for m in _PO.findall(t):
+        m = m.strip("-/.")
+        if re.search(r"\d", m) and m.upper() not in out and not re.fullmatch(r"(?i)box\d*", m):
+            out.append(m.upper())
+    return out[:3]

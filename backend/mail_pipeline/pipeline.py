@@ -265,6 +265,14 @@ def plan_actions(msg: Dict[str, Any], linked: Dict[str, Any], sender: Dict[str, 
                          "why": f"hand to {'RFQ handling (3.4)' if c != 'redirect_request' else 'Operations (3.6.3)'}"})
         else:
             acts.append({"type": "review", "review_type": "other", "why": f"{c} from a {sender['type']} sender"})
+    if sender["type"] == "client":
+        # client PO numbers ("PO", "Purchase Order", "PO No") go on the RFQ, project and quotation
+        # so the Zoho invoice that quotes the PO links automatically
+        pos = rules.po_numbers(msg.get("body_plain") or msg.get("snippet") or "")
+        if pos:
+            acts.append({"type": "set_po", "po_numbers": pos, "rfq_id": linked.get("rfq_id"),
+                         "project_id": linked.get("project_id"), "gmail_thread_id": msg.get("gmail_thread_id"),
+                         "why": f"client PO {', '.join(pos)} in mail"})
     if sender["type"] == "unknown":
         acts.append({"type": "review", "review_type": "ai_low_confidence", "why": "sender type unknown"})
     return acts

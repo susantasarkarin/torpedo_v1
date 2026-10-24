@@ -12,6 +12,12 @@ from session_state import verify_session
 from app.security import require
 
 require_approve = require("approve")
+
+try:      # confirmed Zoho customer -> account alias applies to all that customer's invoices
+    from backfill.zoho_link import apply_confirmed_alias
+    review_queue.register_handler("zoho_alias", apply_confirmed_alias)
+except Exception:   # pragma: no cover
+    pass
 from platform_core import config_store, qwen_gateway, review_queue
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])

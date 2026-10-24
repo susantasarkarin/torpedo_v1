@@ -311,6 +311,8 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]],
         "created_at": now,
     }
     ops_project.update(_lifecycle_fields(rfq, historical, now))
+    if po:
+        ops_project["po_number"] = po      # Zoho invoices quote the client PO: links invoice -> project
     existing_project = find_existing_ops_project(ops["projects"], title, customer.get("name"), opp_id)
     if existing_project:
         # link the win to the project the study already has
