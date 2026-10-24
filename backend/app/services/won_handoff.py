@@ -247,6 +247,36 @@ def _lifecycle_fields(rfq: Dict[str, Any], historical: bool, now: datetime) -> D
                                    "reason": "created from won RFQ"}]}
 
 
+def _number(value) -> Optional[float]:
+    """First number in an RFQ brief value: 1000, "1,000 completes", "15 mins", "30%"."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(value or ""))
+    return float(m.group(0).replace(",", "")) if m else None
+
+
+def _project_spec_fields(rfq: Dict[str, Any], amount: float, account: Dict[str, Any]) -> Dict[str, Any]:
+    """The Operations project's own fields, prefilled from the RFQ brief.
+
+    rfqDetails keeps the brief as written; the project page and close_project
+    read these top-level fields, which were left empty, so a person retyped
+    sample size, LOI and IR from the RFQ. Only values the brief actually has
+    are set.
+    """
+    completes = _number(rfq.get("sample_size"))
+    out = {
+        "totalCompletesRequired": int(completes) if completes else None,
+        "loi": _number(rfq.get("loi")),
+        "clientIR": _number(rfq.get("ir")),
+        "cpi": _number(rfq.get("cpi")) or (round(amount / completes, 2) if amount and completes else None),
+        "country": rfq.get("country") or rfq.get("geography"),
+        "methodology": rfq.get("methodology"),
+        "targetAudience": rfq.get("target_audience"),
+        "industry": account.get("industry"),
+    }
+    return {k: v for k, v in out.items() if v not in (None, "")}
+
+
 def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]], *,
              historical: bool = False, invoice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     client = _mongo()
@@ -311,6 +341,7 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]],
         "created_at": now,
     }
     ops_project.update(_lifecycle_fields(rfq, historical, now))
+    ops_project.update(_project_spec_fields(rfq, amount, account))
     if po:
         ops_project["po_number"] = po      # Zoho invoices quote the client PO: links invoice -> project
     existing_project = find_existing_ops_project(ops["projects"], title, customer.get("name"), opp_id)

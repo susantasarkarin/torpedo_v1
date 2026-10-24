@@ -243,8 +243,34 @@ def opportunity_to_rfq(
         "opportunity_id": str(opportunity.get("_id", "")),
         "project_id": str(opportunity["project_id"]) if opportunity.get("project_id") else None,
         "estimate_id": rfq_payload.get("estimate_id"),
+        "estimate_number": rfq_payload.get("estimate_number"),
         "invoice_id": opportunity.get("invoice_id"),
+        # The Operations project the won handoff created or linked
+        # (won_handoff._handoff writes metadata.handoff).
+        "ops_project_id": (meta.get("handoff") or {}).get("ops_project_id"),
+        # The person's page (Sales > lead page) when the contact's email has
+        # a lead record; filled in by attach_lead_records.
+        "lead_record_id": None,
     }
+
+
+def attach_lead_records(rfqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Set lead_record_id from the contact email, one query for the whole page.
+
+    The RFQ's contact is a CRM-spine contact, but the page that shows a person
+    (mail, summary, lead information) is keyed by the leads_enriched record —
+    linking the spine contact id there is what produced the error page.
+    """
+    emails = {(r.get("contact_email") or "").strip().lower() for r in rfqs} - {""}
+    if not emails:
+        return rfqs
+    leads = crm_service._col("opportunities").database.client["email_automation"]["leads_enriched"]
+    ids = {}
+    for d in leads.find({"email": {"$in": list(emails)}}, {"email": 1}):
+        ids.setdefault((d.get("email") or "").lower(), str(d["_id"]))
+    for r in rfqs:
+        r["lead_record_id"] = ids.get((r.get("contact_email") or "").strip().lower())
+    return rfqs
 
 
 # ---------------------------------------------------------------------------
@@ -379,9 +405,9 @@ def list_rfqs(
 
     return {
         "success": True,
-        "rfqs": [
+        "rfqs": attach_lead_records([
             opportunity_to_rfq(o, accounts_cache, contacts_cache) for o in opportunities
-        ],
+        ]),
         "total": total,
         "page": page,
         "limit": limit,
@@ -409,7 +435,7 @@ def get_rfq(rfq_id: str) -> Optional[Dict[str, Any]]:
 
     if not opportunity:
         return None
-    return opportunity_to_rfq(opportunity)
+    return attach_lead_records([opportunity_to_rfq(opportunity)])[0]
 
 
 def get_stats(direction: Optional[str] = None) -> Dict[str, Any]:

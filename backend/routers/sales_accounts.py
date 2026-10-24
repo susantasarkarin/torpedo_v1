@@ -376,9 +376,13 @@ def get_account_overview(account_id: str):
     the whole page.
     """
     try:
-        account = accounts_collection.find_one({"_id": ObjectId(account_id)})
+        oid = ObjectId(account_id)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid account id")
+    # Either this page's own id or the CRM-spine account id — RFQs and other
+    # spine records only know the latter, and link here with it.
+    account = accounts_collection.find_one({"_id": oid}) or accounts_collection.find_one(
+        {"crm_account_id": {"$in": [account_id, oid]}})
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")

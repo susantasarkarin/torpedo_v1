@@ -73,7 +73,10 @@ function Accounts() {
         { headers: { Authorization: token } }
       )
       if (!response.ok) throw new Error(`Failed to load account (${response.status})`)
-      setOverview(await response.json())
+      const data = await response.json()
+      setOverview(data)
+      // Opened by a CRM id from a link: actions on this page need its own id.
+      if (data.account?._id && data.account._id !== accountId) setSelectedId(data.account._id)
     } catch (e) {
       console.error("Error loading account overview:", e)
       setOverview({ error: e.message })
@@ -81,6 +84,17 @@ function Accounts() {
       setOverviewLoading(false)
     }
   }
+
+  // ?account=<id> opens that account straight away (the RFQ page links here
+  // with the CRM account id; the overview endpoint resolves either id).
+  useEffect(() => {
+    const linked = new URLSearchParams(window.location.search).get("account")
+    if (linked) {
+      setSelectedId(linked)
+      setTab("contacts")
+      loadOverview(linked)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectAccount = (account) => {
     setSelectedId(account._id)

@@ -1045,6 +1045,7 @@ class RFQConversionRequest(BaseModel):
     notes: Optional[str] = Field(None, description="Additional notes for estimate/invoice")
     due_days: int = Field(30, description="Payment due in days")
     line_items: Optional[List[Dict[str, Any]]] = Field(None, description="Custom line items. If not provided, auto-generated from RFQ")
+    currency: Optional[str] = Field(None, description="ISO currency; defaults to the RFQ's own currency")
 
 
 class ConversionResponse(BaseModel):
@@ -1229,7 +1230,8 @@ async def convert_rfq_to_estimate(
         "rfq_id": rfq["rfq_id"],
         "rfq_object_id": rfq["opportunity_id"],
         "opportunity_id": rfq["opportunity_id"],
-        "project_name": rfq.get("project_name", ""),
+        "project_name": rfq.get("project_name") or rfq.get("title", ""),
+        "currency": (request.currency or rfq.get("final_currency") or rfq.get("extracted_currency") or "").upper() or None,
         "status": "draft",
         "date": now,
         "expiry_date": now + timedelta(days=request.due_days),

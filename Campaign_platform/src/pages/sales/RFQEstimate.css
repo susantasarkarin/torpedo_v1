@@ -1,0 +1,147 @@
+.rfq-estimate .est-card {
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid #e8e4dc;
+  border-radius: 12px;
+}
+
+.rfq-estimate .est-card h2 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.rfq-estimate .est-brief {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.rfq-estimate .est-brief dt {
+  font-size: 0.75rem;
+  color: #6f6f6f;
+}
+
+.rfq-estimate .est-brief dd {
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.rfq-estimate .est-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.rfq-estimate label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #5c5c5c;
+}
+
+.rfq-estimate input,
+.rfq-estimate select,
+.rfq-estimate textarea {
+  padding: 7px 10px;
+  border: 1px solid #d4cec3;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.rfq-estimate textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rfq-estimate .est-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 10px;
+}
+
+.rfq-estimate .est-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.rfq-estimate .est-table th {
+  padding: 6px;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #5c5c5c;
+  border-bottom: 1px solid #e8e4dc;
+}
+
+.rfq-estimate .est-table td {
+  padding: 6px;
+  vertical-align: middle;
+}
+
+.rfq-estimate .est-table td:first-child input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rfq-estimate .est-table td:nth-child(2) input,
+.rfq-estimate .est-table td:nth-child(4) input {
+  width: 100px;
+}
+
+.rfq-estimate .est-table td:nth-child(3) input {
+  width: 100px;
+}
+
+.rfq-estimate .est-amount {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rfq-estimate .est-remove {
+  border: 0;
+  background: none;
+  font-size: 1.2rem;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.rfq-estimate .est-remove:disabled {
+  color: #d4cec3;
+  cursor: default;
+}
+
+.rfq-estimate .est-totals {
+  max-width: 340px;
+  margin: 12px 0 0 auto;
+  font-size: 0.9rem;
+}
+
+.rfq-estimate .est-totals > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.rfq-estimate .est-totals input {
+  width: 60px;
+  margin: 0 4px;
+  padding: 3px 6px;
+}
+
+.rfq-estimate .est-total {
+  margin-top: 4px;
+  padding-top: 8px !important;
+  border-top: 1px solid #e8e4dc;
+  font-weight: 700;
+  font-size: 1rem;
+}

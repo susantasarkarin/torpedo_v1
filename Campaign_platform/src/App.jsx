@@ -61,6 +61,7 @@ const ContactsImport = lazy(() => import("./pages/sales/ContactsImport"))
 const CompanyDetail = lazy(() => import("./pages/sales/CompanyDetail"))
 const RFQ = lazy(() => import("./pages/sales/RFQ"))
 const RFQReviewQueue = lazy(() => import("./pages/sales/RFQReviewQueue"))
+const RFQEstimate = lazy(() => import("./pages/sales/RFQEstimate"))
 const Accounts = lazy(() => import("./pages/sales/Accounts"))
 const List = lazy(() => import("./pages/sales/campaign/List"))
 const EmailPatterns = lazy(() => import("./pages/sales/campaign/EmailPatterns"))
@@ -234,6 +235,7 @@ function App() {
         <Route path="sales/companies/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
         <Route path="sales/rfq/review-queue" element={<LazyPage><RFQReviewQueue /></LazyPage>} />
+        <Route path="sales/rfq/:rfqId/estimate" element={<LazyPage><RFQEstimate /></LazyPage>} />
         {/* RightSidebar has linked to /admin/sales/account since it was written;
             this route was never registered, so the nav item was a dead link. */}
         <Route path="sales/account" element={<LazyPage><Accounts /></LazyPage>} />
