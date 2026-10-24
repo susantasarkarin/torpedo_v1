@@ -157,6 +157,37 @@ def _preview(*, addr: str, identity: str, channel: str, subject: Optional[str],
         return None
 
 
+_THROTTLE_DEFAULT_CHANNELS = ("outreach", "sales_outreach", "campaign", "nurture", "reengagement",
+                              "finance", "ops", "rfq", "service_delivery")
+
+
+def _throttle_settings():
+    try:
+        from platform_core import config_store
+        m = config_store.get("mail")
+        return int(m["max_automated_per_contact_per_day"]), tuple(m["throttled_channels"])
+    except Exception:
+        return 1, _THROTTLE_DEFAULT_CHANNELS
+
+
+def _throttle_block(addr: str, channel: str) -> Optional[str]:
+    """Reason if this contact already got its automated mail(s) in the last 24 h."""
+    limit, channels = _throttle_settings()
+    if channel not in channels:
+        return None
+    try:
+        from datetime import datetime, timedelta
+        n = _log._col().count_documents({"to_email": addr, "status": "sent",
+                                         "channel": {"$in": list(channels)},
+                                         "sent_at": {"$gte": datetime.utcnow() - timedelta(hours=24)}})
+    except Exception:
+        logger.warning("throttle check unreadable for %s; allowing", addr, exc_info=True)
+        return None
+    if n >= limit:
+        return f"already received {n} automated mail(s) in the last 24 h (limit {limit})"
+    return None
+
+
 def _audit_block(*, addr: str, identity: str, channel: str, reason: str, category: str) -> None:
     """Record a refused automated send in crm_db.audit_log (CRM plan 3.1 audit log). Best effort."""
     try:
@@ -279,6 +310,13 @@ def gate(addr: str, *, identity: str, channel: str,
         blocked = _budget.allows(identity, transactional=transactional)
         if blocked:
             return (blocked, "budget")
+
+    # 3. Throttle (CRM plan 3.1): one automated mail per contact per day across
+    # every automated channel that mails clients/leads. Client operational
+    # mail is consolidated per contact upstream, so one a day is enough.
+    blocked = _throttle_block(addr, channel)
+    if blocked:
+        return (blocked, "throttle")
 
     # MAIL_MODE last: a sandboxed send must still have passed every real check,
     # so the preview shows exactly what live mode would deliver.

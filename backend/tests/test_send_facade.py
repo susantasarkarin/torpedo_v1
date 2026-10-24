@@ -31,6 +31,7 @@ def _compliance_env(monkeypatch):
     monkeypatch.setattr(facade, "outreach_paused", lambda: False)
     monkeypatch.setattr(facade, "_audit_block", lambda **kw: None)
     monkeypatch.setattr(facade, "_preview", lambda **kw: "preview-1")
+    monkeypatch.setattr(facade, "_throttle_block", lambda addr, channel: None)
 
 
 @pytest.fixture

@@ -1339,6 +1339,17 @@ except Exception as e:
         f"loaded application. Original error: {e}"
     ) from e
 
+# CRM plan 3.1: shared platform (config, unified Review Queue, failed AI jobs)
+try:
+    from routers import platform_api as platform_api_router
+    app.include_router(platform_api_router.router)
+    print("✅ Platform router included")
+except Exception as e:
+    raise RuntimeError(
+        f"Router mount failed: Platform router. Refusing to start a partially "
+        f"loaded application. Original error: {e}"
+    ) from e
+
 # --- RBAC Routers ---
 try:
     app.include_router(users_router.router)

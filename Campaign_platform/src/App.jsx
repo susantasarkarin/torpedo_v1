@@ -140,6 +140,7 @@ const Support = lazy(() => import("./pages/Support"))
 
 // AI Approvals Page (AI decision engine queue)
 const AIApprovals = lazy(() => import("./pages/ai/AIApprovals"))
+const ReviewQueue = lazy(() => import("./pages/ReviewQueue"))
 
 // CRM Spine Pages (canonical accounts/contacts/opportunities)
 const CrmDashboard = lazy(() => import("./pages/crm/CrmDashboard"))
@@ -355,6 +356,8 @@ function App() {
 
         {/* AI - Decision engine approvals queue */}
         <Route path="ai/approvals" element={<LazyPage><AIApprovals /></LazyPage>} />
+        {/* CRM plan 3.1 - the one Review Queue */}
+        <Route path="review-queue" element={<LazyPage><ReviewQueue /></LazyPage>} />
 
         {/* CRM - Canonical spine dashboards */}
         <Route path="crm" element={<LazyPage><CrmDashboard /></LazyPage>} />

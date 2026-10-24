@@ -194,6 +194,7 @@ export const MODULES = [
 
 // the profile menu's links (was the top-right dropdown)
 export const ACCOUNT_LINKS = [
+  { label: "Review Queue", icon: "✅", to: "/admin/review-queue" },
   { label: "My Profile", icon: "👤", to: "/admin/profile" },
   { label: "Settings", icon: "⚙️", to: "/admin/settings" },
   { label: "Mail Pool", icon: "📬", to: "/admin/mail-pool" },
