@@ -11,6 +11,7 @@ def _client(monkeypatch, user="owner"):
     app.include_router(platform_api.router)
     if user:
         app.dependency_overrides[verify_session] = lambda: user
+        app.dependency_overrides[platform_api.require_approve] = lambda: user
     return TestClient(app)
 
 
@@ -47,3 +48,17 @@ def test_lead_export_builds_a_spreadsheet_with_header_and_rows():
     rows = list(ws.values)
     assert rows[0][0] == "Name" and len(rows[0]) == len(COLUMNS)
     assert rows[1][0] == "Asha" and rows[1][2] == "Acme" and "SFW" in rows[1]
+
+
+def test_shadow_report_masks_addresses_and_counts_outcomes():
+    from datetime import datetime, timedelta
+    from platform_core import shadow_report as sr
+    from tests._fakemongo import FakeDB
+    ea = FakeDB()
+    now = datetime(2026, 10, 24, 12)
+    ea["rfq_decisions"].insert_one({"decided_at": now - timedelta(hours=1), "status": "awaiting_info", "to": "raj.kumar@client.com"})
+    ea["rfq_decisions"].insert_one({"decided_at": now - timedelta(hours=30), "status": "priced"})
+    out = sr.build(lambda name: ea, 24, now)
+    rfq = next(m for m in out["modules"] if m["module"] == "rfq")
+    assert rfq["decisions"] == 1 and rfq["outcomes"] == {"awaiting_info": 1}
+    assert rfq["samples"][0]["to"] == "ra***@client.com"

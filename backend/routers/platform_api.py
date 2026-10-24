@@ -9,6 +9,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from session_state import verify_session
+from app.security import require
+
+require_approve = require("approve")
 from platform_core import config_store, qwen_gateway, review_queue
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
@@ -29,13 +32,23 @@ async def get_config(section: str, user: str = Depends(verify_session)) -> Dict[
 
 
 @router.put("/config/{section}")
-async def put_config(section: str, values: Dict[str, Any] = Body(...), user: str = Depends(verify_session)):
+async def put_config(section: str, values: Dict[str, Any] = Body(...), user: str = Depends(require_approve)):
+    """Config changes -- including a module's mode (sandbox/shadow/live) -- need
+    the approve capability (owner/admin) once RBAC is on; audit-logged."""
     try:
         return {"section": section, "values": config_store.set(section, values, actor=user)}
     except KeyError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.get("/shadow-report")
+async def shadow_report(hours: int = Query(24, ge=1, le=24 * 14), user: str = Depends(verify_session)):
+    """Phase 5: what every module would have done in the window (masked)."""
+    from database import get_database
+    from platform_core import shadow_report as sr
+    return sr.build(get_database, hours)
 
 
 # ------------------------------------------------------------ review queue
