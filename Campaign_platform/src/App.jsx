@@ -4,8 +4,6 @@ import { Routes, Route, Navigate } from "react-router-dom"
 import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
 import { PageLoading } from "./components/ui/PageLayout"
-import { LeadAgentProvider } from "./contexts/LeadAgentContext"
-import AgentProgress from "./components/AgentProgress"
 // Temporarily disabled for debugging login issue
 // import { SyncStatusProvider } from "./contexts/SyncStatusContext"
 // import GlobalSyncStatus from "./components/GlobalSyncStatus"
@@ -73,9 +71,6 @@ const AILeadDetail = lazy(() => import("./pages/sales/campaign/AILeadDetail"))
 const SalesDashboard = lazy(() => import("./pages/sales/SalesDashboard"))
 
 // AI Agent Pages
-const CompanyUpload = lazy(() => import("./pages/sales/CompanyUpload"))
-const AgentDashboard = lazy(() => import("./pages/sales/AgentDashboard"))
-const AgentSettings = lazy(() => import("./pages/sales/AgentSettings"))
 
 // Operations Pages
 const ClientsPage = lazy(() => import("./pages/operations/ClientsPage"))
@@ -221,10 +216,7 @@ function App() {
         path="/admin"
         element={
           <ProtectedRoute>
-            <LeadAgentProvider>
-              <Layout />
-              <AgentProgress />
-            </LeadAgentProvider>
+            <Layout />
           </ProtectedRoute>
         }
       >
@@ -253,10 +245,11 @@ function App() {
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
 
-        {/* AI Agent Routes */}
-        <Route path="sales/company-upload" element={<LazyPage><CompanyUpload /></LazyPage>} />
-        <Route path="sales/agent-dashboard" element={<LazyPage><AgentDashboard /></LazyPage>} />
-        <Route path="sales/agent-settings" element={<LazyPage><AgentSettings /></LazyPage>} />
+        {/* AI Agent was retired 2026-10-24 (no job ever ran); lead-gen runs
+            from the scheduled pipeline. Old bookmarks land on Leads. */}
+        <Route path="sales/company-upload" element={<Navigate to="/admin/sales/leads" replace />} />
+        <Route path="sales/agent-dashboard" element={<Navigate to="/admin/sales/leads" replace />} />
+        <Route path="sales/agent-settings" element={<Navigate to="/admin/sales/leads" replace />} />
 
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />

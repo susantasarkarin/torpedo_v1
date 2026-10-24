@@ -30,17 +30,6 @@ export const MODULES = [
           { label: "Cold Outreach", icon: "📨", to: "/admin/sales/outreach" },
         ],
       },
-      {
-        label: "Automation",
-        items: [
-          {
-            label: "AI Agent",
-            icon: "🤖",
-            to: "/admin/sales/agent-dashboard",
-            also: ["/admin/sales/agent-settings", "/admin/sales/company-upload"],
-          },
-        ],
-      },
     ],
   },
   {

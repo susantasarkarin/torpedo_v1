@@ -593,7 +593,9 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     Get enriched leads with filtering and pagination.
     Returns: (leads, total_count)
     """
-    query = {}
+    # A lead moved to Vendor > Leads (scripts/move_vendor_leads.py or the
+    # transfer endpoints) is a company selling to us, not a prospect.
+    query = {"transferred_to_vendor_leads": {"$ne": True}}
 
     # Qualified-only mode: show only Gmail contacts and outreach-replied leads
     QUALIFIED_SOURCES = GMAIL_SOURCES + ["outreach_reply"]
@@ -937,28 +939,30 @@ def get_emails_for_lead(email_address: str, limit: int = 50) -> List[dict]:
     """
     if not email_address:
         return []
-    
+
     try:
-        # Find emails where this email is sender or recipient
-        emails = list(email_metadata_collection.find({
-            "$or": [
-                {"from_email": {"$regex": email_address, "$options": "i"}},
-                {"to_emails": {"$regex": email_address, "$options": "i"}}
-            ]
-        }).sort("timestamp", -1).limit(limit))
-        
+        # mail_counterparty is the lowercased outside party of every synced
+        # message, set by the mail-pool pass and indexed with timestamp. The
+        # old unanchored case-insensitive regex over from_email and to_emails
+        # scanned all ~380k messages on every lead open. Bodies are left out
+        # here — the viewer fetches one at a time via get_lead_email_body.
+        emails = list(email_metadata_collection.find(
+            {"mail_counterparty": email_address.strip().lower()},
+            {"body_html": 0, "body_plain": 0},
+        ).sort("timestamp", -1).limit(limit))
+
         formatted_emails = []
         for e in emails:
-            # Determine direction relative to lead
             from_email = e.get("from_email", "")
             to_emails = e.get("to_emails", [])
-            
-            # Check if lead sent the email
-            is_from_lead = email_address.lower() in from_email.lower()
-            direction = "outbox" if is_from_lead else "inbox"
-            
+
+            # "inbox" = the lead wrote to us, "outbox" = we wrote to them.
+            is_from_lead = email_address.lower() == (from_email or "").strip().lower()
+            direction = "inbox" if is_from_lead else "outbox"
+
             timestamp = e.get("timestamp")
-            
+            analysis = e.get("ai_analysis") if isinstance(e.get("ai_analysis"), dict) else {}
+
             formatted_emails.append({
                 "id": str(e["_id"]),
                 "subject": e.get("subject", "(no subject)"),
@@ -967,8 +971,6 @@ def get_emails_for_lead(email_address: str, limit: int = 50) -> List[dict]:
                 "to": to_emails if isinstance(to_emails, list) else [to_emails] if to_emails else [],
                 "recipients": ", ".join(to_emails) if isinstance(to_emails, list) else to_emails,
                 "snippet": e.get("snippet", ""),
-                "body_plain": e.get("body_plain", ""),
-                "body_html": e.get("body_html", ""),
                 "date": timestamp.isoformat() if timestamp else "",
                 "timestamp": timestamp,
                 "direction": direction,
@@ -978,15 +980,59 @@ def get_emails_for_lead(email_address: str, limit: int = 50) -> List[dict]:
                 "has_reply": "RE:" in str(e.get("subject", "")).upper() or "FWD:" in str(e.get("subject", "")).upper(),
                 "has_attachment": e.get("has_attachments", False),
                 "ai_category": e.get("ai_category"),
-                "ai_summary": e.get("ai_summary"),
+                "ai_summary": e.get("ai_summary") or analysis.get("summary") or e.get("mail_summary"),
                 "thread_id": e.get("gmail_thread_id"),
                 "message_id": e.get("gmail_message_id"),
             })
-        
+
         return formatted_emails
     except Exception as e:
         print(f"Error fetching emails for lead {email_address}: {e}")
         return []
+
+
+def get_lead_email_body(lead_email: str, email_id: str) -> Optional[dict]:
+    """One message's body, only if it belongs to this lead's conversation."""
+    try:
+        doc = email_metadata_collection.find_one(
+            {"_id": ObjectId(email_id), "mail_counterparty": (lead_email or "").strip().lower()},
+            {"body_html": 1, "body_plain": 1, "snippet": 1, "cc_emails": 1},
+        )
+    except Exception:
+        return None
+    if not doc:
+        return None
+    return {
+        "id": str(doc["_id"]),
+        "body_html": doc.get("body_html") or "",
+        "body_plain": doc.get("body_plain") or doc.get("snippet") or "",
+        "cc": doc.get("cc_emails") or [],
+    }
+
+
+def build_ai_summary(lead: dict, emails: List[dict]) -> Tuple[str, str]:
+    """The best model-written summary we hold for this lead, and where it came from.
+
+    `conversation_summary` on mail-pool leads is the first lines of their
+    latest email copied verbatim, not a summary, so it is the last resort.
+    """
+    mail_pool = lead.get("mail_pool") if isinstance(lead.get("mail_pool"), dict) else {}
+    if mail_pool.get("model_summary"):
+        return mail_pool["model_summary"], "conversation"
+    triage = lead.get("reply_triage") if isinstance(lead.get("reply_triage"), dict) else {}
+    if triage.get("reason"):
+        return triage["reason"], "reply_triage"
+    seen, parts = set(), []
+    for e in emails:  # newest first
+        s = (e.get("ai_summary") or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            parts.append(s)
+        if len(parts) == 3:
+            break
+    if parts:
+        return " ".join(parts), "emails"
+    return (lead.get("conversation_summary") or "").strip(), "latest_email"
 
 
 def generate_conversation_summary(emails: List[dict]) -> str:
@@ -1178,7 +1224,9 @@ def get_enriched_lead_by_id(lead_id: str, include_emails: bool = True) -> Option
                 lead["emails"] = []
             if "timeline" not in lead:
                 lead["timeline"] = []
-        
+
+        lead["ai_summary"], lead["ai_summary_source"] = build_ai_summary(lead, lead.get("emails") or [])
+
         return lead
     except Exception as e:
         print(f"Error getting lead {lead_id}: {e}")

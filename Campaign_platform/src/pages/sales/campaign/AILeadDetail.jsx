@@ -13,6 +13,27 @@ import { notify } from "../../../utils/notify"
 import { formatDateTime } from "../../../utils/format"
 import { authFetch } from "../../../utils/api"
 
+const SOURCE_LABEL = {
+  gmail: "Gmail",
+  gmail_contact: "Gmail Contact",
+  gmail_calendar: "Gmail Calendar",
+  gmail_reply: "Gmail Reply",
+  outreach_reply: "Outreach Reply",
+  web_search: "Web Search",
+  websearch: "Web Search",
+  csv: "CSV Import",
+  csv_import: "CSV Import",
+}
+
+const PERSONAL_DOMAINS = new Set(["gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "aol.com", "rediffmail.com", "proton.me", "protonmail.com"])
+
+// The stored domain, else the email's own domain when it is a company's.
+function companyDomain(lead) {
+  if (lead.company_domain) return lead.company_domain
+  const d = (lead.email || "").split("@")[1]?.toLowerCase()
+  return d && !PERSONAL_DOMAINS.has(d) ? d : ""
+}
+
 function AILeadDetail() {
   const { leadId } = useParams();
   const navigate = useNavigate();
@@ -52,7 +73,38 @@ function AILeadDetail() {
   const [imapAccounts, setImapAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [signature, setSignature] = useState("");
-  
+
+  // Email viewer: the lead payload carries no bodies, each is fetched on open
+  const [emailFilter, setEmailFilter] = useState("ALL");
+  const [openEmail, setOpenEmail] = useState(null);
+  const [openEmailBody, setOpenEmailBody] = useState(null);
+  const [openEmailError, setOpenEmailError] = useState(null);
+
+  const viewEmail = async (email) => {
+    setOpenEmail(email);
+    setOpenEmailBody(null);
+    setOpenEmailError(null);
+    try {
+      const res = await authFetch(buildApiUrl(`/leads/enriched/${leadId}/emails/${email.id}`), {
+        headers: { Authorization: localStorage.getItem("session_id") },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not load this email");
+      setOpenEmailBody(data.email);
+    } catch (e) {
+      setOpenEmailError(e.message);
+    }
+  };
+
+  const emailSrcDoc = (body) => {
+    if (body?.body_html) {
+      const clean = DOMPurify.sanitize(body.body_html, { WHOLE_DOCUMENT: true });
+      return `<base target="_blank"><style>body{font-family:system-ui,sans-serif;font-size:14px;color:#222;margin:12px;word-wrap:break-word}img{max-width:100%;height:auto}</style>${clean}`;
+    }
+    const text = (body?.body_plain || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    return `<pre style="white-space:pre-wrap;font-family:system-ui,sans-serif;font-size:14px;margin:12px">${text}</pre>`;
+  };
+
   // Rich text editor ref
   const emailBodyRef = useRef(null);
   
@@ -512,20 +564,36 @@ function AILeadDetail() {
                     <span className="value">{lead.company_name || "—"}</span>
                   </div>
                   <div className="info-row">
+                    <span className="label">Company Domain</span>
+                    <span className="value">
+                      {companyDomain(lead)
+                        ? <a href={`https://${companyDomain(lead)}`} target="_blank" rel="noopener noreferrer" className="url-link">{companyDomain(lead)} ↗</a>
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Phone</span>
+                    <span className="value">{lead.phone ? <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="url-link">{lead.phone}</a> : "—"}</span>
+                  </div>
+                  <div className="info-row">
                     <span className="label">Location</span>
-                    <span className="value">{lead.location || "—"}</span>
+                    <span className="value">{[lead.location, lead.country].filter(Boolean).join(", ") || lead.region || "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Lead Source</span>
-                    <span className="value">{lead.source === "web_search" ? "Web Search" : lead.source === "csv" ? "CSV Import" : lead.source || "—"}</span>
+                    <span className="value">{SOURCE_LABEL[lead.source] || lead.source || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Lead Status</span>
+                    <span className="value">{lead.lead_status || (lead.classification_basket === "E" ? "Nurture" : "Neutral")}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Email Status</span>
-                    <span className="value">{lead.email_status || "—"}</span>
+                    <span className="value">{lead.email_status || (lead.mail_pool?.messages_in > 0 ? "Valid — they have mailed us" : "—")}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Seniority Level</span>
-                    <span className="value">{lead.seniority_level || "—"}</span>
+                    <span className="value">{lead.seniority_level && lead.seniority_level !== "Unknown" ? lead.seniority_level : "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Department</span>
@@ -533,11 +601,31 @@ function AILeadDetail() {
                   </div>
                   <div className="info-row">
                     <span className="label">Persona</span>
-                    <span className="value">{lead.persona || "—"}</span>
+                    <span className="value">{lead.persona_label || lead.persona || "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Buying Role</span>
                     <span className="value">{lead.buying_role || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Relationship</span>
+                    <span className="value">{lead.mail_pool?.relationship ? lead.mail_pool.relationship[0].toUpperCase() + lead.mail_pool.relationship.slice(1) : "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Emails</span>
+                    <span className="value">
+                      {lead.mail_pool
+                        ? `${lead.mail_pool.messages_in || 0} received · ${lead.mail_pool.messages_out || 0} sent`
+                        : lead.email_count ? `${lead.email_count} in mailbox` : "—"}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">First Contact</span>
+                    <span className="value">{lead.mail_pool?.first_contact_at ? formatDate(lead.mail_pool.first_contact_at) : "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Last Contact</span>
+                    <span className="value">{lead.mail_pool?.last_contact_at ? formatDate(lead.mail_pool.last_contact_at) : "—"}</span>
                   </div>
                 </div>
               </div>
@@ -559,7 +647,6 @@ function AILeadDetail() {
                   {lead.company_size && <div className="info-row"><span className="label">Company Size</span><span className="value">{lead.company_size}</span></div>}
                   {lead.company_type && <div className="info-row"><span className="label">Company Type</span><span className="value">{lead.company_type}</span></div>}
                   {lead.company_revenue_range && <div className="info-row"><span className="label">Revenue Range</span><span className="value">{lead.company_revenue_range}</span></div>}
-                  {lead.company_domain && <div className="info-row"><span className="label">Company Domain</span><span className="value">{lead.company_domain}</span></div>}
                   {lead.company_website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a></span></div>}
                   {lead.company_name && !lead.company_domain && !lead.company_website && <div className="info-row"><span className="label">Company</span><span className="value">{lead.company_name}</span></div>}
                   {!lead.company_founded && !lead.company_headquarters && !lead.company_linkedin_url && !lead.company_employee_count_range && !lead.company_employee_count && !lead.company_industry && !lead.industry && !lead.company_size && !lead.company_type && !lead.company_revenue_range && !lead.company_domain && !lead.company_website && (
@@ -607,16 +694,23 @@ function AILeadDetail() {
                   </select>
                 </div>
                 <div className="notes-content">
-                  {lead.conversation_summary ? (
+                  {(lead.ai_summary || lead.conversation_summary) ? (
                     <div className="ai-summary-note">
                       <div className="note-header">
                         <span className="note-icon">🤖</span>
-                        <span className="note-title">AI Summary</span>
-                        <span className="note-date">{formatDate(lead.summary_updated_at || lead.updated_at)}</span>
+                        <span className="note-title">
+                          {lead.ai_summary_source === "latest_email" ? "Latest Email" : "AI Summary"}
+                        </span>
+                        <span className="note-date">{formatDate(lead.mail_pool?.summary_at || lead.summary_updated_at || lead.updated_at)}</span>
                       </div>
                       <div className="note-body">
-                        {lead.conversation_summary}
+                        {lead.ai_summary || lead.conversation_summary}
                       </div>
+                      {lead.mail_pool?.triage?.reason && (
+                        <div className="note-body" style={{ marginTop: 8, color: "#5c5c5c" }}>
+                          <strong>Triage:</strong> {lead.mail_pool.triage.reason}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="empty-state">No email conversation summary available</p>
@@ -671,10 +765,10 @@ function AILeadDetail() {
                 <div className="section-header">
                   <h3>Emails</h3>
                   <div className="section-header-actions">
-                    <select className="filter-select">
-                      <option>ALL</option>
-                      <option>Sent</option>
-                      <option>Received</option>
+                    <select className="filter-select" value={emailFilter} onChange={e => setEmailFilter(e.target.value)}>
+                      <option value="ALL">ALL</option>
+                      <option value="Sent">Sent</option>
+                      <option value="Received">Received</option>
                     </select>
                   </div>
                 </div>
@@ -696,9 +790,14 @@ function AILeadDetail() {
                       </tr>
                     </thead>
                     <tbody>
-                      {lead.emails && lead.emails.length > 0 ? (
-                        lead.emails.map((email, idx) => (
-                          <tr key={idx}>
+                      {lead.emails && lead.emails.some(e => emailFilter === "ALL" || e.status === emailFilter) ? (
+                        lead.emails.filter(e => emailFilter === "ALL" || e.status === emailFilter).map((email, idx) => (
+                          <tr
+                            key={email.id || idx}
+                            onClick={() => viewEmail(email)}
+                            style={{ cursor: "pointer" }}
+                            title="Open email"
+                          >
                             <td className="email-icon">
                               {email.has_attachment ? "📎" : "✉️"}
                             </td>
@@ -707,7 +806,7 @@ function AILeadDetail() {
                                 <span className="subject-text">{email.subject}</span>
                                 {email.has_reply && <span className="reply-icon">↩</span>}
                               </div>
-                              <div className="recipient-preview">{email.recipients || email.to}</div>
+                              <div className="recipient-preview">{email.ai_summary || email.snippet || email.recipients}</div>
                             </td>
                             <td className="email-date">{formatDate(email.date)}</td>
                             <td className="email-source">{email.source || "IMAP"}</td>
@@ -762,6 +861,47 @@ function AILeadDetail() {
           )}
         </main>
       </div>
+
+      {/* Email Viewer */}
+      {openEmail && (
+        <div className="modal-overlay" onClick={() => setOpenEmail(null)}>
+          <div
+            className="modal-container"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "min(900px, 94vw)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+          >
+            <div className="modal-header">
+              <h2 style={{ fontSize: "1.05rem" }}>{openEmail.subject || "(no subject)"}</h2>
+              <button className="modal-close" onClick={() => setOpenEmail(null)}>×</button>
+            </div>
+            <div style={{ padding: "8px 20px", fontSize: "0.85rem", color: "#4a4a4a", borderBottom: "1px solid #eee", lineHeight: 1.6 }}>
+              <div><strong>From:</strong> {openEmail.from_name ? `${openEmail.from_name} <${openEmail.from}>` : openEmail.from}</div>
+              <div><strong>To:</strong> {openEmail.recipients || "—"}</div>
+              {openEmailBody?.cc?.length > 0 && <div><strong>Cc:</strong> {openEmailBody.cc.join(", ")}</div>}
+              <div><strong>Date:</strong> {formatDate(openEmail.date)}</div>
+              {openEmail.ai_summary && (
+                <div style={{ marginTop: 6, padding: "6px 10px", background: "#fdf4e7", borderRadius: 6 }}>
+                  🤖 {openEmail.ai_summary}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, minHeight: 300, overflow: "hidden" }}>
+              {openEmailError ? (
+                <p className="empty-state" style={{ padding: 20 }}>{openEmailError}</p>
+              ) : !openEmailBody ? (
+                <p className="empty-state" style={{ padding: 20 }}>Loading…</p>
+              ) : (
+                <iframe
+                  title="Email body"
+                  sandbox="allow-popups allow-popups-to-escape-sandbox"
+                  srcDoc={emailSrcDoc(openEmailBody)}
+                  style={{ width: "100%", height: "60vh", border: 0 }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Lead Modal */}
       {editingSection && (

@@ -25,7 +25,7 @@ from .service import (
     import_leads, classify_pending_leads, classify_single_lead,
     get_leads, get_raw_leads_with_status, attach_leads_to_campaign,
     get_lead_statistics, delete_leads_by_source, delete_all_leads,
-    get_enriched_lead_by_id, find_duplicate_emails, delete_duplicate_emails,
+    get_enriched_lead_by_id, get_lead_email_body, find_duplicate_emails, delete_duplicate_emails,
     leads_enriched_collection
 )
 from .ingestion import (
@@ -3036,6 +3036,21 @@ async def get_enriched_lead_endpoint(lead_id: str):
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return {"lead": lead}
+
+
+@router.get("/enriched/{lead_id}/emails/{email_id}")
+async def get_enriched_lead_email_endpoint(lead_id: str, email_id: str):
+    """
+    GET /leads/enriched/{lead_id}/emails/{email_id}
+    Body of one email in this lead's conversation, for the lead page viewer.
+    """
+    lead = get_enriched_lead_by_id(lead_id, include_emails=False)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    email = get_lead_email_body(lead.get("email"), email_id)
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found for this lead")
+    return {"email": email}
 
 
 @router.patch("/{lead_id}/status")
