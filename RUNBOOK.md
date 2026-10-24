@@ -348,3 +348,86 @@ Ops endpoints (on `/deliverability`, which nginx already proxies):
 `cold_outreach_router` still send directly — they are covered by the shared
 suppression list (via the read-through) but **not yet by the shared budget**.
 Route them through `messaging.send` before scaling volume.
+
+## 8. CRM platform operations (added 2026-10-24, CRM audit Phase 3–5)
+
+All times IST. Prod: `torpedo-prod` (139.59.32.72), code in `/var/www/campaign_platform`.
+
+### Restart and health
+```bash
+systemctl restart torpedo-backend torpedo-panel-worker torpedo-sales-worker
+curl -s 127.0.0.1:8000/health            # {"status":"healthy",...}
+tail -f /var/log/torpedo_backend.log     # boot prints one ✅ line per router / scheduled job
+```
+A restart resets every interval job's timer (mail pipeline 5 min, RFQ 10 min, vendors 15 min, web 30 min).
+If you deploy repeatedly, those jobs fire later than usual.
+
+### Deploy (backend + frontend)
+```bash
+cd /var/www/campaign_platform && git fetch origin && git merge --ff-only origin/main
+cd backend && set -a && . ./.env && set +a && ./venv/bin/python -c "import main"   # import check before restart
+systemctl restart torpedo-backend torpedo-panel-worker torpedo-sales-worker
+cd ../Campaign_platform && npx vite build --outDir dist_new --emptyOutDir \
+  && mv dist dist_prev_$(date +%Y%m%d) && mv dist_new dist                     # rollback: swap dist_prev back
+```
+Pushing to GitHub does not deploy anything on its own.
+
+### Where to look day to day
+- `/admin/review-queue` is the one work list. It holds approve, correct, reject and reassign actions for every module.
+- `/admin/command-centre` shows the business pulse and a ranked "needs attention" list.
+- `/admin/dashboards/<module>` shows each module's KPIs. A KPI with no data source yet says so.
+- `GET /api/platform/shadow-report?hours=24` shows what every module would have done (addresses masked).
+
+### Module modes: sandbox, shadow, live
+Every new module starts in **shadow**. It records decisions in its own collection and sends nothing:
+
+| module | config section | decisions collection | job |
+|---|---|---|---|
+| inbound mail pipeline | `torpedo_settings.config {_id: mail_pipeline}.mode` | `mail_decisions` | every 5 min |
+| RFQ extract/price | `rfq.mode` | `rfq_decisions` | every 10 min (skips until `QWEN_ENDPOINT_QWEN2_5_7B_INSTRUCT` is set) |
+| Operations | `ops.mode` | `ops_decisions` | daily 18:00 |
+| Vendors | `vendors.mode` | `vendor_decisions` | every 15 min |
+| Re-engagement | `reengagement.mode` | `reengagement_decisions` | nightly 02:00 |
+| Service Delivery | `service_delivery.mode` | `service_delivery_decisions` | daily 09:00 |
+| Website follow-ups | `web.mode` | `web_decisions` | every 30 min; audiences daily 06:30 |
+| Receivables / bank | `accounting.mode` | `finance_decisions`, `finance_db.bank_transactions` | 09:30 / 10:00 |
+
+To switch a module, change its config section. This needs the `approve` capability and is audit-logged:
+```bash
+curl -X PUT -b <session> https://torpedo.cogentixresearch.com/api/platform/config/ops -d '{"mode":"live"}' -H 'content-type: application/json'
+```
+"Live" here means the module applies its record changes and puts its mails in the Review Queue as drafts. **Sending real mail** is controlled separately by `MAIL_MODE` (messaging/facade.py):
+- Lead channels (`outreach`, `sales_outreach`, `campaign`, `nurture`, `reengagement`) stay in sandbox unless their own `MAIL_MODE_<CHANNEL>=live` is set. The global `MAIL_MODE` never opens them. A per-BU override is `MAIL_MODE_OUTREACH_SFW=live`.
+- Outreach also needs the kill switch open: `torpedo.outreach_kill_switch {_id: global, paused: false}` plus `{_id: "bu:<business>", open: true}` for each BU.
+- `SENDING_ENABLED=false` stops all outbound mail at once.
+
+### Retry failed AI jobs
+`/admin/review-queue` has a failed-jobs tab, which calls `POST /api/platform/ai/failed-jobs/{id}/retry`.
+Failed and missed scheduler runs are in `torpedo_settings.job_runs`. They appear on the System Health dashboard and in "needs attention".
+
+### Change config
+`GET /api/platform/config` lists every section with its defaults merged in. `PUT /api/platform/config/{section}` changes one; unknown keys are rejected.
+Owner-only values:
+- `entities` (GSTIN / PAN / address / bank; invoicing is blocked while blank)
+- `accounting.gst_rate`, `accounting.tds_sections`
+- `ops.pm_by_bu`
+- `service_delivery.rate_table`
+- `web.tags` (ad IDs)
+- `kpi.targets`
+- `rfq.cpi_bounds_usd`
+
+### Backups and restore
+- Nightly mongodump runs at 03:00 IST (cron 21:30 UTC, `/opt/crm-ops/mongo_backup.sh`), kept 14 days, in `/var/www/campaign_platform/backups/<ts>/full.archive.gz`.
+- A restore check runs weekly on Sunday at 04:00 IST (`/opt/crm-ops/mongo_restore_verify.sh`, temporary mongod on :27019).
+- Restore one collection: `mongorestore --uri "$MONGO_URI" --gzip --archive=<file> --nsInclude='crm_db.accounts' --drop`.
+  Note that `--drop` replaces that collection.
+
+### Phase 4 backfill (done 2026-10-24 15:20–15:40 IST, backup 20261024T094207Z)
+```bash
+cd /var/www/campaign_platform/backend && set -a && . ./.env && set +a
+./venv/bin/python scripts/backfill_phase4.py                    # dry run, every step
+./venv/bin/python scripts/backfill_phase4.py --step rfq_bu --apply   # refuses without a dump < 3 h old
+```
+- Every write is stamped `backfill.<step>`, and a replaced value is kept under `legacy.<field>`. To undo a step, find the documents by `backfill.<step>` and reverse them.
+- Runs are recorded in `email_automation.backfill_runs` and `crm_db.audit_log`.
+- The parallel ledger is in `finance_db.journal`. Its per-entity trial balance comes from `accounting.ledger.trial_balance`.
