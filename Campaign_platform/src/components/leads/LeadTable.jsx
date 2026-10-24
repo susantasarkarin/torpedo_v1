@@ -211,10 +211,62 @@ export const LEAD_COLUMNS = {
     label: "Status", width: 170,
     render: (lead, { onStatusUpdated }) => <LeadStatusBadge lead={lead} onUpdated={onStatusUpdated} />,
   },
+  // Optional columns — off by default, switched on from the Columns menu.
+  title: { label: "Title", width: 180, render: (l) => text(l.title) },
+  seniority: { label: "Seniority", width: 120, render: (l) => text(l.seniority_level !== "Unknown" && l.seniority_level) },
+  department: { label: "Department", width: 140, render: (l) => text(l.department) },
+  industry: { label: "Industry", width: 160, render: (l) => text(l.company_industry || l.industry) },
+  source: { label: "Source", width: 130, render: (l) => text(SOURCE_LABEL[l.source] || l.source) },
+  email_status: { label: "Email Status", width: 130, render: (l) => text(l.email_status) },
+  location: { label: "Location", width: 160, render: (l) => text([l.location, l.country].filter(Boolean).join(", ")) },
+  country: { label: "Country", width: 130, render: (l) => text(l.country) },
+  phone: { label: "Phone", width: 150, render: (l) => text(l.phone) },
+  domain: { label: "Company Domain", width: 170, render: (l) => text(l.company_domain) },
+  website: { label: "Website", width: 180, render: (l) => link(l.company_website) },
+  linkedin: { label: "LinkedIn", width: 120, render: (l) => link(l.linkedin_url, "Profile ↗") },
+  created: { label: "Added", width: 120, render: (l) => text(day(l.created_at)) },
+  updated: { label: "Updated", width: 120, render: (l) => text(day(l.updated_at)) },
 }
 
-function resolveColumns(columns) {
-  return columns.map(c => (typeof c === "string" ? { key: c, ...LEAD_COLUMNS[c] } : c))
+const SOURCE_LABEL = {
+  gmail: "Gmail", gmail_contact: "Gmail Contact", gmail_calendar: "Gmail Calendar",
+  gmail_reply: "Gmail Reply", outreach_reply: "Outreach Reply", web_search: "Web Search",
+  websearch: "Web Search", google_search: "Google", linkedin: "LinkedIn",
+  csv: "CSV Import", csv_import: "CSV Import",
+}
+
+function text(value) {
+  return value ? <div className="cell-clip" title={String(value)}>{value}</div> : DASH
+}
+
+function link(url, label) {
+  if (!url) return DASH
+  const href = url.startsWith("http") ? url : `https://${url}`
+  return (
+    <a className="cell-clip" style={{ display: "block" }} href={href} target="_blank" rel="noopener noreferrer"
+       onClick={e => e.stopPropagation()} title={url}>
+      {label || url}
+    </a>
+  )
+}
+
+function day(value) {
+  return value ? String(value).slice(0, 10) : ""
+}
+
+function resolveColumn(c) {
+  return typeof c === "string" ? { key: c, ...LEAD_COLUMNS[c] } : c
+}
+
+function loadVisible(storageKey, defaults, all) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${storageKey}:visible`) || "null")
+    if (Array.isArray(saved)) {
+      const known = saved.filter(k => all.some(c => c.key === k))
+      if (known.length) return known
+    }
+  } catch (_) {}
+  return defaults
 }
 
 function loadWidths(storageKey, cols) {
@@ -228,7 +280,63 @@ function loadWidths(storageKey, cols) {
   return widths
 }
 
-function ResizableHeader({ col, width, onResize, onReset }) {
+function SortArrows({ col, sort, onSort }) {
+  if (!onSort || col.sortable === false) return null
+  const active = sort?.by === col.key ? sort.order : null
+  return (
+    <span className="sort-arrows" onPointerDown={e => e.stopPropagation()}>
+      <button
+        type="button"
+        className={active === "asc" ? "active" : ""}
+        onClick={() => onSort(active === "asc" ? null : col.key, active === "asc" ? null : "asc")}
+        title={`Sort ${col.label} ascending`}
+        aria-label={`Sort ${col.label} ascending`}
+        aria-pressed={active === "asc"}
+      >▲</button>
+      <button
+        type="button"
+        className={active === "desc" ? "active" : ""}
+        onClick={() => onSort(active === "desc" ? null : col.key, active === "desc" ? null : "desc")}
+        title={`Sort ${col.label} descending`}
+        aria-label={`Sort ${col.label} descending`}
+        aria-pressed={active === "desc"}
+      >▼</button>
+    </span>
+  )
+}
+
+function ColumnPicker({ all, visible, onChange, onReset }) {
+  const [open, setOpen] = useState(false)
+  const toggle = (key) => {
+    const next = visible.includes(key) ? visible.filter(k => k !== key) : [...visible, key]
+    if (next.length) onChange(next)
+  }
+  return (
+    <div className="column-picker">
+      <button type="button" className="column-picker-btn" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        ☰ Columns ({visible.length})
+      </button>
+      {open && (
+        <>
+          <div className="column-picker-backdrop" onClick={() => setOpen(false)} />
+          <div className="column-picker-menu" role="menu">
+            {all.filter(c => !c.required).map(c => (
+              <label key={c.key} className="column-picker-item">
+                <input type="checkbox" checked={visible.includes(c.key)} onChange={() => toggle(c.key)} />
+                {c.label}
+              </label>
+            ))}
+            <button type="button" className="column-picker-reset" onClick={() => { onReset(); setOpen(false) }}>
+              Reset to default
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ResizableHeader({ col, width, onResize, onReset, sort, onSort }) {
   const startDrag = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -243,8 +351,11 @@ function ResizableHeader({ col, width, onResize, onReset }) {
     window.addEventListener("pointerup", up)
   }
   return (
-    <th className="resizable-th">
-      <span className="resizable-th-label">{col.label}</span>
+    <th className="resizable-th" aria-sort={sort?.by === col.key ? (sort.order === "asc" ? "ascending" : "descending") : undefined}>
+      <div className="resizable-th-inner">
+        <span className="resizable-th-label">{col.label}</span>
+        <SortArrows col={col} sort={sort} onSort={onSort} />
+      </div>
       <span
         className="col-resize-handle"
         onPointerDown={startDrag}
@@ -259,11 +370,38 @@ function ResizableHeader({ col, width, onResize, onReset }) {
 }
 
 /**
- * selection (optional): { isSelected(id), onToggle(id), onToggleAll(), allSelected }
+ * columns:      shown by default — LEAD_COLUMNS keys or { key, label, width, render,
+ *               sortable?, required? } objects (required ones cannot be hidden)
+ * selection:    optional { isSelected(id), onToggle(id), onToggleAll(), allSelected }
+ * sort/onSort:  optional { by, order } and onSort(key|null, "asc"|"desc"|null) — the
+ *               page sorts server-side, since its rows are one page of many
+ * toolbar:      optional controls rendered left of the Columns menu
+ * filterPanel:  optional node shown under the toolbar (a page's collapsible filters)
+ * empty:        shown instead of the table when there are no rows
  */
-export default function LeadTable({ leads, columns, storageKey, onRowClick, selection, onStatusUpdated }) {
-  const cols = resolveColumns(columns)
-  const [widths, setWidths] = useState(() => loadWidths(storageKey, cols))
+export default function LeadTable({
+  leads, columns, storageKey, onRowClick, selection, onStatusUpdated,
+  sort, onSort, toolbar, filterPanel, empty,
+}) {
+  const defaults = columns.map(resolveColumn)
+  const all = [...defaults, ...Object.keys(LEAD_COLUMNS)
+    .filter(k => !defaults.some(c => c.key === k))
+    .map(resolveColumn)]
+  const defaultKeys = defaults.map(c => c.key)
+  const [visible, setVisible] = useState(() => loadVisible(storageKey, defaultKeys, all))
+  const changeVisible = (keys) => {
+    const withRequired = [...new Set([...keys, ...all.filter(c => c.required).map(c => c.key)])]
+    setVisible(withRequired)
+    try { localStorage.setItem(`${storageKey}:visible`, JSON.stringify(withRequired)) } catch (_) {}
+  }
+  const resetVisible = () => {
+    setVisible(defaultKeys)
+    try { localStorage.removeItem(`${storageKey}:visible`) } catch (_) {}
+  }
+  // Shown in the order of `all` (page defaults first, then optional), so a
+  // column switched on later appears in a stable place.
+  const cols = all.filter(c => visible.includes(c.key))
+  const [widths, setWidths] = useState(() => loadWidths(storageKey, all))
 
   const resize = (key, width, commit) => {
     setWidths(prev => {
@@ -274,12 +412,19 @@ export default function LeadTable({ leads, columns, storageKey, onRowClick, sele
       return next
     })
   }
-  const reset = (key) => resize(key, cols.find(c => c.key === key).width, true)
+  const reset = (key) => resize(key, all.find(c => c.key === key).width, true)
 
   const checkboxWidth = selection ? 40 : 0
   const tableWidth = checkboxWidth + cols.reduce((sum, c) => sum + (widths[c.key] ?? c.width), 0)
 
   return (
+    <>
+    <div className="lead-table-toolbar">
+      <div className="lead-table-toolbar-left">{toolbar}</div>
+      <ColumnPicker all={all} visible={visible} onChange={changeVisible} onReset={resetVisible} />
+    </div>
+    {filterPanel}
+    {leads.length === 0 && empty ? empty : (
     <div className="lead-table-scroll">
       <table className="lead-table" style={{ width: tableWidth }}>
         <colgroup>
@@ -294,7 +439,8 @@ export default function LeadTable({ leads, columns, storageKey, onRowClick, sele
               </th>
             )}
             {cols.map(c => (
-              <ResizableHeader key={c.key} col={c} width={widths[c.key] ?? c.width} onResize={resize} onReset={reset} />
+              <ResizableHeader key={c.key} col={c} width={widths[c.key] ?? c.width} onResize={resize} onReset={reset}
+                               sort={sort} onSort={onSort} />
             ))}
           </tr>
         </thead>
@@ -321,5 +467,7 @@ export default function LeadTable({ leads, columns, storageKey, onRowClick, sele
         </tbody>
       </table>
     </div>
+    )}
+    </>
   )
 }

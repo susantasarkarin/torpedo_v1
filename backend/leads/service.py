@@ -588,6 +588,38 @@ LEAD_STAGES = ["lead_generation", "outreach"]
 # Contacts section: Active deals from discovery call onwards (moved from Leads)
 CONTACT_STAGES = ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost", "onboarding", "project_execution", "payment", "retention"]
 
+# Table column key -> field it sorts on. A whitelist, so a request can never
+# sort on an arbitrary path.
+SORT_FIELDS = {
+    "lead": "name", "email": "email", "company": "company_name",
+    "icp": "classification_basket", "fit": "fit_tier", "persona": "persona_label",
+    "reply": "mail_pool.last_contact_at", "status": "lead_status", "stage": "stage",
+    "title": "title", "seniority": "seniority_level", "department": "department",
+    "industry": "company_industry", "source": "source", "email_status": "email_status",
+    "location": "location", "country": "country", "phone": "phone",
+    "domain": "company_domain", "website": "company_website", "linkedin": "linkedin_url",
+    "created": "created_at", "updated": "updated_at", "classified": "classified_at",
+}
+
+
+def lead_view_clause(view: str) -> dict:
+    """Which records belong on a page. The three are disjoint:
+
+      contacts    — pipeline stage discovery_call onwards
+      leads       — not a contact, and two-way mail: Gmail-sourced or replied
+      ai_database — everything else (prospects we have not heard from)
+    """
+    two_way_sources = GMAIL_SOURCES + ["gmail_contact", "gmail_calendar", "gmail_reply", "outreach_reply"]
+    qualified = {"$or": [{"source": {"$in": two_way_sources}},
+                         {"outreach_replied_at": {"$exists": True}}]}
+    not_contact = {"stage": {"$nin": CONTACT_STAGES}}
+    if view == "contacts":
+        return {"stage": {"$in": CONTACT_STAGES}}
+    if view == "leads":
+        return {"$and": [qualified, not_contact]}
+    return {"$and": [{"$nor": [qualified]}, not_contact]}
+
+
 def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     """
     Get enriched leads with filtering and pagination.
@@ -597,18 +629,21 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     # transfer endpoints) is a company selling to us, not a prospect.
     query = {"transferred_to_vendor_leads": {"$ne": True}}
 
-    # Qualified-only mode: show only Gmail contacts and outreach-replied leads
-    QUALIFIED_SOURCES = GMAIL_SOURCES + ["outreach_reply"]
-    if filters.qualified_only:
-        # A prospect who replied to outreach is qualified whatever source first
-        # created the record (google search, linkedin...), so match on the
-        # reply itself too, not only on source.
-        query["$and"] = [{"$or": [{"source": {"$in": QUALIFIED_SOURCES}},
-                                  {"outreach_replied_at": {"$exists": True}}]}]
+    view = getattr(filters, "view", None) or ("leads" if filters.qualified_only else None)
+    if view in ("leads", "contacts", "ai_database"):
+        # The three record lists partition leads_enriched — every record is
+        # in exactly one (see lead_view_clause). The AI Database used to
+        # include Gmail-sourced records (and a "mailpool ID's" tab with no
+        # restriction at all), and Leads did not exclude pipeline stages, so
+        # one record could sit on all three pages.
+        query["$and"] = [lead_view_clause(view)]
 
     # Filter by lead_stage if provided
     # Maps 'leads' -> early-stage leads, 'contacts' -> active deals (discovery_call onwards)
-    if filters.lead_stage:
+    if view:
+        if filters.lead_stage and filters.lead_stage not in ("leads", "contacts"):
+            query["stage"] = filters.lead_stage
+    elif filters.lead_stage:
         if filters.lead_stage == "leads":
             # Show leads in early stages OR have no stage (default to leads)
             query["$or"] = [
@@ -623,7 +658,7 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
         else:
             # Allow filtering by specific stage
             query["stage"] = filters.lead_stage
-    elif not filters.qualified_only:
+    else:
         # Default: exclude 'already_contacted' (gmail/Leads-tab leads) from the
         # main AI Database view. qualified_only is exempted — its entire
         # purpose is to surface "Gmail contacts + outreach-replied leads" (see
@@ -688,14 +723,14 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
         query["source"] = {"$in": expanded_sources}
     
     if filters.search:
-        query["$or"] = [
+        query.setdefault("$and", []).append({"$or": [
             {"name": {"$regex": filters.search, "$options": "i"}},
             {"title": {"$regex": filters.search, "$options": "i"}},
             {"industry": {"$regex": filters.search, "$options": "i"}},
             {"company_name": {"$regex": filters.search, "$options": "i"}},
             {"company_domain": {"$regex": filters.search, "$options": "i"}},
             {"email": {"$regex": filters.search, "$options": "i"}},
-        ]
+        ]})
 
     # Match what the Sales > Leads badge shows: a lead nobody has set a status
     # on reads as "Nurture" when it sits in basket E, otherwise "Neutral".
@@ -712,10 +747,13 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
             query["lead_status"] = filters.lead_status
 
     total = leads_enriched_collection.count_documents(query)
-    
+
+    sort_field = SORT_FIELDS.get(getattr(filters, "sort_by", None) or "", "classified_at")
+    direction = ASCENDING if getattr(filters, "sort_order", None) == "asc" else DESCENDING
     skip = (filters.page - 1) * filters.limit
     leads = list(leads_enriched_collection.find(query)
-                 .sort("classified_at", DESCENDING)
+                 .sort([(sort_field, direction), ("_id", direction)])
+                 .allow_disk_use(True)
                  .skip(skip)
                  .limit(filters.limit))
     

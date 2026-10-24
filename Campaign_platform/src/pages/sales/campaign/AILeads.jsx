@@ -135,7 +135,9 @@ function AILeads() {
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   // View State
-  const [activeTab, setActiveTab] = useState("classified");
+  const [showFilters, setShowFilters] = useState(false);
+  const [sort, setSort] = useState({ by: null, order: null });
+  const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -252,12 +254,6 @@ function AILeads() {
 
   // ============== FETCH DATA ==============
 
-  // Helper to get source filter for current tab
-  const getSourceFilterForTab = useCallback(() => {
-    if (activeTab !== "classified") return null;
-    return "web_search,google_search,linkedin,csv,csv_import,google_sheets,json_import,gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive,classified_gmail";
-  }, [activeTab]);
-
   // Service type on UI is aligned to ICP segment labels.
   // A lead can have multiple ICP tags — return the first match for legacy callers.
   const getServiceType = (lead) => {
@@ -285,11 +281,10 @@ function AILeads() {
       if (filters.basket) params.append("basket", filters.basket);
       if (filters.bounce_recovery) params.append("bounce_recovery_status", "needs_human_intervention");
       
-      // Add source filter based on active tab
-      const sourceFilter = getSourceFilterForTab();
-      if (sourceFilter) params.append("source", sourceFilter);
-
-      // For "mailpool ID's" tab, fetch all gmail/mailpool leads (no stage restriction)
+      // The AI Database is every record that is neither a Lead (two-way
+      // mail) nor a Contact (pipeline stage); the server owns that split.
+      params.append("view", "ai_database");
+      if (sort.by) { params.append("sort_by", sort.by); params.append("sort_order", sort.order); }
 
       params.append("page", currentPage);
       params.append("limit", 100);
@@ -302,10 +297,11 @@ function AILeads() {
       const data = await res.json();
       setLeads(data.leads || []);
       setTotalPages(data.pages || 1);
+      setTotalCount(data.total || 0);
     } catch (err) {
       console.error("Error fetching leads:", err);
     }
-  }, [filters, currentPage, searchQuery, sessionId, getSourceFilterForTab]);
+  }, [filters, currentPage, searchQuery, sessionId, sort]);
 
   const fetchRawLeads = useCallback(async () => {
     try {
@@ -513,13 +509,16 @@ function AILeads() {
     loadPhase2();
   }, []);
 
-  // Refetch leads when filters or active tab change
+  // A new filter, search or sort starts again from page 1. This used to sit
+  // in the fetch effect below with currentPage among its dependencies, so
+  // every page change reset itself to page 1 and Next never went anywhere.
   useEffect(() => {
-    if (!loading) {
-      setCurrentPage(1); // Reset to page 1 when tab changes
-      fetchLeads();
-    }
-  }, [filters, currentPage, searchQuery, activeTab, fetchLeads]);
+    setCurrentPage(1);
+  }, [filters, searchQuery, sort]);
+
+  useEffect(() => {
+    if (!loading) fetchLeads();
+  }, [fetchLeads]);
 
   // ============== IMPORT HANDLER ==============
 
@@ -1387,21 +1386,10 @@ function AILeads() {
     setCurrentPage(1);
   };
 
-  // ============== TAB COUNT HELPERS ==============
-  
-  // Helper to check if a lead belongs to AI Database stage
-  const isInAIDatabase = (lead) => {
-    // A lead is in AI Database if stage is 'ai_database', undefined, null, or empty
-    // Backend uses 'stage' field, not 'lead_stage'
-    const stage = lead.stage || lead.lead_stage;
-    return !stage || stage === 'ai_database' || stage === '';
-  };
-
   // ============== GET DISPLAY DATA ==============
 
   const getDisplayLeads = () => {
-    // "Leads" tab: backend already filters by stage=already_contacted, no client-side exclusion
-    let filtered = activeTab === "leads" ? leads : leads.filter(l => isInAIDatabase(l));
+    let filtered = leads;
     if (icpFilter) {
       // Support both legacy icp_segment (string) and new icp_tags (array)
       filtered = filtered.filter(l => {
@@ -1460,167 +1448,6 @@ function AILeads() {
             {classifying ? "⏳ Working..." : "📊 Apply ICP Rules"}
           </button>
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="stats-row">
-        <div className="stat-card">
-          <div className="stat-value">{statistics?.raw?.total || 0}</div>
-          <div className="stat-label">Total Raw Leads</div>
-        </div>
-        <div className="stat-card success">
-          <div className="stat-value">{statistics?.raw?.classified || 0}</div>
-          <div className="stat-label">Classified</div>
-        </div>
-        <div className="stat-card danger">
-          <div className="stat-value">{statistics?.raw?.failed || 0}</div>
-          <div className="stat-label">Failed</div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="tabs-row">
-        <button 
-          className={`tab-btn ${activeTab === "classified" ? "active" : ""}`}
-          onClick={() => { setActiveTab("classified"); }}
-        >
-          Classified ({leads.length})
-        </button>
-        <button 
-          className={`tab-btn ${activeTab === "leads" ? "active" : ""}`}
-          onClick={() => { setActiveTab("leads"); }}
-        >
-          mailpool ID's
-        </button>
-      </div>
-
-      {/* Filters Bar */}
-      <div className="filters-bar">
-        <input
-          type="text"
-          className="search-input"
-          placeholder="🔍 Search leads..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        {/* Designation / Job Title */}
-        <input
-          type="text"
-          className="filter-select"
-          placeholder="Designation..."
-          value={filters.title}
-          onChange={(e) => handleFilterChange("title", e.target.value)}
-          style={{ minWidth: "130px" }}
-        />
-        {/* Location / Country */}
-        <select
-          className="filter-select"
-          value={filters.location}
-          onChange={(e) => handleFilterChange("location", e.target.value)}
-        >
-          <option value="">All Countries</option>
-          {COUNTRY_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        {/* Seniority */}
-        <select
-          className="filter-select"
-          value={filters.seniority_level}
-          onChange={(e) => handleFilterChange("seniority_level", e.target.value)}
-        >
-          <option value="">All Seniority</option>
-          {SENIORITY_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        {/* Department */}
-        <select
-          className="filter-select"
-          value={filters.department}
-          onChange={(e) => handleFilterChange("department", e.target.value)}
-        >
-          <option value="">All Departments</option>
-          {DEPARTMENT_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        {/* Company Size */}
-        <select
-          className="filter-select"
-          value={filters.company_size}
-          onChange={(e) => handleFilterChange("company_size", e.target.value)}
-        >
-          <option value="">All Sizes</option>
-          {COMPANY_SIZE_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        {/* Industry */}
-        <input
-          type="text"
-          className="filter-select"
-          placeholder="Industry..."
-          value={filters.industry}
-          onChange={(e) => handleFilterChange("industry", e.target.value)}
-          style={{ minWidth: "120px" }}
-        />
-        {/* Persona */}
-        <select
-          className="filter-select"
-          value={filters.persona}
-          onChange={(e) => handleFilterChange("persona", e.target.value)}
-        >
-          <option value="">All Personas</option>
-          {PERSONA_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        {/* Fit Tier */}
-        <select
-          className="filter-select"
-          value={filters.fit_tier}
-          onChange={(e) => handleFilterChange("fit_tier", e.target.value)}
-        >
-          <option value="">All Tiers</option>
-          <option value="1">🔥 Tier 1 — Hot</option>
-          <option value="2">☀️ Tier 2 — Warm</option>
-          <option value="3">❄️ Tier 3 — Cold</option>
-        </select>
-        {/* ICP Segment */}
-        <select
-          className="filter-select"
-          value={icpFilter}
-          onChange={(e) => setIcpFilter(e.target.value)}
-        >
-          <option value="">All ICP Segments</option>
-          {icpOptions.map(icp => (
-            <option key={icp.slug} value={icp.slug}>{icp.name}</option>
-          ))}
-          <option value="unknown">Unknown</option>
-        </select>
-        {/* Human Review Filter */}
-        <select
-          className="filter-select"
-          value={filters.bounce_recovery}
-          onChange={(e) => handleFilterChange("bounce_recovery", e.target.value)}
-        >
-          <option value="">All Statuses</option>
-          <option value="1">⚠️ Needs Human Review</option>
-        </select>
-        <button className="btn btn-outline btn-sm" onClick={() => { clearFilters(); setIcpFilter(""); }}>
-          Clear
-        </button>
-        
-        {/* Delete All Leads Button */}
-        <button 
-          className="btn btn-danger btn-sm"
-          onClick={handleDeleteAllLeads}
-          disabled={deletingAllLeads}
-          style={{ marginLeft: "auto", backgroundColor: "#dc2626", color: "white" }}
-        >
-          {deletingAllLeads ? "⏳ Deleting…" : "🗑️ Delete All Leads"}
-        </button>
       </div>
 
       {/* Selection Bar */}
@@ -1709,9 +1536,162 @@ function AILeads() {
         </div>
       )}
 
-      {/* Data Table */}
-      <div className="table-wrapper">
-        {displayLeads.length === 0 ? (
+      {/* Data Table — the shared Sales lead table; always mounted so the
+          search box keeps focus while rows reload */}
+      <LeadTable
+        leads={displayLeads}
+        columns={["lead", "email", "company", "icp", "fit", "persona", "reply", "status"]}
+        storageKey="ai_database_col_widths"
+        onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+        onStatusUpdated={(id, status) => setLeads(prev => prev.map(l => l._id === id ? { ...l, lead_status: status } : l))}
+        selection={{
+          isSelected: id => selectedIds.has(id),
+          onToggle: toggleSelect,
+          onToggleAll: toggleSelectAll,
+          allSelected: selectedIds.size === displayLeads.length && displayLeads.length > 0,
+        }}
+        sort={sort}
+        onSort={(by, order) => { setSort({ by, order }); setCurrentPage(1); }}
+        toolbar={
+          <>
+            <input
+              type="text"
+              placeholder="Search name, email, company…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ minWidth: 240 }}
+              aria-label="Search AI Database"
+            />
+            <button type="button" className={`toolbar-btn ${showFilters ? "active" : ""}`}
+                    onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters}>
+              Filters ▾
+            </button>
+            <span style={{ color: "#6f6f6f", fontSize: "0.85rem" }}>{totalCount.toLocaleString()} records</span>
+          </>
+        }
+        filterPanel={showFilters && (
+          <div className="lead-table-filters">
+            {/* Designation / Job Title */}
+            <input
+              type="text"
+              className="filter-select"
+              placeholder="Designation..."
+              value={filters.title}
+              onChange={(e) => handleFilterChange("title", e.target.value)}
+              style={{ minWidth: "130px" }}
+            />
+            {/* Location / Country */}
+            <select
+              className="filter-select"
+              value={filters.location}
+              onChange={(e) => handleFilterChange("location", e.target.value)}
+            >
+              <option value="">All Countries</option>
+              {COUNTRY_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {/* Seniority */}
+            <select
+              className="filter-select"
+              value={filters.seniority_level}
+              onChange={(e) => handleFilterChange("seniority_level", e.target.value)}
+            >
+              <option value="">All Seniority</option>
+              {SENIORITY_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {/* Department */}
+            <select
+              className="filter-select"
+              value={filters.department}
+              onChange={(e) => handleFilterChange("department", e.target.value)}
+            >
+              <option value="">All Departments</option>
+              {DEPARTMENT_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {/* Company Size */}
+            <select
+              className="filter-select"
+              value={filters.company_size}
+              onChange={(e) => handleFilterChange("company_size", e.target.value)}
+            >
+              <option value="">All Sizes</option>
+              {COMPANY_SIZE_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {/* Industry */}
+            <input
+              type="text"
+              className="filter-select"
+              placeholder="Industry..."
+              value={filters.industry}
+              onChange={(e) => handleFilterChange("industry", e.target.value)}
+              style={{ minWidth: "120px" }}
+            />
+            {/* Persona */}
+            <select
+              className="filter-select"
+              value={filters.persona}
+              onChange={(e) => handleFilterChange("persona", e.target.value)}
+            >
+              <option value="">All Personas</option>
+              {PERSONA_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {/* Fit Tier */}
+            <select
+              className="filter-select"
+              value={filters.fit_tier}
+              onChange={(e) => handleFilterChange("fit_tier", e.target.value)}
+            >
+              <option value="">All Tiers</option>
+              <option value="1">🔥 Tier 1 — Hot</option>
+              <option value="2">☀️ Tier 2 — Warm</option>
+              <option value="3">❄️ Tier 3 — Cold</option>
+            </select>
+            {/* ICP Segment */}
+            <select
+              className="filter-select"
+              value={icpFilter}
+              onChange={(e) => setIcpFilter(e.target.value)}
+            >
+              <option value="">All ICP Segments</option>
+              {icpOptions.map(icp => (
+                <option key={icp.slug} value={icp.slug}>{icp.name}</option>
+              ))}
+              <option value="unknown">Unknown</option>
+            </select>
+            {/* Human Review Filter */}
+            <select
+              className="filter-select"
+              value={filters.bounce_recovery}
+              onChange={(e) => handleFilterChange("bounce_recovery", e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="1">⚠️ Needs Human Review</option>
+            </select>
+            <button className="btn btn-outline btn-sm" onClick={() => { clearFilters(); setIcpFilter(""); }}>
+              Clear
+            </button>
+        
+            {/* Delete All Leads Button */}
+            <button 
+              className="btn btn-danger btn-sm"
+              onClick={handleDeleteAllLeads}
+              disabled={deletingAllLeads}
+              style={{ marginLeft: "auto", backgroundColor: "#dc2626", color: "white" }}
+            >
+              {deletingAllLeads ? "⏳ Deleting…" : "🗑️ Delete All Leads"}
+            </button>
+          </div>
+        )}
+        empty={
           <div className="empty-state">
             <div className="empty-icon">📋</div>
             <h2>No leads found</h2>
@@ -1720,83 +1700,11 @@ function AILeads() {
               📥 Import Leads
             </button>
           </div>
-        ) : activeTab.startsWith("classified") ? (
-          /* Classified leads — the shared Sales lead table */
-          <LeadTable
-            leads={displayLeads}
-            columns={["lead", "email", "company", "icp", "fit", "persona", "reply", "status"]}
-            storageKey="ai_database_col_widths"
-            onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
-            onStatusUpdated={(id, status) => setLeads(prev => prev.map(l => l._id === id ? { ...l, lead_status: status } : l))}
-            selection={{
-              isSelected: id => selectedIds.has(id),
-              onToggle: toggleSelect,
-              onToggleAll: toggleSelectAll,
-              allSelected: selectedIds.size === displayLeads.length && displayLeads.length > 0,
-            }}
-          />
-        ) : (
-          /* Raw/Pending Leads Table - Simple view */
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th className="checkbox-col">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === displayLeads.length && displayLeads.length > 0}
-                    onChange={toggleSelectAll}
-                  />
-                </th>
-                <th>Name</th>
-                <th>Job Title</th>
-                <th>Company</th>
-                <th>Source</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayLeads.map((lead) => (
-                <tr key={lead._id} className={selectedIds.has(lead._id) ? "selected" : ""}>
-                  <td className="checkbox-col">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(lead._id)}
-                      onChange={() => toggleSelect(lead._id)}
-                    />
-                  </td>
-                  <td className="name-cell">
-                    <span 
-                      className="name-link" 
-                      onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
-                    >
-                      {lead.name}
-                    </span>
-                  </td>
-                  <td>{lead.title || lead.job_title || "-"}</td>
-                  <td>{lead.company_name || "-"}</td>
-                  <td>
-                    <span className={`source-badge ${lead.source?.replace("_", "-") || "unknown"}`}>
-                      {lead.source === "web_search" ? "🌐 Web" : 
-                       lead.source === "google_search" ? "🔍 Google" :
-                       lead.source === "csv" || lead.source === "csv_import" ? "📄 CSV" :
-                       lead.source === "linkedin" ? "💼 LinkedIn" :
-                       lead.source || "Unknown"}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`status-pill ${lead.classification_status?.toLowerCase()}`}>
-                      {lead.classification_status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+        }
+      />
 
       {/* Pagination */}
-      {totalPages > 1 && activeTab.startsWith("classified") && (
+      {totalPages > 1 && (
         <div className="pagination-bar">
           <button 
             className="btn btn-outline btn-sm"

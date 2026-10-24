@@ -13,6 +13,15 @@ export const MODULES = [
     icon: "💼",
     root: "/admin/sales",
     groups: [
+      // Campaign first: a record starts in the AI Database, becomes a Lead
+      // once there is two-way mail, and a Contact from the discovery call on.
+      {
+        label: "Campaign",
+        items: [
+          { label: "AI Database", icon: "🤖", to: "/admin/sales/campaign/ai-leads" },
+          { label: "Cold Outreach", icon: "📨", to: "/admin/sales/outreach" },
+        ],
+      },
       {
         label: "Sales",
         items: [
@@ -21,13 +30,6 @@ export const MODULES = [
           { label: "Contacts", icon: "📞", to: "/admin/sales/contacts" },
           { label: "Account", icon: "🏢", to: "/admin/sales/account" },
           { label: "RFQ", icon: "📋", to: "/admin/sales/rfq" },
-        ],
-      },
-      {
-        label: "Campaign",
-        items: [
-          { label: "AI Database", icon: "🤖", to: "/admin/sales/campaign/ai-leads" },
-          { label: "Cold Outreach", icon: "📨", to: "/admin/sales/outreach" },
         ],
       },
     ],

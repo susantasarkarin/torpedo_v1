@@ -28,6 +28,8 @@ function Contacts() {
   const [recordsPerPage, setRecordsPerPage] = useState(10)
   const [selectedIds, setSelectedIds] = useState([])
   const [stageFilter, setStageFilter] = useState("")
+  const [showFilters, setShowFilters] = useState(false)
+  const [sort, setSort] = useState({ by: null, order: null })
 
   // Contact stages (post-qualification)
   const contactStages = getContactStages()
@@ -74,11 +76,13 @@ function Contacts() {
       setError(null);
       try {
         const params = new URLSearchParams({
-          lead_stage: stageFilter || "contacts",
+          view: "contacts",
           page: String(currentPage),
           limit: String(recordsPerPage),
         });
         if (search) params.set("search", search);
+        if (stageFilter) params.set("lead_stage", stageFilter);
+        if (sort.by) { params.set("sort_by", sort.by); params.set("sort_order", sort.order); }
         const res = await authFetch(buildApiUrl(`/leads?${params}`), {
           headers: {
             "Content-Type": "application/json",
@@ -103,7 +107,7 @@ function Contacts() {
       }
     };
     fetchContacts();
-  }, [navigate, currentPage, recordsPerPage, search, stageFilter]);
+  }, [navigate, currentPage, recordsPerPage, search, stageFilter, sort]);
 
   // Handle form input
   const handleChange = (e) => {
@@ -361,7 +365,7 @@ function Contacts() {
     "icp",
     "reply",
     {
-      key: "actions", label: "Actions", width: 120,
+      key: "actions", label: "Actions", width: 120, sortable: false, required: true,
       render: (contact) => (
         <div className="actions-cell" onClick={(e) => e.stopPropagation()}>
           {(contact.linkedin || contact.linkedin_url) && (
@@ -421,61 +425,62 @@ function Contacts() {
 
       {error && <div className="error-alert">{error}</div>}
 
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Search name, email, company…"
-          value={search}
-          onChange={e => handleSearch(e.target.value)}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem", minWidth: 240 }}
-        />
-        <select
-          value={stageFilter}
-          onChange={e => { setStageFilter(e.target.value); setCurrentPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value="">All Stages</option>
-          {contactStages.map(stage => (
-            <option key={stage.id} value={stage.id}>{stage.icon} {stage.label}</option>
-          ))}
-        </select>
-        <select
-          value={recordsPerPage}
-          onChange={e => handleRecordsPerPageChange(e.target.value)}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value={10}>10 per page</option>
-          <option value={20}>20 per page</option>
-          <option value={50}>50 per page</option>
-          <option value={100}>100 per page</option>
-          <option value={200}>200 per page</option>
-        </select>
-      </div>
-
-      {/* Table */}
-      {loading ? (
-        <div className="loading-container"><span>Loading contacts…</span></div>
-      ) : paginatedContacts.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
-          <h3>No contacts found</h3>
-          <p>Move leads from the Leads page to get started!</p>
-        </div>
-      ) : (
-        <LeadTable
-          leads={paginatedContacts}
-          columns={contactColumns}
-          storageKey="sales_contacts_col_widths"
-          onRowClick={contact => navigate(`/admin/sales/campaign/ai-leads/${contact._id}`)}
-          onStatusUpdated={(id, status) => setContacts(prev => prev.map(c => c._id === id ? { ...c, lead_status: status } : c))}
-          selection={{
-            isSelected: id => selectedIds.includes(id),
-            onToggle: toggleSelect,
-            onToggleAll: toggleSelectAll,
-            allSelected: paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c._id)),
-          }}
-        />
-      )}
+      {/* Table — always mounted so the search box keeps focus while rows reload */}
+      <LeadTable
+        leads={paginatedContacts}
+        columns={contactColumns}
+        storageKey="sales_contacts_col_widths"
+        onRowClick={contact => navigate(`/admin/sales/campaign/ai-leads/${contact._id}`)}
+        onStatusUpdated={(id, status) => setContacts(prev => prev.map(c => c._id === id ? { ...c, lead_status: status } : c))}
+        selection={{
+          isSelected: id => selectedIds.includes(id),
+          onToggle: toggleSelect,
+          onToggleAll: toggleSelectAll,
+          allSelected: paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c._id)),
+        }}
+        sort={sort}
+        onSort={(by, order) => { setSort({ by, order }); setCurrentPage(1) }}
+        toolbar={
+          <>
+            <input
+              type="text"
+              placeholder="Search name, email, company…"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              style={{ minWidth: 240 }}
+              aria-label="Search contacts"
+            />
+            <button type="button" className={`toolbar-btn ${showFilters || stageFilter ? "active" : ""}`}
+                    onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters}>
+              Filters ▾{stageFilter ? " (1)" : ""}
+            </button>
+            {loading && <span style={{ color: "#6f6f6f", fontSize: "0.85rem" }}>Loading…</span>}
+          </>
+        }
+        filterPanel={showFilters && (
+          <div className="lead-table-filters">
+            <select value={stageFilter} onChange={e => { setStageFilter(e.target.value); setCurrentPage(1) }} aria-label="Stage">
+              <option value="">All Stages</option>
+              {contactStages.map(stage => (
+                <option key={stage.id} value={stage.id}>{stage.icon} {stage.label}</option>
+              ))}
+            </select>
+            <select value={recordsPerPage} onChange={e => handleRecordsPerPageChange(e.target.value)} aria-label="Rows per page">
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+              <option value={200}>200 per page</option>
+            </select>
+          </div>
+        )}
+        empty={
+          <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
+            <h3>{loading ? "Loading contacts…" : "No contacts found"}</h3>
+            {!loading && <p>Move leads from the Leads page to get started!</p>}
+          </div>
+        }
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (

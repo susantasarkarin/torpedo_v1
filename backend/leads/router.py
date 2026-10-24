@@ -1918,6 +1918,10 @@ async def get_leads_endpoint(
     bounce_recovery_status: Optional[str] = None,
     qualified_only: bool = Query(False, description="If true, show only Gmail contacts + outreach-replied leads"),
     lead_status: Optional[str] = Query(None, description="Filter by lead status: Positive, Negative, Neutral"),
+    view: Optional[str] = Query(None, pattern="^(leads|contacts|ai_database)$",
+                                description="Disjoint record lists: leads | contacts | ai_database"),
+    sort_by: Optional[str] = Query(None, description="Table column key to sort on"),
+    sort_order: Optional[str] = Query(None, pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
 ):
@@ -1948,10 +1952,13 @@ async def get_leads_endpoint(
         bounce_recovery_status=bounce_recovery_status,
         qualified_only=qualified_only,
         lead_status=lead_status,
+        view=view,
+        sort_by=sort_by,
+        sort_order=sort_order,
         page=page,
         limit=limit
     )
-    
+
     leads, total = get_leads(filters)
     
     return {

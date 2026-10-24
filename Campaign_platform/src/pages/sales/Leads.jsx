@@ -28,12 +28,16 @@ function Leads() {
   const [importingRfqs, setImportingRfqs] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [syncingReplies, setSyncingReplies] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [sort, setSort] = useState({ by: null, order: null })
+  const activeFilters = [basket, fitTier, source, leadStatus].filter(Boolean).length
   const fetchLeads = useCallback(async () => {
     if (!sessionId) { navigate("/login"); return }
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: "50", qualified_only: "true" })
+      const params = new URLSearchParams({ page: String(page), limit: "50", view: "leads" })
+      if (sort.by) { params.set("sort_by", sort.by); params.set("sort_order", sort.order) }
       if (search) params.set("search", search)
       if (fitTier) params.set("fit_tier", fitTier)
       if (basket) params.set("basket", basket)
@@ -54,7 +58,7 @@ function Leads() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, fitTier, basket, source, leadStatus, sessionId, navigate])
+  }, [page, search, fitTier, basket, source, leadStatus, sort, sessionId, navigate])
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
 
@@ -162,87 +166,80 @@ function Leads() {
         </div>
       )}
 
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Search name, email, company…"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem", minWidth: 240 }}
-        />
-        <select
-          value={basket}
-          onChange={e => { setBasket(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value="">All ICP Baskets</option>
-          <option value="A">A — Survey Fieldwork</option>
-          <option value="B">B — Cogentix Research</option>
-          <option value="C">C — BIMwave</option>
-        </select>
-        <select
-          value={fitTier}
-          onChange={e => { setFitTier(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value="">All Fit Tiers</option>
-          <option value="1">🔥 Tier 1 — Hot</option>
-          <option value="2">☀️ Tier 2 — Warm</option>
-          <option value="3">❄️ Tier 3 — Cold</option>
-        </select>
-        <select
-          value={source}
-          onChange={e => { setSource(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value="">All Sources</option>
-          <option value="gmail">✉️ Gmail</option>
-          <option value="gmail_contact">📇 Gmail Contact</option>
-          <option value="gmail_calendar">📅 Gmail Calendar</option>
-          <option value="outreach_reply">💬 Outreach Reply</option>
-        </select>
-        <select
-          value={leadStatus}
-          onChange={e => { setLeadStatus(e.target.value); setPage(1) }}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
-        >
-          <option value="">All Statuses</option>
-          <option value="Positive">✅ Positive</option>
-          <option value="Needs Human">🙋 Needs Human</option>
-          <option value="Neutral">⬜ Neutral</option>
-          <option value="Nurture">🌱 Nurture</option>
-          <option value="Negative">🚫 Negative</option>
-        </select>
-      </div>
-
       {error && (
         <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "12px 16px", color: "#dc2626", marginBottom: 16 }}>
           {error}
         </div>
       )}
 
-      {/* Table */}
-      <div>
-        {loading ? (
-          <div className="loading-container">
-            <div className="loading-spinner" />
-            <span>Loading leads…</span>
+      {/* Table — always mounted so the search box keeps focus while rows reload */}
+      <LeadTable
+        leads={leads}
+        columns={["lead", "email", "company", "icp", "fit", "reply", "status"]}
+        storageKey="sales_leads_col_widths"
+        onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+        onStatusUpdated={handleStatusUpdated}
+        filterPanel={showFilters && (
+          <div className="lead-table-filters">
+            <select value={basket} onChange={e => { setBasket(e.target.value); setPage(1) }} aria-label="ICP segment">
+              <option value="">All ICP Segments</option>
+              <option value="A">A — Survey Fieldwork</option>
+              <option value="B">B — Cogentix Research</option>
+              <option value="C">C — BIMwave</option>
+            </select>
+            <select value={fitTier} onChange={e => { setFitTier(e.target.value); setPage(1) }} aria-label="Fit tier">
+              <option value="">All Fit Tiers</option>
+              <option value="1">🔥 Tier 1 — Hot</option>
+              <option value="2">☀️ Tier 2 — Warm</option>
+              <option value="3">❄️ Tier 3 — Cold</option>
+            </select>
+            <select value={source} onChange={e => { setSource(e.target.value); setPage(1) }} aria-label="Source">
+              <option value="">All Sources</option>
+              <option value="gmail">✉️ Gmail</option>
+              <option value="gmail_contact">📇 Gmail Contact</option>
+              <option value="gmail_calendar">📅 Gmail Calendar</option>
+              <option value="outreach_reply">💬 Outreach Reply</option>
+            </select>
+            <select value={leadStatus} onChange={e => { setLeadStatus(e.target.value); setPage(1) }} aria-label="Status">
+              <option value="">All Statuses</option>
+              <option value="Positive">✅ Positive</option>
+              <option value="Needs Human">🙋 Needs Human</option>
+              <option value="Neutral">⬜ Neutral</option>
+              <option value="Nurture">🌱 Nurture</option>
+              <option value="Negative">🚫 Negative</option>
+            </select>
+            {activeFilters > 0 && (
+              <button type="button" className="toolbar-btn" onClick={() => { setBasket(""); setFitTier(""); setSource(""); setLeadStatus(""); setPage(1) }}>
+                Clear
+              </button>
+            )}
           </div>
-        ) : leads.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
-            <p>No leads found matching your filters.</p>
-          </div>
-        ) : (
-          <LeadTable
-            leads={leads}
-            columns={["lead", "email", "company", "icp", "fit", "reply", "status"]}
-            storageKey="sales_leads_col_widths"
-            onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
-            onStatusUpdated={handleStatusUpdated}
-          />
         )}
-      </div>
+        sort={sort}
+        onSort={(by, order) => { setSort({ by, order }); setPage(1) }}
+        toolbar={
+          <>
+            <input
+              type="text"
+              placeholder="Search name, email, company…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              style={{ minWidth: 240 }}
+              aria-label="Search leads"
+            />
+            <button type="button" className={`toolbar-btn ${showFilters || activeFilters ? "active" : ""}`}
+                    onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters}>
+              Filters ▾{activeFilters ? ` (${activeFilters})` : ""}
+            </button>
+            {loading && <span style={{ color: "#6f6f6f", fontSize: "0.85rem" }}>Loading…</span>}
+          </>
+        }
+        empty={
+          <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
+            <p>{loading ? "Loading leads…" : "No leads found matching your filters."}</p>
+          </div>
+        }
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (

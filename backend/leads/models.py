@@ -598,6 +598,9 @@ class LeadFilterParams(BaseModel):
     bounce_recovery_status: Optional[str] = None  # Filter by bounce recovery status e.g. 'needs_human_intervention'
     qualified_only: bool = False  # If True, show only Gmail contacts + outreach-replied leads
     lead_status: Optional[str] = None  # Filter by lead status: Positive, Negative, Neutral
+    view: Optional[str] = None  # leads | contacts | ai_database — disjoint record lists
+    sort_by: Optional[str] = None  # a table column key, see service.SORT_FIELDS
+    sort_order: Optional[str] = None  # asc | desc
     page: int = 1
     limit: int = 50
 
