@@ -517,8 +517,14 @@ def ledger_opening(c, apply=False, now=None):
     now, rep = now or datetime.utcnow(), Counter()
     rates = defaultdict(list)
     for r in c.finance_db.invoice_fx.find({}, {"currency": 1, "rate": 1, "rate_date": 1}).sort("rate_date", 1):
-        if r.get("rate") and r.get("rate_date"):
-            rates[r["currency"].upper()].append((r["rate_date"], float(r["rate"])))
+        rd = r.get("rate_date")
+        if isinstance(rd, str):
+            try:
+                rd = datetime.fromisoformat(rd[:10])
+            except ValueError:
+                rd = None
+        if r.get("rate") and isinstance(rd, datetime):
+            rates[r["currency"].upper()].append((rd, float(r["rate"])))
     j = c.finance_db.journal
     have = {(e["source"]["type"], e["source"]["id"]) for e in j.find({}, {"source": 1})}
     new = []

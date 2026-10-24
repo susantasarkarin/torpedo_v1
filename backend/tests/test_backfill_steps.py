@@ -71,7 +71,7 @@ def test_plausible_domain_rejects_sentence_domains():
 def test_ledger_opening_posts_once_and_balances():
     from tests._fakemongo import FakeDB
     fin = FakeDB()
-    fin["invoice_fx"].insert_one({"currency": "USD", "rate": 84.0, "rate_date": datetime(2026, 1, 1)})
+    fin["invoice_fx"].insert_one({"currency": "USD", "rate": 84.0, "rate_date": "2026-01-01"})
     fin["invoices"].insert_one({"status": "paid", "branch": "Survey Fieldwork", "invoice_number": "SF/1", "invoice_date": datetime(2026, 5, 1),
                                 "subtotal": 100, "tax_total": 0, "amount_paid": 100, "currency_code": "USD", "customer_id": "c1"})
     fin["invoices"].insert_one({"status": "written_off", "branch": "Cogentix Research", "invoice_number": "CR/1",
