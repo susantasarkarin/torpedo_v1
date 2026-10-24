@@ -584,3 +584,36 @@ def ledger_opening(c, apply=False, now=None):
 
 
 STEPS.append(("ledger_opening", ledger_opening))
+
+
+def lead_links(c, apply=False, now=None):
+    """4. torpedo.outreach_leads_v2.crm_lead_id by exact email; a same-name +
+    same-domain CRM lead with a different address goes to review, never auto."""
+    now, rep, ops = now or datetime.utcnow(), Counter(), []
+    by_email, by_name_dom = {}, defaultdict(list)
+    for l in c.crm_db.leads.find({}, {"email": 1, "name": 1, "first_name": 1, "last_name": 1}):
+        e = (l.get("email") or "").strip().lower()
+        if e:
+            by_email[e] = str(l["_id"])
+        nm = norm_name(l.get("name") or f"{l.get('first_name') or ''} {l.get('last_name') or ''}")
+        d = business_domain(e)
+        if nm and d:
+            by_name_dom[(nm, d)].append((str(l["_id"]), e))
+    for o in c.torpedo.outreach_leads_v2.find({"crm_lead_id": {"$exists": False}}, {"email": 1, "name": 1, "first_name": 1, "last_name": 1}):
+        e = (o.get("email") or "").strip().lower()
+        if e in by_email:
+            rep["exact_email"] += 1
+            ops.append(UpdateOne({"_id": o["_id"]}, {"$set": {"crm_lead_id": by_email[e], **_mark("lead_links", now)}}))
+            continue
+        nm = norm_name(o.get("name") or f"{o.get('first_name') or ''} {o.get('last_name') or ''}")
+        cands = by_name_dom.get((nm, business_domain(e))) if nm else None
+        if cands:
+            _review(apply, rep, type="entity_link", module="linking", ref={"collection": "torpedo.outreach_leads_v2", "id": str(o["_id"])},
+                    reason="same name and company domain as a CRM lead, different address", payload={"candidates": [x[0] for x in cands[:3]]})
+        else:
+            rep["no_crm_lead"] += 1
+    _flush(c.torpedo.outreach_leads_v2, ops, apply, rep)
+    return dict(rep)
+
+
+STEPS.append(("lead_links", lead_links))
