@@ -27,10 +27,10 @@ import re
 import shutil
 import zipfile
 
-CONSENT_DEFAULT = ("<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}"
+CONSENT_DEFAULT = ("<script data-cfasync=\"false\">window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}"
                    "gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied',ad_user_data:'denied',"
                    "ad_personalization:'denied',wait_for_update:500});window._cgxConsentDefault=1;</script>")
-TRACKER = '<script src="{origin}/api/track/t.js" data-bu="{bu}" async></script>'
+TRACKER = '<script src="{origin}/api/track/t.js" data-bu="{bu}" data-cfasync="false" async></script>'
 HONEYPOT = ('<div aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">'
             '<label>Leave this empty<input type="text" name="website_url" tabindex="-1" autocomplete="off"></label></div>')
 TAG_SRC = re.compile(r"googletagmanager\.com/gtag/js|connect\.facebook\.net|snap\.licdn\.com|static\.hotjar|clarity\.ms", re.I)
