@@ -1665,8 +1665,41 @@ def _daily_limit_for(from_email: str) -> int:
         override = int(os.getenv(key, "") or 0)
     except (TypeError, ValueError):
         override = 0
-    limit = override or _DAILY_SEND_LIMIT_PER_MAILBOX
-    return min(limit, _SAFETY_CEILING)
+    limit = min(override or _DAILY_SEND_LIMIT_PER_MAILBOX, _SAFETY_CEILING)
+    # Warm-up (CRM plan 3.11.7): 20/day, +20% a week, ceiling from config (80).
+    # The clock starts at the mailbox's first outreach send after go-live
+    # (workspace_mailboxes.warmup_started_at, set by _mark_warmup_started).
+    try:
+        from messaging import deliverability as _dlv
+        doc = _gmail_db_cached()["workspace_mailboxes"].find_one(
+            {"email": from_email}, {"warmup_started_at": 1}) or {}
+        limit = _dlv.effective_daily_cap(limit, doc.get("warmup_started_at"), datetime.utcnow(),
+                                         _dlv.load_config())
+    except Exception:
+        logger.warning("[Outreach] warm-up cap unreadable for %s; using the warm-up start value", from_email)
+        limit = min(limit, 20)
+    return limit
+
+
+_GMAIL_DB = None
+
+
+def _gmail_db_cached():
+    """One shared client for torpedo_gmail (the _get_gmail_db helper opens a new
+    client per call)."""
+    global _GMAIL_DB
+    if _GMAIL_DB is None:
+        _GMAIL_DB = _get_gmail_db()
+    return _GMAIL_DB
+
+
+def _mark_warmup_started(from_email: str) -> None:
+    try:
+        _gmail_db_cached()["workspace_mailboxes"].update_one(
+            {"email": from_email, "warmup_started_at": {"$exists": False}},
+            {"$set": {"warmup_started_at": datetime.utcnow()}})
+    except Exception:
+        logger.warning("[Outreach] could not mark warm-up start for %s", from_email)
 
 # â”€â”€ Per-mailbox 429 cooldown tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # {sender_email: datetime_when_cooldown_expires}  — in-memory, resets on restart
@@ -2315,10 +2348,14 @@ def _send_via_gmail_api(
     display_name: str,
     attachments: Optional[List[Dict]] = None,
     thread: Optional[Dict[str, str]] = None,
+    body_plain: Optional[str] = None,
+    plain_only: bool = False,
+    list_unsubscribe_url: Optional[str] = None,
 ) -> dict:
     """
     Send one email via GmailWorkspaceService (service account / domain-wide delegation).
     Returns dict with 'message_id' and 'thread_id'. Raises on failure.
+    plain_only: the first cold mail — text only, no signature HTML, no attachments.
     """
     actual_to = to_email
     if _OUTREACH_TEST_OVERRIDE_EMAIL:
@@ -2328,11 +2365,11 @@ def _send_via_gmail_api(
         actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
 
     svc = _get_gmail_workspace_service()
-    signature_html = _get_gmail_signature(from_email)
+    signature_html = None if plain_only else _get_gmail_signature(from_email)
 
     # Convert stored attachment docs to the format send_email expects
     gmail_attachments = None
-    if attachments:
+    if attachments and not plain_only:
         import base64 as _b64
         gmail_attachments = []
         for att in attachments:
@@ -2350,10 +2387,13 @@ def _send_via_gmail_api(
         to=[actual_to],
         subject=subject,
         body_html=body_html,
+        body_plain=body_plain,
         signature_html=signature_html,
         attachments=gmail_attachments if gmail_attachments else None,
         thread_id=(thread or {}).get("thread_id"),
         reply_to_message_id=(thread or {}).get("message_id"),
+        list_unsubscribe_url=list_unsubscribe_url,
+        plain_only=plain_only,
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Gmail API send failed")
@@ -2507,6 +2547,15 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         )
         if not campaign or not campaign.get("is_active"):
             _hold_lead(db, lead_record, "campaign inactive or missing")
+            return False
+
+        # Per-BU switch (owner, 2026-10-24): each BU resumes on its own once its
+        # domain authenticates, its leads are re-verified and the owner has
+        # approved a shadow batch. Missing switch = closed.
+        from messaging import deliverability as _dlv
+        _dcfg = _dlv.load_config()
+        if not _dlv.bu_outreach_open(db, campaign.get("business", "sfw")):
+            _hold_lead(db, lead_record, f"BU {campaign.get('business')} outreach not opened")
             return False
 
         steps_sent = lead_record.get("current_step", 0)
@@ -2684,7 +2733,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         except ImportError:  # pragma: no cover - packaging fallback
             from backend.messaging import facade as _facade
         _gate_block = _facade.gate(
-            email, identity=sender_config["from_email"], channel="outreach")
+            email, identity=sender_config["from_email"], channel="outreach", bu=business)
         if _gate_block:
             _reason, _category = _gate_block
             logger.warning("[Outreach] gated (%s) %s via %s: %s",
@@ -2716,6 +2765,37 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         smtp_mailbox = sender_config.get("mailbox_doc") or {}
         business_label = BUSINESS_LABEL.get(business, business)
         campaign_ctx = campaign.get("business_context") or {}
+
+        # ── Deliverability gates (CRM plan 3.11) ─────────────────────────────
+        _now = datetime.utcnow()
+        # 1. Mailbox paused for outreach (bounce breach or by a person).
+        _mbox_pause = _dlv.mailbox_outreach_pause(_gmail_db_cached(), from_email)
+        if _mbox_pause:
+            _hold_lead(db, lead_record, f"mailbox {from_email} outreach paused: {_mbox_pause.get('reason')}")
+            return False
+        # 2. Bounce rate over the window -> pause this mailbox and alert.
+        _sent_n, _bounced_n = _dlv.mailbox_bounce_stats(db, from_email, _now, _dcfg)
+        _breach = _dlv.bounce_breach(_sent_n, _bounced_n, _dcfg)
+        if _breach:
+            from database import get_database as _gd
+            _dlv.pause_mailbox(_gmail_db_cached(), _gd("crm_db"), from_email, _breach, _now)
+            _hold_lead(db, lead_record, f"mailbox {from_email} auto-paused: {_breach}")
+            return False
+        # 3. First touch only to addresses that passed re-verification.
+        _ok_verified, _why_unverified = _dlv.verified_for_first_touch(lead_record, next_step_number, _dcfg)
+        if not _ok_verified:
+            _hold_lead(db, lead_record, _why_unverified)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]}, {"$set": {"next_send_at": _now + timedelta(days=1)}})
+            return False
+        # 4. Business hours in the recipient's time zone.
+        _window_at = _dlv.next_send_time(_now, lead_record.get("country") or lead_record.get("company_country"), _dcfg)
+        if _window_at:
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"next_send_at": _window_at, "last_send_error": "held: outside recipient send window",
+                          "last_send_attempt_at": _now}})
+            return False
 
         # Daily send cap per mailbox (SES exempt). Atomically reserved so
         # concurrent workers cannot collectively overshoot the cap.
@@ -2943,13 +3023,32 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                           "updated_at": datetime.utcnow()}})
             _release_daily_send_slot(db, from_email)
             return False
+        # First cold mail (CRM plan 3.11.9): plain text, no images/pixel/
+        # attachments, at most one link, visible opt-out; reference ID in the
+        # subject so replies attach to this lead (3.2.5).
+        try:
+            from services.outreach_unsubscribe import (unsubscribe_url as _unsub_url,
+                                                       one_click_url as _one_click_url,
+                                                       SENDER_POSTAL_ADDRESS as _POSTAL)
+        except ImportError:  # pragma: no cover - packaging fallback
+            from backend.services.outreach_unsubscribe import (unsubscribe_url as _unsub_url,
+                                                               one_click_url as _one_click_url,
+                                                               SENDER_POSTAL_ADDRESS as _POSTAL)
+        first_touch_plain = next_step_number == 1 and sender_transport == "gmail"
+        body_plain = None
+        if first_touch_plain:
+            subject = _dlv.subject_with_ref(subject, _dlv.ref_id(lead_record), _dcfg)
+            body_plain = _dlv.first_mail_plain(body_html, display_name, business_label,
+                                               _unsub_url(email), _POSTAL, _dcfg)
+            step_attachments = []
         body_html = body_html + compliance_footer(email, business_label)
 
         # Generate send_id BEFORE sending so the tracking pixel can embed it
         send_id = str(uuid.uuid4())
 
         # Inject open-tracking pixel + rewrite links for click tracking
-        if TRACKING_BASE_URL:
+        # (follow-ups only; never on the first cold mail).
+        if TRACKING_BASE_URL and not first_touch_plain:
             body_html = _inject_open_tracking(body_html, send_id, TRACKING_BASE_URL)
             body_html = _rewrite_links_for_click_tracking(body_html, send_id, TRACKING_BASE_URL)
 
@@ -2965,9 +3064,12 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         if sender_transport == "gmail":
             send_result = _send_via_gmail_api(
-                from_email, email, subject, body_html, display_name,
+                from_email, email, subject, "" if first_touch_plain else body_html, display_name,
                 attachments=step_attachments if step_attachments else None,
                 thread=followup_thread,
+                body_plain=body_plain,
+                plain_only=first_touch_plain,
+                list_unsubscribe_url=_one_click_url(email),
             )
         elif sender_transport == "smtp":
             send_result = _send_via_smtp(
@@ -2981,6 +3083,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         else:
             raise RuntimeError(f"Unsupported sender transport: {sender_transport}")
         gmail_message_id = send_result["message_id"]
+        _mark_warmup_started(from_email)
         gmail_thread_id = send_result["thread_id"]
 
         now = datetime.utcnow()
@@ -3019,6 +3122,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "click_count": 0,
             "clicks": [],
             "unsubscribed": False,
+            "ref_id": _dlv.ref_id(lead_record),
+            "plain_text": first_touch_plain,
             "content_source": content_source,
             "sent_at": now,
             "created_at": now,
@@ -3275,9 +3380,13 @@ def process_due_outreach_sends() -> dict:
         # Build list of leads round-robin: up to 2 per campaign
         due = []
         cooldown_skipped = []
+        from messaging import deliverability as _dlv_pre
         for camp in active_campaigns:
             cid = camp.get("campaign_id")
             business = camp.get("business", "sfw")
+            # Per-BU switch: a closed BU picks no leads at all this cycle.
+            if not _dlv_pre.bu_outreach_open(db, business):
+                continue
             sender_cfg = _resolve_sender_for_campaign(db, camp)
             if not sender_cfg:
                 # Determine why sender resolution failed to surface a helpful error

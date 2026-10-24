@@ -1033,7 +1033,9 @@ class GmailWorkspaceService:
         reply_to_message_id: Optional[str] = None,
         thread_id: Optional[str] = None,
         signature_html: Optional[str] = None,
-        attachments: Optional[List[Dict[str, Any]]] = None
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        list_unsubscribe_url: Optional[str] = None,
+        plain_only: bool = False,
     ) -> Dict[str, Any]:
         """
         Send email via Gmail API using domain-wide delegation.
@@ -1091,9 +1093,14 @@ class GmailWorkspaceService:
                 sig_plain = re.sub(r'<[^>]+>', '', signature_html)
                 final_body_plain = (body_plain or "") + "\n\n" + sig_plain
             
-            # Create message — use 'mixed' when there are attachments, otherwise 'alternative'
-            has_attachments = bool(attachments)
-            if has_attachments:
+            # Create message — use 'mixed' when there are attachments, otherwise 'alternative'.
+            # plain_only (first cold mail, CRM plan 3.11.9): one text/plain part,
+            # no HTML, no signature images, no attachments.
+            has_attachments = bool(attachments) and not plain_only
+            if plain_only:
+                msg = MIMEText(final_body_plain or body_plain or "", "plain", "utf-8")
+                body_part = None
+            elif has_attachments:
                 msg = MIMEMultipart("mixed")
                 body_part = MIMEMultipart("alternative")
             else:
@@ -1116,9 +1123,13 @@ class GmailWorkspaceService:
             # Reply-To (same as From; helps with deliverability)
             msg["Reply-To"] = from_email
 
-            # List-Unsubscribe (required by Gmail/Yahoo bulk-sender guidelines)
-            msg["List-Unsubscribe"] = f"<mailto:{from_email}?subject=unsubscribe>"
-            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+            # List-Unsubscribe only on bulk mail, and only with an https URL:
+            # Gmail/Yahoo one-click (RFC 8058) needs the https form; a mailto-only
+            # header with List-Unsubscribe-Post is invalid. Finance, project and
+            # personal 1:1 mail carry no unsubscribe header.
+            if list_unsubscribe_url:
+                msg["List-Unsubscribe"] = f"<{list_unsubscribe_url}>, <mailto:{from_email}?subject=unsubscribe>"
+                msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
             # Add reply headers for threading
             if reply_to_message_id:
@@ -1126,9 +1137,10 @@ class GmailWorkspaceService:
                 msg["References"] = reply_to_message_id
             
             # Add body parts (plain first, then HTML for proper rendering)
-            if final_body_plain:
-                body_part.attach(MIMEText(final_body_plain, "plain"))
-            body_part.attach(MIMEText(final_body_html, "html"))
+            if body_part is not None:
+                if final_body_plain:
+                    body_part.attach(MIMEText(final_body_plain, "plain"))
+                body_part.attach(MIMEText(final_body_html, "html"))
             
             # If mixed mode, attach the body_part as a sub-part
             if has_attachments:

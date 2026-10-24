@@ -113,7 +113,7 @@ def outreach_paused() -> bool:
     return (not doc) or bool(doc.get("paused", True))
 
 
-def mail_mode(channel: str) -> str:
+def mail_mode(channel: str, bu: Optional[str] = None) -> str:
     """CRM plan 3.1: sandbox (write outbox_preview only) | shadow (drafts/preview only,
     real classification upstream) | live. MAIL_MODE_<CHANNEL> overrides MAIL_MODE.
 
@@ -124,7 +124,10 @@ def mail_mode(channel: str) -> str:
     The global MAIL_MODE is NOT applied to lead channels; each needs its own
     MAIL_MODE_<CHANNEL>=live, so one broad setting can never open outreach.
     An unknown value fails safe to sandbox."""
-    own = os.getenv(f"MAIL_MODE_{channel.upper()}")
+    # Per-BU override first (MAIL_MODE_OUTREACH_SFW=shadow), so one BU can run
+    # its shadow batch or go live while the others stay in sandbox.
+    own = (os.getenv(f"MAIL_MODE_{channel.upper()}_{bu.upper()}") if bu else None) \
+        or os.getenv(f"MAIL_MODE_{channel.upper()}")
     if channel in OUTREACH_CHANNELS:
         raw = own or "sandbox"
     else:
@@ -197,7 +200,7 @@ def gate(addr: str, *, identity: str, channel: str,
          transactional: bool = False, skip_suppression: bool = False,
          check_budget: bool = True, allow_free_webmail: bool = False,
          raw: Optional[str] = None, subject: Optional[str] = None,
-         preview: bool = True, allow_suppressed_reasons: tuple = ()):
+         preview: bool = True, allow_suppressed_reasons: tuple = (), bu: Optional[str] = None):
     """
     Run every pre-send check and return (reason, category) if the send must be
     refused, or None if it may proceed.
@@ -279,7 +282,7 @@ def gate(addr: str, *, identity: str, channel: str,
 
     # MAIL_MODE last: a sandboxed send must still have passed every real check,
     # so the preview shows exactly what live mode would deliver.
-    mode = mail_mode(channel)
+    mode = mail_mode(channel, bu)
     if mode != "live":
         if preview:
             _preview(addr=addr, identity=identity, channel=channel, subject=subject, mode=mode)

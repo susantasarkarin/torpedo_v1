@@ -59,7 +59,8 @@ def test_missing_postal_address_is_not_a_config_problem(facade, monkeypatch):
 def test_missing_unsubscribe_url_is_config(facade, monkeypatch):
     monkeypatch.delenv("OUTREACH_SENDER_POSTAL_ADDRESS", raising=False)
     monkeypatch.delenv("OUTREACH_UNSUBSCRIBE_URL", raising=False)
-    with patch.object(facade, "sending_enabled", return_value=True):
+    with patch.object(facade, "sending_enabled", return_value=True), \
+         patch.object(facade, "outreach_paused", return_value=False):
         blocked = facade.gate("ceo@bigcorp.com", identity="a@b.com", channel="outreach")
     assert blocked[1] == "config"
 

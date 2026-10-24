@@ -2260,6 +2260,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Daily finance automation scheduled (03:30 UTC)")
 
+            def _deliverability_check_job():
+                try:
+                    from messaging.deliverability_monitor import run_daily_checks
+                    run_daily_checks()
+                except Exception as e:
+                    print(f"[Deliverability] Error: {e}")
+
+            scheduler.add_job(_deliverability_check_job, CronTrigger(hour=3, minute=15),  # 08:45 IST, after the DNS check
+                              id="deliverability_check", name="Bounce rate per mailbox, DNS auth, auto-pause",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Daily deliverability check scheduled (03:15 UTC)")
+
             def _reengagement_job():
                 try:
                     from app.services.reengagement import run

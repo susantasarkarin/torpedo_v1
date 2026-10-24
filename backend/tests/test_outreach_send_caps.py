@@ -31,7 +31,41 @@ def _load(monkeypatch, **env):
         if var not in env:
             monkeypatch.delenv(var, raising=False)
     import routers.cold_outreach_router as mod
-    return importlib.reload(mod)
+    mod = importlib.reload(mod)
+    # These tests pin the env cap and the atomic counter. The warm-up clamp
+    # (messaging.deliverability) is tested on its own below and in
+    # test_deliverability_rules.py, so neutralise it here.
+    from messaging import deliverability as dlv
+    monkeypatch.setattr(dlv, "effective_daily_cap", lambda env_cap, *a, **k: env_cap)
+    monkeypatch.setattr(mod, "_gmail_db_cached", lambda: {"workspace_mailboxes": _NoMailboxes()})
+    return mod
+
+
+class _NoMailboxes:
+    def find_one(self, *a, **k):
+        return None
+
+
+def test_warmup_clamps_a_new_mailbox_to_20(monkeypatch):
+    import routers.cold_outreach_router as mod
+    mod = importlib.reload(mod)
+    monkeypatch.setenv("OUTREACH_DAILY_LIMIT_PER_MAILBOX", "500")
+    mod = importlib.reload(mod)
+    monkeypatch.setattr(mod, "_gmail_db_cached", lambda: {"workspace_mailboxes": _NoMailboxes()})
+    assert mod._daily_limit_for("new@cogentixresearch.com") == 20
+
+
+def test_warmup_ceiling_is_80_even_for_an_old_mailbox(monkeypatch):
+    from datetime import datetime, timedelta
+    monkeypatch.setenv("OUTREACH_DAILY_LIMIT_PER_MAILBOX", "500")
+    import routers.cold_outreach_router as mod
+    mod = importlib.reload(mod)
+
+    class _Old:
+        def find_one(self, *a, **k):
+            return {"warmup_started_at": datetime.utcnow() - timedelta(days=400)}
+    monkeypatch.setattr(mod, "_gmail_db_cached", lambda: {"workspace_mailboxes": _Old()})
+    assert mod._daily_limit_for("old@surveyfieldwork.com") == 80
 
 
 # ============================================

@@ -199,6 +199,14 @@ def test_unset_mail_mode_is_live_for_non_lead_channels(monkeypatch, channel):
     assert facade.mail_mode(channel) == "live"
 
 
+def test_per_bu_mail_mode_overrides_channel(monkeypatch):
+    monkeypatch.setenv("MAIL_MODE_OUTREACH", "sandbox")
+    monkeypatch.setenv("MAIL_MODE_OUTREACH_SFW", "shadow")
+    assert facade.mail_mode("outreach", "sfw") == "shadow"
+    assert facade.mail_mode("outreach", "cogentix") == "sandbox"
+    assert facade.mail_mode("outreach") == "sandbox"
+
+
 def test_global_mail_mode_live_cannot_open_a_lead_channel(monkeypatch):
     monkeypatch.delenv("MAIL_MODE_NURTURE", raising=False)
     monkeypatch.setenv("MAIL_MODE", "live")
