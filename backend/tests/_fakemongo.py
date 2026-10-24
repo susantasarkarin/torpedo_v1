@@ -81,6 +81,8 @@ class FakeCollection:
                     d[k] = v
                 for k, v in (upd.get("$inc") or {}).items():
                     d[k] = d.get(k, 0) + v
+                for k, v in (upd.get("$push") or {}).items():
+                    d.setdefault(k, []).append(v)
                 return
         if upsert:
             base = {k: v for k, v in q.items() if not isinstance(v, dict)}

@@ -2310,6 +2310,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ RFQ flow scheduled (every 10 min, mode from config rfq.mode)")
 
+            def _ops_daily_job():
+                try:
+                    from ops.runner import run
+                    run()
+                except Exception as e:
+                    print(f"[Ops] Error: {e}")
+
+            scheduler.add_job(_ops_daily_job, CronTrigger(hour=12, minute=30),  # 18:00 IST
+                              id="ops_daily", name="Ops: field updates, paused digest, reconciliation (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Ops daily run scheduled (12:30 UTC / 18:00 IST, mode from config ops.mode)")
+
             def _reengagement_job():
                 try:
                     from app.services.reengagement import run

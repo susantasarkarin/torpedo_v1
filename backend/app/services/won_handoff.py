@@ -228,6 +228,25 @@ def _contract_for(fin, customer: Dict[str, Any], opp_id: str, when: datetime, ba
     return str(res.inserted_id), doc["contract_number"], True
 
 
+def _lifecycle_fields(rfq: Dict[str, Any], historical: bool, now: datetime) -> Dict[str, Any]:
+    """CRM plan 3.6 step 1: spec status, BU, the RFQ's priced line items, our
+    redirect set and a PM by config rule (None = unassigned, a person picks)."""
+    try:
+        from ops import lifecycle, mails
+        from platform_core import config_store
+        cfg = config_store.get("ops")
+    except Exception:
+        return {}
+    flow = rfq.get("flow") or {}
+    status = "closed" if historical else "awaiting_setup"
+    return {"lifecycle_status": status, "bu": flow.get("bu") or rfq.get("bu"),
+            "line_items": flow.get("line_items") or [], "pricing": flow.get("pricing") or [],
+            "redirect_set": mails.redirect_set(cfg["redirect_base_url"]),
+            "pm": None if historical else lifecycle.assign_pm(flow.get("bu") or rfq.get("bu"), cfg, {}),
+            "lifecycle_history": [{"from": None, "to": status, "at": now, "by": "rfq_won_handoff",
+                                   "reason": "created from won RFQ"}]}
+
+
 def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]], *,
              historical: bool = False, invoice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     client = _mongo()
@@ -291,6 +310,7 @@ def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]],
         "createdAt": now,
         "created_at": now,
     }
+    ops_project.update(_lifecycle_fields(rfq, historical, now))
     existing_project = find_existing_ops_project(ops["projects"], title, customer.get("name"), opp_id)
     if existing_project:
         # link the win to the project the study already has
