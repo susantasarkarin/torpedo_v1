@@ -496,3 +496,85 @@ def indexes(c, apply=False, now=None):
 STEPS = [("indexes", indexes), ("account_domains", account_domains), ("customer_links", customer_links),
          ("rfq_bu", rfq_bu), ("projects", projects), ("estimates_archive", estimates_archive),
          ("account_bu", account_bu), ("mail_links", mail_links), ("engagement_status", engagement_status)]
+
+
+BU_ENTITY = {"SFW": "SFW", "COGENTIX": "COGENTIX", "BIM": "BIM"}
+
+
+def _fx_at(rates, cur, d):
+    if (cur or "INR").upper() == "INR":
+        return 1.0
+    rs = [r for r in rates.get(cur.upper(), []) if r[0] <= d] or rates.get(cur.upper(), [])
+    return rs[-1][1] if rs else None
+
+
+def ledger_opening(c, apply=False, now=None):
+    """3.9.19-20: post the existing (Zoho-imported) invoices into the per-entity
+    journal (finance_db.journal) so its trial balance can be run in parallel
+    with Zoho. Paid -> receipt into 1050 (until bank import matches it),
+    written off -> 6100. One journal entry per source, never twice."""
+    from accounting import ledger
+    now, rep = now or datetime.utcnow(), Counter()
+    rates = defaultdict(list)
+    for r in c.finance_db.invoice_fx.find({}, {"currency": 1, "rate": 1, "rate_date": 1}).sort("rate_date", 1):
+        if r.get("rate") and r.get("rate_date"):
+            rates[r["currency"].upper()].append((r["rate_date"], float(r["rate"])))
+    j = c.finance_db.journal
+    have = {(e["source"]["type"], e["source"]["id"]) for e in j.find({}, {"source": 1})}
+    new = []
+    for i in c.finance_db.invoices.find({"status": {"$nin": ["draft", "void"]}, "is_deleted": {"$ne": True}}):
+        ent = BU_ENTITY.get(BU_OF_BRANCH.get((i.get("branch") or "").strip().lower(), ""))
+        num, d = i.get("invoice_number"), i.get("invoice_date")
+        if not ent or not num or not isinstance(d, datetime):
+            rep["skipped_no_entity_or_date"] += 1
+            continue
+        fx = _fx_at(rates, i.get("currency_code"), d)
+        if fx is None:
+            rep["skipped_no_fx"] += 1
+            continue
+        sub, tax = float(i.get("subtotal") or i.get("total") or 0), float(i.get("tax_total") or 0)
+        total = round((sub + tax) * fx, 2)
+        if total <= 0:
+            rep["skipped_zero"] += 1
+            continue
+        meta = {"currency": (i.get("currency_code") or "INR").upper(), "fx_rate": fx if fx != 1.0 else None}
+        if ("invoice", num) not in have:
+            lines = [{"account": "1100", "debit": total, "party": str(i.get("customer_id"))},
+                     {"account": "4000", "credit": round(sub * fx, 2)}]
+            if tax:
+                lines.append({"account": "2130", "credit": round(total - round(sub * fx, 2), 2)})
+            new.append(ledger.entry(entity=ent, on=d, memo=f"Invoice {num} (imported)", lines=lines,
+                                    source={"type": "invoice", "id": num}, **meta))
+            rep[f"invoice:{ent}"] += 1
+        paid = round(float(i.get("amount_paid") or 0) * fx, 2)
+        if paid > 0 and ("receipt", num) not in have:
+            new.append(ledger.entry(entity=ent, on=i.get("updated_at") or d, memo=f"Receipt {num} (imported, bank match pending)",
+                                    lines=[{"account": "1050", "debit": min(paid, total)},
+                                           {"account": "1100", "credit": min(paid, total), "party": str(i.get("customer_id"))}],
+                                    source={"type": "receipt", "id": num}, **meta))
+            rep["receipts"] += 1
+        if i.get("status") == "written_off" and ("write_off", num) not in have:
+            left = round(total - min(paid, total), 2)
+            if left > 0:
+                new.append(ledger.entry(entity=ent, on=i.get("updated_at") or d, memo=f"Write-off {num} (imported)",
+                                        lines=[{"account": "6100", "debit": left},
+                                               {"account": "1100", "credit": left, "party": str(i.get("customer_id"))}],
+                                        source={"type": "write_off", "id": num}, **meta))
+                rep["write_offs"] += 1
+    for e in new:
+        e.update(created_at=now, backfill={"ledger_opening": now})
+    if apply and new:
+        j.insert_many(new)
+        j.create_index([("source.type", 1), ("source.id", 1)], unique=True)
+        rep["inserted"] = len(new)
+    tb = {}
+    for ent in ("SFW", "COGENTIX", "BIM"):
+        entries = list(j.find({"entity": ent})) if apply else [e for e in new if e["entity"] == ent]
+        if entries:
+            t = ledger.trial_balance(entries, ent)
+            tb[ent] = {"balanced": t["balanced"], "debit": t["total_debit"], "ar_1100": round(sum(
+                r["debit"] - r["credit"] for r in t["rows"] if r["account"] == "1100"), 2)}
+    return {**rep, "trial_balance": tb}
+
+
+STEPS.append(("ledger_opening", ledger_opening))

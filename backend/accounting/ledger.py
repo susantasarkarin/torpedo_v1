@@ -20,6 +20,7 @@ CHART: Dict[str, Dict[str, str]] = {
     "2100": {"name": "Output CGST", "type": "liability"},
     "2110": {"name": "Output SGST", "type": "liability"},
     "2120": {"name": "Output IGST", "type": "liability"},
+    "2130": {"name": "Output GST (split pending, imported)", "type": "liability"},
     "2200": {"name": "TDS payable", "type": "liability"},
     "2300": {"name": "Panel incentives payable", "type": "liability"},
     "2400": {"name": "Inter-company payable", "type": "liability"},
@@ -31,6 +32,8 @@ CHART: Dict[str, Dict[str, str]] = {
     "5100": {"name": "Panel incentive cost", "type": "expense"},
     "5200": {"name": "Other direct cost", "type": "expense"},
     "6000": {"name": "Bank charges", "type": "expense"},
+    "6100": {"name": "Bad debts written off", "type": "expense"},
+    "1050": {"name": "Receipts not yet matched to bank (imported)", "type": "asset"},
 }
 PL_TYPES = ("income", "expense")
 

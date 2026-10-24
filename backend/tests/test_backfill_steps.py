@@ -66,3 +66,22 @@ def test_estimates_archive_dry_run_writes_nothing():
 def test_plausible_domain_rejects_sentence_domains():
     assert steps.plausible_domain("unilever.com")
     assert not steps.plausible_domain("unibailafterfirstjoiningthecompanywestfieldinaustraliain1999hewas.com")
+
+
+def test_ledger_opening_posts_once_and_balances():
+    from tests._fakemongo import FakeDB
+    fin = FakeDB()
+    fin["invoice_fx"].insert_one({"currency": "USD", "rate": 84.0, "rate_date": datetime(2026, 1, 1)})
+    fin["invoices"].insert_one({"status": "paid", "branch": "Survey Fieldwork", "invoice_number": "SF/1", "invoice_date": datetime(2026, 5, 1),
+                                "subtotal": 100, "tax_total": 0, "amount_paid": 100, "currency_code": "USD", "customer_id": "c1"})
+    fin["invoices"].insert_one({"status": "written_off", "branch": "Cogentix Research", "invoice_number": "CR/1",
+                                "invoice_date": datetime(2026, 5, 1), "subtotal": 500, "tax_total": 90, "amount_paid": 0,
+                                "currency_code": "INR", "customer_id": "c2"})
+    fin["journal"].insert_many = lambda docs: [fin["journal"].insert_one(d) for d in docs]
+    fin["journal"].create_index = lambda *a, **k: None
+    c = _C(finance_db=fin)
+    r1 = steps.ledger_opening(c, apply=True, now=datetime(2026, 10, 24))
+    assert r1["inserted"] == 4 and r1["trial_balance"]["SFW"]["balanced"] and r1["trial_balance"]["SFW"]["ar_1100"] == 0
+    assert r1["trial_balance"]["COGENTIX"]["ar_1100"] == 0
+    r2 = steps.ledger_opening(c, apply=True, now=datetime(2026, 10, 24))
+    assert "inserted" not in r2
