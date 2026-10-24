@@ -29,7 +29,10 @@ def test_converter_gates_tags_wires_contact_form_only_and_is_idempotent():
     assert 'data-bu="BIM"' in out
     assert out.count('type="text/plain" data-cgx-consent') == 3 and "facebook.com/tr" not in out
     assert '<script src="js/main.js"></script>' in out
-    assert rep["forms_wired"] == ["contact-form"] and rep["forms_skipped"] == ["newsletter"]
+    assert rep["forms_wired"] == ["contact-form [intercept]"] and rep["forms_skipped"] == ["newsletter"]
+    assert 'data-cgx-mode="intercept"' in out
+    observed, rep3 = sc.convert_page(PAGE, origin="https://t.acme.com", bu="BIM", thanks="x", mode="alert", handled={"contact-form"})
+    assert rep3["forms_wired"] == ["contact-form [observe]"] and 'data-cgx-mode="observe"' in observed
     assert 'name="website_url"' in out and 'data-cgx-success="Thank you! &quot;Quoted&quot;"' in out
     again, rep2 = sc.convert_page(out, origin="https://t.acme.com", bu="BIM", thanks="x", mode="alert")
     assert again == out and not rep2["tracker_added"]
@@ -84,10 +87,14 @@ def test_enquiry_creates_lead_review_item_with_draft_then_dedupes(monkeypatch):
     item = d["email_automation"]["review_queue_items"].find_one({"type": "inbound_lead"})
     assert item["suggested"]["to"] == "asha@builder.in" and "Hi Asha" in item["suggested"]["body"] and item["bu"] == "BIM"
     assert d["email_automation"]["web_visitors"].find_one({"visitor_id": "vis1"})["lead_id"] == r1["lead_id"]
+    retry = leads.capture(gd, _body(), site=SITE, ip="1.2.3.4", ua="ua", contact_from_token=None, cfg=rules.DEFAULTS,
+                          now=datetime.utcnow())
+    assert retry["dedupe"] == "repeat_merged"
     r2 = leads.capture(gd, _body(message="Second enquiry"), site=SITE, ip="1.2.3.4", ua="ua", contact_from_token=None,
-                       cfg=rules.DEFAULTS)
+                       cfg=rules.DEFAULTS, now=datetime.utcnow() + timedelta(hours=2))
     assert r2["dedupe"] == "existing_lead" and r2["lead_id"] == r1["lead_id"]
     assert len(d["crm_db"]["leads"].docs) == 1
+    assert d["email_automation"]["review_queue_items"].count_documents({"type": "inbound_lead"}) == 2
 
 
 def test_honeypot_and_too_fast_write_nothing_and_bad_email_rejected():

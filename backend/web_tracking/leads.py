@@ -19,6 +19,7 @@ from bson import ObjectId
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$", re.I)
 MIN_HUMAN_MS = 1500
+REPEAT_MERGE_SECONDS = 600       # same email + site within 10 min = the same enquiry
 FREE = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "rediffmail.com", "yahoo.co.in"}
 
 DRAFTS = {
@@ -67,7 +68,13 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
                   "referrer": _clean(body.get("referrer"), 300), "interest": interest, "message": message,
                   "utm": {k: _clean(v, 100) for k, v in (body.get("utm") or {}).items() if str(k).startswith("utm_")},
                   "visitor_id": _clean(body.get("v"), 64), "ip_prefix": _ip_prefix(ip), "ua": ua[:200]}
-    existing = crm["leads"].find_one({"email": email}, {"_id": 1, "bu": 1})
+    existing = crm["leads"].find_one({"email": email}, {"_id": 1, "bu": 1, "web_submissions": 1})
+    last = ((existing or {}).get("web_submissions") or [{}])[-1]
+    if existing and isinstance(last.get("at"), datetime) and (now - last["at"]).total_seconds() < REPEAT_MERGE_SECONDS \
+            and last.get("site") == site["domain"]:
+        # a retry (wrong captcha, double click, queued resend): same enquiry, no second review item
+        crm["leads"].update_one({"_id": existing["_id"]}, {"$set": {"updated_at": now}})
+        return {"ok": True, "lead_id": str(existing["_id"]), "dedupe": "repeat_merged"}
     fields = {"name": name or None, "company": company or (account or {}).get("name"), "updated_at": now,
               "last_inbound_at": now, "status": "new"}
     if existing:

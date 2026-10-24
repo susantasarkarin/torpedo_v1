@@ -76,7 +76,19 @@ def gate_tags(html: str, rep: dict) -> str:
     return re.sub(r"<noscript>.*?</noscript>", noscript, html, flags=re.S | re.I)
 
 
-def wire_forms(html: str, rep: dict, thanks: str, mode: str) -> str:
+def handled_ids(src_dir: str) -> set:
+    """Form ids the site's own JS handles (getElementById / querySelector('#id'))."""
+    ids = set()
+    for root, _, files in os.walk(src_dir):
+        for fn in files:
+            if fn.lower().endswith((".js", ".html", ".htm")):
+                txt = open(os.path.join(root, fn), encoding="utf-8", errors="replace").read()
+                ids |= set(re.findall(r"getElementById\(\s*['\"]([\w-]+)['\"]", txt))
+                ids |= set(re.findall(r"querySelector(?:All)?\(\s*['\"]#([\w-]+)['\"]", txt))
+    return ids
+
+
+def wire_forms(html: str, rep: dict, thanks: str, mode: str, handled: set = frozenset()) -> str:
     def form(m):
         open_tag, inner = m.group(1), m.group(2)
         ident = " ".join(re.findall(r"(?:id|name|class|action)=[\"']([^\"']*)", open_tag))
@@ -88,19 +100,22 @@ def wire_forms(html: str, rep: dict, thanks: str, mode: str) -> str:
             rep["forms_skipped"].append(ident or "form")
             return m.group(0)
         req = [n for n in ("name", "email", "message") if re.search(rf"name=[\"']{n}[\"']", inner)]
-        attrs = (f' data-torpedo-form data-cgx-success="{html_lib.escape(thanks, quote=True)}" data-cgx-thanks="{mode}"'
+        fid = (re.search(r"\bid=[\"']([^\"']+)", open_tag) or [None, None])[1]
+        observe = bool(fid and fid in handled)
+        attrs = (f' data-torpedo-form data-cgx-mode="{"observe" if observe else "intercept"}"'
+                 f' data-cgx-success="{html_lib.escape(thanks, quote=True)}" data-cgx-thanks="{mode}"'
                  f' data-cgx-required="{",".join(req) or "email"}"')
-        rep["forms_wired"].append(ident or "form")
+        rep["forms_wired"].append((ident or "form") + (" [observe]" if observe else " [intercept]"))
         return open_tag[:-1] + attrs + ">" + HONEYPOT + inner + "</form>"
     return re.sub(r"(<form\b[^>]*>)(.*?)</form>", form, html, flags=re.S | re.I)
 
 
-def convert_page(html: str, *, origin: str, bu: str, thanks: str, mode: str):
+def convert_page(html: str, *, origin: str, bu: str, thanks: str, mode: str, handled: set = frozenset()):
     rep = {"tracker_added": False, "tags_gated": [], "noscript_pixels_removed": 0, "forms_wired": [], "forms_skipped": []}
     if "/api/track/t.js" in html:
         return html, rep
     html = gate_tags(html, rep)
-    html = wire_forms(html, rep, thanks, mode)
+    html = wire_forms(html, rep, thanks, mode, handled)
     head = re.search(r"<head\b[^>]*>", html, re.I)
     snippet = CONSENT_DEFAULT + TRACKER.format(origin=origin.rstrip("/"), bu=bu)
     if head:
@@ -122,6 +137,7 @@ def run(src: str, out: str, domain: str, bu: str, origin: str = None):
             shutil.rmtree(d)
     shutil.copytree(src, site_dir)                     # work on a copy; SRC is never touched
     thanks, mode = site_thanks(site_dir)
+    handled = handled_ids(site_dir)
     report = {"domain": domain, "bu": bu, "tracker_origin": origin, "thank_you": thanks, "thank_you_mode": mode, "pages": {}}
     for root, _, files in os.walk(site_dir):
         for fn in files:
@@ -130,7 +146,7 @@ def run(src: str, out: str, domain: str, bu: str, origin: str = None):
             p = os.path.join(root, fn)
             rel = os.path.relpath(p, site_dir).replace("\\", "/")
             html = open(p, encoding="utf-8", errors="replace").read()
-            new, rep = convert_page(html, origin=origin, bu=bu, thanks=thanks, mode=mode)
+            new, rep = convert_page(html, origin=origin, bu=bu, thanks=thanks, mode=mode, handled=handled)
             report["pages"][rel] = rep
             if new != html:
                 with open(p, "w", encoding="utf-8", newline="") as fh:
