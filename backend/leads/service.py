@@ -748,14 +748,26 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
 
     total = leads_enriched_collection.count_documents(query)
 
-    sort_field = SORT_FIELDS.get(getattr(filters, "sort_by", None) or "", "classified_at")
-    direction = ASCENDING if getattr(filters, "sort_order", None) == "asc" else DESCENDING
     skip = (filters.page - 1) * filters.limit
-    leads = list(leads_enriched_collection.find(query)
-                 .sort([(sort_field, direction), ("_id", direction)])
-                 .allow_disk_use(True)
-                 .skip(skip)
-                 .limit(filters.limit))
+    sort_field = SORT_FIELDS.get(getattr(filters, "sort_by", None) or "")
+    if sort_field:
+        # Blank values ("", null, missing, "Unknown") sort last in both
+        # directions — otherwise A→Z on Company opens on a page of blanks.
+        direction = ASCENDING if filters.sort_order == "asc" else DESCENDING
+        leads = list(leads_enriched_collection.aggregate([
+            {"$match": query},
+            {"$addFields": {"_blank": {"$cond": [
+                {"$in": [{"$ifNull": [f"${sort_field}", ""]}, ["", "Unknown"]]}, 1, 0]}}},
+            {"$sort": {"_blank": ASCENDING, sort_field: direction, "_id": direction}},
+            {"$skip": skip},
+            {"$limit": filters.limit},
+            {"$project": {"_blank": 0}},
+        ], allowDiskUse=True))
+    else:
+        leads = list(leads_enriched_collection.find(query)
+                     .sort("classified_at", DESCENDING)
+                     .skip(skip)
+                     .limit(filters.limit))
     
     # Convert ObjectId to string
     for lead in leads:

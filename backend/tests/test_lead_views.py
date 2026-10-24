@@ -49,7 +49,9 @@ def _match(doc, query):
 
 
 class _Cursor(list):
-    def sort(self, keys):
+    def sort(self, keys, direction=None):
+        if direction is not None:
+            keys = [(keys, direction)]
         for field, direction in reversed(keys):
             super().sort(key=lambda d: (d.get(field) is None, d.get(field)), reverse=direction < 0)
         return self
@@ -73,6 +75,18 @@ class _Collection:
 
     def count_documents(self, query):
         return sum(1 for d in self.docs if _match(d, query))
+
+    def aggregate(self, pipeline, allowDiskUse=False):
+        """Only the sort pipeline get_leads builds: match, blank flag, sort, page."""
+        stages = {next(iter(st)): st[next(iter(st))] for st in pipeline}
+        rows = [dict(d) for d in self.docs if _match(d, stages["$match"])]
+        field = [k for k in stages["$sort"] if k not in ("_blank", "_id")][0]
+        reverse = stages["$sort"][field] < 0
+        filled = [r for r in rows if r.get(field) not in (None, "", "Unknown")]
+        blank = [r for r in rows if r.get(field) in (None, "", "Unknown")]
+        filled.sort(key=lambda r: r[field], reverse=reverse)
+        out = filled + blank
+        return out[stages["$skip"]:stages["$skip"] + stages["$limit"]]
 
 
 @pytest.fixture(autouse=True)
@@ -107,6 +121,16 @@ def test_sort_by_column():
     desc, _ = service.get_leads(LeadFilterParams(view="leads", sort_by="lead", sort_order="desc", limit=50))
     assert [l["name"] for l in asc] == ["n2", "n3", "n6"]
     assert [l["name"] for l in desc] == ["n6", "n3", "n2"]
+
+
+def test_blanks_sort_last_both_ways(monkeypatch):
+    docs = [{"_id": i, "source": "gmail", "company_name": c}
+            for i, c in enumerate(["", "Beta", None, "Acme"], start=1)]
+    monkeypatch.setattr(service, "leads_enriched_collection", _Collection(docs))
+    asc, _ = service.get_leads(LeadFilterParams(view="leads", sort_by="company", sort_order="asc", limit=50))
+    desc, _ = service.get_leads(LeadFilterParams(view="leads", sort_by="company", sort_order="desc", limit=50))
+    assert [l.get("company_name") for l in asc][:2] == ["Acme", "Beta"]
+    assert [l.get("company_name") for l in desc][:2] == ["Beta", "Acme"]
 
 
 def test_unknown_sort_key_falls_back_safely():
