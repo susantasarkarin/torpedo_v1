@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -266,7 +267,15 @@ def main() -> int:
             samples.append(f"{email}: {updates}")
         if args.apply:
             updates["lead_info_backfilled_at"] = now
-            leads.update_one({"_id": lead["_id"]}, {"$set": updates})
+            try:
+                leads.update_one({"_id": lead["_id"]}, {"$set": updates})
+            except DuplicateKeyError:
+                # linkedin_url is unique: the profile already sits on another
+                # lead (a duplicate person, or a colleague's link in the
+                # signature). Keep everything else.
+                updates.pop("linkedin_url", None)
+                filled["linkedin_url"] -= 1
+                leads.update_one({"_id": lead["_id"]}, {"$set": updates})
 
     for s in samples:
         print(s)
