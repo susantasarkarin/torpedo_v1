@@ -1596,6 +1596,10 @@ CINT_COUNTRY_LANGUAGE_MAP = {
     50: "HU", 51: "RO", 52: "GR", 53: "UA", 54: "IL", 55: "PK", 56: "BD", 57: "LK",
     86: "KZ", 146: "EU",
 }
+# Ids 8/10/11/16 checked 2026-10-24 against survey names (e.g. id 8: 75 of 76
+# country-named surveys say GB/UK); the values above were wrong for them.
+from pricing.rate_card import VERIFIED_IDS as _VERIFIED_IDS  # noqa: E402
+CINT_COUNTRY_LANGUAGE_MAP.update(_VERIFIED_IDS)
 
 def normalize_country(value: Any) -> Optional[str]:
     if value is None:

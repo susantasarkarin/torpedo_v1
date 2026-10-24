@@ -2298,6 +2298,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Mail pipeline scheduled (every 5 min, mode from config mail_pipeline.mode)")
 
+            def _rfq_flow_job():
+                try:
+                    from rfq.runner import run_batch
+                    run_batch()
+                except Exception as e:
+                    print(f"[RFQFlow] Error: {e}")
+
+            scheduler.add_job(_rfq_flow_job, IntervalTrigger(minutes=10),
+                              id="rfq_flow", name="RFQ: extract, client defaults, missing info, price (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ RFQ flow scheduled (every 10 min, mode from config rfq.mode)")
+
             def _reengagement_job():
                 try:
                     from app.services.reengagement import run

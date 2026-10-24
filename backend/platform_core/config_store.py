@@ -62,6 +62,19 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
         "working_hours_ist": [10, 18],
     },
     "review_queue": lambda: {"sla_working_hours": 4, "archive_older_than_days": 90},
+    "rfq": lambda: {         # 3.4 / 3.5
+        "mode": "shadow",                    # shadow: decisions only; live (owner): stamp RFQs + queue drafts
+        "batch": 5,
+        "lookback_days": 60,
+        "default_methodology": "CAWI",
+        "critical_fields": ["n", "loi_minutes", "country"],
+        "client_defaults_seed": [            # crm_db.client_defaults rows take precedence
+            {"match": "hansa", "defaults": {"ir_percent": 60, "country": "IN"}},
+        ],
+        "weighting": "completes",            # the price; recency is stored alongside
+        "cpi_bounds_usd": {"min": None, "max": None},   # owner to set; unset = no bound check
+        "client_history_tolerance": 0.4,     # > 40% from this client's recent median -> review
+    },
     "entities": lambda: {    # owner enters these; blank blocks invoicing for that entity (3.9)
         "SFW": {"legal_name": "", "gstin": "", "pan": "", "address": "", "invoice_prefix": "SF", "bank_accounts": []},
         "COGENTIX": {"legal_name": "", "gstin": "", "pan": "", "address": "", "invoice_prefix": "CR", "bank_accounts": []},
