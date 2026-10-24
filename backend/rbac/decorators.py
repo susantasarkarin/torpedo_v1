@@ -23,10 +23,29 @@ Usage:
 
 import os
 import logging
+import inspect
 from functools import wraps
 from typing import List, Optional, Callable, Any
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.concurrency import run_in_threadpool
+
+
+async def _call(func: Callable, *args, **kwargs):
+    """Run the decorated endpoint whether it is `async def` or plain `def`.
+
+    The wrappers below are async, so FastAPI no longer threadpools a plain
+    `def` endpoint for us, and `await func(...)` on one awaited the returned
+    dict: TypeError, a 500 on every call. That took down the Finance invoice
+    and bill endpoints and all of Support (31 routes) — Invoices showed "no
+    records". Plain functions run in the threadpool, as FastAPI would.
+    """
+    if inspect.iscoroutinefunction(func):
+        return await func(*args, **kwargs)
+    result = await run_in_threadpool(func, *args, **kwargs)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +234,7 @@ def require_permission(permission: str):
             checker = check_permission(permission)
             await checker(request)
             
-            return await func(*args, **kwargs)
+            return await _call(func, *args, **kwargs)
         
         return wrapper
     return decorator
@@ -240,7 +259,7 @@ def require_any_permission(*permissions: str):
                 raise ValueError("Request object not found.")
             
             if not rbac_enabled():
-                return await func(*args, **kwargs)
+                return await _call(func, *args, **kwargs)
             
             user = await get_current_user(request)
             if not user:
@@ -250,12 +269,12 @@ def require_any_permission(*permissions: str):
             
             # Admin bypass
             if "admin" in user.get("roles", []):
-                return await func(*args, **kwargs)
+                return await _call(func, *args, **kwargs)
             
             # Check if user has any of the required permissions
             for perm in permissions:
                 if perm in user_permissions:
-                    return await func(*args, **kwargs)
+                    return await _call(func, *args, **kwargs)
             
             raise PermissionDeniedError(
                 permissions[0],
@@ -285,7 +304,7 @@ def require_all_permissions(*permissions: str):
                 raise ValueError("Request object not found.")
             
             if not rbac_enabled():
-                return await func(*args, **kwargs)
+                return await _call(func, *args, **kwargs)
             
             user = await get_current_user(request)
             if not user:
@@ -295,7 +314,7 @@ def require_all_permissions(*permissions: str):
             
             # Admin bypass
             if "admin" in user.get("roles", []):
-                return await func(*args, **kwargs)
+                return await _call(func, *args, **kwargs)
             
             # Check all permissions
             missing = [p for p in permissions if p not in user_permissions]
@@ -305,7 +324,7 @@ def require_all_permissions(*permissions: str):
                     detail=f"Permission denied. Missing: {', '.join(missing)}"
                 )
             
-            return await func(*args, **kwargs)
+            return await _call(func, *args, **kwargs)
         
         return wrapper
     return decorator

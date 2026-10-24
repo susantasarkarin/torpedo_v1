@@ -104,10 +104,10 @@ function PaymentsPage({ defaultTab = "received" }) {
 
   const fetchCustomers = async () => {
     try {
-      const response = await authFetch(buildApiUrl(`/finance/customers/`))
+      const response = await authFetch(buildApiUrl(`/finance/customers/?page_size=200`))
       if (response.ok) {
         const data = await response.json()
-        setCustomers(data)
+        setCustomers(Array.isArray(data) ? data : data.customers || [])  // the list is paginated: { customers: [...] }
       }
     } catch (error) {
       console.error("Error fetching customers:", error)

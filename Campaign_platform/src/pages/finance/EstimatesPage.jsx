@@ -100,7 +100,7 @@ function EstimatesPage() {
   const fetchCustomers = async () => {
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await authFetch(buildApiUrl(`/finance/customers/`), {
+      const response = await authFetch(buildApiUrl(`/finance/customers/?page_size=200`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -108,7 +108,7 @@ function EstimatesPage() {
       })
       if (response.ok) {
         const data = await response.json()
-        setCustomers(data)
+        setCustomers(Array.isArray(data) ? data : data.customers || [])  // the list is paginated: { customers: [...] }
       }
     } catch (error) {
       console.error("Error fetching customers:", error)
