@@ -1,0 +1,118 @@
+/* Shared lead list — Sales > Leads, Sales > Contacts, AI Database.
+   Widths come from <colgroup> (fixed layout); content reflows to the column. */
+
+.lead-table-scroll {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e8e4dc;
+  border-radius: 12px;
+}
+
+.lead-table {
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.lead-table th,
+.lead-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  vertical-align: top;
+  overflow: hidden;
+  white-space: normal;
+  border-bottom: 1px solid #f5f3ef;
+  color: #4a4a4a;
+}
+
+.lead-table th {
+  position: relative;
+  user-select: none;
+  background: #faf9f7;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #e8e4dc;
+}
+
+.lead-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.lead-table tbody tr:hover {
+  background: #faf9f7;
+}
+
+.lead-table tbody tr.selected {
+  background: #fdf4e7;
+}
+
+.lead-table .lead-table-check {
+  padding-left: 12px;
+  padding-right: 4px;
+  cursor: default;
+}
+
+.lead-table .name-link {
+  color: var(--primary, #e8910a);
+  font-weight: 600;
+}
+
+.lead-table-sub {
+  font-size: 0.8rem;
+  color: #6f6f6f;
+}
+
+.lead-table-empty {
+  color: #6f6f6f;
+  font-size: 0.875rem;
+}
+
+.resizable-th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  right: 3px;
+  width: 2px;
+  height: 50%;
+  border-radius: 1px;
+  background: #d4cec3;
+}
+
+.col-resize-handle:hover::after,
+.col-resize-handle:active::after {
+  background: var(--primary, #e8910a);
+  top: 0;
+  height: 100%;
+}
+
+.lead-table .cell-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lead-table .clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

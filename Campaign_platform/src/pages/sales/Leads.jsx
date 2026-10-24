@@ -8,183 +8,7 @@ import { useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import "./campaign/AILeads.css"
-
-const BASKET_COLORS = {
-  A: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
-  B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-  C: { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
-  D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-  E: { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
-}
-
-const TIER_STYLE = {
-  1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
-  2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
-  3: { bg: "#fdf4e7", color: "#d17f08", border: "#7dd3fc", icon: "❄️" },
-}
-
-const LEAD_STATUS_STYLE = {
-  Positive: { bg: "#dcfce7", color: "#15803d", border: "#86efac", icon: "✅" },
-  "Needs Human": { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", icon: "🙋" },
-  Negative: { bg: "#fee2e2", color: "#b91c1c", border: "#fca5a5", icon: "🚫" },
-  Neutral:  { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3", icon: "⬜" },
-}
-
-const STATUS_OPTIONS = ["Positive", "Needs Human", "Neutral", "Negative"]
-
-// Basket E ("Nurture / Unqualified") is not an ICP segment — it is where a
-// lead sits until it qualifies — so it shows in Status instead. Only a
-// derived default: a status someone set by hand still wins.
-const ICP_BASKETS = ["A", "B", "C"]
-const NURTURE_STYLE = { bg: "#ecfdf5", color: "#047857", border: "#a7f3d0", icon: "🌱" }
-
-// Column widths are dragged by the handle on each header's right edge and
-// remembered per browser. Cell content wraps or clips to whatever width the
-// column has, so a wider column shows more of the email, reply and segment.
-const COLUMNS = [
-  { key: "lead", label: "Lead", width: 200 },
-  { key: "email", label: "Email", width: 220 },
-  { key: "company", label: "Company", width: 170 },
-  { key: "icp", label: "ICP Segment", width: 190 },
-  { key: "fit", label: "Fit Tier", width: 110 },
-  { key: "reply", label: "Reply / Nurture", width: 340 },
-  { key: "status", label: "Status", width: 170 },
-]
-const MIN_COL_WIDTH = 60
-const WIDTHS_KEY = "sales_leads_col_widths"
-
-function loadWidths() {
-  const defaults = Object.fromEntries(COLUMNS.map(c => [c.key, c.width]))
-  try {
-    const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) || "{}")
-    for (const c of COLUMNS) {
-      if (Number.isFinite(saved[c.key])) defaults[c.key] = Math.max(MIN_COL_WIDTH, saved[c.key])
-    }
-  } catch (_) {}
-  return defaults
-}
-
-function saveWidths(widths) {
-  try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(widths)) } catch (_) {}
-}
-
-function ResizableHeader({ col, width, onResize, onReset }) {
-  const startDrag = (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const startX = e.clientX
-    const startW = width
-    const move = (ev) => onResize(col.key, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX), false)
-    const up = (ev) => {
-      window.removeEventListener("pointermove", move)
-      window.removeEventListener("pointerup", up)
-      onResize(col.key, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX), true)
-    }
-    window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", up)
-  }
-  return (
-    <th className="resizable-th">
-      <span className="resizable-th-label">{col.label}</span>
-      <span
-        className="col-resize-handle"
-        onPointerDown={startDrag}
-        onDoubleClick={() => onReset(col.key)}
-        title="Drag to resize · double-click to reset"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={`Resize ${col.label} column`}
-      />
-    </th>
-  )
-}
-
-const NURTURE_LABEL = {
-  active: "Nurturing",
-  paused_new_reply: "Paused — they replied",
-  completed: "Nurture done",
-  stopped: "Stopped",
-}
-
-function ReplyCell({ lead }) {
-  const t = lead.reply_triage
-  const n = lead.nurture
-  const m = lead.mail_pool
-  if (!t && !n && !m) return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>
-  const mailSummary = m ? (m.model_summary || m.last_summary || "") : ""
-  const title = t
-    ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
-    : m ? `${m.last_subject || ""}\n\n${mailSummary}${m.triage?.reason ? `\n\nTriage: ${m.triage.reason}` : ""}` : ""
-  return (
-    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, whiteSpace: "normal" }} title={title}>
-      {t?.reply_text && (
-        <div className="clamp-3" style={{ color: "#4a4a4a" }}>
-          “{t.reply_text.replace(/\s+/g, " ").slice(0, 600)}”
-        </div>
-      )}
-      {!t && m && (
-        <>
-          <div className="clamp-3" style={{ color: "#4a4a4a" }}>
-            {mailSummary.replace(/\s+/g, " ").slice(0, 600) || m.last_subject}
-          </div>
-          <div style={{ color: "#5c5c5c" }}>
-            Mail: {m.messages_in} in / {m.messages_out} out
-            {m.last_contact_at ? ` · last ${String(m.last_contact_at).slice(0, 10)}` : ""}
-          </div>
-        </>
-      )}
-      {n?.status && (
-        <div style={{ color: n.status === "paused_new_reply" ? "#b45309" : "#e8910a", fontWeight: 600 }}>
-          {NURTURE_LABEL[n.status] || n.status}
-          {n.status === "active" ? ` · step ${n.step || 0}/4` : ""}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function LeadStatusBadge({ lead, sessionId, onUpdated }) {
-  const [saving, setSaving] = useState(false)
-  const isNurture = !lead.lead_status && lead.classification_basket === "E"
-  const current = lead.lead_status || (isNurture ? "Nurture" : "Neutral")
-  const s = isNurture ? NURTURE_STYLE : (LEAD_STATUS_STYLE[current] || LEAD_STATUS_STYLE.Neutral)
-
-  const handleChange = async (e) => {
-    e.stopPropagation()
-    const newStatus = e.target.value
-    if (newStatus === current) return
-    setSaving(true)
-    try {
-      const res = await authFetch(buildApiUrl(`/leads/${lead._id}/status`), {
-        method: "PATCH",
-        headers: { Authorization: sessionId, "Content-Type": "application/json" },
-        body: JSON.stringify({ lead_status: newStatus }),
-      })
-      if (res.ok) onUpdated(lead._id, newStatus)
-    } catch (_) {}
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div style={{ display: "inline-block" }} onClick={e => e.stopPropagation()}>
-      <select
-        value={current}
-        onChange={handleChange}
-        disabled={saving}
-        style={{
-          padding: "2px 6px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 600,
-          background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-          cursor: "pointer", appearance: "auto", maxWidth: "100%",
-        }}
-      >
-        {isNurture && <option value="Nurture" disabled>{NURTURE_STYLE.icon} Nurture</option>}
-        {STATUS_OPTIONS.map(opt => (
-          <option key={opt} value={opt}>{LEAD_STATUS_STYLE[opt].icon} {opt}</option>
-        ))}
-      </select>
-    </div>
-  )
-}
+import LeadTable from "../../components/leads/LeadTable"
 
 function Leads() {
   const navigate = useNavigate()
@@ -204,19 +28,6 @@ function Leads() {
   const [importingRfqs, setImportingRfqs] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [syncingReplies, setSyncingReplies] = useState(false)
-  const [colWidths, setColWidths] = useState(loadWidths)
-
-  const resizeColumn = (key, width, commit) => {
-    setColWidths(prev => {
-      const next = { ...prev, [key]: width }
-      if (commit) saveWidths(next)
-      return next
-    })
-  }
-  const resetColumn = (key) => {
-    resizeColumn(key, COLUMNS.find(c => c.key === key).width, true)
-  }
-
   const fetchLeads = useCallback(async () => {
     if (!sessionId) { navigate("/login"); return }
     setLoading(true)
@@ -412,7 +223,7 @@ function Leads() {
       )}
 
       {/* Table */}
-      <div className="classified-table-container">
+      <div>
         {loading ? (
           <div className="loading-container">
             <div className="loading-spinner" />
@@ -423,91 +234,13 @@ function Leads() {
             <p>No leads found matching your filters.</p>
           </div>
         ) : (
-          <table
-            className="data-table classified-table compact-view resizable-table"
-            style={{ width: COLUMNS.reduce((sum, c) => sum + colWidths[c.key], 0) }}
-          >
-            <colgroup>
-              {COLUMNS.map(c => <col key={c.key} style={{ width: colWidths[c.key] }} />)}
-            </colgroup>
-            <thead>
-              <tr>
-                {COLUMNS.map(c => (
-                  <ResizableHeader
-                    key={c.key}
-                    col={c}
-                    width={colWidths[c.key]}
-                    onResize={resizeColumn}
-                    onReset={resetColumn}
-                  />
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {leads.map(lead => (
-                <tr
-                  key={lead._id}
-                  className="clickable-row"
-                  onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
-                >
-                  {/* Lead: name, then title/seniority when filled — most
-                      Gmail-sourced leads have neither yet. */}
-                  <td className="name-cell">
-                    <div className="name-link cell-clip" title={lead.name || ""}>{lead.name || "—"}</div>
-                    {(() => {
-                      const seniority = lead.seniority_level && lead.seniority_level !== "Unknown" ? lead.seniority_level : null
-                      const role = [lead.title, seniority].filter(Boolean).join(" · ")
-                      return role ? <div className="cell-clip" style={{ fontSize: "0.8rem", color: "#4a4a4a" }} title={role}>{role}</div> : null
-                    })()}
-                  </td>
-                  <td className="email-cell">
-                    <div className="cell-clip" title={lead.email || ""}>{lead.email || "—"}</div>
-                    {(lead.email_status || "").toLowerCase() === "bounced" && (
-                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#b91c1c" }}>Email bounced</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="cell-clip" title={lead.company_name || ""}>{lead.company_name || "—"}</div>
-                    {lead.company_industry && (
-                      <div className="cell-clip" style={{ fontSize: "0.8rem", color: "#6f6f6f" }} title={lead.company_industry}>{lead.company_industry}</div>
-                    )}
-                  </td>
-                  {/* ICP Segment — A/B/C only; basket E shows as Nurture in Status. */}
-                  <td>
-                    {ICP_BASKETS.includes(lead.classification_basket) ? (() => {
-                      const c = BASKET_COLORS[lead.classification_basket]
-                      const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || lead.classification_basket
-                      return (
-                        <span className="cell-clip" title={`${lead.classification_basket} — ${bname}`} style={{ display: "inline-block", maxWidth: "100%", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-                          {lead.classification_basket} — {bname}
-                        </span>
-                      )
-                    })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
-                  </td>
-                  {/* Fit Tier */}
-                  <td>
-                    {lead.fit_tier ? (() => {
-                      const s = TIER_STYLE[lead.fit_tier] || TIER_STYLE[3]
-                      return (
-                        <span className="cell-clip" style={{ display: "inline-block", maxWidth: "100%", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
-                          {s.icon} {lead.fit_tier_label || `Tier ${lead.fit_tier}`}
-                        </span>
-                      )
-                    })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
-                  </td>
-                  <td><ReplyCell lead={lead} /></td>
-                  {/* Lead Status */}
-                  <td onClick={e => e.stopPropagation()}>
-                    <LeadStatusBadge
-                      lead={lead}
-                      sessionId={sessionId}
-                      onUpdated={handleStatusUpdated}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <LeadTable
+            leads={leads}
+            columns={["lead", "email", "company", "icp", "fit", "reply", "status"]}
+            storageKey="sales_leads_col_widths"
+            onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+            onStatusUpdated={handleStatusUpdated}
+          />
         )}
       </div>
 

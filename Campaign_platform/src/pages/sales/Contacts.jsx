@@ -12,6 +12,7 @@ import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
 import { confirmAction, notify } from "../../utils/notify"
 import { authFetch } from "../../utils/api"
+import LeadTable from "../../components/leads/LeadTable"
 
 function Contacts() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ function Contacts() {
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
   const [selectedIds, setSelectedIds] = useState([])
+  const [stageFilter, setStageFilter] = useState("")
 
   // Contact stages (post-qualification)
   const contactStages = getContactStages()
@@ -72,7 +74,7 @@ function Contacts() {
       setError(null);
       try {
         const params = new URLSearchParams({
-          lead_stage: "contacts",
+          lead_stage: stageFilter || "contacts",
           page: String(currentPage),
           limit: String(recordsPerPage),
         });
@@ -101,7 +103,7 @@ function Contacts() {
       }
     };
     fetchContacts();
-  }, [navigate, currentPage, recordsPerPage, search]);
+  }, [navigate, currentPage, recordsPerPage, search, stageFilter]);
 
   // Handle form input
   const handleChange = (e) => {
@@ -315,13 +317,62 @@ function Contacts() {
     setCurrentPage(1);
   };
 
-  // Get email status badge class
-  const getEmailStatusClass = (status) => {
-    const s = (status || "").toLowerCase();
-    if (s === "valid" || s === "verified") return "valid";
-    if (s === "invalid" || s === "bounced") return "invalid";
-    return "unknown";
-  };
+  // Same lead cells as Sales > Leads, plus what only a contact has: a client
+  // link, its pipeline stage, and row actions.
+  const contactColumns = [
+    "lead",
+    "email",
+    {
+      key: "company", label: "Company / Client", width: 200,
+      render: (contact) => (
+        <>
+          <div className="cell-clip" title={contact.company_name || ""}>{contact.companyName || contact.company_name || "—"}</div>
+          {contact.linked_customer ? (
+            <span
+              className="client-link-badge"
+              title={`Linked to Client: ${contact.linked_customer.company_name || contact.linked_customer.name}`}
+              style={{ display: "inline-block", marginTop: 2, padding: "1px 6px", fontSize: "0.75rem", background: "#16a34a", color: "white", borderRadius: 4, fontWeight: 500 }}
+              onClick={(e) => { e.stopPropagation(); navigate("/admin/operations/clients"); }}
+            >
+              🔗 Client
+            </span>
+          ) : contact.pending_customer_company ? (
+            <span
+              title={`${contact.pending_customer_company} is not a client yet — no linked client record`}
+              style={{ display: "inline-block", marginTop: 2, padding: "1px 6px", fontSize: "0.75rem", background: "#e8e4dc", color: "#5c5c5c", borderRadius: 4, fontWeight: 500 }}
+            >
+              ○ Prospect
+            </span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      key: "stage", label: "Stage", width: 160,
+      render: (contact) => {
+        const stageInfo = getStageById(contact.stage);
+        return (
+          <span className="stage-badge cell-clip" style={{ ...getStageBadgeStyle(contact.stage), display: "inline-block", maxWidth: "100%" }}>
+            {stageInfo?.icon} {stageInfo?.label || contact.stage || "Discovery Call"}
+          </span>
+        );
+      },
+    },
+    "icp",
+    "reply",
+    {
+      key: "actions", label: "Actions", width: 120,
+      render: (contact) => (
+        <div className="actions-cell" onClick={(e) => e.stopPropagation()}>
+          {(contact.linkedin || contact.linkedin_url) && (
+            <a href={contact.linkedin || contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-btn-linkedin">in</a>
+          )}
+          <button className="action-btn edit" onClick={() => openEdit(contact)} aria-label="Edit contact">✏️</button>
+          <button className="action-btn delete" onClick={() => deleteContact(contact._id)} aria-label="Delete contact">🗑️</button>
+        </div>
+      ),
+    },
+  ];
 
   // Get stage badge style
   const getStageBadgeStyle = (stageId) => {
@@ -338,7 +389,7 @@ function Contacts() {
       <div className="page-header">
         <div className="header-left">
           <h1 className="cx-page-title">Contacts</h1>
-          <p className="subtitle">Manage and track your sales contacts through the pipeline</p>
+          <p className="subtitle">{total.toLocaleString()} contacts in the sales pipeline (discovery call onwards)</p>
         </div>
         <div className="header-actions">
           {selectedIds.length > 0 && (
@@ -370,33 +421,29 @@ function Contacts() {
 
       {error && <div className="error-alert">{error}</div>}
 
-      {/* Stats Row */}
-      <div className="stats-row">
-        <div className="stat-card primary">
-          <div className="stat-value">{total}</div>
-          <div className="stat-label">Total Contacts</div>
-        </div>
-        {contactStages.map(stage => (
-          <div key={stage.id} className="stat-card">
-            <div className="stat-value">{contacts.filter(c => c.stage === stage.id).length}</div>
-            <div className="stat-label">{stage.icon} {stage.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters Bar */}
-      <div className="filters-bar">
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <input
-          className="search-input"
           type="text"
-          placeholder="Search contacts by name, email, company..."
+          placeholder="Search name, email, company…"
           value={search}
           onChange={e => handleSearch(e.target.value)}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem", minWidth: 240 }}
         />
         <select
-          className="records-select"
+          value={stageFilter}
+          onChange={e => { setStageFilter(e.target.value); setCurrentPage(1) }}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
+        >
+          <option value="">All Stages</option>
+          {contactStages.map(stage => (
+            <option key={stage.id} value={stage.id}>{stage.icon} {stage.label}</option>
+          ))}
+        </select>
+        <select
           value={recordsPerPage}
           onChange={e => handleRecordsPerPageChange(e.target.value)}
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e8e4dc", fontSize: "0.9rem" }}
         >
           <option value={10}>10 per page</option>
           <option value={20}>20 per page</option>
@@ -406,154 +453,29 @@ function Contacts() {
         </select>
       </div>
 
-      {/* Contacts Table */}
-      <div className="table-container">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th className="checkbox-col">
-                <input 
-                  type="checkbox" 
-                  checked={paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c._id))}
-                  onChange={toggleSelectAll}
-                />
-              </th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Title</th>
-              <th>Company / Client</th>
-              <th>Industry</th>
-              <th>Stage</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedContacts.map(contact => {
-              const stageInfo = getStageById(contact.stage);
-              return (
-                <tr 
-                  key={contact._id} 
-                  className={selectedIds.includes(contact._id) ? "selected" : ""}
-                >
-                  <td className="checkbox-col" onClick={(e) => e.stopPropagation()}>
-                    <input 
-                      type="checkbox" 
-                      checked={selectedIds.includes(contact._id)}
-                      onChange={() => toggleSelect(contact._id)}
-                    />
-                  </td>
-                  <td className="name-cell">
-                    <span 
-                      className="name-link"
-                      onClick={() => navigate(`/admin/sales/campaign/ai-leads/${contact._id}`)}
-                    >
-                      {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || '-'}
-                    </span>
-                  </td>
-                  <td>
-                    <div>
-                      {contact.email}
-                      {contact.emailStatus && (
-                        <span className={`status-badge ${getEmailStatusClass(contact.emailStatus)}`} style={{ marginLeft: '8px' }}>
-                          {contact.emailStatus}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>{contact.title || '-'}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>{contact.companyName || contact.company_name || '-'}</span>
-                      {contact.linked_customer && (
-                        <span 
-                          className="client-link-badge"
-                          title={`Linked to Client: ${contact.linked_customer.company_name || contact.linked_customer.name}`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 6px',
-                            fontSize: '14px',
-                            background: '#16a34a',
-                            color: 'white',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: '500'
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate('/admin/operations/clients');
-                          }}
-                        >
-                          🔗 Client
-                        </span>
-                      )}
-                      {!contact.linked_customer && contact.pending_customer_company && (
-                        <span
-                          className="client-link-badge client-link-badge--pending"
-                          title={`${contact.pending_customer_company} is not a client yet — no linked client record`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 6px',
-                            fontSize: '14px',
-                            background: '#e8e4dc',
-                            color: '#5c5c5c',
-                            borderRadius: '4px',
-                            fontWeight: '500'
-                          }}
-                        >
-                          ○ Prospect
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>{contact.companyIndustry || contact.company_industry || '-'}</td>
-                  <td>
-                    <span className="stage-badge" style={getStageBadgeStyle(contact.stage)}>
-                      {stageInfo?.icon} {stageInfo?.label || contact.stage || 'Discovery Call'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="actions-cell">
-                      {contact.linkedin && (
-                        <a 
-                          href={contact.linkedin}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="action-btn-linkedin"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          in
-                        </a>
-                      )}
-                      <button 
-                        className="action-btn edit"
-                        onClick={(e) => { e.stopPropagation(); openEdit(contact); }}
-                      >
-                        ✏️
-                      </button>
-                      <button 
-                        className="action-btn delete"
-                        onClick={(e) => { e.stopPropagation(); deleteContact(contact._id); }}
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {paginatedContacts.length === 0 && (
-              <tr>
-                <td colSpan={8} className="empty-state">
-                  <h3>No contacts found</h3>
-                  <p>Move leads from the Leads page to get started!</p>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Table */}
+      {loading ? (
+        <div className="loading-container"><span>Loading contacts…</span></div>
+      ) : paginatedContacts.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 64, color: "#5c5c5c" }}>
+          <h3>No contacts found</h3>
+          <p>Move leads from the Leads page to get started!</p>
+        </div>
+      ) : (
+        <LeadTable
+          leads={paginatedContacts}
+          columns={contactColumns}
+          storageKey="sales_contacts_col_widths"
+          onRowClick={contact => navigate(`/admin/sales/campaign/ai-leads/${contact._id}`)}
+          onStatusUpdated={(id, status) => setContacts(prev => prev.map(c => c._id === id ? { ...c, lead_status: status } : c))}
+          selection={{
+            isSelected: id => selectedIds.includes(id),
+            onToggle: toggleSelect,
+            onToggleAll: toggleSelectAll,
+            allSelected: paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c._id)),
+          }}
+        />
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (

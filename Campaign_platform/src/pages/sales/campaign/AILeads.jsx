@@ -11,8 +11,8 @@ import Papa from "papaparse";
 import "./AILeads.css";
 import { buildApiUrl } from "../../../config"
 import { confirmAction, notify } from "../../../utils/notify"
-import { formatDate } from "../../../utils/format"
 import { authFetch } from "../../../utils/api"
+import LeadTable from "../../../components/leads/LeadTable"
 
 // ============== FILTER OPTIONS ==============
 
@@ -166,8 +166,6 @@ function AILeads() {
   const [importError, setImportError] = useState("");
 
   // View Mode State - compact vs full table
-  const [viewMode, setViewMode] = useState("compact"); // "compact" or "full"
-  const [expandedLeadId, setExpandedLeadId] = useState(null); // For viewing lead details
   const [icpFilter, setIcpFilter] = useState("");
   const [icpOptions, setIcpOptions] = useState([]);
   const [bulkIcpSegment, setBulkIcpSegment] = useState("");
@@ -1614,26 +1612,6 @@ function AILeads() {
           Clear
         </button>
         
-        {/* View Mode Toggle */}
-        {activeTab.startsWith("classified") && (
-          <div className="view-toggle">
-            <button 
-              className={`view-btn ${viewMode === "compact" ? "active" : ""}`}
-              onClick={() => setViewMode("compact")}
-              title="Compact View"
-            >
-              ▤
-            </button>
-            <button 
-              className={`view-btn ${viewMode === "full" ? "active" : ""}`}
-              onClick={() => setViewMode("full")}
-              title="Full Table View"
-            >
-              ▦
-            </button>
-          </div>
-        )}
-        
         {/* Delete All Leads Button */}
         <button 
           className="btn btn-danger btn-sm"
@@ -1743,233 +1721,20 @@ function AILeads() {
             </button>
           </div>
         ) : activeTab.startsWith("classified") ? (
-          /* Classified Leads Table - Compact or Full view */
-          <div className="classified-table-container">
-            <table className={`data-table classified-table ${viewMode === "compact" ? "compact-view" : "full-view"}`}>
-              <thead>
-                <tr>
-                  <th className="checkbox-col sticky-col">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.size === displayLeads.length && displayLeads.length > 0}
-                      onChange={toggleSelectAll}
-                    />
-                  </th>
-                  <th className="sticky-col-2">Name</th>
-                  <th>Email</th>
-                  <th>Title</th>
-                  <th>Company</th>
-                  <th>Seniority</th>
-                  <th>Industry</th>
-                  <th>Source</th>
-                  <th>Email Status</th>
-                  <th>ICP Segment</th>
-                  <th>Fit Tier</th>
-                  <th>Persona</th>
-                  {viewMode === "full" && (
-                    <>
-                      <th>First Name</th>
-                      <th>Last Name</th>
-                      <th>LinkedIn</th>
-                      <th>Location</th>
-                      <th>Added On</th>
-                      <th>Buying Role</th>
-                      <th>Company Domain</th>
-                      <th>Company Website</th>
-                      <th>Employee Count</th>
-                      <th>Employee Range</th>
-                      <th>Founded</th>
-                      <th>Company Type</th>
-                      <th>Headquarters</th>
-                      <th>Revenue Range</th>
-                      <th>Company LinkedIn</th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {displayLeads.map((lead) => (
-                  <React.Fragment key={lead._id}>
-                    <tr className={`${selectedIds.has(lead._id) ? "selected" : ""} ${expandedLeadId === lead._id ? "expanded" : ""}`}>
-                      <td className="checkbox-col sticky-col">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(lead._id)}
-                          onChange={() => toggleSelect(lead._id)}
-                        />
-                      </td>
-                      <td className="name-cell sticky-col-2">
-                        <span 
-                          className="name-link" 
-                          onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
-                        >
-                          {lead.name}
-                        </span>
-                      </td>
-                      <td className="email-cell">{lead.email || "-"}</td>
-                      <td>{lead.title || "-"}</td>
-                      <td>{lead.company_name || "-"}</td>
-                      <td><span className="badge badge-blue">{lead.seniority_level || "Unknown"}</span></td>
-                      <td>{lead.company_industry || "-"}</td>
-                      <td>
-                        <span className={`source-badge ${lead.source?.replace("_", "-") || "unknown"}`}>
-                          {lead.source === "web_search" ? "🌐 Web" : 
-                           lead.source === "google_search" ? "🔍 Google" :
-                           lead.source === "csv" || lead.source === "csv_import" ? "📄 CSV" :
-                           lead.source === "linkedin" ? "💼 LinkedIn" :
-                           lead.source || "Unknown"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>
-                          {lead.email_status || "Unknown"}
-                        </span>
-                      </td>
-                      {/* ICP Segment / Basket tags */}
-                      <td>
-                        {(() => {
-                          const code = lead.classification_basket;
-                          const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
-                          const BASKET_COLORS = {
-                            A: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
-                            B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-                            C: { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
-                            D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-                            E: { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
-                          };
-                          const PALETTE = {
-                            survey_fieldwork: { bg: "#dcfce7", color: "#166534", border: "#6ee7b7" },
-                            cogentix:         { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-                            bimwave:          { bg: "#fdf4e7", color: "#d17f08", border: "#fde68a" },
-                            dual_fit:         { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-                            nurture:          { bg: "#f5f3ef", color: "#5c5c5c", border: "#d4cec3" },
-                          };
-                          if (!code && tags.length === 0) {
-                            return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>;
-                          }
-                          return (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
-                              {code && (() => {
-                                const c = BASKET_COLORS[code] || BASKET_COLORS.E;
-                                const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || code;
-                                return (
-                                  <span key="basket" style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-                                    {code} — {bname}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      {/* Fit Tier */}
-                      <td>
-                        {(() => {
-                          const tier = lead.fit_tier;
-                          const label = lead.fit_tier_label;
-                          if (!tier) return <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>;
-                          const TIER_STYLE = {
-                            1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
-                            2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
-                            3: { bg: "#fdf4e7", color: "#d17f08", border: "#7dd3fc", icon: "❄️" },
-                          };
-                          const s = TIER_STYLE[tier] || TIER_STYLE[3];
-                          return (
-                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.875rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
-                              {s.icon} {label || `Tier ${tier}`}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      {/* Persona */}
-                      <td>
-                        <span style={{ fontSize: "0.875rem", color: "#4a4a4a" }}>
-                          {lead.persona_label || lead.persona || "—"}
-                        </span>
-                      </td>
-                      {viewMode === "full" && (
-                        <>
-                          <td>{lead.first_name || "-"}</td>
-                          <td>{lead.last_name || "-"}</td>
-                          <td>
-                            <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="linkedin-link">
-                              View ↗
-                            </a>
-                          </td>
-                          <td>{lead.location || "-"}</td>
-                          <td>{lead.added_on ? formatDate(lead.added_on) : "-"}</td>
-                          <td><span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></td>
-                          <td>{lead.company_domain || "-"}</td>
-                          <td>
-                            {lead.company_website ? (
-                              <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">
-                                {lead.company_website}
-                              </a>
-                            ) : "-"}
-                          </td>
-                          <td>{lead.company_employee_count || "-"}</td>
-                          <td>{lead.company_employee_count_range || "-"}</td>
-                          <td>{lead.company_founded || "-"}</td>
-                          <td>{lead.company_type || "-"}</td>
-                          <td>{lead.company_headquarters || "-"}</td>
-                          <td>{lead.company_revenue_range || "-"}</td>
-                          <td>
-                            {lead.company_linkedin_url ? (
-                              <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">
-                                View ↗
-                              </a>
-                            ) : "-"}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                    {/* Expandable Details Row in Compact Mode */}
-                    {viewMode === "compact" && expandedLeadId === lead._id && (
-                      <tr className="expanded-details-row">
-                        <td colSpan={12}>
-                          <div className="lead-details-panel">
-                            <div className="details-grid">
-                              <div className="detail-group">
-                                <h4>Contact Info</h4>
-                                <p><strong>First Name:</strong> {lead.first_name || "-"}</p>
-                                <p><strong>Last Name:</strong> {lead.last_name || "-"}</p>
-                                <p><strong>Email Status:</strong> <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>{lead.email_status || "Unknown"}</span></p>
-                                <p><strong>Location:</strong> {lead.location || "-"}</p>
-                                <p><strong>LinkedIn:</strong> {lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "-"}</p>
-                              </div>
-                              <div className="detail-group">
-                                <h4>Role Details</h4>
-                                <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
-                                <p><strong>Persona:</strong> {lead.persona_label || lead.persona || "-"}</p>
-                                <p><strong>Added On:</strong> {lead.added_on ? formatDate(lead.added_on) : "-"}</p>
-                              </div>
-                              <div className="detail-group">
-                                <h4>Classification</h4>
-                                <p><strong>Basket:</strong> {lead.classification_basket ? `${lead.classification_basket} — ${lead.classification_basket_name || ""}` : "—"}</p>
-                                <p><strong>Fit Tier:</strong> {lead.fit_tier ? `Tier ${lead.fit_tier} (${lead.fit_tier_label || ""})` : "—"}</p>
-                                <p><strong>Confidence:</strong> {lead.classification_confidence || "—"}</p>
-                              </div>
-                              <div className="detail-group">
-                                <h4>Company Info</h4>
-                                <p><strong>Domain:</strong> {lead.company_domain || "-"}</p>
-                                <p><strong>Website:</strong> {lead.company_website ? <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website}</a> : "-"}</p>
-                                <p><strong>Employees:</strong> {lead.company_employee_count || lead.company_employee_count_range || "-"}</p>
-                                <p><strong>Founded:</strong> {lead.company_founded || "-"}</p>
-                                <p><strong>Type:</strong> {lead.company_type || "-"}</p>
-                                <p><strong>Headquarters:</strong> {lead.company_headquarters || "-"}</p>
-                                <p><strong>Revenue:</strong> {lead.company_revenue_range || "-"}</p>
-                                <p><strong>LinkedIn:</strong> {lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">View ↗</a> : "-"}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          /* Classified leads — the shared Sales lead table */
+          <LeadTable
+            leads={displayLeads}
+            columns={["lead", "email", "company", "icp", "fit", "persona", "reply", "status"]}
+            storageKey="ai_database_col_widths"
+            onRowClick={lead => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+            onStatusUpdated={(id, status) => setLeads(prev => prev.map(l => l._id === id ? { ...l, lead_status: status } : l))}
+            selection={{
+              isSelected: id => selectedIds.has(id),
+              onToggle: toggleSelect,
+              onToggleAll: toggleSelectAll,
+              allSelected: selectedIds.size === displayLeads.length && displayLeads.length > 0,
+            }}
+          />
         ) : (
           /* Raw/Pending Leads Table - Simple view */
           <table className="data-table">
