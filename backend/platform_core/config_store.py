@@ -64,6 +64,7 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
     "review_queue": lambda: {"sla_working_hours": 4, "archive_older_than_days": 90},
     "reengagement": lambda: __import__("reengage.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.10
     "service_delivery": lambda: __import__("service_delivery.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.13
+    "web": lambda: __import__("web_tracking.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.12
     "accounting": lambda: __import__("accounting.invoicing", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.9
     "panel": lambda: __import__("panel_rules.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.7b
     "vendors": lambda: __import__("vendors.bids", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.7a

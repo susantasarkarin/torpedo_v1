@@ -1350,6 +1350,9 @@ try:
     from routers import service_delivery as service_delivery_router
     app.include_router(service_delivery_router.router)
     print("✅ Service Delivery router included")
+    from routers import web_tracking as web_tracking_router
+    app.include_router(web_tracking_router.router)
+    print("✅ Web tracking router included")
 except Exception as e:
     raise RuntimeError(
         f"Router mount failed: Platform router. Refusing to start a partially "
@@ -2360,6 +2363,29 @@ async def startup_event():
                               id="service_delivery_daily", name="Service Delivery: milestone + review reminders (shadow by default)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Service Delivery reminders scheduled (03:30 UTC / 09:00 IST)")
+
+            def _web_scoring_job():
+                try:
+                    from web_tracking.runner import run
+                    run()
+                except Exception as e:
+                    print(f"[WebScoring] Error: {e}")
+
+            scheduler.add_job(_web_scoring_job, IntervalTrigger(minutes=30),
+                              id="web_scoring", name="Landing visits: scoring + follow-ups (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _web_audience_job():
+                try:
+                    from web_tracking.runner import audience_sync
+                    audience_sync()
+                except Exception as e:
+                    print(f"[WebAudience] Error: {e}")
+
+            scheduler.add_job(_web_audience_job, CronTrigger(hour=1, minute=0),  # 06:30 IST
+                              id="web_audience_sync", name="Retargeting audiences per BU (sizes; sync needs ad IDs)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Web scoring (30 min) + audience sync (daily) scheduled")
 
             def _reengagement_job():
                 try:

@@ -221,4 +221,15 @@ def contact_view(contact_id: str, category: Optional[str] = None) -> Optional[Di
     email = (c.get("email") or "").lower()
     mine = communication([email] if email else [], [], category)
     return {"contact": _clean({k: c.get(k) for k in ("_id", "name", "email", "title", "phone", "account_id", "lead_id")}),
-            "communication": mine, "account": acc}
+            "communication": mine, "account": acc, "web_visits": web_visits(str(c["_id"]))}
+
+
+def web_visits(contact_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Landing-page visits tied to this contact (3.12 step 8)."""
+    ea = _gd("email_automation")
+    vids = [v["visitor_id"] for v in ea["web_visitors"].find({"contact_id": contact_id}, {"visitor_id": 1})]
+    if not vids:
+        return []
+    return [{"at": e.get("at"), "type": e.get("type"), "host": e.get("host"), "path": e.get("path"), "value": e.get("value")}
+            for e in ea["web_events"].find({"visitor_id": {"$in": vids}, "type": {"$in": ["page_view", "cta_click", "form_submit"]}})
+            .sort("at", -1).limit(limit)]
