@@ -53,15 +53,27 @@ def run(now: Optional[datetime] = None) -> Dict[str, Any]:
         {"status": "active", "is_deleted": {"$ne": True}}, {"customer_id": 1})}
     supp = ea["suppression"] if "suppression" in ea.list_collection_names() else None
     seen = domain_last_seen(md)
+    cust_of = {str(c["crm_account_id"]): str(c["_id"]) for c in gd("finance_db")["customers"].find(
+        {"crm_account_id": {"$nin": [None, ""]}}, {"crm_account_id": 1})}
+    contact_domains: Dict[str, set] = {}
+    for ct in crm["contacts"].find({"account_id": {"$nin": [None, ""]}, "email": {"$type": "string"}},
+                                   {"account_id": 1, "email": 1}):
+        dom = ct["email"].rsplit("@", 1)[-1].lower()
+        contact_domains.setdefault(str(ct["account_id"]), set()).add(dom)
     counts: Dict[str, int] = {}
     candidates = []
     for a in crm["accounts"].find({}, {"name": 1, "domain": 1, "domains": 1, "dnd": 1, "reengagement": 1,
-                                       "finance_customer_id": 1, "lifetime_revenue": 1}):
-        domains = [d.lower() for d in ([a.get("domain")] + list(a.get("domains") or []))
-                   if d and d.lower() not in WEBMAIL and d.lower() not in BU_OF_DOMAIN]
+                                       "lifetime_revenue": 1}):
+        raw = [a.get("domain")] + list(a.get("domains") or []) + sorted(contact_domains.get(str(a["_id"]), ()))
+        domains = sorted({d.lower() for d in raw if d and d.lower() not in WEBMAIL and d.lower() not in BU_OF_DOMAIN})
+        cust = cust_of.get(str(a["_id"]))
         dnd = bool(a.get("dnd")) or bool(supp is not None and domains and supp.find_one({"domain": {"$in": domains}}, {"_id": 1}))
-        status = rules.engagement_status(dnd=dnd, has_live_project=str(a.get("finance_customer_id")) in live_accounts,
-                                         last_two_way=last_two_way(seen, domains), now=now,
+        two_way = last_two_way(seen, domains)
+        if not two_way and not cust and not dnd:
+            counts["no_relationship"] = counts.get("no_relationship", 0) + 1     # a prospect, not ours to re-engage
+            continue
+        status = rules.engagement_status(dnd=dnd, has_live_project=bool(cust) and cust in live_accounts,
+                                         last_two_way=two_way, now=now,
                                          sequence=a.get("reengagement"), cfg=cfg)
         counts[status] = counts.get(status, 0) + 1
         if status == "dormant":

@@ -47,7 +47,7 @@ def test_last_two_way_needs_both_directions():
 
 
 def test_reengagement_shadow_run_never_stamps_accounts(monkeypatch):
-    d = {n: FakeDB() for n in ("crm_db", "email_automation", "torpedo_gmail")}
+    d = {n: FakeDB() for n in ("crm_db", "email_automation", "torpedo_gmail", "finance_db")}
     monkeypatch.setattr(rrun, "_gd", lambda: (lambda name: d[name]))
     monkeypatch.setattr(rrun, "domain_last_seen", lambda md: {"old.com": {"inbound": NOW - timedelta(days=200),
                                                                           "outbound": NOW - timedelta(days=200)}})
@@ -111,3 +111,15 @@ def test_reminders_owner_before_due_client_after_5_days_and_on_hold():
     held["history"].append({"to": "on_hold", "at": NOW - timedelta(days=8)})
     r = sd.reminders([p, held], NOW, {"c1": "x@client.com"})
     assert len(r["owner"]) == 1 and r["client"][0]["to"] == "x@client.com" and r["on_hold_for_paused_digest"] == [held]
+
+
+def test_accounts_without_any_relationship_are_not_reengaged(monkeypatch):
+    d = {n: FakeDB() for n in ("crm_db", "email_automation", "torpedo_gmail", "finance_db")}
+    monkeypatch.setattr(rrun, "_gd", lambda: (lambda name: d[name]))
+    monkeypatch.setattr(rrun, "domain_last_seen", lambda md: {})
+    from platform_core import config_store
+    monkeypatch.setattr(config_store, "get", lambda s, db=None: config_store.defaults(s))
+    d["email_automation"].list_collection_names = lambda: []
+    d["crm_db"]["accounts"].insert_one({"name": "Prospect Co", "domain": "prospect.com"})
+    s = rrun.run(now=NOW)
+    assert s.get("no_relationship") == 1 and s["planned"] == 0
