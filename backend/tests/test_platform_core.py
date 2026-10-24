@@ -115,6 +115,30 @@ def test_transport_failure_retries_then_records_failed_job(dbs):
     assert gw.failed_jobs(db=dbs["gov"])[0]["task"] == "reply_classification"
 
 
+def test_client_error_is_not_retried(dbs):
+    import requests
+    calls = []
+
+    def bad(*a, **k):
+        calls.append(1)
+        resp = requests.Response()
+        resp.status_code = 400
+        raise requests.HTTPError("400 exceeds context", response=resp)
+    out = _run(dbs, bad)
+    assert out["status"] == "failed" and len(calls) == 1
+
+
+def test_small_model_tasks_get_a_smaller_input_budget(dbs):
+    seen = []
+
+    def t(model, system, user, *a, **k):
+        seen.append(user)
+        return json.dumps({"category": "other", "confidence": 0.9})
+    gw.run(task="reply_classification", system="Return JSON", body="x " * 5000, transport=t,
+           schema={"type": "object", "required": ["category"]}, db=dbs["gov"], now=datetime(2026, 10, 24, 6, 0), sleep=lambda s: None)
+    assert len(seen[0]) <= 2600
+
+
 def test_p3_task_deferred_in_daytime(dbs):
     out = gw.run(task="lead_bucketing", system="x", body="Acme", transport=lambda *a, **k: "{}",
                  db=dbs["gov"], now=datetime(2026, 10, 24, 6, 0))

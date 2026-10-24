@@ -166,7 +166,9 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
     jobs = db["qwen_jobs"]
     model, priority = tcfg["model"], tcfg.get("priority", "P2")
 
-    clean = clean_input(subject, body, body_is_html, attachments_text, cfg["max_input_chars"])
+    # the 1.5B server runs with a 2,048-token context: each task carries its own budget
+    clean = clean_input(subject, body, body_is_html, attachments_text,
+                        int(tcfg.get("max_input_chars") or cfg["max_input_chars"]))
     h = content_hash(task, model, clean, system)
     cached = jobs.find_one({"hash": h, "status": {"$in": ["ok", "review"]}})
     if cached:
@@ -194,6 +196,9 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
         except Exception as e:
             err = str(e)[:300]
             jobs.update_one({"_id": job_id}, {"$inc": {"attempts": 1}, "$set": {"last_error": err}})
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status is not None and 400 <= int(status) < 500:
+                break           # a bad request fails the same way every time: no retry, no backoff
             if attempt < int(cfg.get("retries", 3)):
                 sleep(backoff[min(attempt, len(backoff) - 1)])
     if err is not None:

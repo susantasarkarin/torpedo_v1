@@ -46,11 +46,11 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
         "p3_window_ist": [22, 7],            # P3 (backfill, bucketing) runs 22:00-07:00 IST
         "max_input_chars": 6000,
         "tasks": {
-            "reply_classification": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 200},
-            "sender_type": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 120},
+            "reply_classification": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 200, "max_input_chars": 2500},
+            "sender_type": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 120, "max_input_chars": 2500},
             "rfq_extraction": {"model": "qwen2.5-7b-instruct", "timeout_s": 120, "priority": "P1", "max_tokens": 900,
                                "always_review": True},     # until >= 95% per field
-            "lead_bucketing": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 30, "priority": "P3", "max_tokens": 600, "batch": 20},
+            "lead_bucketing": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 30, "priority": "P3", "max_tokens": 600, "max_input_chars": 2500, "batch": 20},
             "vendor_bid_parse": {"model": "qwen2.5-7b-instruct", "timeout_s": 120, "priority": "P2", "max_tokens": 600,
                                  "always_review": True},
         },

@@ -14,7 +14,7 @@ from . import pipeline
 
 logger = logging.getLogger(__name__)
 
-DEFAULTS = {"mode": "shadow", "batch": 50, "max_model_calls_per_run": 10, "lookback_days": 14}
+DEFAULTS = {"mode": "shadow", "batch": 50, "max_model_calls_per_run": 10, "lookback_days": 14, "max_seconds": 240}
 _CTX = {"ctx": None, "at": 0.0}
 
 
@@ -113,10 +113,11 @@ def run_batch(now: Optional[datetime] = None) -> Dict[str, Any]:
     model = _CappedModel(int(cfg["max_model_calls_per_run"]))
     since = now - timedelta(days=int(cfg["lookback_days"]))
     stats = {"seen": 0, "decided": 0, "applied": 0, "mode": cfg["mode"]}
+    t_start = time.time()      # stay well inside the 5-minute interval
     for msg in md.find({"direction": "inbound", "timestamp": {"$gte": since}},
                        {"subject": 1, "body_plain": 1, "snippet": 1, "from_email": 1, "to_emails": 1, "cc_emails": 1,
                         "gmail_thread_id": 1, "gmail_message_id": 1, "timestamp": 1}).sort("timestamp", -1).limit(int(cfg["batch"]) * 4):
-        if stats["decided"] >= int(cfg["batch"]):
+        if stats["decided"] >= int(cfg["batch"]) or time.time() - t_start > float(cfg["max_seconds"]):
             break
         stats["seen"] += 1
         if decisions.count_documents({"message_id": str(msg["_id"])}, limit=1):
