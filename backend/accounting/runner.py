@@ -15,6 +15,7 @@ in finance_automation keep running until the owner switches this live.
 import hashlib
 import logging
 import os
+import re
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,26 @@ def _mode() -> str:
     return (config_store.get("accounting") or {}).get("mode", "shadow")
 
 
+_BILLING = re.compile(r"^(accounts?|finance|billing|ap|payables?|invoices?)[._-]?", re.I)
+
+
+def billing_contacts(crm, account_ids) -> Dict[str, str]:
+    """Finance customers often have no email: use the account's contacts,
+    a billing/accounts address first, else the most recently updated one."""
+    from bson import ObjectId
+    ids = [a for a in {str(x) for x in account_ids if x}]
+    oids = [ObjectId(a) for a in ids if ObjectId.is_valid(a)]
+    best: Dict[str, tuple] = {}
+    for ct in crm["contacts"].find({"account_id": {"$in": ids + oids}, "email": {"$type": "string"}},
+                                   {"account_id": 1, "email": 1, "updated_at": 1}):
+        e = ct["email"].lower()
+        rank = (1 if _BILLING.match(e) else 0, ct.get("updated_at") or datetime.min)
+        a = str(ct["account_id"])
+        if a not in best or rank > best[a][0]:
+            best[a] = (rank, e)
+    return {a: v[1] for a, v in best.items()}
+
+
 def receivables(now: Optional[datetime] = None) -> Dict[str, Any]:
     from platform_core import config_store, review_queue
     gd = _gd()
@@ -41,6 +62,7 @@ def receivables(now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.utcnow()
     fin, ea = gd("finance_db"), gd("email_automation")
     cust = {str(c["_id"]): c for c in fin["customers"].find({}, {"email": 1, "crm_account_id": 1, "name": 1})}
+    billing = billing_contacts(gd("crm_db"), [c.get("crm_account_id") for c in cust.values() if not c.get("email")])
     invs = []
     for i in fin["invoices"].find({"status": {"$nin": ["draft", "void", "paid", "written_off"]}, "balance_due": {"$gt": 0},
                                    "is_deleted": {"$ne": True}},
@@ -48,7 +70,7 @@ def receivables(now: Optional[datetime] = None) -> Dict[str, Any]:
         c = cust.get(str(i.get("customer_id"))) or {}
         if isinstance(i.get("due_date"), datetime):
             invs.append({"number": i["invoice_number"], "status": i["status"], "balance_due": i["balance_due"],
-                         "due_date": i["due_date"].date(), "contact_email": (c.get("email") or "").lower() or None,
+                         "due_date": i["due_date"].date(), "contact_email": (c.get("email") or "").lower() or billing.get(str(c.get("crm_account_id"))),
                          "account_id": c.get("crm_account_id")})
     last = {d["to"]: d["at"].date() for d in ea["finance_decisions"].find({"kind": "overdue_mail", "mode": "live"}).sort("at", 1)}
     plan = invoicing.receivable_mails(invs, (now).date(), last_overdue_mail=last, cfg=cfg)

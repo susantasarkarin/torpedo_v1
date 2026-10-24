@@ -55,3 +55,11 @@ def test_bank_import_once_per_file_with_suggestions(monkeypatch, tmp_path):
     t = d["finance_db"]["bank_transactions"].find_one({})
     assert t["bu"] == "SFW" and t["auto_match"]["invoices"] == ["SF-1"] and t["status"] == "suggested"
     assert d["finance_db"]["invoices"].find_one({})["balance_due"] == 5000      # never touched in shadow
+
+
+def test_billing_contact_fallback_prefers_accounts_address():
+    crm = FakeDB()
+    crm["contacts"].insert_one({"account_id": "acc1", "email": "Raj@client.com", "updated_at": NOW})
+    crm["contacts"].insert_one({"account_id": "acc1", "email": "accounts@client.com", "updated_at": NOW - timedelta(days=99)})
+    crm["contacts"].insert_one({"account_id": "acc2", "email": "a@b.com"})
+    assert arun.billing_contacts(crm, ["acc1", "acc2", None]) == {"acc1": "accounts@client.com", "acc2": "a@b.com"}
