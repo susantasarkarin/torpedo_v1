@@ -122,6 +122,10 @@ payments_made_collection = finance_db["payments_made"]
 # Records are kept, never deleted, and remain visible under the default
 # ?origin=all for finance and CRM lookups. `$nin` also matches documents with
 # no `source` field at all, so genuine clients are always included.
+# Sources of records that are real billing customers (None = no source:
+# entered by hand or imported from the books).
+BILLING_SOURCES = [None, "rfq_won", "manual", "zoho_import"]
+
 NON_CLIENT_SOURCES = [
     "mail_pool_ai",
     "rfq_auto_import",
@@ -480,9 +484,15 @@ async def get_customers(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by name, email, phone, or GSTIN"),
-    origin: str = Query("all", description="'all' (default) or 'clients' for real clients only"),
+    origin: str = Query("all", description="'all' (default), 'clients' (no auto-imports) or 'billing'"),
 ):
     """Get customers with linked contacts (paginated).
+
+    `origin=billing` is what the Finance > Customers list shows: the companies
+    we bill — entered or imported by hand (no source), created by a won RFQ,
+    or invoiced at least once. It leaves out the client contacts mail triage
+    recorded one person at a time ("Name (Company)", source client_confirmed)
+    and every auto-import.
 
     `origin=clients` excludes auto-imported records (see NON_CLIENT_SOURCES) so
     lead names don't drown the Operations > Clients list. Exclusion is driven by
@@ -498,6 +508,15 @@ async def get_customers(
             query = {"is_deleted": {"$ne": True}}
             if origin == "clients":
                 query["source"] = {"$nin": NON_CLIENT_SOURCES}
+            elif origin == "billing":
+                invoiced = []
+                for cid in invoices_collection.distinct("customer_id"):
+                    try:
+                        invoiced.append(ObjectId(cid))
+                    except Exception:
+                        pass
+                query["$and"] = [{"$or": [{"source": {"$in": BILLING_SOURCES}},
+                                          {"_id": {"$in": invoiced}}]}]
             if search:
                 query["$or"] = [
                     {"name": {"$regex": search, "$options": "i"}},

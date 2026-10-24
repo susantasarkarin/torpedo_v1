@@ -42,6 +42,9 @@ function CustomersPage() {
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  // Billing customers only by default; the rest are client contacts and
+  // senders the mail/RFQ importers recorded one person at a time.
+  const [showAllRecords, setShowAllRecords] = useState(false)
   const [showModal, setShowModal] = useState(false)
   // statement of unpaid invoices for one customer (the document button)
   const [statement, setStatement] = useState(null)
@@ -186,6 +189,11 @@ function CustomersPage() {
     }
   }
 
+  useEffect(() => {
+    setCurrentPage(1)
+    fetchCustomers(1, recordsPerPage, searchTerm)
+  }, [showAllRecords]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-refresh when window regains focus or tab becomes visible
   useEffect(() => {
     const handleFocus = () => {
@@ -221,6 +229,7 @@ function CustomersPage() {
       setLoading(true)
       const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
       if (srch) params.set("search", srch)
+      params.set("origin", showAllRecords ? "all" : "billing")
       const response = await authFetch(buildApiUrl(`/finance/customers/?${params}`), {
         headers: {
           "Content-Type": "application/json",
@@ -581,6 +590,10 @@ function CustomersPage() {
             style={styles.searchInput}
           />
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.875rem", color: "#4a4a4a", whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={showAllRecords} onChange={(e) => setShowAllRecords(e.target.checked)} />
+          Include auto-imported contacts
+        </label>
         <select
           style={styles.recordsPerPageSelect}
           value={recordsPerPage}
