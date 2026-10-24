@@ -8,7 +8,7 @@ NOW = datetime(2026, 10, 24, 9, 0)      # 14:30 IST
 
 
 def _dbs():
-    d = {n: FakeDB() for n in ("finance_db", "crm_db", "email_automation", "torpedo", "torpedo_gmail", "ai_governance")}
+    d = {n: FakeDB() for n in ("finance_db", "crm_db", "email_automation", "torpedo", "torpedo_gmail", "ai_governance", "torpedo_settings")}
     return d, (lambda name: d[name])
 
 

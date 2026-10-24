@@ -228,6 +228,10 @@ def qwen_failed(gd, since, until, bu):
     return gd("ai_governance")["qwen_jobs"].count_documents({"status": "failed"})
 
 
+def jobs_failing(gd, since, until, bu):
+    return gd("torpedo_settings")["job_runs"].count_documents({"status": {"$in": ["error", "missed"]}})
+
+
 def mail_sync_lag_min(gd, since, until, bu):
     m = gd("torpedo_gmail")["email_metadata"].find_one({}, {"timestamp": 1}, sort=[("timestamp", -1)])
     return round((datetime.utcnow() - m["timestamp"]).total_seconds() / 60) if m and m.get("timestamp") else None
@@ -334,6 +338,9 @@ def needs_attention(gd, now: Optional[datetime] = None, cfg: Optional[Dict[str, 
                                                              {"email": 1, "outreach_paused": 1}):
         add("deliverability", f"Mailbox auto-paused: {(m.get('outreach_paused') or {}).get('reason', '')}", None,
             (m.get("outreach_paused") or {}).get("at"), None, "/admin/deliverability", True)
+    for j in gd("torpedo_settings")["job_runs"].find({"status": {"$in": ["error", "missed"]}}):
+        add("system", f"Scheduled job {j['_id']}: {j['status']} {j.get('last_error') or ''}".strip(), None,
+            j.get("last_run_at") or j.get("last_missed_at"), None, "/admin/dashboards/system", True)
     nfail = gd("ai_governance")["qwen_jobs"].count_documents({"status": "failed"})
     if nfail:
         add("system", f"{nfail} Qwen jobs failed", None, now, None, "/admin/review-queue?tab=failed", nfail > 10)

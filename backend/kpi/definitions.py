@@ -65,6 +65,8 @@ _K = [
     # 12 System health
     ("review_queue_open", "system", "Review Queue open", "Pending items", ["email_automation.review_queue_items"], False, "count", "review_queue_open"),
     ("qwen_failed", "system", "Qwen failed jobs", "Failed and not retried", ["ai_governance.qwen_jobs"], False, "count", "qwen_failed"),
+    ("jobs_failing", "system", "Scheduled jobs failing / missed", "Jobs whose last run errored or was missed",
+     ["torpedo_settings.job_runs"], False, "count", "jobs_failing"),
     ("mail_sync_lag_min", "system", "Mail sync lag", "Minutes since the last ingested mail", ["torpedo_gmail.email_metadata"], False, "min", "mail_sync_lag_min"),
 ]
 

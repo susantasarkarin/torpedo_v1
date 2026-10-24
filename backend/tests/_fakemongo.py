@@ -92,7 +92,10 @@ class FakeCollection:
                 return
         if upsert:
             base = {k: v for k, v in q.items() if not isinstance(v, dict)}
+            base.update(upd.get("$setOnInsert") or {})
             base.update(upd.get("$set") or {})
+            for k, v in (upd.get("$inc") or {}).items():
+                base[k] = base.get(k, 0) + v
             self.insert_one(base)
 
     def aggregate(self, pipeline):

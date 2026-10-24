@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from accounting import ledger
 
 DEFAULTS: Dict[str, Any] = {
+    "mode": "shadow",                      # live (owner): reminder drafts + credit hold
     "gst_rate": 0.18,                      # CA to confirm (SAC 998371 market research)
     "lut_for_exports": True,               # export of services under LUT: zero-rated
     "invoice_variance_review_pct": 0.05,   # invoice vs quotation > 5% -> Review Queue

@@ -1531,6 +1531,11 @@ except Exception as e:
 # APScheduler for CPX refresh job
 # ----------------------------
 scheduler = BackgroundScheduler()
+try:
+    from platform_core.job_runs import attach as _attach_job_runs
+    _attach_job_runs(scheduler)
+except Exception as _e:
+    print(f"⚠️ job run log not attached: {_e}")
 cpx_refresh_job: Optional[Any] = None
 
 def refresh_cpx_inventory():
@@ -2406,6 +2411,29 @@ async def startup_event():
                               id="kpi_snapshot", name="KPI snapshot (yesterday, per BU)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ KPI snapshot scheduled (19:00 UTC / 00:30 IST)")
+
+            def _receivables_job():
+                try:
+                    from accounting.runner import receivables
+                    receivables()
+                except Exception as e:
+                    print(f"[Receivables] Error: {e}")
+
+            scheduler.add_job(_receivables_job, CronTrigger(hour=4, minute=0),  # 09:30 IST
+                              id="receivables_consolidated", name="Receivables: upcoming (Mon) / overdue (14 d) per contact, credit hold (shadow)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _bank_import_job():
+                try:
+                    from accounting.runner import bank_import
+                    bank_import()
+                except Exception as e:
+                    print(f"[BankImport] Error: {e}")
+
+            scheduler.add_job(_bank_import_job, CronTrigger(hour=4, minute=30),  # 10:00 IST
+                              id="bank_import", name="Bank statements: import + receipt match suggestions",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Receivables + bank import scheduled (09:30 / 10:00 IST)")
 
             def _reengagement_job():
                 try:
