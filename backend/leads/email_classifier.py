@@ -57,7 +57,7 @@ email_metadata = campaign_platform_db['email_metadata']
 
 
 # Internal company domains
-INTERNAL_DOMAINS = ["surveyfieldwork.com", "cogentixresearch.com"]
+INTERNAL_DOMAINS = ["surveyfieldwork.com", "cogentixresearch.com", "bimwavesolutions.com"]  # BIM added 2026-10-24 (CRM audit)
 
 # Valid categories
 CATEGORIES = [

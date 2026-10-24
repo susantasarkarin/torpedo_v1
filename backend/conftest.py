@@ -27,3 +27,23 @@ if BACKEND not in sys.path:
 os.environ.setdefault("SESSION_SECRET", "pytest-only-not-a-real-secret")
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:5173")
+
+
+# CRM audit 2026-10-24: messaging.facade.gate() now reads two pieces of live
+# state from MongoDB (the outreach kill switch and the 24 h per-contact
+# throttle). Unit tests have no database, so each read would wait for the
+# driver's server-selection timeout. Stub both by default; the tests that
+# pin those rules patch them back in explicitly.
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_live_send_state(monkeypatch, request):
+    if request.node.get_closest_marker("live_send_state"):
+        return
+    try:
+        from messaging import facade
+    except Exception:
+        return
+    monkeypatch.setattr(facade, "_throttle_block", lambda addr, channel: None, raising=False)
+    monkeypatch.setattr(facade, "outreach_paused", lambda: False, raising=False)

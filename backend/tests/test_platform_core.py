@@ -122,6 +122,7 @@ def test_p3_task_deferred_in_daytime(dbs):
 
 
 # ----------------------------------------------------------------- throttle
+@pytest.mark.live_send_state
 def test_throttle_one_automated_mail_per_contact_per_day(monkeypatch):
     from messaging import facade
     sent = FakeDB()["email_send_log"]

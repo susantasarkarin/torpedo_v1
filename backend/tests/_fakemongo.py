@@ -16,6 +16,10 @@ def _get(doc, dotted):
 
 def _match(doc, q):
     for k, cond in (q or {}).items():
+        if k == "$or":
+            if not any(_match(doc, sub) for sub in cond):
+                return False
+            continue
         v = _get(doc, k)
         if isinstance(cond, dict) and any(c.startswith("$") for c in cond):
             for op, arg in cond.items():

@@ -2283,6 +2283,18 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Daily deliverability check scheduled (03:15 UTC)")
 
+            def _mail_pipeline_job():
+                try:
+                    from mail_pipeline.runner import run_batch
+                    run_batch()
+                except Exception as e:
+                    print(f"[MailPipeline] Error: {e}")
+
+            scheduler.add_job(_mail_pipeline_job, IntervalTrigger(minutes=5),
+                              id="mail_pipeline", name="Inbound mail: link, sender type, category, actions (shadow by default)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Mail pipeline scheduled (every 5 min, mode from config mail_pipeline.mode)")
+
             def _reengagement_job():
                 try:
                     from app.services.reengagement import run

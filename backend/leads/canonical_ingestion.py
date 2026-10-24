@@ -1269,7 +1269,7 @@ SKIP_EMAIL_PATTERNS = [
     'unsubscribe', 'feedback', 'support@', 'info@', 'hello@', 'contact@'
 ]
 
-INTERNAL_DOMAINS = ['surveyfieldwork.com', 'cogentixresearch.com']
+INTERNAL_DOMAINS = ['surveyfieldwork.com', 'cogentixresearch.com', 'bimwavesolutions.com']  # BIM added 2026-10-24 (CRM audit)
 
 # Personal email providers — don't derive company name from these
 PERSONAL_EMAIL_PROVIDERS = {
