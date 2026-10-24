@@ -49,16 +49,16 @@ function ReplyCell({ lead }) {
     ? `${t.reason || ""}\n\n"${(t.reply_text || "").slice(0, 400)}"`
     : m ? `${m.last_subject || ""}\n\n${mailSummary}${m.triage?.reason ? `\n\nTriage: ${m.triage.reason}` : ""}` : ""
   return (
-    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, maxWidth: 260 }} title={title}>
+    <div style={{ fontSize: "0.875rem", lineHeight: 1.35, maxWidth: 420, whiteSpace: "normal" }} title={title}>
       {t?.reply_text && (
-        <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          “{t.reply_text.replace(/\s+/g, " ").slice(0, 70)}”
+        <div style={{ color: "#4a4a4a" }}>
+          “{t.reply_text.replace(/\s+/g, " ").slice(0, 160)}”
         </div>
       )}
       {!t && m && (
         <>
-          <div style={{ color: "#4a4a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {mailSummary.replace(/\s+/g, " ").slice(0, 70) || m.last_subject}
+          <div style={{ color: "#4a4a4a" }}>
+            {mailSummary.replace(/\s+/g, " ").slice(0, 160) || m.last_subject}
           </div>
           <div style={{ color: "#5c5c5c" }}>
             Mail: {m.messages_in} in / {m.messages_out} out
@@ -346,17 +346,11 @@ function Leads() {
           <table className="data-table classified-table compact-view">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Title</th>
+                <th>Lead</th>
                 <th>Company</th>
-                <th>Seniority</th>
-                <th>Industry</th>
-                <th>Source</th>
-                <th>Email Status</th>
                 <th>ICP Segment</th>
                 <th>Fit Tier</th>
-                <th>Reply / Nurture</th>
+                <th style={{ minWidth: 320 }}>Reply / Nurture</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -367,35 +361,39 @@ function Leads() {
                   className="clickable-row"
                   onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
                 >
-                  <td className="name-cell">
-                    <span className="name-link">{lead.name || "—"}</span>
+                  {/* Lead: name, then title/seniority and email. Each line only
+                      renders when the field is filled — most Gmail-sourced
+                      leads have no title or seniority yet. */}
+                  <td className="name-cell" style={{ maxWidth: 280, whiteSpace: "normal" }}>
+                    <div className="name-link">{lead.name || lead.email || "—"}</div>
+                    {(() => {
+                      const seniority = lead.seniority_level && lead.seniority_level !== "Unknown" ? lead.seniority_level : null
+                      const role = [lead.title, seniority].filter(Boolean).join(" · ")
+                      return role ? <div style={{ fontSize: "0.8rem", color: "#4a4a4a" }}>{role}</div> : null
+                    })()}
+                    {lead.name && lead.email && (
+                      <div style={{ fontSize: "0.8rem", color: "#6f6f6f", overflow: "hidden", textOverflow: "ellipsis" }} title={lead.email}>
+                        {lead.email}
+                      </div>
+                    )}
+                    {(lead.email_status || "").toLowerCase() === "bounced" && (
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#b91c1c" }}>Email bounced</span>
+                    )}
                   </td>
-                  <td className="email-cell">{lead.email || "—"}</td>
-                  <td>{lead.title || "—"}</td>
-                  <td>{lead.company_name || "—"}</td>
-                  <td><span className="badge badge-blue">{lead.seniority_level || "Unknown"}</span></td>
-                  <td>{lead.company_industry || "—"}</td>
-                  <td>
-                    <span className={`source-badge ${(lead.source || "").replace(/_/g, "-")}`}>
-                      {lead.source === "gmail" ? "✉️ Gmail" :
-                       lead.source === "gmail_contact" ? "📧 Contact" :
-                       lead.source === "gmail_calendar" ? "📅 Calendar" :
-                       lead.source === "outreach_reply" ? "💬 Reply" :
-                       lead.source || "Unknown"}
-                    </span>
+                  <td style={{ maxWidth: 220, whiteSpace: "normal" }}>
+                    <div>{lead.company_name || "—"}</div>
+                    {lead.company_industry && (
+                      <div style={{ fontSize: "0.8rem", color: "#6f6f6f" }}>{lead.company_industry}</div>
+                    )}
                   </td>
-                  <td>
-                    <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(/ /g, "-")}`}>
-                      {lead.email_status || "Unknown"}
-                    </span>
-                  </td>
-                  {/* ICP Segment */}
-                  <td>
+                  {/* ICP Segment — the shared table CSS caps cells at 150px,
+                      which cut the segment name off mid-word. */}
+                  <td style={{ maxWidth: "none" }}>
                     {lead.classification_basket ? (() => {
                       const c = BASKET_COLORS[lead.classification_basket] || BASKET_COLORS.E
                       const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || lead.classification_basket
                       return (
-                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                        <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: "0.875rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`, whiteSpace: "nowrap" }}>
                           {lead.classification_basket} — {bname}
                         </span>
                       )
@@ -412,9 +410,9 @@ function Leads() {
                       )
                     })() : <span style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>—</span>}
                   </td>
-                  <td><ReplyCell lead={lead} /></td>
+                  <td style={{ maxWidth: "none", whiteSpace: "normal" }}><ReplyCell lead={lead} /></td>
                   {/* Lead Status */}
-                  <td onClick={e => e.stopPropagation()}>
+                  <td style={{ maxWidth: "none" }} onClick={e => e.stopPropagation()}>
                     <LeadStatusBadge
                       lead={lead}
                       sessionId={sessionId}

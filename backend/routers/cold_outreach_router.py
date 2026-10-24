@@ -3910,7 +3910,7 @@ def process_outreach_bounces_and_replies() -> dict:
                                 # into the Leads table. Promotion is the point
                                 # of no return, so it gets its own check.
                                 from leads.system_addresses import is_promotable_lead_address
-                                if reply_email and not is_promotable_lead_address(reply_email, allow_role=True):
+                                if reply_email and not is_promotable_lead_address(reply_email):
                                     logger.info(
                                         f"[reply-promote] skipped non-human sender {reply_email}"
                                     )

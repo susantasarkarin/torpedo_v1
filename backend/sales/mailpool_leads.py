@@ -219,6 +219,9 @@ def _own_addresses() -> Set[str]:
 def _is_person_address(addr: str) -> bool:
     if not addr or "@" not in addr or addr.lower() in _own_addresses():
         return False
+    from leads.system_addresses import is_promotable_lead_address
+    if not is_promotable_lead_address(addr):
+        return False
     bounce_from, _, _ = mc._production_patterns()
     return not (bounce_from.search(addr) or mc._AUTOMATED_FROM.search(addr))
 

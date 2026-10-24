@@ -16,12 +16,18 @@ and someone may have worked them. Pass --include-role to remove them too.
     python -m scripts.purge_system_address_leads --dry-run
     python -m scripts.purge_system_address_leads
     python -m scripts.purge_system_address_leads --include-role
+    python -m scripts.purge_system_address_leads --include-role --leads-only
+
+Removed documents are first copied, whole, into `<db>._archived_purged_leads`
+(stamped with `_purged_at` / `_purge_reason` / `_source_collection`), so a
+purge can be reversed by copying them back.
 """
 
 import argparse
 import os
 import sys
 from collections import Counter
+from datetime import datetime
 
 from pymongo import MongoClient
 
@@ -48,18 +54,26 @@ TARGETS = [
     ("campaign_platform", "leads"),
 ]
 
+# crm_db and campaign_platform hold CRM/finance contacts — vendor accounts@
+# mailboxes and our own addresses — not prospecting leads.
+LEAD_ONLY_TARGETS = TARGETS[:4]
+
+ARCHIVE_COLLECTION = "_archived_purged_leads"
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--include-role", action="store_true",
                     help="also remove shared mailboxes (info@, sales@, billing@)")
+    ap.add_argument("--leads-only", action="store_true",
+                    help="skip the CRM/finance contact collections")
     args = ap.parse_args()
 
     client = MongoClient(MONGO_URI)
     grand_total = 0
 
-    for db_name, coll_name in TARGETS:
+    for db_name, coll_name in (LEAD_ONLY_TARGETS if args.leads_only else TARGETS):
         coll = client[db_name][coll_name]
         try:
             total_docs = coll.estimated_document_count()
@@ -70,6 +84,7 @@ def main() -> int:
             continue
 
         doomed_ids = []
+        doomed_reason = {}
         reasons = Counter()
         samples = []
         malformed = 0
@@ -93,6 +108,7 @@ def main() -> int:
                 continue
             reasons[reason] += 1
             doomed_ids.append(doc["_id"])
+            doomed_reason[doc["_id"]] = reason
             if len(samples) < 8:
                 samples.append(f"{doc.get('name') or '(no name)'} <{email}> "
                                f"[{doc.get('company_name') or '-'}]")
@@ -112,9 +128,20 @@ def main() -> int:
 
         if not args.dry_run:
             # Chunked so a very large delete cannot build one oversized command.
+            archive = client[db_name][ARCHIVE_COLLECTION]
+            now = datetime.utcnow()
             removed = 0
             for i in range(0, len(doomed_ids), 1000):
-                removed += coll.delete_many({"_id": {"$in": doomed_ids[i:i + 1000]}}).deleted_count
+                chunk = doomed_ids[i:i + 1000]
+                copies = []
+                for full in coll.find({"_id": {"$in": chunk}}):
+                    full["_original_id"] = full.pop("_id")
+                    full.update(_purged_at=now, _source_collection=coll_name,
+                                _purge_reason=doomed_reason[full["_original_id"]])
+                    copies.append(full)
+                if copies:
+                    archive.insert_many(copies)
+                removed += coll.delete_many({"_id": {"$in": chunk}}).deleted_count
             print(f"   removed {removed:,}")
             grand_total += removed
         else:

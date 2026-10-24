@@ -126,6 +126,14 @@ def test_system_addresses_never_become_leads(monkeypatch):
     assert ml._is_person_address("keya.kundu@hansaresearch.com")
 
 
+def test_role_mailboxes_never_become_leads(monkeypatch):
+    monkeypatch.setattr(mc, "_production_patterns",
+                        lambda: (mc.re.compile("mailer-daemon"), mc.re.compile("x"), None))
+    for addr in ("info@dscafrica.com", "contactus@acme.in", "contact-us@acme.in", "sales@acme.com"):
+        assert not ml._is_person_address(addr)
+    assert ml._is_person_address("min@daxueconsulting.com")
+
+
 # ---- lead records ----------------------------------------------------------------
 
 class _Col:

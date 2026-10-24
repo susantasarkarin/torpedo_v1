@@ -1010,6 +1010,31 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
         logger.debug(f"Auto-enrollment skipped for {email}: {e}")
 
 
+def _reject_non_person_email(normalized: Dict[str, Any]) -> Optional[str]:
+    """Keep shared and automated mailboxes out of every lead source.
+
+    info@, contactus@, sales@ and noreply@ arrive from Gmail extraction and
+    from web/Google search alike, and each one became a nameless "lead" that
+    was ICP-classified and mailed. When the record also carries a LinkedIn
+    profile the person is real and only the address is junk, so the address
+    is dropped and the person kept. Otherwise there is nobody behind it and
+    the record is skipped. Returns the skip reason, or None to continue.
+    """
+    email = normalized.get('email')
+    if not email:
+        return None
+    from .system_addresses import rejection_reason
+
+    reason = rejection_reason(email)
+    if reason not in ('role_address', 'system_address'):
+        return None
+    if normalized.get('linkedin_url'):
+        logger.info(f"Dropping {reason} {email!r}, keeping LinkedIn person")
+        normalized['email'] = None
+        return None
+    return reason
+
+
 def ingest_lead(
     payload: Dict[str, Any],
     source: str,
@@ -1073,6 +1098,14 @@ def ingest_lead(
             result['error'] = 'unknown_company'
             logger.info("Lead skipped: unknown company value")
             return result
+
+        non_person = _reject_non_person_email(normalized)
+        if non_person:
+            result['success'] = True
+            result['action'] = 'skipped'
+            result['error'] = non_person
+            return result
+        result['email'] = normalized['email']
 
         # Step 2a: For CSV leads — store the email pattern from known emails
         if source == 'csv' and normalized.get('email'):
@@ -1523,6 +1556,9 @@ def ingest_leads_bulk(
                       else source_detail)
             normalized = normalize_payload(payload, source, detail,
                                            icp_segment=icp_segment)
+            if _reject_non_person_email(normalized):
+                out['skipped'] += 1
+                continue
             if source == 'websearch' and normalized.get('email'):
                 _strip_guessed_email_if_unverified(normalized)
             pairs.append((normalized, payload, detail))
