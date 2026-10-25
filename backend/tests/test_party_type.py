@@ -18,7 +18,7 @@ def test_rules_order():
     assert party_type.rules(rec(company_domain="apollo.io"), CTX)["label"] == "vendor"
     assert party_type.rules(rec(company_name="Dynata India", company_domain="dynata.com"), CTX)["label"] == "vendor"
     assert party_type.rules(rec(email="marketing@acme.com"), CTX)["label"] == "role_mailbox"
-    assert party_type.rules(rec(outreach_bucket="REJECT"), CTX)["label"] == "not_relevant"
+    assert party_type.rules(rec(outreach_bucket="REJECT"), CTX) is None       # REJECT alone is not trusted
     assert party_type.rules(rec(outreach_bucket="COGENTIX_RESEARCH"), CTX)["label"] == "potential_client"
     assert party_type.rules(rec(), CTX) is None
 

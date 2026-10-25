@@ -67,8 +67,8 @@ def rules(rec: Dict[str, Any], ctx: Dict[str, Set[str]]) -> Optional[Dict[str, s
     if any(v in company for v in PANEL_VENDORS) or any(v.replace(" ", "") in dom for v in PANEL_VENDORS):
         return {"label": "vendor", "how": "known panel / sample company"}
     basket = (rec.get("outreach_bucket") or "").upper()
-    if basket == "REJECT":
-        return {"label": "not_relevant", "how": "company ICP verdict REJECT"}
+    # REJECT is not trusted on its own: it carries no reason and also covers
+    # competitors excluded from outreach, which can still buy sample from SFW
     if basket in ("SFW", "COGENTIX_RESEARCH", "BIM"):
         return {"label": "potential_client", "how": f"company ICP verdict {basket}"}
     return None

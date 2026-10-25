@@ -30,10 +30,19 @@ def backup_age_hours(d="/var/www/campaign_platform/backups") -> float:
     return (time.time() - os.path.getmtime(dumps[-1])) / 3600 if dumps else float("inf")
 
 
+# For prospects, only companies whose product is sold to us count as vendors by
+# domain: someone working at Google, Microsoft or a bank is a potential research
+# buyer, even though mail FROM those domains is service mail (move_vendor_leads).
+VENDOR_TOOL_DOMAINS = {
+    "apollo.io", "zoominfo.com", "lusha.com", "snov.io", "hunter.io", "skrapp.io", "seamless.ai", "rocketreach.co",
+    "clearbit.com", "uplead.com", "cognism.com", "mailchimp.com", "sendinblue.com", "brevo.com", "sendgrid.net",
+    "mailgun.com", "lemlist.com", "instantly.ai", "smartlead.ai", "woodpecker.co", "reply.io",
+}
+
+
 def build_ctx(gd):
-    from scripts.move_vendor_leads import SERVICE_DOMAINS
     ea, fin = gd("email_automation"), gd("finance_db")
-    ctx = {"client_domains": set(), "vendor_domains": set(), "service_domains": set(SERVICE_DOMAINS),
+    ctx = {"client_domains": set(), "vendor_domains": set(), "service_domains": set(VENDOR_TOOL_DOMAINS),
            "client_emails": set(), "vendor_emails": set()}
     for r in ea["party_relationships"].find({}, {"key": 1, "relationship": 1}):
         k = (r.get("key") or "").strip().lower()
