@@ -158,7 +158,7 @@ gets a certificate and starts working. Do step 2 after that URL opens in a brows
 <h2>2. Replace these files</h2>
 <p>Hostinger hPanel → Websites → {domain} → File Manager → <code>public_html</code>{"" if domain != "business.surveyfieldwork.com" else " (the folder of the business subdomain)"}.</p>
 <ol><li><b>Back up first:</b> select <code>public_html</code> → Compress → download the zip. That zip is your rollback.</li>
-<li>Upload <code>{domain}-changed-files.zip</code> into <code>public_html</code> → Extract → overwrite when asked.</li>
+<li>Upload <code>{domain}-UPLOAD-changed-pages.zip</code> into <code>public_html</code> → Extract → overwrite when asked.</li>
 <li>Delete the uploaded zip from <code>public_html</code>.</li></ol>
 <p>Files replaced ({len(changed)}):</p><ul>{rows}</ul>
 <p>No other file changes. Images, CSS and the site's own JavaScript stay as they are.</p>
@@ -201,7 +201,7 @@ def run(src: str, out: str, domain: str, bu: str, origin: str = None):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(p, dst)
     write_guide(changed_dir, domain, bu, report)
-    zpath = os.path.join(out, f"{domain}-changed-files.zip")
+    zpath = os.path.join(out, f"{domain}-UPLOAD-changed-pages.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for root, _, files in os.walk(changed_dir):
             for fn in files:
