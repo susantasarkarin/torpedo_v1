@@ -2406,6 +2406,19 @@ async def startup_event():
                               id="web_site_check", name="Company sites: tracker receiving data from each",
                               max_instances=1, coalesce=True, replace_existing=True)
 
+            def _marketing_attribution_job():
+                try:
+                    from database import get_database, get_db_manager
+                    from marketing import schema, touchpoints
+                    schema.ensure_indexes(get_db_manager().client, apply=True)
+                    print(f"[MarketingAttribution] {touchpoints.run(get_database, apply=True)}")
+                except Exception as e:
+                    print(f"[MarketingAttribution] Error: {e}")
+
+            scheduler.add_job(_marketing_attribution_job, CronTrigger(hour=23, minute=30),  # 05:00 IST
+                              id="marketing_attribution", name="Marketing: touchpoints + attribution (4 models)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             def _kpi_snapshot_job():
                 try:
                     from database import get_database
