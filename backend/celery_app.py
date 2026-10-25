@@ -128,11 +128,9 @@ celery_app.conf.update(
             'schedule': 3600.0,  # Every hour
             'options': {'queue': 'email_sync'}
         },
-        'linkedin-daily-automation': {
-            'task': 'backend.tasks.linkedin_tasks.run_daily_linkedin_automation',
-            'schedule': 86400.0,  # Every 24 hours (daily)
-            'options': {'queue': 'linkedin_automation'}
-        },
+        # 'linkedin-daily-automation' removed 2026-10-25 (MARKETING_PLAN: official APIs only, no
+        # personal-profile automation). It drove personal accounts with Selenium and had never run
+        # (0 accounts stored). Company pages move to the LinkedIn Community Management API (3.5.1).
         'linkedin-cleanup-jobs': {
             'task': 'backend.tasks.linkedin_tasks.cleanup_old_jobs',
             'schedule': 604800.0,  # Every 7 days

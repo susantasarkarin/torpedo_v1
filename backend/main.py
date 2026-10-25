@@ -1472,6 +1472,8 @@ except Exception as e:
 # --- Marketing: websites, blog posts, media library ---
 from routers import marketing_site as marketing_site_router
 app.include_router(marketing_site_router.router)
+from routers import marketing_integrations as marketing_integrations_router
+app.include_router(marketing_integrations_router.router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---

@@ -7,7 +7,7 @@ import {
   FileText, 
   BookOpen, 
   Image as ImageIcon,
-  Linkedin,
+  Plug,
   ArrowRight
 } from "lucide-react"
 
@@ -42,10 +42,10 @@ function Marketing() {
       color: "#b45309"
     },
     {
-      title: "LinkedIn Automation",
-      description: "Manage LinkedIn accounts, schedules, and automation jobs",
-      icon: Linkedin,
-      link: "/admin/marketing/linkedin",
+      title: "Integrations",
+      description: "Connect Google, LinkedIn, Meta, WhatsApp and Quora (tokens stored encrypted)",
+      icon: Plug,
+      link: "/admin/marketing/integrations",
       color: "#0a66c2"
     },
   ]

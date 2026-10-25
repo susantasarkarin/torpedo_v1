@@ -80,11 +80,36 @@ class FakeCollection:
     def count_documents(self, q, **kw):
         return sum(1 for d in self.docs if _match(d, q))
 
+    def delete_one(self, q):
+        for i, d in enumerate(self.docs):
+            if _match(d, q):
+                del self.docs[i]
+                return
+
+    @staticmethod
+    def _set_path(d, dotted, v):
+        parts = dotted.split(".")
+        for p in parts[:-1]:
+            d = d.setdefault(p, {})
+        d[parts[-1]] = v
+
+    @staticmethod
+    def _unset_path(d, dotted):
+        parts = dotted.split(".")
+        for p in parts[:-1]:
+            d = d.get(p) if isinstance(d, dict) else None
+            if d is None:
+                return
+        if isinstance(d, dict):
+            d.pop(parts[-1], None)
+
     def update_one(self, q, upd, upsert=False):
         for d in self.docs:
             if _match(d, q):
                 for k, v in (upd.get("$set") or {}).items():
-                    d[k] = v
+                    self._set_path(d, k, v)
+                for k in (upd.get("$unset") or {}):
+                    self._unset_path(d, k)
                 for k, v in (upd.get("$inc") or {}).items():
                     d[k] = d.get(k, 0) + v
                 for k, v in (upd.get("$push") or {}).items():
@@ -93,7 +118,8 @@ class FakeCollection:
         if upsert:
             base = {k: v for k, v in q.items() if not isinstance(v, dict)}
             base.update(upd.get("$setOnInsert") or {})
-            base.update(upd.get("$set") or {})
+            for k, v in (upd.get("$set") or {}).items():
+                self._set_path(base, k, v)
             for k, v in (upd.get("$inc") or {}).items():
                 base[k] = base.get(k, 0) + v
             self.insert_one(base)
