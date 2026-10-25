@@ -124,3 +124,18 @@ def test_strict_schema_closes_objects_and_makes_optional_nullable():
     assert s["properties"]["b"]["type"] == ["integer", "null"] and "maxLength" not in s["properties"]["a"]
     inner = s["properties"]["items"]["items"]
     assert inner["additionalProperties"] is False and inner["required"] == ["c"]
+
+
+def test_escalate_json_for_direct_callers_uses_their_own_check(env):
+    good = {"body": "Hi Raj, checking in on the study."}
+    chk = lambda d: [] if isinstance(d, dict) and d.get("body", "").startswith("Hi Raj") else ["bad greeting"]
+    data, tier, tries = ladder.escalate_json(task="reengagement_draft", system="s", user="u", schema=None, check=chk,
+                                             local=lambda: {"body": "Dear sir"}, db=env["gov"], cloud_transport=_cloud([good]))
+    assert data == good and tier == "haiku" and [t["tier"] for t in tries] == ["qwen", "haiku"]
+    data2, tier2, _ = ladder.escalate_json(task="reengagement_draft", system="s", user="u", schema=None, check=chk,
+                                           local=lambda: good, db=env["gov"], cloud_transport=_cloud([]))
+    assert tier2 == "qwen" and data2 == good
+    boom = lambda: (_ for _ in ()).throw(RuntimeError("slot busy"))
+    data3, tier3, tries3 = ladder.escalate_json(task="reengagement_draft", system="s", user="u", schema=None, check=chk,
+                                                local=boom, db=env["gov"], cloud_transport=_cloud([{"body": "nope"}, {"body": "nope"}]))
+    assert data3 is None and tier3 is None and "slot busy" in tries3[0]["problems"][0]

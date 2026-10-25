@@ -208,15 +208,29 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
         from leads.local_llm_gate import queue_wait
         from leads.local_slm_client import LocalSLMError, chat_json
         try:
-            with queue_wait(300, priority="bulk"):  # a daily job; the one model slot is often busy
-                got = chat_json(system=_SYSTEM, user=_ASK[kind].format(**fill) +
-                                f" Greet them as \"Hi {first},\". No sign-off, no placeholders, under 90 words.",
-                                max_tokens=320, json_schema=_SCHEMA, timeout=120)
+            user = _ASK[kind].format(**fill) + f" Greet them as \"Hi {first},\". No sign-off, no placeholders, under 90 words."
+            allowed = " ".join(str(v) for v in fill.values())
+
+            def _local():
+                with queue_wait(300, priority="bulk"):  # a daily job; the one model slot is often busy
+                    return chat_json(system=_SYSTEM, user=user, max_tokens=320, json_schema=_SCHEMA, timeout=120)
+
+            def _check(d):
+                if not isinstance(d, dict):
+                    return ["not an object"]
+                b = _trim_sign_off(str(d.get("body") or ""))
+                r = check_text(b, first if first != "there" else "", allowed) or \
+                    ("no subject" if not " ".join(str(d.get("subject") or "").split()) else "")
+                return [r] if r else []
+            # escalation ladder: local Qwen, then Haiku / Sonnet when it fails the same check
+            from platform_core import ladder
+            got, _tier, tries = ladder.escalate_json(task="reengagement_draft", system=_SYSTEM, user=user,
+                                                     schema=_SCHEMA, check=_check, local=_local)
+            if got is None:
+                got = {}
             body = _trim_sign_off(str(got.get("body") or ""))
             subject = " ".join(str(got.get("subject") or "").split())[:80]
-            allowed = " ".join(str(v) for v in fill.values())
-            refused = check_text(body, first if first != "there" else "", allowed) or \
-                ("no subject" if not subject else "")
+            refused = "" if got else "; ".join(p for t in tries for p in (t.get("problems") or []))[:200] or "no valid draft"
             if not refused:
                 # quote and reply stay in their own thread; a model subject can
                 # leak our labels ("Positive response from ...")

@@ -53,6 +53,7 @@ DEFAULTS: Dict[str, Any] = {
         "sender_type": ["qwen", "haiku"],
         "mail_summary": ["qwen", "haiku"],
         "reply_draft": ["haiku", "sonnet"],        # the 1.5B does not write natural prose
+        "reengagement_draft": ["qwen", "haiku", "sonnet"],
         "contact_classification": ["qwen", "haiku", "sonnet"],
         "lead_bucketing": ["qwen", "haiku"],
     },
@@ -325,6 +326,49 @@ def _log(db, task, ref, a, now):
                                                                "usd", "latency_s")}})
     except Exception:
         pass
+
+
+def escalate_json(*, task: str, system: str, user: str, schema: Optional[Dict[str, Any]],
+                  check: Callable[[Any], List[str]], local: Optional[Callable[[], Any]] = None,
+                  tiers: Optional[List[str]] = None, db=None, cloud_transport=None) -> Tuple[Any, Optional[str], List[Dict[str, Any]]]:
+    """For older modules that call the local model themselves (local_slm_client.chat_json)
+    and validate the answer with their own check. Tries `local()` first, then the
+    cloud rungs, each judged by `check(data) -> [problems]`. Returns
+    (data or None, tier or None, attempts); never opens a review item -- the caller
+    keeps its own fallback (template, task, no proposal)."""
+    c = cfg()
+    db = db if db is not None else qwen_gateway._gov_db()
+    cloud_transport = cloud_transport or anthropic_transport
+    attempts: List[Dict[str, Any]] = []
+    if local is not None:
+        try:
+            data = local()
+            probs = check(data) or []
+        except Exception as e:
+            data, probs = None, [f"local model: {str(e)[:160]}"]
+        attempts.append({"tier": "qwen", "status": "ok" if not probs else "rejected", "problems": probs})
+        if not probs:
+            return data, "qwen", attempts
+    ladder = [t for t in (tiers or (c.get("task_tiers") or {}).get(task) or c.get("default_tiers") or []) if t != "qwen"]
+    if not c.get("enabled", True):
+        ladder = []
+    for tier in ladder:
+        if tier not in (c.get("models") or {}):
+            continue
+        if _UNAVAILABLE.get(tier, 0) > time.time():
+            attempts.append({"tier": tier, "status": "skipped", "problems": ["tier unavailable"]})
+            continue
+        budget = float(c.get("monthly_budget_usd") or 0)
+        if budget and spent_this_month(db) >= budget:
+            attempts.append({"tier": tier, "status": "skipped", "problems": ["monthly AI budget used"]})
+            continue
+        a = _cloud_attempt(tier, task=task, system=system, clean=user, schema=schema,
+                           code_check=lambda d, _clean: check(d), c=c, db=db, transport=cloud_transport)
+        _log(db, task, None, a, None)
+        attempts.append({k: a.get(k) for k in ("tier", "status", "problems", "error", "usd")})
+        if a["status"] == "ok":
+            return a["data"], tier, attempts
+    return None, None, attempts
 
 
 def stats(db=None, days: int = 30) -> Dict[str, Any]:

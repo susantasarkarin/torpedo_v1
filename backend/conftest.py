@@ -47,3 +47,25 @@ def _no_live_send_state(monkeypatch, request):
         return
     monkeypatch.setattr(facade, "_throttle_block", lambda addr, channel: None, raising=False)
     monkeypatch.setattr(facade, "outreach_paused", lambda: False, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_cloud_ai(monkeypatch):
+    """Tests never call Anthropic or read the live ladder config/spend: the cloud
+    rungs fail at once (tests that exercise them pass their own transport)."""
+    try:
+        from platform_core import ladder
+    except Exception:
+        return
+
+    def _offline(**kw):
+        raise RuntimeError("cloud AI disabled in tests")
+    monkeypatch.setattr(ladder, "anthropic_transport", _offline, raising=False)
+    monkeypatch.setattr(ladder, "cfg", lambda: ladder.DEFAULTS, raising=False)
+    try:
+        from platform_core import qwen_gateway
+        from tests._fakemongo import FakeDB
+        gov = FakeDB()
+        monkeypatch.setattr(qwen_gateway, "_gov_db", lambda: gov, raising=False)
+    except Exception:
+        pass
