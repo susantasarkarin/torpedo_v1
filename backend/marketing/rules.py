@@ -445,7 +445,15 @@ def run(lane: str, gd: Optional[Callable] = None, *, now: Optional[datetime] = N
     if lane == "P3" and now.weekday() != 0:          # weekly review on Mondays only
         types = types - {"D14"}
     cs = sorted(candidates(gd, now, R, sites, types), key=lambda c: -c.get("impact_inr", 0))
-    rep = {"lane": lane, "candidates": len(cs), "by_type": {}, "decisions": {}}
+    # drop what is already open for the same entity + action before the per-run cap, so the cap
+    # reaches new candidates instead of re-skipping the same top N every run
+    cool = int((mc.get("cooldown_days") or {}).get("default", 7))
+    open_ = {(d["entity_key"], d.get("action")) for d in gd(schema.DB)["decisions"].find(
+        {"entity_key": {"$in": [c["entity_key"] for c in cs]}, "status": {"$in": ["in_review", "shadow_executed", "executed"]},
+         "created_at": {"$gte": now - timedelta(days=cool)}})} if cs else set()
+    fresh = [c for c in cs if (c["entity_key"], c["action"]) not in open_]
+    rep = {"lane": lane, "candidates": len(cs), "already_open": len(cs) - len(fresh), "by_type": {}, "decisions": {}}
+    cs = fresh
     for c in cs:
         rep["by_type"][c["decision_type"]] = rep["by_type"].get(c["decision_type"], 0) + 1
     if dry_run:

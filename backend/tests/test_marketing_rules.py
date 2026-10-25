@@ -144,7 +144,9 @@ def test_lane_run_decides_top_candidates_in_shadow(db, monkeypatch):
     assert rep["by_type"] == {"D2": 1} and rep["decisions"] == {"in_review": 1}
     dec = ea["decisions"].find_one({})
     assert dec["metric"]["name"] == "wasted_spend_inr" and dec["impact_inr"] == 20000 and dec["mode"] == "shadow"
-    assert Ru.run("P2", gd, now=NOW, dry_run=True)["sample"][0]["action"] == "pause"
+    assert Ru.run("P2", gd, now=NOW, dry_run=True)["already_open"] == 1              # in review: not offered again
+    rep2 = Ru.run("P2", gd, now=NOW, qwen=lambda t, br, chk: (_ for _ in ()).throw(ConnectionError("down")))
+    assert rep2["decisions"] == {} and ea["decisions"].count_documents({}) == 1
 
 
 def test_outcome_metric_before_vs_after(db):
