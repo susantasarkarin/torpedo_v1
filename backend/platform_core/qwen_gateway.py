@@ -156,7 +156,10 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
         attachments_text: Optional[List[Dict[str, str]]] = None, schema: Optional[Dict[str, Any]] = None,
         code_check: Optional[Callable[[Any, str], List[str]]] = None, ref: Optional[Dict[str, Any]] = None,
         bu: Optional[str] = None, transport: Callable[..., str] = http_transport,
-        now: Optional[datetime] = None, db=None, sleep: Callable[[float], None] = time.sleep) -> Dict[str, Any]:
+        now: Optional[datetime] = None, db=None, sleep: Callable[[float], None] = time.sleep,
+        enqueue_review: bool = True) -> Dict[str, Any]:
+    """enqueue_review=False: the escalation ladder (platform_core.ladder) is
+    calling and will try a stronger tier before a person sees it."""
     cfg = config_store.get("qwen")
     tcfg = cfg["tasks"].get(task)
     if not tcfg:
@@ -173,7 +176,7 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
     cached = jobs.find_one({"hash": h, "status": {"$in": ["ok", "review"]}})
     if cached:
         return {"status": cached["status"], "data": cached.get("output"), "job_id": str(cached["_id"]),
-                "cached": True, "review_item": cached.get("review_item")}
+                "cached": True, "review_item": cached.get("review_item"), "problems": cached.get("problems") or []}
 
     if priority == "P3" and not in_p3_window(now, tuple(cfg["p3_window_ist"])):
         return {"status": "deferred", "reason": "P3 runs 22:00-07:00 IST"}
@@ -231,7 +234,7 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
               "problems": problems, "finished_at": datetime.utcnow(),
               "status": "review" if needs_review else "ok"}
     item_id = None
-    if needs_review:
+    if needs_review and enqueue_review:
         rtype = "ai_invalid_output" if problem else (
             "rfq_extraction" if task == "rfq_extraction" else
             "vendor_bid" if task == "vendor_bid_parse" else "ai_low_confidence")

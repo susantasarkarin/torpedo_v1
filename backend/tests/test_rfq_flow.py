@@ -108,8 +108,33 @@ def test_shadow_runner_decides_once_and_never_touches_the_rfq(dbs):
     assert "flow" not in dbs["crm_db"]["opportunities"].find_one({"_id": oid})["metadata"]["rfq"]
 
 
-def test_runner_skips_when_the_extraction_model_has_no_endpoint(dbs, monkeypatch):
-    for k in list(__import__("os").environ):
-        if k.startswith("QWEN_ENDPOINT_"):
-            monkeypatch.delenv(k)
-    assert runner.run_batch(now=NOW)["skipped"]
+def test_rules_tier_answers_a_plain_rfq_without_any_model():
+    from rfq import rules_extract
+    text = "RFQ: Online survey in India, n=500, LOI 15 mins, IR 25%. Please share CPI."
+    r = rules_extract.extract(text)
+    assert rules_extract.complete(r)
+    li = r["line_items"][0]
+    assert (li["country"], li["n"], li["loi_minutes"], li["ir_percent"], li["methodology"]) == ("IN", 500, 15, 25.0, "CAWI")
+    assert flow.code_check(r, text) == []
+
+
+def test_rules_leave_ambiguous_fields_empty_and_map_per_country_sizes():
+    from rfq import rules_extract
+    two_n = rules_extract.extract("India n=500 and also 300 completes, LOI 10 min")
+    assert two_n["line_items"][0]["n"] is None and not rules_extract.complete(two_n)
+    multi = rules_extract.extract("Markets: India - 500, United States - 300. LOI 12 minutes, IR 40%")
+    sizes = {li["country"]: li["n"] for li in multi["line_items"]}
+    assert sizes == {"IN": 500, "US": 300} and rules_extract.complete(multi)
+
+
+def test_flow_accepts_rules_and_never_calls_a_model_for_a_plain_rfq():
+    calls = []
+
+    def run(**kw):
+        calls.append(kw)
+        from platform_core import ladder
+        assert kw["rules_complete"] is True
+        return {"status": "review", "data": kw["rules_result"], "tier": "rules", "problems": []}
+    d = flow.process({"_id": ObjectId()}, "India n=500, LOI 15 min, IR 25%", account={"name": "Acme"}, bu="SFW",
+                     rules=[], rows=_rows(), cfg=CFG, pricing_cfg=PRICING, run=run, now=NOW)
+    assert d["extraction_tier"] == "rules" and d["line_items"][0]["n"] == 500

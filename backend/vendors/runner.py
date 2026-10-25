@@ -48,8 +48,8 @@ def run(now: Optional[datetime] = None, run_model=None) -> Dict[str, Any]:
                                  suggested={"subject": f"Re: [{b.get('ref_id')}] Bid request", "body": "Following up on our bid request below."})
 
     if run_model is None:
-        from platform_core import qwen_gateway
-        run_model = qwen_gateway.run
+        from platform_core import ladder
+        run_model = ladder.run
     md = gd("torpedo_gmail")["email_metadata"]
     for dec in gd("email_automation")["mail_decisions"].find({"link.type": "vendor_bid", "vendor_parsed": {"$ne": True}}).limit(10):
         bid_id = (dec.get("link") or {}).get("vendor_bid_id")

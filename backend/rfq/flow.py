@@ -147,10 +147,14 @@ def process(opp: Dict[str, Any], text: str, *, account: Dict[str, Any], bu: Opti
             pricing_cfg: Dict[str, Any], run: Callable[..., Dict[str, Any]], now: datetime,
             client_markup: Optional[float] = None, history: Optional[Dict[str, List[float]]] = None) -> Dict[str, Any]:
     oid = str(opp["_id"])
+    from rfq import rules_extract
+    by_rules = rules_extract.extract(text)          # first rung; `rules` here is the client-defaults list
     ext = run(task="rfq_extraction", system=SYSTEM, subject="", body=text, schema=SCHEMA, code_check=code_check,
-              ref={"collection": "crm_db.opportunities", "id": oid}, bu=bu)
+              ref={"collection": "crm_db.opportunities", "id": oid}, bu=bu,
+              rules_result=by_rules, rules_complete=rules_extract.complete(by_rules))
     d: Dict[str, Any] = {"opportunity_id": oid, "account_id": str(account.get("_id") or ""), "bu": bu,
                          "extraction_status": ext.get("status"), "extraction_job": ext.get("job_id"),
+                         "extraction_tier": ext.get("tier"),
                          "extraction_problems": ext.get("problems") or [], "review_item": ext.get("review_item")}
     data = ext.get("data") if isinstance(ext.get("data"), dict) else None
     if ext.get("status") in ("failed", "deferred") or not data:

@@ -77,7 +77,7 @@ def _go_live(gd, opp, d: Dict[str, Any]) -> None:
 
 
 def run_batch(now: Optional[datetime] = None, run=None, rows=None) -> Dict[str, Any]:
-    from platform_core import config_store, qwen_gateway
+    from platform_core import config_store, ladder
     from pricing import rate_card
     gd = _gd()
     cfg, qcfg = config_store.get("rfq"), config_store.get("qwen")
@@ -85,10 +85,7 @@ def run_batch(now: Optional[datetime] = None, run=None, rows=None) -> Dict[str, 
     if cfg["mode"] == "off":
         return stats
     if run is None:
-        if not model_hosted(qcfg):
-            stats["skipped"] = "extraction model has no endpoint"
-            return stats
-        run = qwen_gateway.run
+        run = ladder.run          # rules (rfq.rules_extract) first in flow.process, then Qwen -> Haiku -> Sonnet
     now = now or datetime.utcnow()
     decisions = gd("email_automation")["rfq_decisions"]
     crm, md = gd("crm_db"), gd("torpedo_gmail")["email_metadata"]

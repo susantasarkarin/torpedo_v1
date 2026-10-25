@@ -14,7 +14,9 @@ from . import pipeline
 
 logger = logging.getLogger(__name__)
 
-DEFAULTS = {"mode": "shadow", "batch": 50, "max_model_calls_per_run": 10, "lookback_days": 14, "max_seconds": 240}
+DEFAULTS = {"mode": "shadow", "batch": 50, "max_model_calls_per_run": 10, "lookback_days": 14, "max_seconds": 240,
+            "max_compose_calls_per_run": 10, "summaries": True, "drafts": True}
+DRAFT_TYPES = ("positive_reply_draft", "neutral_reply")
 _CTX = {"ctx": None, "at": 0.0}
 
 
@@ -52,8 +54,8 @@ class _CappedModel:
         if self.used >= self.cap:
             return {"status": "deferred", "reason": "model call cap for this run"}
         self.used += 1
-        from platform_core import qwen_gateway
-        return qwen_gateway.run(**kw)
+        from platform_core import ladder        # rules ran in the pipeline; Qwen -> Haiku -> Sonnet -> person
+        return ladder.run(**kw)
 
 
 def set_po(gd, a: Dict[str, Any]) -> None:
@@ -76,6 +78,41 @@ def set_po(gd, a: Dict[str, Any]) -> None:
         fin["estimates"].update_many({"opportunity_id": str(opp_id), "po_number": empty}, {"$set": {"po_number": po}})
     if a.get("project_id") and ObjectId.is_valid(str(a["project_id"])):
         ea["projects"].update_one({"_id": ObjectId(str(a["project_id"])), "po_number": empty}, {"$set": {"po_number": po}})
+
+
+_BU_CACHE: Dict[str, Any] = {"at": 0.0, "map": {}, "facts": {}}
+
+
+def _bu_of(msg, gd) -> Optional[str]:
+    if time.time() - _BU_CACHE["at"] > 3600:
+        try:
+            from crm360.view import _mailbox_bu
+            from platform_core import config_store
+            _BU_CACHE.update(at=time.time(), map=_mailbox_bu(), facts=(config_store.get("bu") or {}).get("descriptions") or {})
+        except Exception:
+            _BU_CACHE["at"] = time.time()
+    return _BU_CACHE["map"].get(str(msg.get("mailbox_id")))
+
+
+def compose_extras(d: Dict[str, Any], msg: Dict[str, Any], cfg: Dict[str, Any], composer, gd) -> None:
+    """Summary for client/vendor mail; a draft reply on each reply review action.
+    Both are suggestions on the decision -- nothing is sent from here."""
+    from mail_pipeline import compose
+    if d["sender"]["type"] not in ("client", "vendor") or d["category"]["category"] in ("bounce", "out_of_office"):
+        return
+    text = pipeline._reply_text(msg)
+    ref = {"collection": "torpedo_gmail.email_metadata", "id": d["message_id"]}
+    try:
+        if cfg.get("summaries", True):
+            d["summary"] = compose.summarize(msg, text, composer, ref)
+        if cfg.get("drafts", True) and d["sender"]["type"] == "client":
+            bu = _bu_of(msg, gd) or "SFW"
+            for a in d["actions"]:
+                if a.get("type") == "review" and a.get("review_type") in DRAFT_TYPES:
+                    a["draft"] = compose.draft_reply(msg, text, purpose=a["review_type"], bu=bu,
+                                                     bu_facts=_BU_CACHE["facts"].get(bu) or {}, model=composer, ref=ref)
+    except Exception:
+        logger.exception("compose failed for %s", d["message_id"])
 
 
 def apply_actions(decision: Dict[str, Any], gd) -> list:
@@ -115,7 +152,9 @@ def apply_actions(decision: Dict[str, Any], gd) -> list:
             elif t == "review":
                 review_queue.enqueue(type=a.get("review_type", "other"), module="mail_pipeline",
                                      ref={"collection": "torpedo_gmail.email_metadata", "id": decision["message_id"]},
-                                     reason=a["why"], payload={"decision": {k: decision[k] for k in ("link", "sender", "category")}})
+                                     reason=a["why"], payload={"decision": {k: decision[k] for k in ("link", "sender", "category")},
+                                                               "summary": decision.get("summary")},
+                                     suggested=a.get("draft"))
             log_action(actor="system", action="update", entity_type="mail_action", entity_id=decision["message_id"],
                        reason=f"{t}: {a.get('why', '')}"[:200], source="mail_pipeline", metadata={"action": a})
             done.append(t)
@@ -135,18 +174,20 @@ def run_batch(now: Optional[datetime] = None) -> Dict[str, Any]:
           "leads": gd("crm_db")["leads"], "contacts": gd("crm_db")["contacts"], "accounts": gd("crm_db")["accounts"]}
     ctx, patterns = _context(), _bounce_patterns()
     model = _CappedModel(int(cfg["max_model_calls_per_run"]))
+    composer = _CappedModel(int(cfg["max_compose_calls_per_run"]))
     since = now - timedelta(days=int(cfg["lookback_days"]))
     stats = {"seen": 0, "decided": 0, "applied": 0, "mode": cfg["mode"]}
     t_start = time.time()      # stay well inside the 5-minute interval
     for msg in md.find({"direction": "inbound", "timestamp": {"$gte": since}},
-                       {"subject": 1, "body_plain": 1, "snippet": 1, "from_email": 1, "to_emails": 1, "cc_emails": 1,
-                        "gmail_thread_id": 1, "gmail_message_id": 1, "timestamp": 1}).sort("timestamp", -1).limit(int(cfg["batch"]) * 4):
+                       {"subject": 1, "body_plain": 1, "snippet": 1, "from_email": 1, "from_name": 1, "to_emails": 1,
+                        "cc_emails": 1, "gmail_thread_id": 1, "gmail_message_id": 1, "timestamp": 1, "mailbox_id": 1}).sort("timestamp", -1).limit(int(cfg["batch"]) * 4):
         if stats["decided"] >= int(cfg["batch"]) or time.time() - t_start > float(cfg["max_seconds"]):
             break
         stats["seen"] += 1
         if decisions.count_documents({"message_id": str(msg["_id"])}, limit=1):
             continue
         d = pipeline.process(msg, db, ctx, model, patterns)
+        compose_extras(d, msg, cfg, composer, gd)
         d.update(mode=cfg["mode"], decided_at=now, pipeline_version=1)
         if cfg["mode"] == "live":
             d["applied"] = apply_actions(d, gd)
@@ -154,5 +195,6 @@ def run_batch(now: Optional[datetime] = None) -> Dict[str, Any]:
         decisions.insert_one(d)
         stats["decided"] += 1
     stats["model_calls"] = model.used
+    stats["compose_calls"] = composer.used
     logger.info("mail pipeline: %s", stats)
     return stats

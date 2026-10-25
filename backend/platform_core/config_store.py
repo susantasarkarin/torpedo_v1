@@ -38,6 +38,7 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
     "deliverability": _deliverability,
     "pricing": _pricing,
     "bu": _bu,
+    "ladder": lambda: __import__("platform_core.ladder", fromlist=["DEFAULTS"]).DEFAULTS,   # rules -> Qwen -> Haiku -> Sonnet
     "qwen": lambda: {
         "confidence_threshold": 0.75,       # used only where a task still self-reports
         "max_workers": 3,                    # ceiling; the benchmark says 1-2 on this VM
@@ -47,11 +48,17 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
         "max_input_chars": 6000,
         "tasks": {
             "reply_classification": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 200, "max_input_chars": 2500},
+            "mail_summary": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 20, "priority": "P2", "max_tokens": 160,
+                             "max_input_chars": 2500},
+            "contact_classification": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 20, "priority": "P3", "max_tokens": 120,
+                                       "max_input_chars": 2000},
             "sender_type": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 15, "priority": "P1", "max_tokens": 120, "max_input_chars": 2500},
-            "rfq_extraction": {"model": "qwen2.5-7b-instruct", "timeout_s": 120, "priority": "P1", "max_tokens": 900,
+            "rfq_extraction": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 60, "priority": "P1", "max_tokens": 600,
+                               "max_input_chars": 2500,
                                "always_review": True},     # until >= 95% per field
             "lead_bucketing": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 30, "priority": "P3", "max_tokens": 600, "max_input_chars": 2500, "batch": 20},
-            "vendor_bid_parse": {"model": "qwen2.5-7b-instruct", "timeout_s": 120, "priority": "P2", "max_tokens": 600,
+            "vendor_bid_parse": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 60, "priority": "P2", "max_tokens": 400,
+                                 "max_input_chars": 2500,
                                  "always_review": True},
         },
     },
