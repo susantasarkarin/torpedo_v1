@@ -26,9 +26,27 @@ COUNTRY_NAMES = {
     "SA": ["ksa", "saudi"], "ID": ["indonesia"], "MY": ["malaysia"], "PH": ["philippines"], "TH": ["thailand"],
     "VN": ["vietnam"], "CH": ["switzerland"], "QA": ["qatar"], "KW": ["kuwait"], "NL": ["netherlands"],
     "IE": ["ireland"], "PL": ["poland"], "TR": ["turkey"], "AR": ["argentina"], "CL": ["chile"],
-    "CO": ["colombia"], "PE": ["peru"], "NG": ["nigeria"], "KE": ["kenya"], "EG": ["egypt"],
+    "CO": ["colombia", "columbia"], "PE": ["peru"], "NG": ["nigeria"], "KE": ["kenya"], "EG": ["egypt"],
+    "GH": ["ghana"], "TZ": ["tanzania"], "ET": ["ethiopia"], "MA": ["morocco", "marokko"], "DZ": ["algeria"],
+    "TN": ["tunisia"], "UG": ["uganda"], "MG": ["madagascar"], "LY": ["libya"], "SN": ["senegal"],
+    "CI": ["ivory coast", "cote d'ivoire"], "CM": ["cameroon"], "ZW": ["zimbabwe"], "ZM": ["zambia"],
+    "HU": ["hungary"], "CZ": ["czech republic", "czechia"], "EE": ["estonia"], "LV": ["latvia"], "LT": ["lithuania"],
+    "SK": ["slovakia"], "SI": ["slovenia"], "HR": ["croatia"], "RS": ["serbia"], "RO": ["romania"],
+    "BG": ["bulgaria"], "GR": ["greece"], "PT": ["portugal"], "AT": ["austria"], "BE": ["belgium"],
+    "DK": ["denmark"], "SE": ["sweden"], "NO": ["norway"], "FI": ["finland"], "UA": ["ukraine"],
+    "RU": ["russia"], "AL": ["albania"], "IL": ["israel"], "JO": ["jordan"], "LB": ["lebanon"], "IQ": ["iraq"],
+    "IR": ["iran"], "OM": ["oman"], "BH": ["bahrain"], "PK": ["pakistan"], "BD": ["bangladesh"],
+    "LK": ["sri lanka"], "NP": ["nepal"], "MM": ["myanmar"], "KH": ["cambodia"], "KZ": ["kazakhstan"],
+    "VE": ["venezuela"], "BO": ["bolivia"], "EC": ["ecuador"], "UY": ["uruguay"], "PY": ["paraguay"],
+    "DO": ["dominican republic"], "PR": ["puerto rico"], "GT": ["guatemala"], "CR": ["costa rica"],
+    "PA": ["panama"], "SV": ["el salvador"], "HN": ["honduras"], "JM": ["jamaica"],
 }
+COUNTRY_NAMES["ID"] += ["indonesie", "indonesië"]          # Dutch spellings seen in client mail
+COUNTRY_NAMES["SA"] += ["saudi arabia", "saoedi-arabië"]
 _ALIASES = {"UK": "GB", "ANZ": None}
+# codes RFQs use on their own for a market; every other code must be written as a name
+BARE_CODES = {"US", "GB", "DE", "FR", "JP", "KR", "BR", "CN", "MX", "SG", "AU", "NZ", "CA", "ES", "ZA", "HK", "TW",
+              "AE", "SA", "MY", "PH", "TH", "VN", "NL", "PL", "TR", "AR", "CL", "NG", "KE", "EG", "IE", "QA", "KW"}
 
 
 def _nums(text: str) -> set:
@@ -46,8 +64,8 @@ def countries_named(text: str) -> set:
     for code, names in COUNTRY_NAMES.items():
         if any(re.search(rf"(?<![a-z]){re.escape(n)}(?![a-z])", low) for n in names):
             found.add(code)
-        if re.search(rf"(?<![A-Za-z]){code}(?![A-Za-z])", text) and code not in ("IN", "IT", "ID", "CO", "PE", "CH"):
-            found.add(code)   # bare 2-letter codes that are also common words are only trusted by name
+        if code in BARE_CODES and re.search(rf"(?<![A-Za-z]){code}(?![A-Za-z])", text):
+            found.add(code)   # other 2-letter codes are also words/abbreviations (IR, CR, PR, HR, NO...): name only
     if re.search(r"(?<![A-Za-z])UK(?![A-Za-z])", text):
         found.add("GB")
     if re.search(r"(?<![A-Za-z])IN(?![A-Za-z])", text):

@@ -25,6 +25,7 @@ LOI_PATTERNS = [
     re.compile(r"\blength(?:\s*of\s*interview)?\s*(?:of|[:=\-]|is)?\s*(\d{1,3})\s*(?:min(?:ute)?s?|mins?)\b", re.I),
 ]
 IR_PATTERNS = [
+    re.compile(r"\bIR\b[^\d\n%]{0,18}?(\d{1,3}(?:\.\d+)?)\s*%", re.I),      # "IR (Assumed): 30%"
     re.compile(r"\bIR\s*(?:of|[:=\-]|is|~)?\s*(\d{1,3}(?:\.\d+)?)\s*%?", re.I),
     re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*%\s*(?:IR|incidence)\b", re.I),
     re.compile(r"\bincidence(?:\s*rate)?\s*(?:of|[:=\-]|is|~)?\s*(\d{1,3}(?:\.\d+)?)\s*%?", re.I),
@@ -84,7 +85,19 @@ def extract(text: str) -> Optional[Dict[str, Any]]:
             "special_requirements": None}
 
 
-def complete(data: Optional[Dict[str, Any]]) -> bool:
-    """Rules are only accepted on their own when every line has country, N and LOI."""
+MAX_RULES_COUNTRIES = 8
+_MENTIONS_IR = re.compile(r"\b(IR|incidence)\b", re.I)
+
+
+def complete(data: Optional[Dict[str, Any]], text: str = "") -> bool:
+    """Rules settle an RFQ on their own only when every line has country, N and
+    LOI, IR is found whenever the mail talks about IR, and there are at most
+    MAX_RULES_COUNTRIES markets (long lists hide names the rules do not know)."""
     items = (data or {}).get("line_items") or []
-    return bool(items) and all(i.get("country") and i.get("n") and i.get("loi_minutes") for i in items)
+    if not items or len(items) > MAX_RULES_COUNTRIES:
+        return False
+    if not all(i.get("country") and i.get("n") and i.get("loi_minutes") for i in items):
+        return False
+    if text and _MENTIONS_IR.search(text) and not all(i.get("ir_percent") for i in items):
+        return False
+    return True

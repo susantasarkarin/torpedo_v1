@@ -151,7 +151,7 @@ def process(opp: Dict[str, Any], text: str, *, account: Dict[str, Any], bu: Opti
     by_rules = rules_extract.extract(text)          # first rung; `rules` here is the client-defaults list
     ext = run(task="rfq_extraction", system=SYSTEM, subject="", body=text, schema=SCHEMA, code_check=code_check,
               ref={"collection": "crm_db.opportunities", "id": oid}, bu=bu,
-              rules_result=by_rules, rules_complete=rules_extract.complete(by_rules))
+              rules_result=by_rules, rules_complete=rules_extract.complete(by_rules, text))
     d: Dict[str, Any] = {"opportunity_id": oid, "account_id": str(account.get("_id") or ""), "bu": bu,
                          "extraction_status": ext.get("status"), "extraction_job": ext.get("job_id"),
                          "extraction_tier": ext.get("tier"),
