@@ -2417,6 +2417,18 @@ async def startup_event():
                 except Exception as e:
                     print(f"[MarketingAttribution] Error: {e}")
 
+            def _seo_weekly_job():
+                try:
+                    from marketing import seo_audit
+                    print(f"[SEOAudit] {seo_audit.run()}")
+                    print(f"[PageSpeed] {seo_audit.pagespeed_run()}")
+                except Exception as e:
+                    print(f"[SEOAudit] Error: {e}")
+
+            scheduler.add_job(_seo_weekly_job, CronTrigger(day_of_week="sun", hour=16, minute=30),  # Sun 22:00 IST
+                              id="seo_weekly_audit", name="Marketing: weekly SEO crawl + PageSpeed per site",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             scheduler.add_job(_marketing_attribution_job, CronTrigger(hour=23, minute=30),  # 05:00 IST
                               id="marketing_attribution", name="Marketing: touchpoints + attribution (4 models)",
                               max_instances=1, coalesce=True, replace_existing=True)

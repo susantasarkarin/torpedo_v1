@@ -36,7 +36,7 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
                             {"unique": True}), (D, {})], None),
     "gsc_pages_daily": ([([("site", 1), ("date", 1), ("page", 1)], {"unique": True}), (D, {})], None),
     "seo_audits": ([([("site", 1), ("started_at", -1)], {})], None),
-    "seo_issues": ([([("site", 1), ("status", 1), ("severity", 1)], {}), ("audit_id", {})], None),
+    "seo_issues": ([("key", {"unique": True}), ([("site", 1), ("status", 1), ("severity", 1)], {}), ("audit_id", {})], None),
     "cwv_results": ([([("url", 1), ("strategy", 1), ("date", 1)], {}), (D, {})], None),
     "keywords": ([([("bu", 1), ("keyword", 1)], {"unique": True})], None),
     "keyword_positions": ([([("keyword_id", 1), ("date", 1)], {"unique": True}), (D, {})], None),

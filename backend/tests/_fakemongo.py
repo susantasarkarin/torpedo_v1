@@ -80,6 +80,14 @@ class FakeCollection:
     def count_documents(self, q, **kw):
         return sum(1 for d in self.docs if _match(d, q))
 
+    def update_many(self, q, upd):
+        for d in self.docs:
+            if _match(d, q):
+                for k, v in (upd.get("$set") or {}).items():
+                    self._set_path(d, k, v)
+                for k in (upd.get("$unset") or {}):
+                    self._unset_path(d, k)
+
     def delete_one(self, q):
         for i, d in enumerate(self.docs):
             if _match(d, q):
