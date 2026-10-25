@@ -62,7 +62,28 @@ async def collect(request: Request):
     from database import get_database
     db = get_database("email_automation")
     db["web_events"].insert_many(docs)
-    upd = {"$set": {"last_seen": now, "consent": docs[-1]["consent"]}, "$setOnInsert": {"first_seen": now},
+    for d in docs:
+        if d["type"] == "consent":      # every choice, kept permanently (DPDP / GDPR proof)
+            db["consents"].insert_one({"visitor_id": d["visitor_id"], "granted": bool(d["value"]), "host": d["host"],
+                                       "bu": d["bu"], "path": d["path"], "source": "web_banner", "at": now,
+                                       "created_at": now, "updated_at": now})
+    docs = [d for d in docs if d["visitor_id"]]
+    if not docs:
+        return Response(status_code=204)             # anonymous page views: counted, no visitor record
+    for sid in sorted({d["session_id"] for d in docs if d["session_id"]}):
+        mine = [d for d in docs if d["session_id"] == sid]
+        db["web_sessions"].update_one(
+            {"session_id": sid},
+            {"$setOnInsert": {"visitor_id": mine[0]["visitor_id"], "started_at": now, "landing": mine[0]["url"],
+                              "bu": mine[0]["bu"], "host": mine[0]["host"], "utm": mine[0]["utm"],
+                              "click_ids": mine[0]["click_ids"], "referrer": mine[0]["referrer"],
+                              "source": "web_tracker", "created_at": now},
+             "$set": {"last_at": now, "updated_at": now}, "$inc": {"events": len(mine)},
+             "$addToSet": {"pages": {"$each": sorted({d["path"] for d in mine if d["type"] == "page_view"})}}},
+            upsert=True)
+    first = rules.attribution(body.get("a"))
+    upd = {"$set": {"last_seen": now, "consent": docs[-1]["consent"]},
+           "$setOnInsert": {"first_seen": now},
            "$addToSet": {"bus": {"$each": sorted({d["bu"] for d in docs if d["bu"]})},
                          "hosts": {"$each": sorted({d["host"] for d in docs if d["host"]})}},
            "$inc": {"events": len(docs)}}
@@ -72,6 +93,9 @@ async def collect(request: Request):
     if emails:
         upd["$set"]["form_email"] = emails[-1]
     db["web_visitors"].update_one({"visitor_id": visitor[:64]}, upd, upsert=True)
+    if first:      # first touch is written once and never overwritten
+        db["web_visitors"].update_one({"visitor_id": visitor[:64], "first_touch": {"$exists": False}},
+                                      {"$set": {"first_touch": first}})
     return Response(status_code=204)
 
 
@@ -120,17 +144,28 @@ var C=%CFG%,K='_cgx_v',CK='_cgx_consent',RK='_cgx_r',QK='_cgx_pending',api=(S&&S
 var BU=(S&&S.getAttribute('data-bu'))||'';
 function ck(n){var m=document.cookie.match('(^|;)\\s*'+n+'=([^;]*)');return m?decodeURIComponent(m[2]):null}
 function sc(n,v,d){document.cookie=n+'='+encodeURIComponent(v)+';path=/;max-age='+(d*86400)+';SameSite=Lax;Secure'}
-var v=ck(K);if(!v){v=(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now());}sc(K,v,390);
-var r=new URLSearchParams(location.search).get('r');if(r){sc(RK,r,30)}else{r=ck(RK)}
-var consent=ck(CK)==='granted',q=[],utm={};
-new URLSearchParams(location.search).forEach(function(val,key){if(key.indexOf('utm_')===0)utm[key]=val.slice(0,100)});
-if(Object.keys(utm).length){try{sessionStorage.setItem('_cgx_utm',JSON.stringify(utm))}catch(e){}}else{try{utm=JSON.parse(sessionStorage.getItem('_cgx_utm')||'{}')}catch(e){}}
+var consent=ck(CK)==='granted',q=[],utm={},cids={},AK='_cgx_a',v='',sid='',P=new URLSearchParams(location.search);
+var r=P.get('r');
+P.forEach(function(val,key){if(key.indexOf('utm_')===0)utm[key]=val.slice(0,100)});
+['gclid','gbraid','wbraid','li_fat_id','fbclid'].forEach(function(k){if(P.get(k))cids[k]=P.get(k).slice(0,200)});
+var ext=document.referrer&&document.referrer.indexOf(location.origin)!==0?document.referrer:'';
+var touch=Object.assign({},utm,cids,{referrer:ext,landing:location.href.slice(0,500),r:r||'',ts:new Date().toISOString()});
+function uid(){return window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now()}
+function ss(k,x){try{if(x===undefined)return sessionStorage.getItem(k);sessionStorage.setItem(k,x)}catch(e){return null}}
+function identify(){/* only after consent: visitor + session ids, mail token, first touch (never overwritten) */
+ v=ck(K)||uid();sc(K,v,390);if(r){sc(RK,r,30)}else{r=ck(RK)}sid=ss('_cgx_s')||uid();ss('_cgx_s',sid);
+ if(!ck(AK))sc(AK,JSON.stringify(touch),390);
+ if(Object.keys(utm).length||Object.keys(cids).length){ss('_cgx_utm',JSON.stringify(Object.assign({},utm,cids)))}
+ else{try{var o=JSON.parse(ss('_cgx_utm')||'{}');Object.keys(o).forEach(function(k){(k.indexOf('utm_')===0?utm:cids)[k]=o[k]})}catch(e){}}}
+function first(){try{return JSON.parse(ck(AK)||'null')||touch}catch(e){return touch}}
+if(consent)identify();
 window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}window.gtag=window.gtag||gtag;
 if(!window._cgxConsentDefault){gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',wait_for_update:500});}
 function post(path,b){var s=JSON.stringify(b);if(navigator.sendBeacon&&path==='/collect'){return navigator.sendBeacon(api+path,new Blob([s],{type:'text/plain'}))}
  return fetch(api+path,{method:'POST',body:s,headers:{'Content-Type':'text/plain'},keepalive:true,credentials:'omit'})}
-function send(){if(!q.length)return;post('/collect',{v:v,r:r,bu:BU,events:q.splice(0,50)})}
-function ev(t,x){x=x||{};x.type=t;x.url=location.href;x.referrer=document.referrer;x.consent=consent;q.push(x);if(q.length>=10)send()}
+function send(){if(!q.length)return;var b={v:v,bu:BU,events:q.splice(0,50)};if(consent){b.r=r;b.a=first()}post('/collect',b)}
+function ev(t,x){if(!consent&&t!=='page_view'&&t!=='consent')return;/* no consent: anonymous page views only */
+ x=x||{};x.type=t;x.url=location.href;x.referrer=document.referrer;x.consent=consent;x.session=sid;q.push(x);if(q.length>=10)send()}
 function runConsented(){document.querySelectorAll('script[type="text/plain"][data-cgx-consent]').forEach(function(o){
  var n=document.createElement('script');for(var i=0;i<o.attributes.length;i++){var a=o.attributes[i];if(a.name!=='type'&&a.name!=='data-cgx-consent')n.setAttribute(a.name,a.value)}
  if(!o.src)n.text=o.text;o.parentNode.replaceChild(n,o)})}
@@ -139,7 +174,7 @@ function tags(){var t=C.tags||{};
  if(t.linkedin_partner_id){window._linkedin_data_partner_ids=[t.linkedin_partner_id];var l=document.createElement('script');l.async=1;l.src='https://snap.licdn.com/li.lms-analytics/insight.min.js';document.head.appendChild(l)}
  if(t.meta_pixel_id&&!window.fbq){!function(f,b,e,v,n,t2,s2){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t2=b.createElement(e);t2.async=!0;t2.src=v;s2=b.getElementsByTagName(e)[0];s2.parentNode.insertBefore(t2,s2)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init',t.meta_pixel_id);fbq('track','PageView')}
  runConsented()}
-function grant(){consent=true;sc(CK,'granted',180);gtag('consent','update',{ad_storage:'granted',analytics_storage:'granted',ad_user_data:'granted',ad_personalization:'granted'});tags();ev('consent',{value:1})}
+function grant(){consent=true;sc(CK,'granted',180);identify();gtag('consent','update',{ad_storage:'granted',analytics_storage:'granted',ad_user_data:'granted',ad_personalization:'granted'});tags();ev('consent',{value:1})}
 function banner(){if(ck(CK))return;var d=document.createElement('div');d.id='cgx-consent';d.setAttribute('role','dialog');d.setAttribute('aria-label','Cookie consent');
  d.style.cssText='position:fixed;left:16px;right:16px;bottom:16px;z-index:2147483647;background:#fff;color:#111;border:1px solid #ccc;border-radius:8px;padding:12px 16px;font:14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.15);display:flex;gap:12px;flex-wrap:wrap;align-items:center;max-width:720px;margin:0 auto';
  d.innerHTML='<span style="flex:1 1 240px">We use cookies to understand visits and, with your consent, for analytics and advertising. <a href="'+(C.privacy||'/privacy.html')+'" style="color:inherit">Privacy</a></span>';
@@ -147,11 +182,20 @@ function banner(){if(ck(CK))return;var d=document.createElement('div');d.id='cgx
  var n=document.createElement('button');n.type='button';n.id='cgx-reject';n.textContent='Reject';n.style.cssText='padding:8px 14px;border:1px solid #999;border-radius:6px;background:#fff;color:#111;cursor:pointer';
  a.onclick=function(){grant();d.remove()};n.onclick=function(){sc(CK,'denied',180);ev('consent',{value:0});d.remove()};d.appendChild(n);d.appendChild(a);document.body.appendChild(d)}
 if(consent)tags();
-var t0=Date.now(),maxs=0;ev('page_view');
-addEventListener('scroll',function(){var s=Math.round(100*(scrollY+innerHeight)/Math.max(1,document.documentElement.scrollHeight));if(s>maxs)maxs=s},{passive:true});
-document.addEventListener('click',function(e){var el=e.target.closest&&e.target.closest('a,button,[data-cta]');if(el&&(el.hasAttribute('data-cta')||/quote|contact|demo|book|rfq|join|sign|enquir|inquir/i.test(el.textContent||'')))ev('cta_click',{value:null})},true);
+var t0=Date.now(),marks={};ev('page_view');
+addEventListener('scroll',function(){var s=100*(scrollY+innerHeight)/Math.max(1,document.documentElement.scrollHeight);
+ [25,50,75,100].forEach(function(m){if(s>=m-1&&!marks[m]){marks[m]=1;ev('scroll',{value:m})}})},{passive:true});
+document.addEventListener('click',function(e){var el=e.target.closest&&e.target.closest('a,button,[data-cta]');if(!el)return;
+ var h=el.getAttribute('href')||'',lab=(el.getAttribute('data-cta')||el.textContent||'').trim().slice(0,120),t=null;
+ if(/^tel:/i.test(h))t='tel_click';else if(/^mailto:/i.test(h))t='email_click';
+ else if(/wa\.me\/|api\.whatsapp\.com|whatsapp:/i.test(h))t='whatsapp_click';
+ else if(/\.(pdf|docx?|xlsx?|pptx?|zip|csv)(\?|#|$)/i.test(h))t='file_download';
+ else if(el.href&&el.hostname&&el.hostname!==location.hostname)t='outbound_click';
+ if(t){ev(t,{label:lab,target:t==='tel_click'||t==='email_click'||t==='whatsapp_click'?t:el.href})}
+ if(el.hasAttribute('data-cta')||/quote|contact|demo|book|rfq|join|sign|enquir|inquir|panel book|brochure/i.test(el.textContent||''))ev('cta_click',{label:lab})},true);
 var started={};document.addEventListener('input',function(e){var f=e.target.form;if(!f)return;var id=f.id||f.getAttribute('action')||'form';var em=f.querySelector('input[type=email]');
- if(!started[id]){started[id]=Date.now();ev('form_start',{})}if(em&&/@/.test(em.value)&&!started[id+'e']){started[id+'e']=1;ev('form_start',{email:em.value})}},true);
+ if(!started[id]){started[id]=Date.now();ev('form_start',{form:id})}if(em&&/@/.test(em.value)&&!emailed[id]){emailed[id]=1;ev('form_start',{form:id,email:em.value})}},true);
+var submitted={},emailed={};
 function fields(f){var o={};new FormData(f).forEach(function(val,key){o[key]=String(val).slice(0,4000)});return o}
 function thanks(f,ok){var m=f.getAttribute('data-cgx-success')||'Thank you! We will contact you shortly.';var mode=f.getAttribute('data-cgx-thanks')||'alert';
  if(mode==='button'){var b=f.querySelector('button[type="submit"],button:not([type])');if(b){var o=b.textContent;b.textContent=m;b.disabled=true;setTimeout(function(){b.textContent=o;b.disabled=false},3500)}}else{alert(m)}f.reset()}
@@ -164,14 +208,15 @@ document.addEventListener('submit',function(e){var f=e.target;if(!f.matches||!f.
  var o=fields(f),need=(f.getAttribute('data-cgx-required')||'name,email,message').split(',');
  for(var i=0;i<need.length;i++){if(!(o[need[i]]||'').trim()){if(!observe)alert('Please fill in all required fields.');return}}
  var fk=f.id||f.getAttribute('action')||'form';
- var p={fields:o,v:v,r:r,bu:BU,page:location.href,referrer:document.referrer,utm:utm,form:fk,
-  elapsed_ms:started[fk]?Date.now()-started[fk]:null};
- ev('form_submit',{email:o.email||null});send();
+ var p={fields:o,v:v,r:r,bu:BU,page:location.href,referrer:document.referrer,utm:utm,click_ids:cids,form:fk,
+  first_touch:consent?first():touch,consent:consent,elapsed_ms:started[fk]?Date.now()-started[fk]:null};
+ submitted[fk]=1;ev('form_submit',{form:fk,email:o.email||null});send();
  if(observe){post('/lead',p).then(function(x){if(!x.ok&&x.status>=500)queue(p)}).catch(function(){queue(p)});return}
  var done=false,timer=setTimeout(function(){if(!done){done=true;queue(p);thanks(f,false)}},6000);
  post('/lead',p).then(function(x){if(done)return;done=true;clearTimeout(timer);if(!x.ok&&x.status>=500)queue(p);thanks(f,x.ok)})
   .catch(function(){if(done)return;done=true;clearTimeout(timer);queue(p);thanks(f,false)})},true);
-addEventListener('pagehide',function(){ev('time_on_page',{value:Math.round((Date.now()-t0)/1000)});ev('scroll',{value:maxs});send()});
+addEventListener('pagehide',function(){ev('time_on_page',{value:Math.round((Date.now()-t0)/1000)});
+ Object.keys(started).forEach(function(k){if(!submitted[k])ev('form_abandon',{form:k,value:Math.round((Date.now()-started[k])/1000)})});send()});
 if(document.readyState!=='loading'){banner();flush()}else document.addEventListener('DOMContentLoaded',function(){banner();flush()});
 window.cgxTracker={visitor:v,api:api,bu:BU,grant:grant};
 })();"""

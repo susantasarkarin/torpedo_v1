@@ -82,25 +82,63 @@ def safe_redirect(url: str, cfg=DEFAULTS) -> Optional[str]:
     return None
 
 
-EVENT_TYPES = {"page_view", "time_on_page", "scroll", "cta_click", "form_start", "form_submit", "consent"}
+EVENT_TYPES = {"page_view", "time_on_page", "scroll", "cta_click", "outbound_click", "file_download", "tel_click",
+               "whatsapp_click", "email_click", "form_start", "form_submit", "form_abandon", "consent"}
+ANON_TYPES = {"page_view", "consent"}       # all that is kept without consent (MARKETING_PLAN 3.1.5)
+CLICK_IDS = ("gclid", "gbraid", "wbraid", "li_fat_id", "fbclid")
+SCROLL_MARKS = (25, 50, 75, 100)
+
+
+def click_ids(qs: Dict[str, List[str]]) -> Dict[str, str]:
+    return {k: qs[k][0][:200] for k in CLICK_IDS if qs.get(k) and qs[k][0]}
 
 
 def clean_event(e: Dict[str, Any], *, visitor: str, ip: str, ua: str, now: datetime, cfg=DEFAULTS) -> Optional[Dict[str, Any]]:
-    if e.get("type") not in EVENT_TYPES or not visitor:
+    """One tracker event. Without consent only page_view / consent survive, with no visitor id, IP, user
+    agent, query string, click IDs or email: an aggregate, non-identifying count."""
+    consent = bool(e.get("consent"))
+    if e.get("type") not in EVENT_TYPES or (consent and not visitor) or (not consent and e["type"] not in ANON_TYPES):
         return None
     from urllib.parse import parse_qs, urlparse
     url = str(e.get("url") or "")[:500]
     u = urlparse(url)
+    qs = parse_qs(u.query)
     raw_host = (u.hostname or "").lower()
     site = site_for_host(raw_host, cfg)
     host = site["domain"] if site else raw_host.removeprefix("www.")
-    utm = {k: v[0][:100] for k, v in parse_qs(u.query).items() if k.startswith("utm_")}
-    return {"visitor_id": visitor[:64], "type": e["type"], "url": url, "host": host, "path": u.path[:200],
-            "bu": site["bu"] if site else cfg["site_bu"].get(host), "utm": utm, "referrer": str(e.get("referrer") or "")[:300],
-            "value": e.get("value") if isinstance(e.get("value"), (int, float)) else None,
-            "form_email": (str(e.get("email"))[:200].lower() if e.get("type") in ("form_start", "form_submit")
-                           and "@" in str(e.get("email") or "") else None),
-            "consent": bool(e.get("consent")), "ip_prefix": ip_prefix(ip), "ua": ua[:200], "at": now}
+    utm = {k: v[0][:100] for k, v in qs.items() if k.startswith("utm_")}
+    ref = str(e.get("referrer") or "")[:300]
+    doc = {"visitor_id": visitor[:64], "session_id": str(e.get("session") or "")[:64] or None, "type": e["type"],
+           "url": url, "host": host, "path": u.path[:200], "bu": site["bu"] if site else cfg["site_bu"].get(host),
+           "utm": utm, "click_ids": click_ids(qs), "referrer": ref,
+           "value": e.get("value") if isinstance(e.get("value"), (int, float)) else None,
+           "label": str(e.get("label") or "")[:120] or None, "target": str(e.get("target") or "")[:300] or None,
+           "form": str(e.get("form") or "")[:80] or None,
+           "form_email": (str(e.get("email"))[:200].lower() if e.get("type") in ("form_start", "form_submit")
+                          and "@" in str(e.get("email") or "") else None),
+           "consent": consent, "ip_prefix": ip_prefix(ip), "ua": ua[:200], "at": now}
+    if e["type"] == "scroll" and doc["value"] not in SCROLL_MARKS:
+        return None
+    if not consent:
+        doc.update(visitor_id=None, session_id=None, url=f"{u.scheme}://{u.netloc}{u.path}"[:500], click_ids={},
+                   referrer=(urlparse(ref).hostname or "")[:200], label=None, target=None, form=None, form_email=None,
+                   ip_prefix=None, ua=None)
+    return doc
+
+
+def attribution(a: Any) -> Dict[str, Any]:
+    """The first-touch record the script keeps in its cookie (3.1.4), cleaned: utm_*, click IDs, referrer,
+    landing page, mail token presence, first-seen time."""
+    if not isinstance(a, dict):
+        return {}
+    out = {k: str(v)[:100] for k, v in a.items() if str(k).startswith("utm_") and v}
+    out.update({k: str(a[k])[:200] for k in CLICK_IDS if a.get(k)})
+    for k, n in (("referrer", 300), ("landing", 500), ("ts", 30)):
+        if a.get(k):
+            out[k] = str(a[k])[:n]
+    if a.get("r"):
+        out["mail_token"] = True
+    return out
 
 
 def score(events: List[Dict[str, Any]], now: datetime, cfg=DEFAULTS) -> Dict[str, Any]:

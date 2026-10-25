@@ -17,6 +17,8 @@ from typing import Any, Callable, Dict, Optional
 
 from bson import ObjectId
 
+from web_tracking.rules import CLICK_IDS, attribution
+
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,}$", re.I)
 MIN_HUMAN_MS = 1500
 REPEAT_MERGE_SECONDS = 600       # same email + site within 10 min = the same enquiry
@@ -67,7 +69,11 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
     submission = {"at": now, "site": site["domain"], "page": _clean(body.get("page"), 500), "form": _clean(body.get("form"), 80),
                   "referrer": _clean(body.get("referrer"), 300), "interest": interest, "message": message,
                   "utm": {k: _clean(v, 100) for k, v in (body.get("utm") or {}).items() if str(k).startswith("utm_")},
-                  "visitor_id": _clean(body.get("v"), 64), "ip_prefix": _ip_prefix(ip), "ua": ua[:200]}
+                  "visitor_id": _clean(body.get("v"), 64), "ip_prefix": _ip_prefix(ip), "ua": ua[:200],
+                  "click_ids": {k: _clean(v, 200) for k, v in (body.get("click_ids") or {}).items() if k in CLICK_IDS and v},
+                  "first_touch": attribution(body.get("first_touch")), "cookie_consent": bool(body.get("consent")),
+                  "heard_from": _clean(f.get("heard_from") or f.get("how_did_you_hear"), 120) or None,
+                  "optin": {"email": _yes(f.get("optin_email")), "whatsapp": _yes(f.get("optin_whatsapp"))}}
     existing = crm["leads"].find_one({"email": email}, {"_id": 1, "bu": 1, "web_submissions": 1})
     last = ((existing or {}).get("web_submissions") or [{}])[-1]
     if existing and isinstance(last.get("at"), datetime) and (now - last["at"]).total_seconds() < REPEAT_MERGE_SECONDS \
@@ -92,6 +98,19 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
                "metadata": {"source": "website_form", "site": site["domain"], "message": message[:2000]}}
         lead_id = str(crm["leads"].insert_one(doc).inserted_id)
         dedupe = "contact" if contact else "account_domain" if account else "new"
+    phone = _clean(f.get("phone"), 40)
+    if submission["optin"]["whatsapp"] and phone:
+        # recorded opt-in, kept permanently; the only basis for business-initiated WhatsApp (3.5.3)
+        import hashlib
+        digits = re.sub(r"\D", "", phone)
+        ea["whatsapp_optins"].insert_one({"phone_hash": hashlib.sha256(digits.encode()).hexdigest(), "phone_last4": digits[-4:],
+                                          "lead_id": lead_id, "contact_id": str(contact["_id"]) if contact else None,
+                                          "bu": bu, "site": site["domain"], "page": submission["page"], "granted": True,
+                                          "text": _clean(f.get("optin_whatsapp_text"), 300) or None,
+                                          "source": "website_form", "at": now, "created_at": now, "updated_at": now})
+    if submission["optin"]["email"]:
+        crm["leads"].update_one({"_id": ObjectId(lead_id)}, {"$set": {"email_optin": {"granted": True, "at": now,
+                                                                                       "source": "website_form"}}})
     if submission["visitor_id"]:
         ea["web_visitors"].update_one({"visitor_id": submission["visitor_id"]},
                                       {"$set": {"lead_id": lead_id, "form_email": email,
@@ -118,6 +137,10 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
     except Exception:
         pass
     return {"ok": True, "lead_id": lead_id, "dedupe": dedupe, "review_item": item}
+
+
+def _yes(v) -> bool:
+    return str(v or "").strip().lower() in ("1", "true", "on", "yes", "y")
 
 
 def _ip_prefix(ip: str) -> Optional[str]:

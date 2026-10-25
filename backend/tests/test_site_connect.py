@@ -133,3 +133,31 @@ def test_site_check_flags_silent_sites_only_after_install(monkeypatch):
     d["email_automation"]["web_events"].insert_one({"host": "bimwavesolutions.com", "type": "page_view", "at": now - timedelta(hours=40)})
     out = {s["domain"]: s["status"] for s in site_check.run(now=now, gd=gd)["sites"]}
     assert out == {"business.surveyfieldwork.com": "not_installed", "cogentixresearch.com": "ok", "bimwavesolutions.com": "silent"}
+
+
+def test_enquiry_stores_attribution_optins_and_heard_from(monkeypatch):
+    d, gd = _gd()
+    from platform_core import review_queue
+    monkeypatch.setattr(review_queue, "_col", lambda db=None: d["email_automation"]["review_queue_items"])
+    from platform_core import audit
+    monkeypatch.setattr(audit, "log_action", lambda **k: None)
+    b = _body(phone="+91 98765 43210", optin_whatsapp="on", optin_email="true", heard_from="LinkedIn post")
+    b.update(click_ids={"gclid": "G1", "bogus": "x"}, first_touch={"utm_source": "google", "landing": "https://bimwavesolutions.com/"},
+             consent=True)
+    r = leads.capture(gd, b, site=SITE, ip="1.2.3.4", ua="ua", contact_from_token=None, cfg=rules.DEFAULTS)
+    sub = d["crm_db"]["leads"].find_one({"email": "asha@builder.in"})["web_submissions"][0]
+    assert sub["click_ids"] == {"gclid": "G1"} and sub["first_touch"]["utm_source"] == "google"
+    assert sub["heard_from"] == "LinkedIn post" and sub["optin"] == {"email": True, "whatsapp": True}
+    opt = d["email_automation"]["whatsapp_optins"].find_one({"lead_id": r["lead_id"]})
+    assert opt["granted"] and opt["phone_last4"] == "3210" and "98765" not in str(opt)
+    assert d["crm_db"]["leads"].find_one({"email": "asha@builder.in"})["email_optin"]["granted"]
+
+
+def test_no_optin_ticked_records_no_optin(monkeypatch):
+    d, gd = _gd()
+    from platform_core import review_queue
+    monkeypatch.setattr(review_queue, "_col", lambda db=None: d["email_automation"]["review_queue_items"])
+    from platform_core import audit
+    monkeypatch.setattr(audit, "log_action", lambda **k: None)
+    leads.capture(gd, _body(phone="9876543210"), site=SITE, ip="", ua="", contact_from_token=None, cfg=rules.DEFAULTS)
+    assert d["email_automation"]["whatsapp_optins"].count_documents({}) == 0
