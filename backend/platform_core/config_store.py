@@ -65,6 +65,7 @@ SECTIONS: Dict[str, Callable[[], Dict[str, Any]]] = {
     "reengagement": lambda: __import__("reengage.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.10
     "service_delivery": lambda: __import__("service_delivery.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.13
     "web": lambda: __import__("web_tracking.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.12
+    "marketing": lambda: __import__("marketing.config", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.15 / MARKETING_PLAN 4.3
     "kpi": lambda: __import__("kpi.definitions", fromlist=["config_defaults"]).config_defaults(),   # 3.14
     "accounting": lambda: __import__("accounting.invoicing", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.9
     "panel": lambda: __import__("panel_rules.rules", fromlist=["DEFAULTS"]).DEFAULTS,   # 3.7b
