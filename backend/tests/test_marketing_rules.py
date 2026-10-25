@@ -159,3 +159,25 @@ def test_outcome_metric_before_vs_after(db):
                                "executed_at": ex, "outcome_due_at": NOW})
     assert m == {"baseline": 7, "actual": 3, "higher_is_better": True, "name": "form_submits"}
     assert Ru.outcome_metric(gd)({"metric": {}, "executed_at": ex, "outcome_due_at": NOW}) is None
+
+
+def test_leads_with_pending_inbound_item_are_left_to_the_reply_flow(db):
+    d, gd = db
+    ea = d["email_automation"]
+    ea["touchpoints"].insert_one({"lead_id": "L9", "kind": "form", "at": NOW - timedelta(days=1)})
+    ea["review_queue_items"].insert_one({"type": "inbound_lead", "status": "pending", "payload": {"lead_id": "L9"}})
+    assert not [c for c in Ru.lead_candidates(ea, d["crm_db"], NOW, R) if c["entity_key"].startswith("lead:L9")]
+    ea["review_queue_items"].docs[0]["status"] = "approved"
+    assert [c for c in Ru.lead_candidates(ea, d["crm_db"], NOW, R) if c["entity_key"] == "lead:L9"]
+
+
+def test_staging_submissions_are_not_scored(db):
+    d, gd = db
+    ea = d["email_automation"]
+    ea["touchpoints"].insert_one({"lead_id": "T1", "kind": "form", "at": NOW - timedelta(days=1),
+                                  "landing": "http://127.0.0.3:8701/contact.html"})
+    ea["touchpoints"].insert_one({"lead_id": "T2", "kind": "form", "at": NOW - timedelta(days=1),
+                                  "landing": "https://cogentixresearch.com/contact.html"})
+    keys = {c["entity_key"] for c in Ru.lead_candidates(ea, d["crm_db"], NOW, R)}
+    assert "lead:T2" in keys and not any(k.startswith("lead:T1") for k in keys)
+    assert Ru._test_host("http://localhost:3000/") and Ru._test_host("http://192.168.1.4/") and not Ru._test_host("https://bimwavesolutions.com/")

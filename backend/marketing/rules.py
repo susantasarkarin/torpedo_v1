@@ -27,6 +27,19 @@ RULES = {
 }
 
 
+def _test_host(url: Optional[str]) -> bool:
+    import ipaddress
+    from urllib.parse import urlparse
+    h = (urlparse(url or "").hostname or "").lower()
+    if h in ("localhost",) or h.endswith((".local", ".test")):
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
+
+
 def _ymd(d: datetime) -> str:
     return d.strftime("%Y-%m-%d")
 
@@ -264,8 +277,15 @@ def lead_candidates(ea, crm, now: datetime, R: Dict[str, Any]) -> List[Dict[str,
     since = now - timedelta(days=14)
     active = defaultdict(list)
     for t in ea["touchpoints"].find({"at": {"$gte": since}, "kind": {"$in": ["visit", "form", "mail_in", "lead_form", "chat"]}}):
+        if _test_host(t.get("landing")):          # staging / local test submissions are not people
+            continue
         active[t["lead_id"]].append(t)
+    # a pending website-enquiry item already carries the 1-hour reply (6.3): no second item for the same person
+    in_inbound = {str((i.get("payload") or {}).get("lead_id")) for i in
+                  ea["review_queue_items"].find({"type": "inbound_lead", "status": "pending"})}
     for lid, tps in list(active.items())[:200]:
+        if lid in in_inbound:
+            continue
         score, why = 0, []
         kinds = {t["kind"] for t in tps}
         if "form" in kinds or "lead_form" in kinds:
