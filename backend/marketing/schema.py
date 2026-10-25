@@ -25,10 +25,11 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "web_events": ([("visitor_id", {}), ([("at", 1), ("bu", 1)], {}), ("type", {})], "13m"),
     "consents": ([("visitor_id", {}), ("at", {})], None),                 # permanent
     # identity + attribution (3.8)
-    "touchpoints": ([([("lead_id", 1), ("at", 1)], {}), ("contact_id", {"sparse": True}), ("visitor_id", {"sparse": True}),
+    "touchpoints": ([("tp_key", {"unique": True}), ([("lead_id", 1), ("at", 1)], {}),("contact_id", {"sparse": True}), ("visitor_id", {"sparse": True}),
                      ("click_ids.gclid", {"sparse": True}), ("click_ids.fbclid", {"sparse": True}),
                      ("click_ids.li_fat_id", {"sparse": True}), ("campaign_id", {"sparse": True})], None),
-    "attribution_results": ([([("lead_id", 1), ("model", 1)], {}), ([("bu", 1), ("model", 1)], {})], None),
+    "attribution_results": ([([("lead_id", 1), ("conversion_id", 1), ("model", 1)], {"unique": True}),
+                             ([("bu", 1), ("model", 1), ("event", 1)], {})], None),
     # analytics + SEO (3.2 / 3.3)
     "ga4_daily": ([([("property_id", 1), ("date", 1), ("dims_key", 1)], {"unique": True}), (D, {})], None),
     "gsc_queries_daily": ([([("site", 1), ("date", 1), ("query", 1), ("page", 1), ("country", 1), ("device", 1)],
