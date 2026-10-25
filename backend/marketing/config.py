@@ -36,6 +36,7 @@ DEFAULTS: Dict[str, Any] = {
     "outcome_window_days": {"D1": 14, "D2": 7, "D3": 14, "D4": 7, "D5": 14, "D6": 28, "D7": 28, "D8": 28,
                             "D9": 28, "D10": 14, "D11": 14, "D12": 14, "D13": 7, "D14": 28},
     "go_live_min_agreement": 0.85,
+    "enforce_go_live_gate": True,                      # L2/L3 act as L1 until the type passes evaluation.go_live_ok
     # the 1.5B server has a 2,048-token context: briefs stay ~600 tokens. Raise D8/D14 when a 7B is hosted (4.4)
     "qwen": {"max_input_tokens": {"default": 600, "D8": 600, "D14": 600}, "model_small": "1.5b", "model_large": "7b"},
     "sla_working_hours": {"lead": 1, "comment": 4, "default": 4},

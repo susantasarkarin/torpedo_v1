@@ -2469,6 +2469,18 @@ async def startup_event():
                 except Exception as e:
                     print(f"[MarketingOutcomes] Error: {e}")
 
+            def _marketing_eval_job():
+                try:
+                    from marketing import evaluation
+                    evaluation.seed()
+                    print(f"[MarketingEval] {evaluation.run_eval()}")
+                except Exception as e:
+                    print(f"[MarketingEval] Error: {e}")
+
+            scheduler.add_job(_marketing_eval_job, CronTrigger(day_of_week="tue", hour=17, minute=30),  # Tue 23:00 IST
+                              id="marketing_eval", name="Marketing: decision-engine evaluation (42 cases)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             scheduler.add_job(_marketing_outcomes_job, CronTrigger(hour=0, minute=30),  # 06:00 IST
                               id="marketing_outcomes", name="Marketing: decision outcomes + stop-loss",
                               max_instances=1, coalesce=True, replace_existing=True)

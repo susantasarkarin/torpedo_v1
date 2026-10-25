@@ -14,6 +14,7 @@ NOW = datetime(2026, 10, 25, 10, 0)
 def cfg(**over):
     c = copy.deepcopy(mcfg.DEFAULTS)
     c["budget"]["monthly_cap_inr"] = {"SFW": {"google": 100000}}
+    c["enforce_go_live_gate"] = False          # the gate has its own test below
     for k, v in over.items():
         c[k] = v
     return c
@@ -212,3 +213,17 @@ def test_brief_fits_the_small_model_context():
     assert len(json.dumps(b, default=str)) <= cap and len(b["recent"]) < 3        # recent history dropped first
     huge = E.brief(cand(evidence={f"metric_{i}": i * 1000.5 for i in range(300)}), cfg(), [])
     assert len(huge["metrics"]) == 12                                               # then metrics trimmed to the top 12
+
+
+def test_go_live_gate_holds_l2_at_l1_until_85pct_agreement(env):
+    d, gd = env
+    c = cfg(autonomy={**mcfg.DEFAULTS["autonomy"], "D2": "L2"}, enforce_go_live_gate=True)
+    ev = {**cand()["evidence"], "conversions": 40}
+    r = E.decide(cand(evidence=ev), gd=gd, qwen=qwen_says(), cfg=c, now=NOW)
+    assert r["status"] == "in_review" and r["autonomy"] == "L1" and "judged" in r["gate"]
+    col = d["email_automation"]["decisions"]
+    for i in range(10):
+        col.insert_one({"decision_type": "D2", "human": "approved" if i < 9 else "rejected", "created_at": NOW - timedelta(days=2),
+                        "entity_key": f"old{i}", "status": "approved"})
+    r = E.decide(cand(entity_key="google:camp:77", evidence=ev), gd=gd, qwen=qwen_says(), cfg=c, now=NOW)
+    assert r["status"] == "shadow_executed"                                 # 9/10 = 90% >= 85%

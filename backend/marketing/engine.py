@@ -221,6 +221,12 @@ def decide(c: Dict[str, Any], *, gd: Optional[Callable] = None, qwen: Optional[C
 
     if mcfg.killed(cfg, c.get("bu")):
         return save("skipped", reason="kill switch on")
+    if level in ("L2", "L3") and cfg.get("enforce_go_live_gate", True):
+        from marketing import evaluation       # 4.5: above L1 only with >= 85% owner agreement over 14 days
+        gate = evaluation.go_live_ok(t, gd, cfg=cfg, now=now)
+        if not gate["ok"]:
+            level = "L1"
+            doc.update(autonomy="L1", autonomy_set=mcfg.autonomy(cfg, t), gate=gate["why"])
     if level == "L0":
         return save("skipped", reason=f"{t} is off (L0)")
     cool = int((cfg.get("cooldown_days") or {}).get(t) or cfg["cooldown_days"]["default"])
