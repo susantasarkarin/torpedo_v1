@@ -35,6 +35,8 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "gsc_queries_daily": ([([("site", 1), ("date", 1), ("query", 1), ("page", 1), ("country", 1), ("device", 1)],
                             {"unique": True}), (D, {})], None),
     "gsc_pages_daily": ([([("site", 1), ("date", 1), ("page", 1)], {"unique": True}), (D, {})], None),
+    "gsc_sitemaps": ([([("site", 1), ("path", 1)], {"unique": True})], None),            # beyond Section 5: GSC sitemaps
+    "gsc_url_index": ([("url", {"unique": True}), ("site", {})], None),                  # URL Inspection verdicts
     "seo_audits": ([([("site", 1), ("started_at", -1)], {})], None),
     "seo_issues": ([("key", {"unique": True}), ([("site", 1), ("status", 1), ("severity", 1)], {}), ("audit_id", {})], None),
     "cwv_results": ([([("url", 1), ("strategy", 1), ("date", 1)], {}), (D, {})], None),

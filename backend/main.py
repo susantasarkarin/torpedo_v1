@@ -2425,6 +2425,18 @@ async def startup_event():
                 except Exception as e:
                     print(f"[SEOAudit] Error: {e}")
 
+            def _google_data_job():
+                try:
+                    from datetime import datetime as _dt
+                    from marketing import google_data
+                    print(f"[GoogleData] {google_data.run(inspect=_dt.utcnow().weekday() == 0)}")
+                except Exception as e:
+                    print(f"[GoogleData] Error: {e}")
+
+            scheduler.add_job(_google_data_job, CronTrigger(hour=1, minute=30),  # 07:00 IST
+                              id="marketing_google_import", name="Marketing: Search Console + GA4 daily import",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             scheduler.add_job(_seo_weekly_job, CronTrigger(day_of_week="sun", hour=16, minute=30),  # Sun 22:00 IST
                               id="seo_weekly_audit", name="Marketing: weekly SEO crawl + PageSpeed per site",
                               max_instances=1, coalesce=True, replace_existing=True)

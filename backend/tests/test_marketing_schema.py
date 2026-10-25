@@ -12,7 +12,8 @@ decision_candidates decisions decision_outcomes marketing_kpi_snapshots""".split
 
 
 def test_every_plan_collection_registered():
-    assert set(PLAN_SECTION_5) == set(schema.COLLECTIONS)     # marketing_config = config_store section
+    assert set(PLAN_SECTION_5) <= set(schema.COLLECTIONS)     # marketing_config = config_store section
+    assert set(schema.COLLECTIONS) - set(PLAN_SECTION_5) == {"gsc_sitemaps", "gsc_url_index"}
 
 
 def test_daily_tables_have_date_bu_index():
@@ -46,7 +47,7 @@ def test_upsert_ops_keeps_created_at_on_insert_only():
 
 def test_ensure_indexes_dry_run_touches_nothing():
     rep = schema.ensure_indexes(client=None)
-    assert rep["collections"] == len(PLAN_SECTION_5) and rep["indexes_planned"] > 60 and rep["created"] == []
+    assert rep["collections"] == len(schema.COLLECTIONS) and rep["indexes_planned"] > 60 and rep["created"] == []
 
 
 def test_everything_starts_l1_and_shadow():
