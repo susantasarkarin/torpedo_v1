@@ -36,11 +36,41 @@ DEFAULTS: Dict[str, Any] = {
     "outcome_window_days": {"D1": 14, "D2": 7, "D3": 14, "D4": 7, "D5": 14, "D6": 28, "D7": 28, "D8": 28,
                             "D9": 28, "D10": 14, "D11": 14, "D12": 14, "D13": 7, "D14": 28},
     "go_live_min_agreement": 0.85,
-    "qwen": {"max_input_tokens": {"default": 1200, "D8": 2500, "D14": 3000}, "model_small": "1.5b", "model_large": "7b"},
+    # the 1.5B server has a 2,048-token context: briefs stay ~600 tokens. Raise D8/D14 when a 7B is hosted (4.4)
+    "qwen": {"max_input_tokens": {"default": 600, "D8": 600, "D14": 600}, "model_small": "1.5b", "model_large": "7b"},
     "sla_working_hours": {"lead": 1, "comment": 4, "default": 4},
     "retention": {"web_events_months": 13},
     "banned_claims": [],                               # global list; per-BU lists live in brand_voice
 }
+
+
+# Qwen gateway tasks for the decision lanes (4.4). Registered into the "qwen" config section's defaults
+# below, so a stored override in torpedo_settings.config still wins.
+QWEN_TASKS = {
+    "marketing_decision_p1": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 30, "priority": "P1", "max_tokens": 350,
+                              "max_input_chars": 2500},
+    "marketing_decision_p2": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 45, "priority": "P2", "max_tokens": 350,
+                              "max_input_chars": 2500},
+    "marketing_decision_p3": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 60, "priority": "P3", "max_tokens": 450,
+                              "max_input_chars": 2500},          # 7B for D8/D14 once one is hosted
+}
+
+
+def register_qwen_tasks() -> None:
+    try:
+        from platform_core import config_store
+    except Exception:
+        return
+    base = config_store.SECTIONS.get("qwen")
+    if not base or getattr(base, "_marketing", False):
+        return
+
+    def with_marketing():
+        d = base()
+        d["tasks"] = {**QWEN_TASKS, **d.get("tasks", {})}
+        return d
+    with_marketing._marketing = True
+    config_store.SECTIONS["qwen"] = with_marketing
 
 
 def autonomy(cfg: Dict[str, Any], decision: str) -> str:
