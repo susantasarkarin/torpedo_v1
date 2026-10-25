@@ -209,7 +209,8 @@ def decide(c: Dict[str, Any], *, gd: Optional[Callable] = None, qwen: Optional[C
     col = gd(schema.DB)["decisions"]
     level = mcfg.autonomy(cfg, t)
     doc: Dict[str, Any] = {**{k: c.get(k) for k in ("decision_type", "entity_key", "entity_label", "bu", "platform",
-                                                    "action", "parameters", "evidence", "targets", "rule_id")},
+                                                    "action", "parameters", "evidence", "targets", "rule_id",
+                                                    "metric", "impact_inr")},
                            "autonomy": level, "lane": mcfg.LANES.get(t, "P3"), "mode": cfg.get("mode", "shadow")}
 
     def save(status, **kw):

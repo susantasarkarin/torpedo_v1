@@ -2437,6 +2437,42 @@ async def startup_event():
                               id="marketing_google_import", name="Marketing: Search Console + GA4 daily import",
                               max_instances=1, coalesce=True, replace_existing=True)
 
+            try:      # registers the Review Queue resume handler for marketing decisions
+                import marketing.engine  # noqa: F401
+            except Exception as e:
+                print(f"[MarketingEngine] import failed: {e}")
+
+            def _marketing_lane(lane):
+                def job():
+                    try:
+                        from marketing import rules as mrules
+                        print(f"[MarketingDecisions {lane}] {mrules.run(lane)}")
+                    except Exception as e:
+                        print(f"[MarketingDecisions {lane}] Error: {e}")
+                return job
+
+            scheduler.add_job(_marketing_lane("P1"), IntervalTrigger(hours=1), id="marketing_decisions_p1",
+                              name="Marketing decisions P1 (anomalies, shadow)", max_instances=1, coalesce=True, replace_existing=True)
+            scheduler.add_job(_marketing_lane("P2"), CronTrigger(minute=20), id="marketing_decisions_p2",
+                              name="Marketing decisions P2 (pause, negatives, leads; shadow)", max_instances=1, coalesce=True,
+                              replace_existing=True)
+            scheduler.add_job(_marketing_lane("P3"), CronTrigger(hour=17, minute=0),  # 22:30 IST, inside the P3 night window
+                              id="marketing_decisions_p3", name="Marketing decisions P3 (budget, bids, SEO, content, weekly; shadow)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _marketing_outcomes_job():
+                try:
+                    from database import get_database
+                    from marketing import engine as meng, rules as mrules
+                    print(f"[MarketingOutcomes] rejections synced {meng.sync_rejections()}; "
+                          f"{meng.measure_due(metric=mrules.outcome_metric(get_database))}")
+                except Exception as e:
+                    print(f"[MarketingOutcomes] Error: {e}")
+
+            scheduler.add_job(_marketing_outcomes_job, CronTrigger(hour=0, minute=30),  # 06:00 IST
+                              id="marketing_outcomes", name="Marketing: decision outcomes + stop-loss",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             scheduler.add_job(_seo_weekly_job, CronTrigger(day_of_week="sun", hour=16, minute=30),  # Sun 22:00 IST
                               id="seo_weekly_audit", name="Marketing: weekly SEO crawl + PageSpeed per site",
                               max_instances=1, coalesce=True, replace_existing=True)

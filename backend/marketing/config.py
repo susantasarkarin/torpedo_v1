@@ -41,6 +41,7 @@ DEFAULTS: Dict[str, Any] = {
     "sla_working_hours": {"lead": 1, "comment": 4, "default": 4},
     "retention": {"web_events_months": 13},
     "banned_claims": [],                               # global list; per-BU lists live in brand_voice
+    "rules": {},                                       # overrides for marketing.rules.RULES thresholds (owner, M-CP2)
 }
 
 
