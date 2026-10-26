@@ -20,8 +20,33 @@ from typing import Any, Dict
 
 from bson import ObjectId
 
-PERSON_ACCOUNT = re.compile(r"^[^()]{2,60}\(([^()]{2,60})\)\s*$")
+PERSON_LIKE = re.compile(r"^[A-Z][a-z][A-Za-z'\-]*(?:,? [A-Z][a-z][A-Za-z'\-]*){1,2}$")
+COMPANY_WORD = re.compile(r"(?i)\b(research|group|inc|ltd|llc|limited|pvt|private|solutions?|data|insights?|market\w*|"
+                          r"exchange|international|global|consult\w*|services?|analytics|panel|surveys?|field\w*|media|"
+                          r"labs?|partners?|corp\w*|company|co|agency|tech\w*|systems?|digital|studios?|ventures?|"
+                          r"knowledge|intelligence|sampling|sample|strategy|strategies|associates|india|europe|asia)\b")
 REASON = "no estimate or invoice -- finance customers are the accounts we quote or bill (owner 2026-10-26)"
+
+
+def is_person(name: str) -> bool:
+    """'Wael RMR (Rmr Research)', 'Teng, Josene (KWKAL) (Kantar)', 'Garret McDannald' -- a person, not a company."""
+    n = (name or "").strip()
+    if "(" in n:
+        return True
+    return bool(PERSON_LIKE.match(n)) and not COMPANY_WORD.search(n)
+
+
+def company_name(billed: list, account: str, others: list) -> str:
+    """The one name the account and its finance customer both carry."""
+    cands = [*billed, account, *others]
+    for n in cands:
+        if n and n.strip() and not is_person(n):
+            return n.strip()
+    for n in cands:                                   # "Meghna Subba (Toluna)" -> "Toluna"
+        inner = re.findall(r"\(([^()]{2,60})\)", n or "")
+        if inner and not is_person(inner[-1]):
+            return inner[-1].strip()
+    return (account or "").strip()
 
 
 def run(c, apply=False, now=None) -> Dict[str, Any]:
@@ -50,36 +75,40 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
         if not acc:
             rep["rfq account missing in crm (skipped)"] += 1
             continue
-        cs = sorted(by_acc.get(aid, []), key=lambda x: (-invoiced[str(x["_id"])], x.get("created_at") or now))
+        group = by_acc.get(aid, [])
+        acc_name = (acc.get("name") or "").strip()
+        name = company_name([x.get("name") for x in group if invoiced[str(x["_id"])]], acc_name,
+                            [x.get("name") for x in group])
+        if name != acc_name:
+            rep["account renamed (was a person / not the billed company)"] += 1
+            if len(samples["account_renamed"]) < 12:
+                samples["account_renamed"].append(f"{acc_name[:40]} -> {name[:40]}")
+            if apply:
+                crm.accounts.update_one({"_id": acc["_id"]}, {"$set": {"name": name, "previous_name": acc_name,
+                                                                      **stamp}})
+        cs = sorted(group, key=lambda x: (-invoiced[str(x["_id"])], (x.get("name") or "").strip() != name,
+                                          x.get("created_at") or now))
         if not cs:
             rep["customer created from account"] += 1
             if len(samples["created"]) < 8:
-                samples["created"].append(acc.get("name"))
+                samples["created"].append(name)
             if apply:
-                fin.customers.insert_one({"name": acc.get("name"), "company_name": acc.get("name"),
+                fin.customers.insert_one({"name": name, "company_name": name,
                                           "crm_account_id": aid, "domain": acc.get("domain"), "bu": acc.get("bu"),
                                           "source": "crm_account", "created_at": now, **stamp})
             continue
         primary = cs[0]
         keep_ids.add(str(primary["_id"]))
         rep["kept"] += 1
-        upd: Dict[str, Any] = {}
-        acc_name, billed = (acc.get("name") or "").strip(), (primary.get("name") or "").strip()
-        if acc_name and billed and acc_name != billed:
-            m = PERSON_ACCOUNT.match(acc_name)
-            if m and invoiced[str(primary["_id"])]:
-                rep["account named after a person -> billed company name"] += 1
-                samples["account_renamed"].append(f"{acc_name[:40]} -> {billed[:40]}")
-                if apply:
-                    crm.accounts.update_one({"_id": acc["_id"]}, {"$set": {"name": billed, "previous_name": acc_name,
-                                                                          **stamp}})
-            else:
-                rep["customer renamed to its account (legal name kept)"] += 1
-                if len(samples["renamed"]) < 10:
-                    samples["renamed"].append(f"{billed[:40]} -> {acc_name[:40]}")
-                upd.update(name=acc_name, legal_name=primary.get("legal_name") or billed)
-        if upd and apply:
-            fin.customers.update_one({"_id": primary["_id"]}, {"$set": {**upd, **stamp}})
+        billed = (primary.get("name") or "").strip()
+        if billed != name:
+            rep["customer renamed to the account's company name (old name kept)"] += 1
+            if len(samples["renamed"]) < 12:
+                samples["renamed"].append(f"{billed[:40]} -> {name[:40]}")
+            if apply:
+                keep = {"legal_name": primary.get("legal_name") or billed} if invoiced[str(primary["_id"])] \
+                    else {"previous_name": billed}
+                fin.customers.update_one({"_id": primary["_id"]}, {"$set": {"name": name, **keep, **stamp}})
         for dup in cs[1:]:
             rep["duplicate merged"] += 1
             n_inv = invoiced[str(dup["_id"])]
