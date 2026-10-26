@@ -28,7 +28,7 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
                    "settings": ["client_id", "login_customer_id", "customer_ids", "conversion_ids"], "plan": "3.4"},
     "linkedin": {"label": "LinkedIn (Community Management, Advertising, Lead Sync)",
                  "secrets": ["client_secret", "access_token", "refresh_token"],
-                 "settings": ["client_id", "organization_ids", "ad_account_ids", "insight_partner_id"], "plan": "3.4, 3.5.1"},
+                 "settings": ["client_id", "organization_ids", "ad_account_ids", "insight_partner_id", "conversion_ids"], "plan": "3.4, 3.5.1"},
     "meta": {"label": "Meta (Pages, Instagram, Lead Ads, Marketing API, Conversions API)",
              "secrets": ["system_user_token", "app_secret", "webhook_verify_token"],
              "settings": ["app_id", "page_ids", "instagram_ids", "ad_account_ids", "pixel_ids"], "plan": "3.4, 3.5.2"},

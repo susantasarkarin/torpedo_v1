@@ -242,7 +242,8 @@ def contact_cap_ok(gd: Callable, *, lead_id: Optional[str] = None, email: Option
     cap = int(cfg.get("contact_cap_per_day", 1))
     ors = [q for q in ({"lead_id": lead_id} if lead_id else None, {"email": (email or "").lower()} if email else None,
                        {"phone_hash": phone_hash(phone)} if phone and phone_hash(phone) else None) if q]
-    n = gd(schema.DB)["marketing_touches"].count_documents({"$or": ors, "automated": True, "at": {"$gte": now - timedelta(hours=24)}}) if ors else 0
+    n = gd(schema.DB)["marketing_touches"].count_documents({"$or": ors, "automated": True, "status": {"$ne": "shadow"},   # shadow never reached anyone
+                                                          "at": {"$gte": now - timedelta(hours=24)}}) if ors else 0
     if email:
         try:
             from messaging import facade
@@ -253,18 +254,52 @@ def contact_cap_ok(gd: Callable, *, lead_id: Optional[str] = None, email: Option
     return (n < cap, f"{n} automated touch(es) in 24 h (cap {cap})")
 
 
+_SENDERS: Dict[str, Callable[[Dict[str, Any], str], Dict[str, Any]]] = {}
+
+
+def register_sender(channel: str, fn: Callable[[Dict[str, Any], str], Dict[str, Any]]) -> None:
+    """A platform integration registers fn(inbox_item, text) -> {"id": ...} that posts the reply."""
+    _SENDERS[channel] = fn
+
+
+def send_approved(gd: Callable, inbox_id: str, text: str, *, by: str, cfg: Optional[Dict[str, Any]] = None,
+                  now: Optional[datetime] = None) -> Dict[str, Any]:
+    """An approved reply: sent by the channel's sender when live (mode + action_modes['reply:<channel>']),
+    otherwise kept as approved_waiting_sender (the person replies on the platform and marks it replied)."""
+    from bson import ObjectId
+    now = now or datetime.utcnow()
+    if cfg is None:
+        from platform_core import config_store
+        cfg = config_store.get("marketing")
+    col = gd(schema.DB)["inbox_items"]
+    it = col.find_one({"_id": ObjectId(inbox_id)})
+    if not it:
+        return {"ok": False, "error": "inbox item not found"}
+    sender = _SENDERS.get(it["channel"])
+    live = cfg.get("mode") == "live" and (cfg.get("action_modes") or {}).get(f"reply:{it['channel']}") == "live"
+    upd = {"approved_reply": text, "approved_by": by, "updated_at": now}
+    if not (sender and live):
+        upd["reply_status"] = "approved_waiting_sender"
+        col.update_one({"_id": it["_id"]}, {"$set": upd})
+        return {"ok": True, "sent": False, "why": "shadow" if not live else f"no sender for {it['channel']}"}
+    try:
+        res = sender(it, text)
+        upd.update(reply_status="sent", reply_platform_id=(res or {}).get("id"))
+        col.update_one({"_id": it["_id"]}, {"$set": upd})
+        return {"ok": True, "sent": True}
+    except Exception as e:
+        upd.update(reply_status="send_failed", reply_error=str(e)[:200])
+        col.update_one({"_id": it["_id"]}, {"$set": upd})
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def _resume(item: Dict[str, Any], decision: Dict[str, Any]):
-    """Review approve -> the reply is sent by the channel's sender when connected (M3); here it is recorded."""
+    """Review approve -> send the approved text when that channel is live, else record it as waiting."""
     inbox_id = (item.get("resume") or {}).get("ref", {}).get("inbox_id")
     if not inbox_id:
         return None
     from database import get_database
-    ea = get_database(schema.DB)
-    from bson import ObjectId
-    ea["inbox_items"].update_one({"_id": ObjectId(inbox_id)}, {"$set": {
-        "approved_reply": (decision.get("value") or {}).get("reply"), "approved_by": decision.get("by"),
-        "reply_status": "approved_waiting_sender", "updated_at": datetime.utcnow()}})
-    return {"inbox_id": inbox_id}
+    return send_approved(get_database, inbox_id, (decision.get("value") or {}).get("reply") or "", by=decision.get("by") or "reviewer")
 
 
 try:

@@ -2449,19 +2449,21 @@ async def startup_event():
                 import marketing.engine  # noqa: F401
             except Exception as e:
                 print(f"[MarketingEngine] import failed: {e}")
-            try:      # platform write actions the engine may use (only in live + action live + autonomy)
-                from marketing import google_ads as _gads
-                _gads.register()
-            except Exception as e:
-                print(f"[MarketingExecutors] google: {e}")
+            for _mod in ("google_ads", "meta", "linkedin", "whatsapp"):
+                try:      # executors / publishers / reply senders -- used only in live + that action live + autonomy
+                    __import__(f"marketing.{_mod}", fromlist=["register"]).register()
+                except Exception as e:
+                    print(f"[MarketingIntegrations] {_mod}: {e}")
 
             def _paid_import(full):
                 def job():
                     try:
-                        from marketing import google_ads as gads, quora as mquora
-                        r = gads.import_daily(days=3) if full else gads.import_daily(today_only=True)
-                        print(f"[PaidImport {'daily' if full else 'hourly'}] google {r}")
+                        from marketing import google_ads as gads, linkedin as mli, meta as mmeta, quora as mquora
+                        tag = "daily" if full else "hourly"
+                        print(f"[PaidImport {tag}] google {gads.import_daily(days=3) if full else gads.import_daily(today_only=True)}")
+                        print(f"[PaidImport {tag}] meta {mmeta.import_daily(days=3) if full else mmeta.import_daily(today_only=True)}")
                         if full:
+                            print(f"[PaidImport daily] linkedin {mli.import_daily(days=3)}")
                             print(f"[PaidImport daily] quora {mquora.run()}")
                     except Exception as e:
                         print(f"[PaidImport] Error: {e}")
@@ -2474,10 +2476,35 @@ async def startup_event():
 
             def _offline_conv_job():
                 try:
-                    from marketing import google_ads as gads
-                    print(f"[OfflineConversions] google {gads.upload_conversions()}")
+                    from marketing import google_ads as gads, linkedin as mli, meta as mmeta
+                    for name, mod in (("google", gads), ("meta", mmeta), ("linkedin", mli)):
+                        print(f"[OfflineConversions] {name} {mod.upload_conversions()}")
                 except Exception as e:
                     print(f"[OfflineConversions] Error: {e}")
+
+            def _lead_forms_job():
+                try:
+                    from marketing import linkedin as mli, meta as mmeta
+                    r1, r2 = mmeta.fetch_lead_ads(), mli.fetch_lead_forms()
+                    if r1.get("fetched") or r2.get("fetched") or r1.get("errors") or r2.get("errors"):
+                        print(f"[LeadForms] meta {r1} linkedin {r2}")
+                except Exception as e:
+                    print(f"[LeadForms] Error: {e}")
+
+            scheduler.add_job(_lead_forms_job, IntervalTrigger(minutes=5), id="marketing_lead_forms",
+                              name="Marketing: Meta Lead Ads + LinkedIn lead forms -> CRM + inbox", max_instances=1, coalesce=True,
+                              replace_existing=True)
+
+            def _wa_templates_job():
+                try:
+                    from marketing import whatsapp as mwa
+                    print(f"[WhatsAppTemplates] seeded {mwa.seed_templates()} submit {mwa.submit_templates()} sync {mwa.sync_templates()}")
+                except Exception as e:
+                    print(f"[WhatsAppTemplates] Error: {e}")
+
+            scheduler.add_job(_wa_templates_job, CronTrigger(hour=4, minute=0), id="marketing_wa_templates",  # 09:30 IST
+                              name="Marketing: WhatsApp templates submit (owner-approved) + status sync", max_instances=1,
+                              coalesce=True, replace_existing=True)
 
             scheduler.add_job(_offline_conv_job, IntervalTrigger(hours=6), id="marketing_offline_conversions",
                               name="Marketing: offline conversions to ad platforms (shadow until live)", max_instances=1,

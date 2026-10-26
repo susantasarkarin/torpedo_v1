@@ -3,12 +3,14 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from marketing import inbox as I, schema
+from app.security import require
 from session_state import verify_session
 
 router = APIRouter(prefix="/api/marketing/inbox", tags=["Marketing"])
+require_approve = require("approve")
 
 
 def _ea():
@@ -86,3 +88,30 @@ async def weekly_report(rebuild: bool = False, user: str = Depends(verify_sessio
         r = _ea()["marketing_reports"].find_one({}, sort=[("week_start", -1)]) or report.build()
     r.pop("_id", None)
     return r
+
+
+@router.get("/whatsapp-templates")
+async def wa_templates(user: str = Depends(verify_session)):
+    """Claude's 5 drafts per BU (3.5.3): owner approves, then they go to Meta for review."""
+    from marketing import whatsapp
+    whatsapp.seed_templates()
+    rows = []
+    for t in _ea()["whatsapp_templates"].find({}).sort([("bu", 1), ("name", 1)]):
+        t["_id"] = str(t["_id"])
+        rows.append(t)
+    return {"templates": rows}
+
+
+@router.post("/whatsapp-templates/{template_id}/approve")
+async def wa_template_approve(template_id: str, body: Dict[str, Any] = Body(default={}), user: str = Depends(require_approve)):
+    if not ObjectId.is_valid(template_id):
+        raise HTTPException(400, "bad id")
+    col = _ea()["whatsapp_templates"]
+    t = col.find_one({"_id": ObjectId(template_id)})
+    if not t or t.get("status") not in ("draft", "owner_approved", "rejected"):
+        raise HTTPException(400, "only a draft or rejected template can be approved here")
+    upd = {"status": "owner_approved", "owner_approved_by": user, "updated_at": datetime.utcnow()}
+    if body.get("body"):
+        upd["body"] = str(body["body"])[:1024]
+    col.update_one({"_id": t["_id"]}, {"$set": upd})
+    return {"ok": True}
