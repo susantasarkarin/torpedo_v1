@@ -264,6 +264,11 @@ def mail_sync_lag_min(gd, since, until, bu):
 
 
 FUNCS: Dict[str, Callable] = {n: f for n, f in globals().items() if callable(f) and not n.startswith("_")}
+try:      # 13 Marketing (MARKETING_PLAN 6.1)
+    from marketing import kpis as _mkpis
+    FUNCS.update(_mkpis.FUNCS)
+except Exception:      # pragma: no cover
+    _mkpis = None
 
 
 def period(name: str, now: datetime) -> tuple:
@@ -382,6 +387,11 @@ def needs_attention(gd, now: Optional[datetime] = None, cfg: Optional[Dict[str, 
             add("service_delivery", f"Milestone overdue: {s.get('title')} / {late[0].get('deliverable')}",
                 float(s.get("value") or 0) * float(late[0].get("billing_pct") or 0) / 100, late[0]["due"], s.get("owner"),
                 f"/admin/service-delivery/{s['_id']}", True)
+    if _mkpis is not None:      # MARKETING_PLAN 6.2 feeds
+        try:
+            _mkpis.attention(gd, now, add)
+        except Exception:
+            pass
     items.sort(key=lambda x: (x["severity"] != "red", -x["rank"]))
     return {"items": items[:limit], "total": len(items)}
 

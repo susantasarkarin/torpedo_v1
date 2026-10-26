@@ -74,8 +74,14 @@ _K = [
     ("mail_sync_lag_min", "system", "Mail sync lag", "Minutes since the last ingested mail", ["torpedo_gmail.email_metadata"], False, "min", "mail_sync_lag_min"),
 ]
 
+try:      # 13 Marketing (MARKETING_PLAN 6.1)
+    from marketing.kpis import DEFS as _MARKETING
+    _K += _MARKETING
+except Exception:      # pragma: no cover
+    pass
+
 MODULES = ["pulse", "outreach", "deliverability", "web", "replies", "rfq", "ops", "service_delivery", "vendors",
-           "panel", "finance", "accounts", "system"]
+           "panel", "finance", "accounts", "system", "marketing"]
 
 
 def all_definitions() -> List[Dict[str, Any]]:

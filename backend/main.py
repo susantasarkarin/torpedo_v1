@@ -2537,6 +2537,18 @@ async def startup_event():
                               id="marketing_content_draft", name="Marketing: Qwen drafts for content ideas (to review)",
                               max_instances=1, coalesce=True, replace_existing=True)
 
+            def _marketing_report_job():
+                try:
+                    from marketing import report as mreport
+                    r = mreport.build()
+                    print(f"[MarketingReport] {r['week']} built: {len(r['top_actions'])} actions")
+                except Exception as e:
+                    print(f"[MarketingReport] Error: {e}")
+
+            scheduler.add_job(_marketing_report_job, CronTrigger(day_of_week="mon", hour=3, minute=30),  # Mon 09:00 IST
+                              id="marketing_weekly_report", name="Marketing: weekly report (6.4)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             scheduler.add_job(_marketing_outcomes_job, CronTrigger(hour=0, minute=30),  # 06:00 IST
                               id="marketing_outcomes", name="Marketing: decision outcomes + stop-loss",
                               max_instances=1, coalesce=True, replace_existing=True)

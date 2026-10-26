@@ -43,11 +43,18 @@ function Marketing() {
       color: "#8b5cf6"
     },
     { 
-      title: "Analytics", 
-      description: "Track website performance and visitor insights",
+      title: "Marketing dashboard",
+      description: "Leads, RFQs, won ₹, spend, ROAS, SEO, social, inbox SLA, decisions — and the weekly report",
       icon: BarChart3,
-      link: "/admin/marketing/websites",
+      link: "/admin/dashboards/marketing",
       color: "#b45309"
+    },
+    {
+      title: "Weekly report",
+      description: "Monday 09:00 IST: per-company results, top 5 actions, engine results, SEO, content",
+      icon: FileText,
+      link: "/admin/marketing/report",
+      color: "#475569"
     },
     {
       title: "Integrations",

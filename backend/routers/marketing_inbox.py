@@ -74,3 +74,15 @@ async def act(item_id: str, action: str, user: str = Depends(verify_session)):
     r = _ea()["inbox_items"].find_one({"_id": ObjectId(item_id)})
     r["_id"] = str(r["_id"])
     return r
+
+
+@router.get("/weekly-report")
+async def weekly_report(rebuild: bool = False, user: str = Depends(verify_session)):
+    """Latest weekly report (6.4); rebuild=true builds the last full week now."""
+    from marketing import report
+    if rebuild:
+        r = report.build()
+    else:
+        r = _ea()["marketing_reports"].find_one({}, sort=[("week_start", -1)]) or report.build()
+    r.pop("_id", None)
+    return r

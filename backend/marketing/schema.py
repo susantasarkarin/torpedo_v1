@@ -75,6 +75,7 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "decision_outcomes": ([("decision_id", {"unique": True}), ([("decision_type", 1), ("measured_at", -1)], {})], None),
     "marketing_eval_cases": ([("key", {"unique": True}), ("decision_type", {})], None),
     "marketing_eval_runs": ([("at", -1)], None),
+    "marketing_reports": ([("week", {"unique": True})], None),
     "marketing_kpi_snapshots": ([([("kpi", 1), ("date", 1), ("bu", 1)], {"unique": True}), (D, {})], None),
 }
 

@@ -13,7 +13,7 @@ const BUS = ["ALL", "SFW", "COGENTIX", "BIM"]
 const MODULE_LABEL = {
   outreach: "Lead gen & outreach", deliverability: "Deliverability", web: "Website & retargeting",
   replies: "Replies", rfq: "RFQ & pricing", ops: "Operations", service_delivery: "Service Delivery",
-  vendors: "Vendors", panel: "Panel", finance: "Finance", accounts: "Accounts", system: "System health",
+  vendors: "Vendors", panel: "Panel", finance: "Finance", accounts: "Accounts", system: "System health", marketing: "Marketing",
 }
 const RAG = {
   red: "border-red-300 bg-red-50", amber: "border-amber-300 bg-amber-50",

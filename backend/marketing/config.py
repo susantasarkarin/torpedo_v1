@@ -44,6 +44,7 @@ DEFAULTS: Dict[str, Any] = {
     "banned_claims": [],                               # global list; per-BU lists live in brand_voice
     "rules": {},                                       # overrides for marketing.rules.RULES thresholds (owner, M-CP2)
     "approved_panel_stats": [],                        # panel sizes allowed in copy, e.g. ["1.2 lakh", "120,000"] (panel book)
+    "report_recipients": [],                           # weekly report mail (owner); empty = in-app only
     "content_auto": {},                                # {"linkedin": "L2"} only by explicit owner choice (3.6.3)
 }
 
