@@ -161,3 +161,16 @@ def test_no_optin_ticked_records_no_optin(monkeypatch):
     monkeypatch.setattr(audit, "log_action", lambda **k: None)
     leads.capture(gd, _body(phone="9876543210"), site=SITE, ip="", ua="", contact_from_token=None, cfg=rules.DEFAULTS)
     assert d["email_automation"]["whatsapp_optins"].count_documents({}) == 0
+
+
+def test_wired_forms_get_source_question_and_unticked_optins():
+    page = ('<html><head></head><body><form id="contact-form"><input name="name"><input type="email" name="email">'
+            '<input type="tel" name="phone"><textarea name="message"></textarea><button type="submit">Send</button></form>'
+            '<form class="newsletter"><input type="email" name="email"></form></body></html>')
+    out, rep = sc.convert_page(page, origin="https://t.bimwavesolutions.com", bu="BIM", thanks="Thanks!", mode="alert")
+    form = out.split("<form", 2)[1]
+    assert form.index('name="heard_from"') < form.index("<button") and form.index('name="optin_whatsapp"') < form.index("<button")
+    assert "BIM Wave Solutions" in form and "checked" not in form.lower()
+    assert 'name="optin_email"' not in out.split("<form", 2)[2]                  # newsletter form left alone
+    no_phone = sc.convert_page(page.replace('<input type="tel" name="phone">', ""), origin="https://t.x", bu="SFW", thanks="t", mode="alert")[0]
+    assert 'name="optin_whatsapp"' not in no_phone and 'name="optin_email"' in no_phone

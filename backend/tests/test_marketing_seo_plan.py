@@ -87,3 +87,10 @@ def test_fix_plan_and_package(tmp_path):
     assert '<link rel="canonical" href="https://bimwavesolutions.com/about.html">' in z.read("about.html").decode()
     assert "needs written copy" in z.read("CHANGES.md").decode()                   # meta description: listed, not invented
     assert (site / "index.html").read_text(encoding="utf-8").count("Organization") == 0   # the owner's copy is untouched
+
+
+def test_title_does_not_repeat_the_brand():
+    assert P._title({"h1": ["About BIMwave Solutions"]}, "BIM") == "About BIMwave Solutions"
+    assert P._title({"h1": ["About Survey Fieldwork"]}, "SFW") == "About Survey Fieldwork"
+    assert P._title({"title": "Scan to BIM | BIM Wave Solutions"}, "BIM") == "Scan to BIM | BIM Wave Solutions"
+    assert P._title({"h1": ["Audience Sampling"]}, "SFW") == "Audience Sampling | Survey Fieldwork"

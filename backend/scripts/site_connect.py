@@ -88,7 +88,35 @@ def handled_ids(src_dir: str) -> set:
     return ids
 
 
-def wire_forms(html: str, rep: dict, thanks: str, mode: str, handled: set = frozenset()) -> str:
+BRAND = {"SFW": "Survey Fieldwork", "COGENTIX": "Cogentix Research", "BIM": "BIM Wave Solutions"}
+
+
+def extra_fields(inner: str, bu: str) -> str:
+    """MARKETING_PLAN 3.1.6 + 3.8.5: optional source question and opt-ins (never pre-ticked; WhatsApp only with a phone field)."""
+    brand = BRAND.get(bu, "us")
+    lab = 'style="display:block;margin:8px 0;font-size:14px;line-height:1.4"'
+    parts = []
+    if 'name="heard_from"' not in inner:
+        parts.append(f'<label {lab}>How did you hear about us? <span style="opacity:.7">(optional)</span>'
+                     '<input type="text" name="heard_from" maxlength="120" style="display:block;width:100%;margin-top:4px"></label>')
+    if 'name="optin_email"' not in inner:
+        parts.append(f'<label {lab}><input type="checkbox" name="optin_email" value="yes"> I agree to receive emails from {brand} '
+                     'about my enquiry and related services. I can unsubscribe at any time.</label>')
+    if re.search(r"type=[\"']tel[\"']|name=[\"'](phone|mobile|whatsapp)[\"']", inner, re.I) and 'name="optin_whatsapp"' not in inner:
+        parts.append(f'<label {lab}><input type="checkbox" name="optin_whatsapp" value="yes"> I agree to receive WhatsApp messages from '
+                     f'{brand} on the number above. I can reply STOP at any time.</label>')
+    return "".join(parts)
+
+
+def _before_submit(inner: str, block: str) -> str:
+    m = list(re.finditer(r"<button\b[^>]*type=[\"']submit[\"'][^>]*>|<input\b[^>]*type=[\"']submit[\"'][^>]*>|<button\b(?![^>]*type=)[^>]*>", inner, re.I))
+    if not m:
+        return inner + block
+    i = m[-1].start()
+    return inner[:i] + block + inner[i:]
+
+
+def wire_forms(html: str, rep: dict, thanks: str, mode: str, handled: set = frozenset(), bu: str = "") -> str:
     def form(m):
         open_tag, inner = m.group(1), m.group(2)
         ident = " ".join(re.findall(r"(?:id|name|class|action)=[\"']([^\"']*)", open_tag))
@@ -106,7 +134,7 @@ def wire_forms(html: str, rep: dict, thanks: str, mode: str, handled: set = froz
                  f' data-cgx-success="{html_lib.escape(thanks, quote=True)}" data-cgx-thanks="{mode}"'
                  f' data-cgx-required="{",".join(req) or "email"}"')
         rep["forms_wired"].append((ident or "form") + (" [observe]" if observe else " [intercept]"))
-        return open_tag[:-1] + attrs + ">" + HONEYPOT + inner + "</form>"
+        return open_tag[:-1] + attrs + ">" + HONEYPOT + _before_submit(inner, extra_fields(inner, bu)) + "</form>"
     return re.sub(r"(<form\b[^>]*>)(.*?)</form>", form, html, flags=re.S | re.I)
 
 
@@ -115,7 +143,7 @@ def convert_page(html: str, *, origin: str, bu: str, thanks: str, mode: str, han
     if "/api/track/t.js" in html:
         return html, rep
     html = gate_tags(html, rep)
-    html = wire_forms(html, rep, thanks, mode, handled)
+    html = wire_forms(html, rep, thanks, mode, handled, bu)
     head = re.search(r"<head\b[^>]*>", html, re.I)
     snippet = CONSENT_DEFAULT + TRACKER.format(origin=origin.rstrip("/"), bu=bu)
     if head:

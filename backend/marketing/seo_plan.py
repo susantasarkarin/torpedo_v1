@@ -167,8 +167,11 @@ BRAND = {"SFW": "Survey Fieldwork", "COGENTIX": "Cogentix Research", "BIM": "BIM
 
 def _title(page: Dict[str, Any], bu: str) -> str:
     base = ((page.get("h1") or [None])[0] or page.get("title") or "").strip()
-    base = re.sub(r"\s*[|–-]\s*" + re.escape(BRAND.get(bu, "")) + r".*$", "", base, flags=re.I)
-    t = f"{base} | {BRAND.get(bu, '')}".strip(" |")
+    brand = BRAND.get(bu, "")
+    base = re.sub(r"\s*[|–-]\s*" + re.escape(brand) + r".*$", "", base, flags=re.I)
+    squash = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
+    # "About BIMwave Solutions" already names the brand: no " | BIM Wave Solutions" suffix
+    t = base if brand and squash(brand) in squash(base) else f"{base} | {brand}".strip(" |")
     return t if len(t) <= 60 else (base[:57].rsplit(" ", 1)[0] + "…")
 
 
