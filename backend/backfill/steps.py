@@ -679,3 +679,12 @@ def rfq_estimates(c, apply=False, now=None):
 
 
 STEPS.append(("rfq_estimates", rfq_estimates))
+
+
+def finance_customers(c, apply=False, now=None):
+    """Owner 2026-10-26: finance customers = the CRM accounts with an estimate or invoice (backfill/finance_customers.py)."""
+    from backfill import finance_customers as fc
+    return fc.run(c, apply=apply, now=now)
+
+
+STEPS.append(("finance_customers", finance_customers))
