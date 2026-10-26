@@ -21,10 +21,10 @@ function Marketing() {
       color: "#a15f06"
     },
     { 
-      title: "Blog Management", 
-      description: "Create and publish blog posts",
+      title: "Content calendar",
+      description: "Posts per company and channel, Qwen drafts, claim checks, approval",
       icon: BookOpen,
-      link: "/admin/marketing/websites",
+      link: "/admin/marketing/content",
       color: "#166534"
     },
     { 

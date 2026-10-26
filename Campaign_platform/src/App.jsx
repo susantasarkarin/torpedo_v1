@@ -155,6 +155,7 @@ const NotFound = lazy(() => import("./pages/NotFound"))
 const MarketingWebsites = lazy(() => import("./pages/marketing/MarketingWebsites"))
 const MarketingMedia = lazy(() => import("./pages/marketing/MarketingMedia"))
 const MarketingIntegrations = lazy(() => import("./pages/marketing/MarketingIntegrations"))
+const MarketingContent = lazy(() => import("./pages/marketing/MarketingContent"))
 
 // Wrapper for lazy loaded pages with consistent loading state. The error
 // boundary keeps the shell (sidebar, top bar) when a page fails, and resets
@@ -320,6 +321,7 @@ function App() {
         <Route path="marketing/websites" element={<LazyPage><MarketingWebsites /></LazyPage>} />
         <Route path="marketing/media" element={<LazyPage><MarketingMedia /></LazyPage>} />
         <Route path="marketing/integrations" element={<LazyPage><MarketingIntegrations /></LazyPage>} />
+        <Route path="marketing/content" element={<LazyPage><MarketingContent /></LazyPage>} />
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />

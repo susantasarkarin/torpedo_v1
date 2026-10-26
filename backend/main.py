@@ -1474,6 +1474,8 @@ from routers import marketing_site as marketing_site_router
 app.include_router(marketing_site_router.router)
 from routers import marketing_integrations as marketing_integrations_router
 app.include_router(marketing_integrations_router.router)
+from routers import marketing_content as marketing_content_router
+app.include_router(marketing_content_router.router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---
@@ -2479,6 +2481,43 @@ async def startup_event():
 
             scheduler.add_job(_marketing_eval_job, CronTrigger(day_of_week="tue", hour=17, minute=30),  # Tue 23:00 IST
                               id="marketing_eval", name="Marketing: decision-engine evaluation (42 cases)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _content_publish_job():
+                try:
+                    from marketing import content as mcontent
+                    r = mcontent.publish_due()
+                    if r["published"] or r["would_publish"] or r["errors"]:
+                        print(f"[ContentPublish] {r}")
+                except Exception as e:
+                    print(f"[ContentPublish] Error: {e}")
+
+            scheduler.add_job(_content_publish_job, IntervalTrigger(minutes=15), id="marketing_content_publish",
+                              name="Marketing: publish approved + scheduled content (shadow until live)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
+            def _content_draft_job():
+                try:
+                    from database import get_database
+                    from marketing import content as mcontent
+                    col = get_database("email_automation")["content_items"]
+                    n = 0
+                    for it in col.find({"status": "idea", "draft_error": {"$exists": False}}).limit(5):
+                        upd = mcontent.draft(it, get_database)
+                        if upd.get("body"):
+                            cur = {**it, **upd, "claim_problems": mcontent.claims_for(get_database, {**it, **upd})}
+                            cur.update(mcontent.transition(cur, "draft", "qwen"))
+                            if not cur["claim_problems"]:
+                                cur.update(mcontent.transition(cur, "in_review", "qwen"))
+                            upd.update({k: cur[k] for k in ("claim_problems", "status", "history")})
+                            n += 1
+                        col.update_one({"_id": it["_id"]}, {"$set": upd})
+                    print(f"[ContentDraft] drafted {n}")
+                except Exception as e:
+                    print(f"[ContentDraft] Error: {e}")
+
+            scheduler.add_job(_content_draft_job, CronTrigger(hour=18, minute=0),  # 23:30 IST, P3 window
+                              id="marketing_content_draft", name="Marketing: Qwen drafts for content ideas (to review)",
                               max_instances=1, coalesce=True, replace_existing=True)
 
             scheduler.add_job(_marketing_outcomes_job, CronTrigger(hour=0, minute=30),  # 06:00 IST
