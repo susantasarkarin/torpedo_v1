@@ -637,3 +637,12 @@ def zoho_link(c, apply=False, now=None):
 
 
 STEPS.append(("zoho_link", zoho_link))
+
+
+def mail_invoice_links(c, apply=False, now=None):
+    """Invoice numbers and client POs from closed studies' mail threads (backfill/mail_invoice_links.py)."""
+    from backfill import mail_invoice_links as mil
+    return mil.run(c, apply=apply, now=now)
+
+
+STEPS.append(("mail_invoice_links", mail_invoice_links))
