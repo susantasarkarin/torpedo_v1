@@ -223,3 +223,41 @@ def claims_for(gd: Callable, item: Dict[str, Any], cfg: Optional[Dict[str, Any]]
     text = " ".join(str(item.get(k) or "") for k in ("title", "body"))
     return check_claims(text, item.get("bu"), voice=voice, approved_stats=cfg.get("approved_panel_stats") or [],
                         clients=clients, global_banned=cfg.get("banned_claims") or [], channel=item.get("channel"))
+
+
+# ------------------------------------------------------------------ Quora (3.5.4): suggestions + drafts, a person posts
+def suggest_quora(gd: Callable, questions: List[str], bu: str, *, top: int = 5, qwen: Optional[Callable] = None,
+                  site_url: Optional[str] = None, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Rank pasted questions by overlap with the BU's keywords + services (code), draft answers for the best (Qwen),
+    store them as quora content items (status draft) with a tagged link. Nothing is posted automatically: no API."""
+    from marketing import seo_plan
+    now = now or datetime.utcnow()
+    terms = {w for k in gd(schema.DB)["keywords"].find({"bu": bu, "status": {"$in": ["approved", "proposed"]}})
+             for w in re.findall(r"[a-z0-9]{3,}", k["keyword"].lower()) if w not in ("india", "services", "company")}
+    terms |= {w for s in seo_plan.SERVICES.get(bu, []) for w in s.split()}
+    scored = []
+    for q in questions:
+        q = (q or "").strip()
+        if len(q) < 10:
+            continue
+        words = set(re.findall(r"[a-z0-9]{3,}", q.lower()))
+        hit = sorted(words & terms)
+        if hit:
+            scored.append((len(hit), q, hit))
+    scored.sort(key=lambda x: -x[0])
+    out, col = [], gd(schema.DB)["content_items"]
+    for score, q, hit in scored[:top]:
+        link = utm_link(site_url or f"https://{({'SFW': 'business.surveyfieldwork.com', 'COGENTIX': 'cogentixresearch.com', 'BIM': 'bimwavesolutions.com'})[bu]}/",
+                        bu=bu, channel="quora", campaign="answers", content=re.sub(r"\W+", "-", q.lower())[:40])
+        item = {"bu": bu, "channel": "quora", "title": q, "topic": q, "link": link, "status": "idea", "history": [],
+                "matched_terms": hit, "utm_content": re.sub(r"[^a-z0-9_-]+", "-", re.sub(r"\W+", "-", q.lower())[:40]).strip("-")}
+        upd = draft({**item, "_id": "quora"}, gd, qwen=qwen)
+        if upd.get("body"):
+            item.update(body=upd["body"] + f"\n\nMore: {link}", status="draft", drafted_by="qwen")
+        else:
+            item["draft_error"] = upd.get("draft_error")
+        item = schema.stamp(item, bu=bu, source="quora_suggest", now=now)
+        item["claim_problems"] = claims_for(gd, item)
+        item["_id"] = col.insert_one(item).inserted_id
+        out.append({"question": q, "score": score, "terms": hit, "status": item["status"], "id": str(item["_id"])})
+    return out

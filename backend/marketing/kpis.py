@@ -220,3 +220,41 @@ def attention(gd, now: datetime, add: Callable) -> None:
     if old:
         first = ea["decisions"].find_one({"status": "in_review", "created_at": {"$lt": now - timedelta(days=3)}}, sort=[("created_at", 1)])
         add("marketing", f"{old} marketing recommendations waiting > 3 days", None, first["created_at"], None, link_dec, old > 10)
+
+
+# ------------------------------------------------------------------ 3.8.5 self-reported vs tracked source
+_HEARD = [("google", "organic_search"), ("search", "organic_search"), ("linkedin", "social"), ("facebook", "social"),
+          ("instagram", "social"), ("quora", "social"), ("ad", "paid"), ("email", "email"), ("mail", "email"),
+          ("colleague", "referral"), ("friend", "referral"), ("referr", "referral"), ("event", "referral"), ("esomar", "referral")]
+
+
+def heard_bucket(text: str) -> str:
+    t = (text or "").lower()
+    return next((b for k, b in _HEARD if k in t), "other")
+
+
+def source_check(gd, since, until, bu) -> Dict[str, Any]:
+    """Form leads that answered "How did you hear about us?" vs their first tracked channel."""
+    from marketing import attribution
+    rows, agree = [], 0
+    for l in gd("crm_db")["leads"].find({"web_submissions": {"$exists": True}, "created_at": {"$gte": since, "$lt": until},
+                                         **({"bu": bu} if bu else {})}, {"web_submissions": 1}):
+        sub = next((s for s in l.get("web_submissions") or [] if s.get("heard_from")), None)
+        if not sub:
+            continue
+        said = heard_bucket(sub["heard_from"])
+        ft = sub.get("first_touch") or {}
+        tracked = attribution.channel({"kind": "visit", "utm": {k: v for k, v in ft.items() if k.startswith("utm_")},
+                                       "click_ids": {k: ft[k] for k in ("gclid", "fbclid", "li_fat_id") if ft.get(k)},
+                                       "referrer": ft.get("referrer"), "mail_token": ft.get("mail_token")})
+        ok = said == tracked or (said == "paid" and tracked.startswith("paid")) or (said == "social" and tracked == "paid_social")
+        agree += 1 if ok else 0
+        rows.append({"said": said, "tracked": tracked})
+    from collections import Counter
+    return {"answered": len(rows), "agree_pct": round(100 * agree / len(rows), 1) if rows else None,
+            "said": dict(Counter(r["said"] for r in rows)), "tracked": dict(Counter(r["tracked"] for r in rows))}
+
+
+DEFS.append(("mkt_source_check", "marketing", "Self-reported vs tracked source", "'How did you hear about us?' vs first tracked channel",
+             ["crm_db.leads"], True, "%", "source_check"))
+FUNCS["source_check"] = source_check

@@ -2483,6 +2483,18 @@ async def startup_event():
             scheduler.add_job(_paid_import(True), CronTrigger(hour=0, minute=30), id="marketing_paid_daily",  # 06:00 IST
                               name="Marketing: ad platforms full daily import + Quora CSV", max_instances=1, coalesce=True, replace_existing=True)
 
+            def _audience_job():
+                try:
+                    from marketing import audiences as maud
+                    r = maud.sync()
+                    print(f"[Audiences] lists {r['lists'].get('SFW')} synced {len(r['synced'])} errors {r['errors'][:3]}")
+                except Exception as e:
+                    print(f"[Audiences] Error: {e}")
+
+            scheduler.add_job(_audience_job, CronTrigger(hour=1, minute=15), id="marketing_audiences",  # 06:45 IST
+                              name="Marketing: customer-list audiences (exclusions, lookalike seeds; shadow until live)",
+                              max_instances=1, coalesce=True, replace_existing=True)
+
             def _offline_conv_job():
                 try:
                     from marketing import google_ads as gads, linkedin as mli, meta as mmeta

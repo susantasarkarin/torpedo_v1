@@ -174,3 +174,13 @@ async def utm(body: Dict[str, Any] = Body(...), user: str = Depends(verify_sessi
 @router.get("/performance")
 async def perf(days: int = Query(90, ge=7, le=365), user: str = Depends(verify_session)):
     return {"items": C.performance(_gd, days=days)}
+
+
+@router.post("/quora/suggest")
+async def quora_suggest(body: Dict[str, Any] = Body(...), user: str = Depends(verify_session)):
+    """Paste questions (one per line); the best matches get a drafted answer as a Quora content item to post by hand."""
+    if body.get("bu") not in schema.BUS:
+        raise HTTPException(400, "bu required")
+    qs = body.get("questions")
+    qs = qs.splitlines() if isinstance(qs, str) else (qs or [])
+    return {"suggestions": C.suggest_quora(_gd, qs, body["bu"], top=int(body.get("top") or 5))}

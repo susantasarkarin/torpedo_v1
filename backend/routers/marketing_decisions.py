@@ -73,3 +73,10 @@ async def undo(decision_id: str, user: str = Depends(require_approve)):
     if not r.get("ok"):
         raise HTTPException(400, r.get("error"))
     return r
+
+
+@router.get("/shadow-report")
+async def shadow_report(days: int = Query(14, ge=7, le=90), user: str = Depends(verify_session)):
+    """M6: decisions vs owner judgement, predicted vs actual, data freshness, tracking coverage (for M-CP3)."""
+    from marketing import shadow_report as SR
+    return SR.build(_gd, days=days)
