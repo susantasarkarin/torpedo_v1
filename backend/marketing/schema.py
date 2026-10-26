@@ -43,6 +43,7 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "keywords": ([([("bu", 1), ("keyword", 1)], {"unique": True})], None),
     "keyword_positions": ([([("keyword_id", 1), ("date", 1)], {"unique": True}), (D, {})], None),
     "content_gaps": ([([("bu", 1), ("status", 1)], {})], None),
+    "seo_fix_plans": ([("site", {"unique": True})], None),
     # paid (3.4)
     "ad_accounts": ([([("platform", 1), ("account_id", 1)], {"unique": True}), ("bu", {})], None),
     "ad_campaigns": ([([("platform", 1), ("campaign_id", 1)], {"unique": True}), ("bu", {})], None),

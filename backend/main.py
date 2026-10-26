@@ -1482,6 +1482,8 @@ from routers import marketing_webhooks as marketing_webhooks_router
 app.include_router(marketing_webhooks_router.router)
 from routers import marketing_decisions as marketing_decisions_router
 app.include_router(marketing_decisions_router.router)
+from routers import marketing_seo as marketing_seo_router
+app.include_router(marketing_seo_router.router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---
@@ -2430,6 +2432,10 @@ async def startup_event():
                     from marketing import seo_audit
                     print(f"[SEOAudit] {seo_audit.run()}")
                     print(f"[PageSpeed] {seo_audit.pagespeed_run()}")
+                    from database import get_database as _gdb
+                    from marketing import seo_plan
+                    for _s in __import__("platform_core.config_store", fromlist=["get"]).get("web").get("sites") or []:
+                        seo_plan.fix_plan(_gdb, _s["domain"])
                 except Exception as e:
                     print(f"[SEOAudit] Error: {e}")
 
@@ -2438,6 +2444,9 @@ async def startup_event():
                     from datetime import datetime as _dt
                     from marketing import google_data
                     print(f"[GoogleData] {google_data.run(inspect=_dt.utcnow().weekday() == 0)}")
+                    from database import get_database as _gdb
+                    from marketing import seo_plan
+                    print(f"[SEOPlan] {seo_plan.track_positions(_gdb)} {seo_plan.content_gaps(_gdb)}")
                 except Exception as e:
                     print(f"[GoogleData] Error: {e}")
 
