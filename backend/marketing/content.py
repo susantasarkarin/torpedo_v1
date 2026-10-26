@@ -127,10 +127,10 @@ def draft(item: Dict[str, Any], gd: Callable, *, qwen: Optional[Callable] = None
     system = ("Write one social post / article draft for a B2B research company in the given voice. Use only the facts "
               "given; never invent numbers, client names or panel sizes. Reply JSON only: {\"title\", \"body\", \"hashtags\": [..]}.")
     if qwen is None:
-        from platform_core import qwen_gateway
+        from platform_core import ladder    # Haiku -> Sonnet since 2026-10-26 (owner: the local model is off)
         from marketing import config as mcfg
         mcfg.register_qwen_tasks()
-        qwen = lambda: qwen_gateway.run(task="marketing_decision_p3", system=system, body=json.dumps(brief, default=str),
+        qwen = lambda: ladder.run(task="marketing_decision_p3", system=system, body=json.dumps(brief, default=str),
                                         schema={"type": "object", "required": ["body"]}, bu=item["bu"],
                                         ref={"collection": "email_automation.content_items", "id": str(item.get("_id"))})
     res = qwen()
@@ -139,7 +139,7 @@ def draft(item: Dict[str, Any], gd: Callable, *, qwen: Optional[Callable] = None
         return {"draft_error": f"no draft ({(res or {}).get('status')})", "updated_at": datetime.utcnow()}
     body = data["body"].strip()
     tags = [h for h in (data.get("hashtags") or []) if isinstance(h, str)][:5]
-    return {"body": body, "title": data.get("title") or item.get("title"), "hashtags": tags, "drafted_by": "qwen",
+    return {"body": body, "title": data.get("title") or item.get("title"), "hashtags": tags, "drafted_by": res.get("tier") or "ai",
             "voice_status": voice.get("status"), "updated_at": datetime.utcnow()}
 
 

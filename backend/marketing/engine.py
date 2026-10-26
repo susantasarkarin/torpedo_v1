@@ -6,7 +6,7 @@ explains, guardrails decide whether anything may act.
 decide():
   1. kill switch (global / BU), autonomy L0 -> skipped
   2. conflict / cooldown on the same entity -> blocked
-  3. decision brief (compact JSON, capped) -> Qwen via platform_core.qwen_gateway
+  3. decision brief (compact JSON, capped) -> Haiku/Sonnet via platform_core.ladder
      (Qwen down, deferred, invalid twice -> the rule candidate goes on alone)
   4. validator (code): schema, action allowed for the type, parameters inside the
      guardrails, every number Qwen cites exists in the brief
@@ -275,10 +275,10 @@ def decide(c: Dict[str, Any], *, gd: Optional[Callable] = None, qwen: Optional[C
 
 
 def _qwen_call(t: str, br: Dict[str, Any], code_check: Callable) -> Dict[str, Any]:
-    from platform_core import qwen_gateway
+    from platform_core import ladder        # Haiku -> Sonnet since 2026-10-26 (owner: the local model is off)
     mcfg.register_qwen_tasks()
     lane = mcfg.LANES.get(t, "P3")
-    return qwen_gateway.run(task=QWEN_TASK[lane], system=SYSTEM, body=json.dumps(br, default=str), schema=DECISION_SCHEMA,
+    return ladder.run(task=QWEN_TASK[lane], system=SYSTEM, body=json.dumps(br, default=str), schema=DECISION_SCHEMA,
                             code_check=code_check, ref={"collection": "email_automation.decisions", "id": _hash(br)},
                             bu=br.get("bu"))
 
