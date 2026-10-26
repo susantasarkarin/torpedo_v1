@@ -254,10 +254,6 @@ function day(value) {
   return value ? String(value).slice(0, 10) : ""
 }
 
-function resolveColumn(c) {
-  return typeof c === "string" ? { key: c, ...LEAD_COLUMNS[c] } : c
-}
-
 function loadVisible(storageKey, defaults, all) {
   try {
     const saved = JSON.parse(localStorage.getItem(`${storageKey}:visible`) || "null")
@@ -378,15 +374,17 @@ function ResizableHeader({ col, width, onResize, onReset, sort, onSort }) {
  * toolbar:      optional controls rendered left of the Columns menu
  * filterPanel:  optional node shown under the toolbar (a page's collapsible filters)
  * empty:        shown instead of the table when there are no rows
+ * catalog:      the optional columns the Columns menu offers (default: the lead
+ *               cells); Finance lists pass their own
  */
 export default function LeadTable({
   leads, columns, storageKey, onRowClick, selection, onStatusUpdated,
-  sort, onSort, toolbar, filterPanel, empty,
+  sort, onSort, toolbar, filterPanel, empty, catalog = LEAD_COLUMNS,
 }) {
-  const defaults = columns.map(resolveColumn)
-  const all = [...defaults, ...Object.keys(LEAD_COLUMNS)
+  const defaults = columns.map(c => (typeof c === "string" ? { key: c, ...catalog[c] } : c))
+  const all = [...defaults, ...Object.keys(catalog)
     .filter(k => !defaults.some(c => c.key === k))
-    .map(resolveColumn)]
+    .map(k => ({ key: k, ...catalog[k] }))]
   const defaultKeys = defaults.map(c => c.key)
   const [visible, setVisible] = useState(() => loadVisible(storageKey, defaultKeys, all))
   const changeVisible = (keys) => {

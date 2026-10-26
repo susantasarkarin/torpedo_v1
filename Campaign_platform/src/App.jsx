@@ -89,24 +89,20 @@ const CPXCallbackLogs = lazy(() => import("./pages/operations/CPXCallbackLogs"))
 const AccountsPage = lazy(() => import("./pages/operations/AccountsPage"))
 
 // Finance Pages
-const FinanceCustomersPage = lazy(() => import("./pages/finance/CustomersPage"))
 const FinanceCustomersImport = lazy(() => import("./pages/finance/CustomersImport"))
-const FinanceVendorsPage = lazy(() => import("./pages/finance/VendorsPage"))
-const FinanceItems = lazy(() => import("./pages/finance/ItemsPage"))
-const EstimatesPage = lazy(() => import("./pages/finance/EstimatesPage"))
 const EstimatesImport = lazy(() => import("./pages/finance/EstimatesImport"))
-const InvoicesPage = lazy(() => import("./pages/finance/InvoicesPage"))
 const InvoicesImport = lazy(() => import("./pages/finance/InvoicesImport"))
 const InvoiceDetailPage = lazy(() => import("./pages/finance/InvoiceDetailPage"))
 const BillsPage = lazy(() => import("./pages/finance/BillsPage"))
 const BillsImport = lazy(() => import("./pages/finance/BillsImport"))
 const BillDetailPage = lazy(() => import("./pages/finance/BillDetailPage"))
-const ExpensesPage = lazy(() => import("./pages/finance/ExpensesPage"))
 const PaymentsPage = lazy(() => import("./pages/finance/PaymentsPage"))
 const PaymentsImport = lazy(() => import("./pages/finance/PaymentsImport"))
-const PurchaseOrdersPage = lazy(() => import("./pages/finance/PurchaseOrdersPage"))
 const PurchaseOrdersImport = lazy(() => import("./pages/finance/PurchaseOrdersImport"))
 const ReportsPage = lazy(() => import("./pages/finance/ReportsPage"))
+// Every Finance tab is the shared list; a row opens FinanceRecordPage in a new tab (owner 2026-10-26)
+const FinanceListPage = lazy(() => import("./pages/finance/FinanceListPage"))
+const FinanceRecordPage = lazy(() => import("./pages/finance/FinanceRecordPage"))
 
 // Vendor Pages
 const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard"))
@@ -333,24 +329,25 @@ function App() {
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />
-        <Route path="finance/customers" element={<LazyPage><FinanceCustomersPage /></LazyPage>} />
+        <Route path="finance/customers" element={<LazyPage><FinanceListPage key="customers" kind="customers" importPath="/admin/finance/customers/import" /></LazyPage>} />
         <Route path="finance/customers/import" element={<LazyPage><FinanceCustomersImport /></LazyPage>} />
-        <Route path="finance/vendors" element={<LazyPage><FinanceVendorsPage /></LazyPage>} />
-        <Route path="finance/invoices" element={<LazyPage><InvoicesPage /></LazyPage>} />
+        <Route path="finance/vendors" element={<LazyPage><FinanceListPage key="vendors" kind="vendors" /></LazyPage>} />
+        <Route path="finance/invoices" element={<LazyPage><FinanceListPage key="invoices" kind="invoices" importPath="/admin/finance/invoices/import" /></LazyPage>} />
         <Route path="finance/invoices/import" element={<LazyPage><InvoicesImport /></LazyPage>} />
         <Route path="finance/invoices/:id" element={<LazyPage><InvoiceDetailPage /></LazyPage>} />
-        <Route path="finance/bills" element={<LazyPage><BillsPage /></LazyPage>} />
+        <Route path="finance/bills" element={<LazyPage><FinanceListPage key="bills" kind="bills" importPath="/admin/finance/bills/import" /></LazyPage>} />
         <Route path="finance/bills/import" element={<LazyPage><BillsImport /></LazyPage>} />
         <Route path="finance/bills/:id" element={<LazyPage><BillDetailPage /></LazyPage>} />
-        <Route path="finance/expenses" element={<LazyPage><ExpensesPage /></LazyPage>} />
-        <Route path="finance/purchase-orders" element={<LazyPage><PurchaseOrdersPage /></LazyPage>} />
+        <Route path="finance/expenses" element={<LazyPage><FinanceListPage key="expenses" kind="expenses" /></LazyPage>} />
+        <Route path="finance/purchase-orders" element={<LazyPage><FinanceListPage key="purchase_orders" kind="purchase_orders" importPath="/admin/finance/purchase-orders/import" /></LazyPage>} />
         <Route path="finance/purchase-orders/import" element={<LazyPage><PurchaseOrdersImport /></LazyPage>} />
-        <Route path="finance/payments" element={<LazyPage><PaymentsPage /></LazyPage>} />
+        <Route path="finance/payments" element={<LazyPage><FinanceListPage key="payments" kind="payments" importPath="/admin/finance/payments/import" /></LazyPage>} />
         <Route path="finance/payments/import" element={<LazyPage><PaymentsImport /></LazyPage>} />
         <Route path="finance/reports" element={<LazyPage><ReportsPage /></LazyPage>} />
         <Route path="finance/reports/:reportId" element={<LazyPage><ReportsPage /></LazyPage>} />
-        <Route path="finance/items" element={<LazyPage><FinanceItems /></LazyPage>} />
-        <Route path="finance/estimates" element={<LazyPage><EstimatesPage /></LazyPage>} />
+        <Route path="finance/items" element={<LazyPage><FinanceListPage key="items" kind="items" /></LazyPage>} />
+        <Route path="finance/estimates" element={<LazyPage><FinanceListPage key="estimates" kind="estimates" importPath="/admin/finance/estimates/import" /></LazyPage>} />
+        <Route path="finance/record/:kind/:id" element={<LazyPage><FinanceRecordPage /></LazyPage>} />
         <Route path="finance/estimates/import" element={<LazyPage><EstimatesImport /></LazyPage>} />
         <Route
           path="finance/settings"

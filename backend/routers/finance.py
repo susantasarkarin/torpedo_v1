@@ -476,6 +476,46 @@ ITEM_COLUMN_MAPPINGS = {
 
 
 # ============================================================
+# RECORDS: one list / record API for every Finance tab (finance_records.py)
+# ============================================================
+
+@router.get("/records/{kind}")
+def list_finance_records(kind: str, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200),
+                         search: Optional[str] = None, status: Optional[str] = None,
+                         sort: Optional[str] = None, order: Optional[str] = None):
+    import finance_records
+    try:
+        res = finance_records.list_records(finance_db, kind, page=page, page_size=page_size, search=search,
+                                           status=status, sort=sort, order=order)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown finance record kind '{kind}'")
+    return {**res, "records": serialize_docs(res["records"])}
+
+
+@router.get("/records/{kind}/{record_id}")
+def get_finance_record(kind: str, record_id: str):
+    import finance_records
+    try:
+        doc = finance_records.get_record(finance_db, kind, record_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown finance record kind '{kind}'")
+    if not doc:
+        raise HTTPException(status_code=404, detail="record not found")
+    return serialize_doc(doc)
+
+
+@router.put("/records/{kind}/{record_id}")
+def update_finance_record(kind: str, record_id: str, data: Dict[str, Any] = Body(...)):
+    import finance_records
+    try:
+        return finance_records.update_record(finance_db, kind, record_id, data)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown finance record kind '{kind}'")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="record not found")
+
+
+# ============================================================
 # CUSTOMERS ENDPOINTS
 # ============================================================
 
