@@ -629,7 +629,9 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     # transfer endpoints) is a company selling to us, not a prospect.
     # A record superseded by the same person's newer one
     # (scripts/merge_moved_people.py) is not shown either.
-    query = {"transferred_to_vendor_leads": {"$ne": True}, "superseded_by": {"$exists": False}}
+    # Junk (scripts/junk_cleanup.py: bounced, never replied, never staged) is not shown either.
+    query = {"transferred_to_vendor_leads": {"$ne": True}, "superseded_by": {"$exists": False},
+             "junk": {"$exists": False}}
 
     view = getattr(filters, "view", None) or ("leads" if filters.qualified_only else None)
     if view in ("leads", "contacts", "ai_database"):
