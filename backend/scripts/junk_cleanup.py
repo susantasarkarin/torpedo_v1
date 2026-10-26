@@ -12,7 +12,7 @@
   duplicate projects the same study opened once per mail of its thread
                      ("RE: RFQ_x" next to "RFQ_x"): the oldest copy is kept; a copy
                      with no survey number, live/entry link or invoice is hidden
-                     (status duplicate, duplicate_of), any other copy is only flagged
+                     (duplicate_of); a copy with its own links is a vendor / quota leg and is left alone
 Undo: unset junk / party / duplicate_of and restore is_deleted false.
 """
 import argparse
@@ -80,7 +80,8 @@ def main():
             if len(samples["duplicates"]) < 10:
                 samples["duplicates"].append(f"{(p.get('projectName') or '')[:50]} -> keep {str(keep['_id'])[-6:]}"
                                              + (" (hidden)" if empty else " (flagged)"))
-            if a.apply:
+            # a copy with its own survey links is a separate vendor / quota leg of the study, not junk
+            if a.apply and empty:
                 upd = {"duplicate_of": str(keep["_id"]), "duplicate_flagged_at": now}
                 if empty:
                     upd.update(is_deleted=True, deleted_at=now, deleted_reason="duplicate project (same study, same client)")
