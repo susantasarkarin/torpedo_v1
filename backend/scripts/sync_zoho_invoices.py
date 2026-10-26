@@ -32,7 +32,7 @@ FIELDS = ("status", "balance_due", "amount_paid", "payment_status", "po_referenc
 
 
 def backup_age_hours(d="/var/www/campaign_platform/backups") -> float:
-    dumps = sorted(glob.glob(os.path.join(d, "*", "full.archive.gz")))
+    dumps = sorted(glob.glob(os.path.join(d, "*", "full.archive.gz")), key=os.path.getmtime)
     return (time.time() - os.path.getmtime(dumps[-1])) / 3600 if dumps else float("inf")
 
 

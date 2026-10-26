@@ -21,7 +21,7 @@ from backfill import steps  # noqa: E402
 
 
 def latest_backup_age_hours(backup_dir: str) -> float:
-    dumps = sorted(glob.glob(os.path.join(backup_dir, "*", "full.archive.gz")))
+    dumps = sorted(glob.glob(os.path.join(backup_dir, "*", "full.archive.gz")), key=os.path.getmtime)  # "latest/" sorts last by name
     if not dumps:
         return float("inf")
     return (time.time() - os.path.getmtime(dumps[-1])) / 3600
