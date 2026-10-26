@@ -89,7 +89,7 @@ def test_l2_auto_executes_in_shadow_with_undo_window(env):
 def test_live_needs_mode_action_switch_and_executor(env):
     d, gd = env
     calls = []
-    E.register_executor("google", "pause", do=lambda p: (calls.append(p), {"was": "ENABLED"})[1], undo=lambda u: calls.append(("undo", u)))
+    E.register_executor("google", "pause", do=lambda p, d: (calls.append(p), {"was": "ENABLED"})[1], undo=lambda u, d: calls.append(("undo", u)))
     try:
         c = cfg(mode="live", autonomy={**mcfg.DEFAULTS["autonomy"], "D2": "L2"})
         ev = {**cand()["evidence"], "conversions": 40}

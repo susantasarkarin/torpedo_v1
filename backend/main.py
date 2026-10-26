@@ -2449,6 +2449,39 @@ async def startup_event():
                 import marketing.engine  # noqa: F401
             except Exception as e:
                 print(f"[MarketingEngine] import failed: {e}")
+            try:      # platform write actions the engine may use (only in live + action live + autonomy)
+                from marketing import google_ads as _gads
+                _gads.register()
+            except Exception as e:
+                print(f"[MarketingExecutors] google: {e}")
+
+            def _paid_import(full):
+                def job():
+                    try:
+                        from marketing import google_ads as gads, quora as mquora
+                        r = gads.import_daily(days=3) if full else gads.import_daily(today_only=True)
+                        print(f"[PaidImport {'daily' if full else 'hourly'}] google {r}")
+                        if full:
+                            print(f"[PaidImport daily] quora {mquora.run()}")
+                    except Exception as e:
+                        print(f"[PaidImport] Error: {e}")
+                return job
+
+            scheduler.add_job(_paid_import(False), CronTrigger(minute=5), id="marketing_paid_hourly",
+                              name="Marketing: ad spend + pacing (hourly)", max_instances=1, coalesce=True, replace_existing=True)
+            scheduler.add_job(_paid_import(True), CronTrigger(hour=0, minute=30), id="marketing_paid_daily",  # 06:00 IST
+                              name="Marketing: ad platforms full daily import + Quora CSV", max_instances=1, coalesce=True, replace_existing=True)
+
+            def _offline_conv_job():
+                try:
+                    from marketing import google_ads as gads
+                    print(f"[OfflineConversions] google {gads.upload_conversions()}")
+                except Exception as e:
+                    print(f"[OfflineConversions] Error: {e}")
+
+            scheduler.add_job(_offline_conv_job, IntervalTrigger(hours=6), id="marketing_offline_conversions",
+                              name="Marketing: offline conversions to ad platforms (shadow until live)", max_instances=1,
+                              coalesce=True, replace_existing=True)
 
             def _marketing_lane(lane):
                 def job():

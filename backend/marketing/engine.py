@@ -53,9 +53,10 @@ CONFIDENCE_TO_ACT = 0.7
 _EXECUTORS: Dict[Tuple[str, str], Dict[str, Callable]] = {}   # (platform, action) -> {"do": fn, "undo": fn}
 
 
-def register_executor(platform: str, action: str, do: Callable[[Dict[str, Any]], Dict[str, Any]],
-                      undo: Callable[[Dict[str, Any]], Any]) -> None:
-    """A platform integration (M3) registers its write call. do(params) returns the undo payload."""
+def register_executor(platform: str, action: str, do: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+                      undo: Callable[[Dict[str, Any], Dict[str, Any]], Any]) -> None:
+    """A platform integration (M3) registers its write call. do(params, decision) returns the undo payload;
+    undo(undo_payload, decision) reverses it. decision carries entity_key, bu, platform."""
     _EXECUTORS[(platform, action)] = {"do": do, "undo": undo}
 
 
@@ -352,7 +353,7 @@ def _execute(d: Dict[str, Any], gd, cfg: Dict[str, Any], notify: bool) -> Dict[s
                "shadow_reason": "shadow mode" if not live else f"no executor registered for {d.get('platform')}:{act}"}
     else:
         try:
-            undo = ex["do"](d["final_parameters"])
+            undo = ex["do"](d["final_parameters"], d)
             upd = {**base, "status": "executed", "undo_payload": undo}
         except Exception as e:
             upd = {"status": "failed", "error": str(e)[:300]}
@@ -380,7 +381,7 @@ def undo(decision_id: str, actor: str, gd: Optional[Callable] = None) -> Dict[st
         ex = _EXECUTORS.get((d.get("platform") or "", d["final_action"]))
         if not ex:
             return {"ok": False, "error": "executor no longer registered"}
-        ex["undo"](d.get("undo_payload") or {})
+        ex["undo"](d.get("undo_payload") or {}, d)
     col.update_one({"_id": d["_id"]}, {"$set": {"status": "undone", "undone_by": actor, "undone_at": datetime.utcnow()}})
     return {"ok": True}
 
