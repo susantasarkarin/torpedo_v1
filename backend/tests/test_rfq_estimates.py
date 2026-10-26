@@ -68,3 +68,21 @@ def test_dry_run_writes_nothing():
     fin = FakeDB()
     res, doc = estimates.sync(fin, _opp(), None, now=NOW, apply=False)
     assert res == "created" and fin["estimates"].count_documents({}) == 0
+
+
+def test_blanks_becoming_known_complete_the_same_version():
+    fin = FakeDB()
+    opp = {**_opp(), "metadata": {"rfq": {}}}                      # nothing extracted yet
+    estimates.sync(fin, opp, None, now=NOW)
+    res, doc = estimates.sync(fin, opp, _decision(cpi=4.0), now=NOW, reason="re-extraction")
+    assert res == "filled" and doc["version"] == 1 and doc["total_amount"] == 2000
+    assert fin["estimates"].count_documents({}) == 1 and len(fin["estimates"].find_one({})["fills"]) == 1
+    assert estimates.sync(fin, opp, _decision(cpi=5.0), now=NOW)[0] == "new_version"   # a known price changed
+
+
+def test_sent_version_is_never_filled_in_place():
+    fin = FakeDB()
+    opp = {**_opp(), "metadata": {"rfq": {}}}
+    _, v1 = estimates.sync(fin, opp, None, now=NOW)
+    fin["estimates"].update_one({"_id": v1["_id"]}, {"$set": {"status": "sent"}})
+    assert estimates.sync(fin, opp, _decision(), now=NOW)[0] == "new_version"

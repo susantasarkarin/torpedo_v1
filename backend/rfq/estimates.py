@@ -8,6 +8,8 @@ with the group's latest version:
   scope changed           (countries, N, LOI, IR, methodology) -> version n+1
   price changed           (per-line CPI, or the quoted value / currency) -> version n+1
   same                    -> nothing
+  only blanks now known   (better extraction, e.g. N None -> 500) -> the same version
+                          completed in place, logged in fills -- unless it was sent
 The earlier version is kept, with superseded_by / is_latest false; a draft one
 reads "superseded", a sent or accepted one keeps its status (it was real).
 Each version records what changed. Nothing is deleted.
@@ -81,6 +83,22 @@ def diff(old: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, List[str]]:
     return out
 
 
+def only_fills(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
+    """True when every difference is a blank becoming known (better extraction, not a client change)."""
+    ob = {ln.get("country"): ln for ln in old.get("lines") or []}
+    nb = {ln.get("country"): ln for ln in new.get("lines") or []}
+    if set(ob) != set(nb):
+        # one unknown market resolved to the real one(s) is a fill; any other market change is scope
+        if not (list(ob) == [None]):
+            return False
+        return all(ob[None].get(k) in (None, nb_ln.get(k)) for nb_ln in nb.values() for k in SCOPE[1:] + ("cpi",))
+    for c in ob:
+        for k in SCOPE[1:] + ("cpi",):
+            if ob[c].get(k) not in (None, nb[c].get(k)):
+                return False
+    return all(old.get(k) in (None, new.get(k)) for k in ("value", "currency"))
+
+
 def line_items(s: Dict[str, Any]) -> List[Dict[str, Any]]:
     items = []
     for ln in s["lines"]:
@@ -125,6 +143,18 @@ def sync(fin, opp: Dict[str, Any], decision: Optional[Dict[str, Any]] = None, *,
     prev = latest(fin, oid)
     if prev and prev.get("fingerprint") == fp:
         return "unchanged", prev
+    if prev and not override and (prev.get("status") or "draft") != "sent" and not (prev.get("snapshot") or {}).get("manual") \
+            and only_fills(prev.get("snapshot") or {}, snap):
+        # blanks now known: the same version, completed -- a client never saw a different figure
+        items = line_items(snap)
+        total = round(sum(float(i.get("amount") or 0) for i in items), 2)
+        fill = {"items": items, "line_items": items, "subtotal": total, "total": total, "total_amount": total,
+                "currency": snap.get("currency"), "currency_code": snap.get("currency"),
+                "snapshot": snap, "fingerprint": fp, "updated_at": now}
+        if apply:
+            fin["estimates"].update_one({"_id": prev["_id"]}, {"$set": fill, "$push": {"fills": {
+                "at": now, "reason": reason, "what": diff(prev.get("snapshot") or {}, snap)}}})
+        return "filled", {**prev, **fill}
     version = int((prev or {}).get("version") or 0) + 1
     base = (prev or {}).get("estimate_base") or "EST-" + _rfq_no(opp).replace("RFQ-", "")
     change = diff(prev.get("snapshot") or {}, snap) if prev else {"scope": [], "price": []}
