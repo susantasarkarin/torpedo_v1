@@ -41,7 +41,8 @@ SYSTEM = (
     "company_name: the company's proper name (not a person, not an email address; keep the legal suffix if known).\n"
     "bu: which of our companies the relationship belongs to, from the mailboxes and subjects; none if unclear.\n"
     "confidence: 0-1, honest. Answer with the JSON only.")
-PERSONLIKE = re.compile(r"^[A-Z][a-z][A-Za-z'\-]*(?:,? [A-Z][a-z][A-Za-z'\-]*){1,2}$")
+# a verdict is applied at or above this confidence; below it waits for a person
+MIN_CONF = {"prospect": 0.5, "client": 0.7, "vendor": 0.7, "both": 0.7, "own": 0.8, "not_a_company": 0.8}
 
 
 def visible(acc) -> bool:
@@ -156,6 +157,12 @@ def context(crm, fin, ea):
     return ctx
 
 
+def _ask(ladder, body, acc, tiers):
+    res = ladder.run(task="company_review", system=SYSTEM, body=body, schema=SCHEMA, code_check=check,
+                     ref={"collection": "crm_db.accounts", "id": str(acc["_id"])}, enqueue_on_fail=False, tiers=tiers)
+    return (res.get("data") if res.get("status") in ("ok", "review") else None), res.get("tier")
+
+
 def account_domain(acc, crm):
     if acc.get("domain"):
         return acc["domain"].lower().removeprefix("www.")
@@ -185,21 +192,33 @@ def review(limit=None, out=None, with_ai=True):
             d = account_domain(acc, crm)
             r = rules(acc, d, ev, ctx)
             rec = {"account_id": str(acc["_id"]), "name": acc.get("name"), "domain": d}
-            if r:
+            from backfill.finance_customers import is_person
+            name_ok = bool(acc.get("name")) and not is_person(acc.get("name")) and "@" not in acc.get("name", "")
+            if r and name_ok:
                 rec.update(kind=r[0], bu=r[1], company_name=acc.get("name"), method="rules", why=r[2], confidence=1.0)
             elif with_ai:
-                res = ladder.run(task="company_review", system=SYSTEM, body=evidence_text(acc, d, ev, ctx), schema=SCHEMA,
-                                 code_check=check, ref={"collection": "crm_db.accounts", "id": str(acc["_id"])},
-                                 enqueue_on_fail=False)
-                data = res.get("data") if res.get("status") in ("ok", "review") else None
+                body = evidence_text(acc, d, ev, ctx)
+                data, tier = _ask(ladder, body, acc, ["haiku"])
+                if data and data["kind"] != "prospect" and float(data.get("confidence") or 0) < MIN_CONF[data["kind"]]:
+                    second, t2 = _ask(ladder, body, acc, ["sonnet"])      # a second opinion before anyone is moved
+                    if second:
+                        data, tier = second, t2
                 if data:
                     rec.update(kind=data["kind"], bu=data["bu"], company_name=data["company_name"].strip(),
-                               method=res.get("tier"), confidence=float(data.get("confidence") or 0))
+                               method=tier, confidence=float(data.get("confidence") or 0))
+                    if r:                       # rules know the relationship; the model only fixed the name
+                        rec.update(kind=r[0], why=r[2] + "; name by " + tier, confidence=1.0)
+                        if rec["bu"] == "none":
+                            rec["bu"] = r[1]
+                    if rec["bu"] == "none":
+                        rec["bu"] = ctx["lead_bu"].get(d) or ctx["rfq_bu"].get(rec["account_id"]) or "none"
                 else:
-                    rec.update(kind=None, method="unresolved", problems=res.get("problems"))
+                    rec.update(kind=r[0] if r else None, bu=r[1] if r else None, company_name=acc.get("name"),
+                               method="rules" if r else "unresolved", why=r[2] if r else None, confidence=1.0 if r else 0)
             else:
-                rec.update(kind=None, method="needs_ai")
-            rec["needs_review"] = rec.get("kind") is None or rec.get("confidence", 0) < 0.7
+                rec.update(kind=r[0] if r else None, bu=r[1] if r else None, method="rules" if r else "needs_ai",
+                           company_name=acc.get("name"), confidence=1.0 if r else 0)
+            rec["needs_review"] = rec.get("kind") is None or rec.get("confidence", 0) < MIN_CONF.get(rec.get("kind"), 1)
             counts[f"{rec['method']}:{rec.get('kind')}"] += 1
             fh.write(json.dumps(rec, default=str) + "\n")
             if n % 200 == 0:
