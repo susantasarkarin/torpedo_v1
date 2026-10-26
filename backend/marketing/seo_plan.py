@@ -172,7 +172,11 @@ def _title(page: Dict[str, Any], bu: str) -> str:
     squash = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
     # "About BIMwave Solutions" already names the brand: no " | BIM Wave Solutions" suffix
     t = base if brand and squash(brand) in squash(base) else f"{base} | {brand}".strip(" |")
-    return t if len(t) <= 60 else (base[:57].rsplit(" ", 1)[0] + "…")
+    if len(t) <= 60:
+        return t
+    # too long with the brand: the heading alone, cut at a word (no "…" in a search result)
+    cut = base if len(base) <= 60 else base[:60].rsplit(" ", 1)[0]
+    return cut.rstrip(" ,:;-–|")
 
 
 def fix_plan(gd: Callable, site: str, *, now: Optional[datetime] = None) -> Dict[str, Any]:

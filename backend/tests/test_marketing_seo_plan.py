@@ -94,3 +94,8 @@ def test_title_does_not_repeat_the_brand():
     assert P._title({"h1": ["About Survey Fieldwork"]}, "SFW") == "About Survey Fieldwork"
     assert P._title({"title": "Scan to BIM | BIM Wave Solutions"}, "BIM") == "Scan to BIM | BIM Wave Solutions"
     assert P._title({"h1": ["Audience Sampling"]}, "SFW") == "Audience Sampling | Survey Fieldwork"
+
+
+def test_long_title_cut_at_a_word_without_ellipsis():
+    t = P._title({"h1": ["Digital Excellence in Building Information Modelling for architects, contractors and developers"]}, "BIM")
+    assert len(t) <= 60 and not t.endswith(("…", ",")) and t.startswith("Digital Excellence in Building Information Modelling")
