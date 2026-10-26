@@ -697,3 +697,12 @@ def mail_invoice_links_suggested(c, apply=False, now=None):
 
 
 STEPS.append(("mail_invoice_links_suggested", mail_invoice_links_suggested))
+
+
+def project_billing(c, apply=False, now=None):
+    """Owner 2026-10-26: closed projects are billed -- map each to its estimate and invoice (backfill/project_billing.py)."""
+    from backfill import project_billing as pb
+    return pb.run(c, apply=apply, now=now)
+
+
+STEPS.append(("project_billing", project_billing))
