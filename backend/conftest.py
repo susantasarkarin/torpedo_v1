@@ -61,7 +61,7 @@ def _no_cloud_ai(monkeypatch):
     def _offline(**kw):
         raise RuntimeError("cloud AI disabled in tests")
     monkeypatch.setattr(ladder, "anthropic_transport", _offline, raising=False)
-    monkeypatch.setattr(ladder, "cfg", lambda: ladder.DEFAULTS, raising=False)
+    monkeypatch.setattr(ladder, "cfg", lambda: {**ladder.DEFAULTS, "replace_local_model": False}, raising=False)
     try:
         from platform_core import qwen_gateway
         from tests._fakemongo import FakeDB

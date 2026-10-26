@@ -49,7 +49,7 @@ def check_n(data, clean):
 def test_qwen_answer_that_passes_checks_stops_the_ladder(env):
     q, cl = _qwen(data={"n": 500}), _cloud([])
     r = ladder.run(task="reply_classification", system="s", body="Need N=500", schema=SCHEMA, code_check=check_n,
-                   db=env["gov"], qwen_run=q, cloud_transport=cl)
+                   db=env["gov"], qwen_run=q, cloud_transport=cl, tiers=["qwen", "haiku", "sonnet"])
     assert r["status"] == "ok" and r["tier"] == "qwen" and not cl.seen
 
 
@@ -105,14 +105,16 @@ def test_no_credit_switches_cloud_off_and_budget_cap_skips_it(env):
 def test_night_only_qwen_work_is_deferred_not_bought(env):
     q = _qwen(status="deferred")
     cl = _cloud([])
-    r = ladder.run(task="lead_bucketing", system="s", body="x", schema=SCHEMA, db=env["gov"], qwen_run=q, cloud_transport=cl)
+    r = ladder.run(task="lead_bucketing", system="s", body="x", schema=SCHEMA, db=env["gov"], qwen_run=q, cloud_transport=cl,
+                   tiers=["qwen", "haiku"])
     assert r["status"] == "deferred" and not cl.seen
 
 
 def test_always_review_task_still_goes_to_a_person_when_accepted(env):
     q = _qwen(data={"n": 500})
     r = ladder.run(task="rfq_extraction", system="s", body="N=500", schema=SCHEMA, code_check=check_n,
-                   db=env["gov"], qwen_run=q, cloud_transport=_cloud([]), ref={"collection": "o", "id": "1"})
+                   db=env["gov"], qwen_run=q, cloud_transport=_cloud([]), ref={"collection": "o", "id": "1"},
+                   tiers=["qwen", "haiku", "sonnet"])
     assert r["status"] == "review" and r["tier"] == "qwen" and r["data"] == {"n": 500}
 
 

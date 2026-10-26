@@ -37,28 +37,34 @@ logger = logging.getLogger(__name__)
 
 DEFAULTS: Dict[str, Any] = {
     "enabled": True,
-    "monthly_budget_usd": 10.0,
+    "monthly_budget_usd": 30.0,
     "mask_pii": True,
+    # Owner 2026-10-26: the 1.5B local model is off every task. local_slm_client.chat_json
+    # callers (mail categorizer, RFQ detail, buckets, company fit, summaries...) go to
+    # Haiku -> Sonnet instead; set False to send them back to the local model.
+    "replace_local_model": True,
     "models": {
         "haiku": {"model": "claude-haiku-5-5", "usd_in_per_m": 0.10, "usd_out_per_m": 0.50,
                   "thinking": {"type": "disabled"}},
         "sonnet": {"model": "claude-sonnet-5-5", "usd_in_per_m": 2.00, "usd_out_per_m": 10.00,
                    "thinking": {"type": "between_tools"}},
     },
-    "default_tiers": ["qwen", "haiku"],
+    "default_tiers": ["haiku", "sonnet"],
     "task_tiers": {                       # which rungs each task may climb (rules run in the caller first)
-        "rfq_extraction": ["qwen", "haiku", "sonnet"],
-        "vendor_bid_parse": ["qwen", "haiku", "sonnet"],
-        "reply_classification": ["qwen", "haiku", "sonnet"],
-        "sender_type": ["qwen", "haiku"],
-        "mail_summary": ["qwen", "haiku"],
-        "reply_draft": ["haiku", "sonnet"],        # the 1.5B does not write natural prose
-        "reengagement_draft": ["qwen", "haiku", "sonnet"],
-        "contact_classification": ["qwen", "haiku", "sonnet"],
-        "lead_bucketing": ["qwen", "haiku"],
+        "rfq_extraction": ["haiku", "sonnet"],
+        "vendor_bid_parse": ["haiku", "sonnet"],
+        "reply_classification": ["haiku", "sonnet"],
+        "sender_type": ["haiku", "sonnet"],
+        "mail_summary": ["haiku"],
+        "reply_draft": ["haiku", "sonnet"],
+        "reengagement_draft": ["haiku", "sonnet"],
+        "contact_classification": ["haiku", "sonnet"],
+        "lead_bucketing": ["haiku", "sonnet"],
+        "company_review": ["haiku", "sonnet"],
+        "mail_reanalysis": ["haiku", "sonnet"],
     },
     "cloud_max_tokens": {"default": 400, "rfq_extraction": 3000, "vendor_bid_parse": 800, "reply_draft": 600,
-                         "mail_summary": 250},   # a ceiling only: billed on tokens used; multi-country RFQs list a line per market
+                         "mail_summary": 250, "company_review": 300, "mail_reanalysis": 900},   # a ceiling only: billed on tokens used; multi-country RFQs list a line per market
 }
 
 _UNAVAILABLE: Dict[str, float] = {}       # tier -> retry-after epoch (no credit / bad key / outage)
@@ -171,7 +177,8 @@ def anthropic_transport(*, model: str, system: str, user: str, schema: Dict[str,
     resp = client.messages.create(
         model=model, max_tokens=max_tokens, system=system,
         messages=[{"role": "user", "content": user}],
-        extra_body={"output_config": {"effort": "low", "format": {"type": "json_schema", "schema": schema}},
+        extra_body={"output_config": {"effort": "low", **({"format": {"type": "json_schema", "schema": schema}}
+                                                           if schema else {})},
                     "thinking": thinking})
     if resp.stop_reason == "refusal":
         raise RuntimeError("refusal")
@@ -193,12 +200,12 @@ def _classify_error(e: Exception) -> Optional[float]:
 
 
 def _cloud_attempt(tier: str, *, task: str, system: str, clean: str, schema: Optional[Dict[str, Any]],
-                   code_check, c: Dict[str, Any], db, transport) -> Dict[str, Any]:
+                   code_check, c: Dict[str, Any], db, transport, max_tokens: Optional[int] = None) -> Dict[str, Any]:
     m = c["models"][tier]
     user, mapping = mask(clean) if c.get("mask_pii", True) else (clean, {})
-    st = strict_schema(schema) if schema else {"type": "object", "properties": {}, "required": [],
-                                                "additionalProperties": False}
-    max_tokens = int((c.get("cloud_max_tokens") or {}).get(task) or (c.get("cloud_max_tokens") or {}).get("default") or 400)
+    st = strict_schema(schema) if schema else None          # no schema: free JSON (legacy callers check it themselves)
+    max_tokens = int(max_tokens or (c.get("cloud_max_tokens") or {}).get(task)
+                     or (c.get("cloud_max_tokens") or {}).get("default") or 400)
     t0 = time.time()
     try:
         raw, tin, tout = transport(model=m["model"], system=system + "\nReturn only the JSON object. No explanation.",
@@ -331,7 +338,8 @@ def _log(db, task, ref, a, now):
 
 def escalate_json(*, task: str, system: str, user: str, schema: Optional[Dict[str, Any]],
                   check: Callable[[Any], List[str]], local: Optional[Callable[[], Any]] = None,
-                  tiers: Optional[List[str]] = None, db=None, cloud_transport=None) -> Tuple[Any, Optional[str], List[Dict[str, Any]]]:
+                  tiers: Optional[List[str]] = None, db=None, cloud_transport=None,
+                  max_tokens: Optional[int] = None) -> Tuple[Any, Optional[str], List[Dict[str, Any]]]:
     """For older modules that call the local model themselves (local_slm_client.chat_json)
     and validate the answer with their own check. Tries `local()` first, then the
     cloud rungs, each judged by `check(data) -> [problems]`. Returns
@@ -364,7 +372,8 @@ def escalate_json(*, task: str, system: str, user: str, schema: Optional[Dict[st
             attempts.append({"tier": tier, "status": "skipped", "problems": ["monthly AI budget used"]})
             continue
         a = _cloud_attempt(tier, task=task, system=system, clean=user, schema=schema,
-                           code_check=lambda d, _clean: check(d), c=c, db=db, transport=cloud_transport)
+                           code_check=lambda d, _clean: check(d), c=c, db=db, transport=cloud_transport,
+                           max_tokens=max_tokens)
         _log(db, task, None, a, None)
         attempts.append({k: a.get(k) for k in ("tier", "status", "problems", "error", "usd")})
         if a["status"] == "ok":

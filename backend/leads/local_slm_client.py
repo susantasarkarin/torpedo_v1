@@ -207,7 +207,27 @@ def chat_json(
     Raises LocalSLMUnavailable / LocalSLMMalformedResponse exactly like
     classify() -- callers must treat both as "no AI proposal", same as any
     other call through this module.
+
+    With ladder.replace_local_model on (owner 2026-10-26: the 1.5B is off every
+    task), the call goes to Haiku -> Sonnet through platform_core.ladder instead,
+    budgeted, PII-masked and logged per calling module; no answer raises
+    LocalSLMUnavailable as before.
     """
+    try:
+        from platform_core import ladder
+        replace = bool(ladder.cfg().get("replace_local_model"))
+    except Exception:
+        replace = False
+    if replace:
+        import sys
+        caller = sys._getframe(1).f_globals.get("__name__", "unknown").rsplit(".", 1)[-1]
+        data, _tier, attempts = ladder.escalate_json(
+            task=f"legacy:{caller}", system=system, user=user, schema=json_schema,
+            check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"], max_tokens=max(max_tokens, 300))
+        if data is None:
+            raise LocalSLMUnavailable("cloud ladder gave no answer: "
+                                      + "; ".join(str(a.get("problems") or a.get("error")) for a in attempts)[:300])
+        return data
     text, _usage, _latency = _call(system, user, max_tokens, timeout, json_schema, priority)
     clean = _strip_markdown_fences(text)
     try:
