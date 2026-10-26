@@ -18,7 +18,7 @@ import re
 from typing import Any, Dict, List
 
 COUNTRY_NAMES = {
-    "IN": ["india"], "US": ["usa", "united states", "u.s."], "GB": ["uk", "united kingdom", "britain", "england"],
+    "IN": ["india"], "US": ["usa", "united states", "u.s.", "america", "united states of america"], "GB": ["uk", "united kingdom", "britain", "england"],
     "DE": ["germany"], "FR": ["france"], "JP": ["japan"], "KR": ["korea", "south korea", "south-corea"],
     "BR": ["brazil"], "CN": ["china", "mainland china"], "MX": ["mexico"], "SG": ["singapore"],
     "AU": ["australia"], "NZ": ["new zealand"], "CA": ["canada"], "IT": ["italy"], "ES": ["spain"],

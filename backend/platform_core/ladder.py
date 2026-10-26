@@ -57,7 +57,8 @@ DEFAULTS: Dict[str, Any] = {
         "contact_classification": ["qwen", "haiku", "sonnet"],
         "lead_bucketing": ["qwen", "haiku"],
     },
-    "cloud_max_tokens": {"default": 400, "rfq_extraction": 700, "reply_draft": 600, "mail_summary": 250},
+    "cloud_max_tokens": {"default": 400, "rfq_extraction": 3000, "vendor_bid_parse": 800, "reply_draft": 600,
+                         "mail_summary": 250},   # a ceiling only: billed on tokens used; multi-country RFQs list a line per market
 }
 
 _UNAVAILABLE: Dict[str, float] = {}       # tier -> retry-after epoch (no credit / bad key / outage)
