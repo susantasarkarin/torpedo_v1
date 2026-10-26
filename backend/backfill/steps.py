@@ -660,8 +660,15 @@ def rfq_estimates(c, apply=False, now=None):
     rep, samples = Counter(), []
     for opp in c.crm_db.opportunities.find({"metadata.rfq": {"$exists": True}, "is_deleted": {"$ne": True}}):
         d = decisions.find_one({"opportunity_id": str(opp["_id"])})
+        # version 1 is dated when the RFQ arrived, not when this backfill ran
+        r = (opp.get("metadata") or {}).get("rfq") or {}
+        at = r.get("received_at") if isinstance(r.get("received_at"), datetime) else opp.get("created_at")
         res, doc = estimates.sync(fin, opp, d, now=now, reason="backfill: every RFQ has an estimate",
                                   customer=estimates.customer_for(fin, opp), apply=apply)
+        if apply and isinstance(at, datetime) and doc.get("version") == 1 and doc.get("date") != at:
+            from datetime import timedelta
+            fin.estimates.update_one({"_id": doc["_id"]}, {"$set": {
+                "date": at, "expiry_date": at + timedelta(days=estimates.VALID_DAYS)}})
         rep[res] += 1
         rep[f"status {doc['status']}"] += 1
         rep["priced (has a value)" if doc["total_amount"] else "no price yet (scope only)"] += 1

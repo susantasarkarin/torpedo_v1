@@ -1752,7 +1752,9 @@ def get_estimates(
             match_stage.pop("$or", None)
             pipeline[0] = {"$match": match_stage}
         pipeline.extend([
-            {"$sort": {"created_at": -1}},
+            {"$addFields": {"_sort_date": {"$ifNull": ["$date", {"$ifNull": ["$estimate_date", "$created_at"]}]}}},
+            {"$sort": {"_sort_date": -1, "created_at": -1}},
+            {"$project": {"_sort_date": 0}},
             {"$facet": {
                 "metadata": [{"$count": "total"}],
                 "data": [{"$skip": skip}, {"$limit": page_size}],
