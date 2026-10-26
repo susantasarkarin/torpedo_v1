@@ -47,7 +47,7 @@ function Marketing() {
       title: "Marketing dashboard",
       description: "Leads, RFQs, won ₹, spend, ROAS, SEO, social, inbox SLA, decisions — and the weekly report",
       icon: BarChart3,
-      link: "/admin/dashboards/marketing",
+      link: "/admin/marketing/dashboard",
       color: "#b45309"
     },
     {

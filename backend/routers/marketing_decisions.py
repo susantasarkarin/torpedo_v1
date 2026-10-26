@@ -80,3 +80,16 @@ async def shadow_report(days: int = Query(14, ge=7, le=90), user: str = Depends(
     """M6: decisions vs owner judgement, predicted vs actual, data freshness, tracking coverage (for M-CP3)."""
     from marketing import shadow_report as SR
     return SR.build(_gd, days=days)
+
+
+@router.get("/dashboard")
+async def dashboard_sections(days: int = Query(30, ge=7, le=365), bu: Optional[str] = None, model: str = "last_non_direct",
+                             user: str = Depends(verify_session)):
+    """6.1 Sections: website, SEO, paid, social, content, attribution (model switch)."""
+    from marketing import attribution, dashboard
+    from platform_core import config_store
+    if model not in attribution.MODELS:
+        raise HTTPException(400, f"model must be one of {attribution.MODELS}")
+    if bu not in (None, "", "ALL") and bu not in schema.BUS:
+        raise HTTPException(400, "bu must be SFW, COGENTIX, BIM or ALL")
+    return dashboard.all_sections(_gd, days=days, bu=None if bu in (None, "", "ALL") else bu, model=model, cfg=config_store.get("marketing"))

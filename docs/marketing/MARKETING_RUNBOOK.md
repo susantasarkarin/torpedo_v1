@@ -9,7 +9,7 @@ For whoever runs Torpedo's marketing module day to day. Everything here is done 
 | Tokens and platform IDs | Admin → Marketing → **Integrations** |
 | Content calendar, brand voice, tagged links | Admin → Marketing → **Content calendar** |
 | Inbox (forms, social, WhatsApp, lead forms) | Admin → Marketing → **Inbox** |
-| Dashboard 13 + Needs attention | Admin → Marketing → **Marketing dashboard** (`/admin/dashboards/marketing`) |
+| Dashboard 13 (tiles, Needs attention, website / SEO / paid / social / content / attribution with model switch) | Admin → Marketing → **Marketing dashboard** (`/admin/marketing/dashboard`) |
 | Weekly report (Mon 09:00) | Admin → Marketing → **Weekly report** |
 | Decisions to approve / reject | Admin → **Review Queue**, type *marketing decision* |
 | Decision log, undo, scorecard, autonomy | Admin → Marketing → **Decision Engine** |
