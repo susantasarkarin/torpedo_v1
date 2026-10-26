@@ -77,6 +77,11 @@ def main():
         if want.get("status") == "draft" and local not in ("", "draft"):
             want.pop("status", None)
         changes = {k: v for k, v in want.items() if v is not None and inv.get(k) != v}
+        # fill-only: invoices created here as drafts can lack the dates/amounts Zoho has
+        for k, v in (("due_date", z["due_date"]), ("invoice_date", z["invoice_date"]), ("total", z["total"]),
+                     ("total_amount", z["total"]), ("currency_code", z["currency"])):
+            if v not in (None, "") and inv.get(k) in (None, "", 0):
+                changes[k] = v
         if not changes and not upd:
             counts["unchanged"] += 1
             continue
