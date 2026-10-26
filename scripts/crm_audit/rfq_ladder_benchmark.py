@@ -46,7 +46,8 @@ def score(item, ext):
 
 def main():
     gold = json.load(open(sys.argv[1], encoding="utf-8"))
-    with_qwen = "--with-qwen" in sys.argv
+    full = "--full" in sys.argv                    # rules -> Qwen -> Haiku -> Sonnet
+    with_qwen = "--with-qwen" in sys.argv or full
     c = MongoClient(os.environ["MONGO_URI"])
     rows = []
     for item in gold["items"]:
@@ -61,7 +62,7 @@ def main():
         elif with_qwen:
             from platform_core import ladder
             out = ladder.run(task="rfq_extraction", system=flow.SYSTEM, body=text, schema=flow.SCHEMA,
-                             code_check=flow.code_check, tiers=["qwen"], enqueue_on_fail=False,
+                             code_check=flow.code_check, tiers=None if full else ["qwen"], enqueue_on_fail=False,
                              rules_result=r, rules_complete=rules_extract.complete(r))
             if out.get("data") is not None and not out.get("problems"):
                 rung, ext = out.get("tier"), out["data"]
