@@ -81,7 +81,8 @@ def mail_pos(subject: str, body: str) -> set:
     return {p for p in found if len(re.findall(r"\d", p)) >= 4 and not re.search(r"[A-Z]{5,}", p)}
 
 
-def run(c, apply=False, now=None) -> Dict[str, Any]:
+def run(c, apply=False, now=None, include_suggested=False) -> Dict[str, Any]:
+    """include_suggested: also link invoices whose customer differs from the RFQ account (owner approved 2026-10-26)."""
     from mail_pipeline.rules import po_numbers
     now = now or datetime.utcnow()
     fin, crm, ea = c.finance_db, c.crm_db, c.email_automation
@@ -149,6 +150,9 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
                 links[no].add(oid)
             else:
                 suggest[no].add(oid)
+    if include_suggested:
+        for no, opps in suggest.items():
+            links[no] |= opps
     # client POs in the threads of RFQs that got an invoice link
     linked_opps = {o for s in links.values() for o in s}
     for t, o in thread_opp.items():

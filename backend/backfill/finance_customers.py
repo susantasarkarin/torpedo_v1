@@ -25,6 +25,7 @@ COMPANY_WORD = re.compile(r"(?i)\b(research|group|inc|ltd|llc|limited|pvt|privat
                           r"exchange|international|global|consult\w*|services?|analytics|panel|surveys?|field\w*|media|"
                           r"labs?|partners?|corp\w*|company|co|agency|tech\w*|systems?|digital|studios?|ventures?|"
                           r"knowledge|intelligence|sampling|sample|strategy|strategies|associates|india|europe|asia)\b")
+OWN_COMPANY = re.compile(r"cogentix\s+research|survey\s*fieldwork|bim\s*wave", re.I)
 REASON = "no estimate or invoice -- finance customers are the accounts we quote or bill (owner 2026-10-26)"
 
 
@@ -128,8 +129,14 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
         if cid in keep_ids or str(cu.get("crm_account_id") or "") in target:
             continue
         if invoiced[cid]:
-            rep["has invoices but no CRM account (kept, needs a person)"] += 1
-            samples["invoiced_no_account"].append(cu.get("name"))
+            # owner 2026-10-26: an invoiced company gets its CRM account (ours -> kind own)
+            kind = "own" if OWN_COMPANY.search(cu.get("name") or "") else "client"
+            rep[f"account created for invoiced customer ({kind})"] += 1
+            samples["invoiced_no_account"].append(f"{cu.get('name')} -> new {kind} account")
+            if apply:
+                aid = crm.accounts.insert_one({"name": cu.get("name"), "kind": kind, "source": "finance_customer",
+                                               "created_at": now, **stamp}).inserted_id
+                fin.customers.update_one({"_id": cu["_id"]}, {"$set": {"crm_account_id": str(aid), **stamp}})
             continue
         rep["hidden (no estimate or invoice)"] += 1
         rep[f"hidden source {cu.get('source')}"] += 1
@@ -151,6 +158,6 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
                 fin.estimates.update_one({"_id": e["_id"]}, {"$set": {"customer_id": str(cu["_id"]),
                                                                        "customer_name": cu.get("name"), **stamp}})
                 rep["rfq estimates given their customer"] += 1
-    rep["finance customers after"] = rep["kept"] + rep["customer created from account"] \
-        + rep["has invoices but no CRM account (kept, needs a person)"]
+    rep["finance customers after"] = rep["kept"] + rep["customer created from account"] + sum(
+        v for k, v in rep.items() if k.startswith("account created for invoiced customer"))
     return {**rep, "samples": dict(samples)}

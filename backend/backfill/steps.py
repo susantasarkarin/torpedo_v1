@@ -688,3 +688,12 @@ def finance_customers(c, apply=False, now=None):
 
 
 STEPS.append(("finance_customers", finance_customers))
+
+
+def mail_invoice_links_suggested(c, apply=False, now=None):
+    """Owner 2026-10-26: also link the invoices found in an RFQ thread whose customer differs from the RFQ's account."""
+    from backfill import mail_invoice_links as mil
+    return mil.run(c, apply=apply, now=now, include_suggested=True)
+
+
+STEPS.append(("mail_invoice_links_suggested", mail_invoice_links_suggested))
