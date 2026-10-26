@@ -72,7 +72,7 @@ def main():
     for k, ps in groups.items():
         if len(ps) < 2:
             continue
-        ps.sort(key=lambda p: p.get("createdAt") or p.get("created_at") or now)
+        ps.sort(key=lambda p: str(p.get("createdAt") or p.get("created_at") or now)[:19])   # dates are strings or datetimes
         keep = ps[0]
         for p in ps[1:]:
             empty = not (p.get("surveyNo") or p.get("liveLink") or p.get("entryLink") or p.get("invoice_ids"))
