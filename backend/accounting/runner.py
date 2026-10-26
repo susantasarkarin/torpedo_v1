@@ -65,6 +65,7 @@ def receivables(now: Optional[datetime] = None) -> Dict[str, Any]:
     billing = billing_contacts(gd("crm_db"), [c.get("crm_account_id") for c in cust.values() if not c.get("email")])
     invs = []
     for i in fin["invoices"].find({"status": {"$nin": ["draft", "void", "paid", "written_off"]}, "balance_due": {"$gt": 0},
+                                   "intercompany": {"$ne": True},
                                    "is_deleted": {"$ne": True}},
                                   {"invoice_number": 1, "status": 1, "balance_due": 1, "due_date": 1, "customer_id": 1}):
         c = cust.get(str(i.get("customer_id"))) or {}
@@ -107,7 +108,7 @@ def bank_import(now: Optional[datetime] = None, root: Optional[str] = None) -> D
     opens = [{"number": i["invoice_number"], "date": i["invoice_date"].date(), "balance_due": float(i["balance_due"]),
               "taxable": float(i.get("subtotal") or i["balance_due"]), "customer_id": str(i.get("customer_id")),
               "customer_name": i.get("customer_name") or ""}
-             for i in fin["invoices"].find({"balance_due": {"$gt": 0}, "currency_code": "INR",
+             for i in fin["invoices"].find({"balance_due": {"$gt": 0}, "currency_code": "INR", "intercompany": {"$ne": True},
                                             "status": {"$nin": ["draft", "void", "paid", "written_off"]}},
                                            {"invoice_number": 1, "invoice_date": 1, "balance_due": 1, "subtotal": 1,
                                             "customer_id": 1, "customer_name": 1})

@@ -559,6 +559,14 @@ def ledger_opening(c, apply=False, now=None):
                                            {"account": "1100", "credit": min(paid, total), "party": str(i.get("customer_id"))}],
                                     source={"type": "receipt", "id": num}, **meta))
             rep["receipts"] += 1
+        if i.get("intercompany") and ("reclass_intercompany", num) not in have:
+            open_amt = round(total - min(paid, total), 2)
+            if open_amt > 0:      # owed by one of our own companies: inter-company, not a client receivable
+                new.append(ledger.entry(entity=ent, on=d, memo=f"Reclass {num} to inter-company receivable",
+                                        lines=[{"account": "1300", "debit": open_amt},
+                                               {"account": "1100", "credit": open_amt, "party": str(i.get("customer_id"))}],
+                                        source={"type": "reclass_intercompany", "id": num}, **meta))
+                rep["intercompany_reclass"] += 1
         if i.get("status") == "written_off" and ("write_off", num) not in have:
             left = round(total - min(paid, total), 2)
             if left > 0:

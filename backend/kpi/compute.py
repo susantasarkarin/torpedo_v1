@@ -29,7 +29,8 @@ def _inr(doc, field, fx) -> float:
 
 
 def _inv_q(bu, extra=None):
-    q = {"status": {"$nin": ["draft", "void"]}, "is_deleted": {"$ne": True}, **(extra or {})}
+    q = {"status": {"$nin": ["draft", "void"]}, "is_deleted": {"$ne": True},
+         "intercompany": {"$ne": True}, **(extra or {})}     # SFW <-> Cogentix billing is not client revenue
     if bu:
         q["branch"] = BU_BRANCH.get(bu, bu)
     return q
