@@ -11,9 +11,20 @@ Client PO numbers found in those RFQ threads (mail_pipeline.rules.po_numbers,
 client mail only) fill the RFQ / project PO when empty and are checked against
 the invoice's Zoho order number.
 
+Most invoice mail is not in an RFQ thread (QuickBooks/Zoho notifications carry
+only number, due date and amount; the rest is collections). Two more rules:
+  study name   the subject names a study ("Cashfree Brand Study | Post Phase",
+               "RFQ_200378", "A-21171") -> the ONE project of the invoice's
+               customer sharing a job code or two distinctive words; several
+               candidates is a suggestion
+  client PO    a client mail naming exactly one of our invoices and exactly one
+               PO ("PO No", or a SAP 45xxxxxxxx in the subject) -> that
+               invoice's po_reference, only when empty
+
 Writes only on --apply (scripts/backfill_phase4.py --step mail_invoice_links):
-fill-only on opportunity_id / po_number, addToSet on invoice_links /
-ops_project_ids, stamped backfill.mail_invoice_links. Nothing overwritten.
+fill-only on opportunity_id / po_number / po_reference, addToSet on
+invoice_links / ops_project_ids, stamped backfill.mail_invoice_links.
+Nothing overwritten.
 """
 import re
 from collections import Counter, defaultdict
@@ -34,6 +45,40 @@ def tokens(text: str) -> set:
     return {norm_no(m.group(0)) for m in INV_TOKEN.finditer(text or "")}
 
 
+SAP_PO = re.compile(r"\b45\d{8}\b")
+CODE = re.compile(r"\b[A-Z]{0,4}[-_]?\d{4,8}\b", re.I)
+GENERIC = set("""study survey surveys fieldwork invoice invoices pending payment payments outstanding reminder request
+proposal project projects research phase post with from your this that for and the india global online quote
+followup follow update details account ageing report contact market group final data recruitment""".split())
+
+
+def name_keys(s: str):
+    """(job codes, distinctive words) of a subject or project name."""
+    s = INV_TOKEN.sub(" ", s or "")
+    codes = {re.sub(r"[-_]", "", c).upper() for c in CODE.findall(s)}
+    codes = {c for c in codes if not re.fullmatch(r"(19|20)\d\d", c)}            # a year is not a job code
+    words = {w for w in re.findall(r"[a-z]{4,}", s.lower()) if w not in GENERIC}
+    return codes, words
+
+
+def name_match(subject: str, candidates) -> list:
+    """Candidates (id, name) the subject names: a shared job code, or two shared distinctive words."""
+    sc, sw = name_keys(subject)
+    if not sc and len(sw) < 2:
+        return []
+    out = []
+    for cid, name in candidates:
+        cc, cw = name_keys(name)
+        if (sc & cc) or len(sw & cw) >= 2:
+            out.append(cid)
+    return out
+
+
+def mail_pos(subject: str, body: str) -> set:
+    from mail_pipeline.rules import po_numbers
+    return set(po_numbers(body or "")) | set(po_numbers(subject or "")) | set(SAP_PO.findall(subject or ""))
+
+
 def run(c, apply=False, now=None) -> Dict[str, Any]:
     from mail_pipeline.rules import po_numbers
     now = now or datetime.utcnow()
@@ -52,26 +97,47 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
             if t:
                 thread_opp[t] = o
     proj_by_opp = defaultdict(list)
-    for p in ea.projects.find({"is_deleted": {"$ne": True}}, {"opportunity_id": 1, "rfqId": 1, "po_number": 1}):
+    proj_by_cust = defaultdict(list)
+    for p in ea.projects.find({"is_deleted": {"$ne": True}}, {"opportunity_id": 1, "rfqId": 1, "po_number": 1,
+                                                             "projectName": 1, "finance_customer_id": 1, "customer_id": 1}):
         k = str(p.get("opportunity_id") or p.get("rfqId") or "")
         if k:
             proj_by_opp[k].append(p)
+        for ck in {str(p.get("finance_customer_id") or ""), str(p.get("customer_id") or "")} - {""}:
+            proj_by_cust[ck].append(p)
+    proj_by_id = {str(p["_id"]): p for ps in proj_by_cust.values() for p in ps}
 
     rep: Counter = Counter()
     samples = defaultdict(list)
     links = defaultdict(set)          # invoice no -> opportunity ids (accepted)
     suggest = defaultdict(set)
+    name_links = defaultdict(set)     # invoice no -> project ids named in the subject (accepted)
+    inv_po = defaultdict(set)         # invoice no -> client POs in a mail naming only that invoice
     pos = defaultdict(set)            # opportunity id -> client POs seen in its thread
     q = {"body_plain": {"$regex": r"(SF|CR)\s*/\s*\d", "$options": "i"}}
     for m in md.find(q, {"subject": 1, "body_plain": 1, "gmail_thread_id": 1, "mail_counterparty": 1, "direction": 1,
                          "from_email": 1}):
-        found = {t for t in tokens((m.get("subject") or "") + "\n" + (m.get("body_plain") or "")[:20000]) if t in invoices}
+        subj, body = m.get("subject") or "", (m.get("body_plain") or "")[:20000]
+        found = {t for t in tokens(subj + "\n" + body) if t in invoices}
         if not found:
             continue
         rep["mails_naming_our_invoices"] += 1
+        client_mail = not (m.get("from_email") or "").lower().endswith(OWN)
+        if client_mail and len(found) == 1:
+            ps = mail_pos(subj, body)
+            if len(ps) == 1:
+                inv_po[next(iter(found))] |= ps
         opp = thread_opp.get(m.get("gmail_thread_id"))
         if not opp:
             rep["mail_not_in_an_rfq_thread"] += 1
+            for no in found:
+                cands = [(str(p["_id"]), p.get("projectName") or "")
+                         for p in proj_by_cust.get(str(invoices[no].get("customer_id")), [])]
+                hit = name_match(subj, cands)
+                if len(hit) == 1:
+                    name_links[no].add(hit[0])
+                elif hit:
+                    rep["study_name_matched_several_projects (not linked)"] += 1
             continue
         oid = str(opp["_id"])
         for no in found:
@@ -104,6 +170,26 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
         samples["suggested"].append(f"{no} -> RFQ {', '.join(sorted(opps))[:60]} (customer differs)")
     for oid, ps in list(pos.items())[:10]:
         samples["client_po"].append(f"RFQ {oid}: {', '.join(sorted(ps))}")
+    for no in list(name_links):
+        if len(name_links[no]) > 1:
+            name_links.pop(no)
+            rep["study_name_points_to_several_projects (not linked)"] += 1
+    rep["invoices_linked_by_study_name"] = len(name_links)
+    for no, ps in list(name_links.items())[:12]:
+        p = proj_by_id[next(iter(ps))]
+        samples["by_study_name"].append(f"{no} -> project '{(p.get('projectName') or '')[:50]}'")
+    po_fill = {}
+    for no, ps in inv_po.items():
+        have = (invoices[no].get("po_reference") or "").strip().upper()
+        if len(ps) > 1:
+            rep["invoice_with_several_pos_in_mail (not set)"] += 1
+        elif have:
+            rep["po_in_mail_" + ("agrees_with_invoice" if have == next(iter(ps)) else "differs_from_invoice (kept)")] += 1
+        else:
+            po_fill[no] = next(iter(ps))
+    rep["invoice_po_filled_from_mail"] = len(po_fill)
+    for no, po in list(po_fill.items())[:12]:
+        samples["invoice_po"].append(f"{no} <- PO {po}")
 
     if apply:
         from pymongo import UpdateOne
@@ -132,11 +218,31 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
                     pops.append(UpdateOne({"_id": p["_id"], "po_number": {"$in": [None, ""]}}, {"$set": {"po_number": po}}))
             else:
                 rep["rfqs_with_several_pos (not set, review)"] += 1
+        for no, pids in name_links.items():
+            inv = invoices[no]
+            ps = [proj_by_id[x] for x in pids]
+            opps = sorted({str(p.get("opportunity_id")) for p in ps if p.get("opportunity_id")})
+            upd = {"$addToSet": {"ops_project_ids": {"$each": sorted(pids)}, "linked_opportunity_ids": {"$each": opps}},
+                   "$set": {"backfill.mail_invoice_links": now}}
+            if not inv.get("opportunity_id") and len(opps) == 1:
+                upd["$set"]["opportunity_id"] = opps[0]
+            iops.append(UpdateOne({"_id": inv["_id"]}, upd))
+            for p in ps:
+                pops.append(UpdateOne({"_id": p["_id"]}, {"$addToSet": {
+                    "invoice_ids": str(inv["_id"]),
+                    "invoice_links": {"invoice": inv["invoice_number"], "invoice_id": str(inv["_id"]),
+                                      "method": "mail_subject_study_name", "detail": "study named in the invoice mail"}},
+                    "$set": {"backfill.mail_invoice_links": now}}))
+        for no, po in po_fill.items():
+            iops.append(UpdateOne({"_id": invoices[no]["_id"], "po_reference": {"$in": [None, ""]}},
+                                  {"$set": {"po_reference": po, "po_reference_source": "mail",
+                                            "backfill.mail_invoice_links": now}}))
         for col, ops in ((fin.invoices, iops), (ea.projects, pops), (crm.opportunities, oops)):
             for i in range(0, len(ops), 500):
                 if ops[i:i + 500]:
                     col.bulk_write(ops[i:i + 500], ordered=False)
-        rep["review_items_resolved"] = _resolve(ea, {str(p["_id"]) for o in linked_opps for p in proj_by_opp.get(o, [])}, now)
+        rep["review_items_resolved"] = _resolve(ea, {str(p["_id"]) for o in linked_opps for p in proj_by_opp.get(o, [])}
+                                                | {x for s in name_links.values() for x in s}, now)
     return {**rep, "samples": dict(samples)}
 
 
