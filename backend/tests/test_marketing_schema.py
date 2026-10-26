@@ -13,7 +13,7 @@ decision_candidates decisions decision_outcomes marketing_kpi_snapshots""".split
 
 def test_every_plan_collection_registered():
     assert set(PLAN_SECTION_5) <= set(schema.COLLECTIONS)     # marketing_config = config_store section
-    assert set(schema.COLLECTIONS) - set(PLAN_SECTION_5) == {"gsc_sitemaps", "gsc_url_index"}
+    assert set(schema.COLLECTIONS) - set(PLAN_SECTION_5) == {"gsc_sitemaps", "gsc_url_index", "marketing_touches", "marketing_eval_cases", "marketing_eval_runs", "lead_form_pending"}
 
 
 def test_daily_tables_have_date_bu_index():

@@ -221,7 +221,22 @@ def contact_view(contact_id: str, category: Optional[str] = None) -> Optional[Di
     email = (c.get("email") or "").lower()
     mine = communication([email] if email else [], [], category)
     return {"contact": _clean({k: c.get(k) for k in ("_id", "name", "email", "title", "phone", "account_id", "lead_id")}),
-            "communication": mine, "account": acc, "web_visits": web_visits(str(c["_id"]))}
+            "communication": mine, "account": acc, "web_visits": web_visits(str(c["_id"])),
+            "inbox": inbox_items(str(c["_id"]), c.get("lead_id")), "touchpoints": touchpoints(str(c["_id"]), c.get("lead_id"))}
+
+
+def inbox_items(contact_id: str, lead_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """Social / WhatsApp / form messages linked to this person (MARKETING_PLAN 3.7.1)."""
+    ors: List[Dict[str, Any]] = [{"contact_id": contact_id}] + ([{"lead_id": str(lead_id)}] if lead_id else [])
+    return [_clean({k: i.get(k) for k in ("_id", "channel", "at", "text", "category", "status", "due_at", "replied_at", "url")})
+            for i in _gd("email_automation")["inbox_items"].find({"$or": ors}).sort("at", -1).limit(limit)]
+
+
+def touchpoints(contact_id: str, lead_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+    """Every visit, mail, form, ad click and chat in order (MARKETING_PLAN 3.8.2)."""
+    ors: List[Dict[str, Any]] = [{"contact_id": contact_id}] + ([{"lead_id": str(lead_id)}] if lead_id else [])
+    return [_clean({k: t.get(k) for k in ("at", "kind", "channel", "landing", "subject", "utm")})
+            for t in _gd("email_automation")["touchpoints"].find({"$or": ors}).sort("at", 1).limit(limit)]
 
 
 def web_visits(contact_id: str, limit: int = 50) -> List[Dict[str, Any]]:

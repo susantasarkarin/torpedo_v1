@@ -130,6 +130,13 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
                  "account_id": str(account["_id"]) if account else None},
         suggested={"to": email, "subject": f"Re: your enquiry{(' about ' + interest) if interest else ''}",
                    "body": DRAFTS[bu].format(first=first, topic=topic)})
+    try:      # the same enquiry in the unified inbox (MARKETING_PLAN 3.7), carrying this review item and the SLA
+        from marketing import inbox
+        inbox.ingest(gd, channel="web_form", external_id=f"{lead_id}:{now:%Y%m%d%H%M%S}", bu=bu, text=message,
+                     at=now, author={"name": name, "email": email}, kind="form", url=submission["page"],
+                     sender_type="client", review_item=item)
+    except Exception:
+        pass
     try:
         from platform_core.audit import log_action
         log_action(actor="website", action="create", entity_type="lead", entity_id=lead_id,

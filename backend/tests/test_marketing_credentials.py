@@ -25,7 +25,7 @@ def test_secret_is_encrypted_at_rest_and_never_in_status(db):
     assert TOKEN not in raw
     st = C.status(gd)
     assert TOKEN not in json.dumps(st, default=str)
-    assert st["meta"]["secrets"] == {"system_user_token": True, "app_secret": False} and st["meta"]["connected"]
+    assert st["meta"]["secrets"] == {"system_user_token": True, "app_secret": False, "webhook_verify_token": False} and st["meta"]["connected"]
     assert st["meta"]["settings"]["page_ids"] == {"SFW": "111"} and st["_key_configured"]
     assert C.secrets("meta", gd)["system_user_token"] == TOKEN
 

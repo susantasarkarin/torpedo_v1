@@ -156,6 +156,7 @@ const MarketingWebsites = lazy(() => import("./pages/marketing/MarketingWebsites
 const MarketingMedia = lazy(() => import("./pages/marketing/MarketingMedia"))
 const MarketingIntegrations = lazy(() => import("./pages/marketing/MarketingIntegrations"))
 const MarketingContent = lazy(() => import("./pages/marketing/MarketingContent"))
+const MarketingInbox = lazy(() => import("./pages/marketing/MarketingInbox"))
 
 // Wrapper for lazy loaded pages with consistent loading state. The error
 // boundary keeps the shell (sidebar, top bar) when a page fails, and resets
@@ -322,6 +323,7 @@ function App() {
         <Route path="marketing/media" element={<LazyPage><MarketingMedia /></LazyPage>} />
         <Route path="marketing/integrations" element={<LazyPage><MarketingIntegrations /></LazyPage>} />
         <Route path="marketing/content" element={<LazyPage><MarketingContent /></LazyPage>} />
+        <Route path="marketing/inbox" element={<LazyPage><MarketingInbox /></LazyPage>} />
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />

@@ -1476,6 +1476,10 @@ from routers import marketing_integrations as marketing_integrations_router
 app.include_router(marketing_integrations_router.router)
 from routers import marketing_content as marketing_content_router
 app.include_router(marketing_content_router.router)
+from routers import marketing_inbox as marketing_inbox_router
+app.include_router(marketing_inbox_router.router)
+from routers import marketing_webhooks as marketing_webhooks_router
+app.include_router(marketing_webhooks_router.router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---
@@ -2491,6 +2495,19 @@ async def startup_event():
                         print(f"[ContentPublish] {r}")
                 except Exception as e:
                     print(f"[ContentPublish] Error: {e}")
+
+            def _inbox_sync_job():
+                try:
+                    from marketing import inbox as minbox
+                    r = minbox.sync_review_status()
+                    if r["replied"] or r["closed"]:
+                        print(f"[InboxSync] {r}")
+                except Exception as e:
+                    print(f"[InboxSync] Error: {e}")
+
+            scheduler.add_job(_inbox_sync_job, IntervalTrigger(minutes=15), id="marketing_inbox_sync",
+                              name="Marketing: inbox replies from Review Queue verdicts (SLA)", max_instances=1, coalesce=True,
+                              replace_existing=True)
 
             scheduler.add_job(_content_publish_job, IntervalTrigger(minutes=15), id="marketing_content_publish",
                               name="Marketing: publish approved + scheduled content (shadow until live)",

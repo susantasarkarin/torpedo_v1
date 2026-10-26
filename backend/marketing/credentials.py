@@ -30,7 +30,7 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
                  "secrets": ["client_secret", "access_token", "refresh_token"],
                  "settings": ["client_id", "organization_ids", "ad_account_ids", "insight_partner_id"], "plan": "3.4, 3.5.1"},
     "meta": {"label": "Meta (Pages, Instagram, Lead Ads, Marketing API, Conversions API)",
-             "secrets": ["system_user_token", "app_secret"],
+             "secrets": ["system_user_token", "app_secret", "webhook_verify_token"],
              "settings": ["app_id", "page_ids", "instagram_ids", "ad_account_ids", "pixel_ids"], "plan": "3.4, 3.5.2"},
     "whatsapp": {"label": "WhatsApp Business Platform (Cloud API)", "secrets": ["access_token", "webhook_verify_token"],
                  "settings": ["waba_id", "phone_number_ids"], "plan": "3.5.3"},

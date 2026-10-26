@@ -58,9 +58,11 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "social_accounts": ([([("platform", 1), ("account_id", 1)], {"unique": True}), ("bu", {})], None),
     "social_posts": ([([("platform", 1), ("post_id", 1)], {"unique": True, "sparse": True}), ("content_item_id", {})], None),
     "social_metrics_daily": ([([("platform", 1), ("entity_id", 1), ("date", 1)], {"unique": True}), (D, {})], None),
-    "inbox_items": ([([("channel", 1), ("external_id", 1)], {"unique": True}), ([("status", 1), ("due_at", 1)], {}),
+    "inbox_items": ([([("channel", 1), ("external_id", 1)], {"unique": True}), ([("status", 1), ("due_at", 1)], {}), ("phone_hash", {"sparse": True}),
                      ("contact_id", {"sparse": True}), ("lead_id", {"sparse": True})], None),
     "whatsapp_optins": ([("phone_hash", {}), ("contact_id", {"sparse": True})], None),   # permanent
+    "marketing_touches": ([([("lead_id", 1), ("at", -1)], {}), ("phone_hash", {"sparse": True}), ("email", {"sparse": True})], None),
+    "lead_form_pending": ([("leadgen_id", {"unique": True}), ("status", {})], None),      # Lead Ads ids awaiting fetch
     "whatsapp_templates": ([([("bu", 1), ("name", 1), ("language", 1)], {"unique": True})], None),
     # content (3.6)
     "content_items": ([([("bu", 1), ("channel", 1), ("status", 1)], {}), ("scheduled_for", {"sparse": True})], None),
@@ -71,6 +73,8 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     "decisions": ([([("decision_type", 1), ("status", 1)], {}), ([("entity_key", 1), ("created_at", -1)], {}),
                    ("candidate_id", {})], None),
     "decision_outcomes": ([("decision_id", {"unique": True}), ([("decision_type", 1), ("measured_at", -1)], {})], None),
+    "marketing_eval_cases": ([("key", {"unique": True}), ("decision_type", {})], None),
+    "marketing_eval_runs": ([("at", -1)], None),
     "marketing_kpi_snapshots": ([([("kpi", 1), ("date", 1), ("bu", 1)], {"unique": True}), (D, {})], None),
 }
 

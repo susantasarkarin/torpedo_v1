@@ -8,6 +8,7 @@ import {
   BookOpen, 
   Image as ImageIcon,
   Plug,
+  Inbox,
   ArrowRight
 } from "lucide-react"
 
@@ -26,6 +27,13 @@ function Marketing() {
       icon: BookOpen,
       link: "/admin/marketing/content",
       color: "#166534"
+    },
+    { 
+      title: "Inbox",
+      description: "Forms, social comments and DMs, WhatsApp, lead forms, with reply SLA",
+      icon: Inbox,
+      link: "/admin/marketing/inbox",
+      color: "#b91c1c"
     },
     { 
       title: "Media Library", 
