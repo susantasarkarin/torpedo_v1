@@ -76,7 +76,9 @@ def name_match(subject: str, candidates) -> list:
 
 def mail_pos(subject: str, body: str) -> set:
     from mail_pipeline.rules import po_numbers
-    return set(po_numbers(body or "")) | set(po_numbers(subject or "")) | set(SAP_PO.findall(subject or ""))
+    found = set(po_numbers(body or "")) | set(po_numbers(subject or "")) | set(SAP_PO.findall(subject or ""))
+    # a PO is mostly digits: "INTS2SHOP", "STS/ACTIVITY-6687..." are words or system ids
+    return {p for p in found if len(re.findall(r"\d", p)) >= 4 and not re.search(r"[A-Z]{5,}", p)}
 
 
 def run(c, apply=False, now=None) -> Dict[str, Any]:

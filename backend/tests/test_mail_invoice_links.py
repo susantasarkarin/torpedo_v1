@@ -26,3 +26,9 @@ def test_client_po_from_label_or_sap_subject():
     assert mail_pos("PAYMENT FOLLOWUP - 4502427110", "please release SF/23-24/012") == {"4502427110"}
     assert mail_pos("Invoice", "PO No: 1059273 for SF/23-24/012") == {"1059273"}
     assert mail_pos("Pending Invoices", "SF/23-24/012 due 2024") == set()
+
+
+def test_words_and_system_ids_are_not_pos():
+    from backfill.mail_invoice_links import mail_pos
+    assert mail_pos("", "PO INTS2SHOP for SF/23-24/010") == set()
+    assert mail_pos("", "PO STS/ACTIVITY-668702824247126016") == set()
