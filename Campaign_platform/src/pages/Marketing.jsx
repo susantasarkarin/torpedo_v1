@@ -8,6 +8,7 @@ import {
   BookOpen, 
   Image as ImageIcon,
   Plug,
+  Sparkles,
   Inbox,
   ArrowRight
 } from "lucide-react"
@@ -48,6 +49,13 @@ function Marketing() {
       icon: BarChart3,
       link: "/admin/dashboards/marketing",
       color: "#b45309"
+    },
+    {
+      title: "Decision Engine",
+      description: "Recommendations, executed actions with undo, scorecard and autonomy per decision type",
+      icon: Sparkles,
+      link: "/admin/marketing/decisions",
+      color: "#7c3aed"
     },
     {
       title: "Weekly report",

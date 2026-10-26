@@ -1480,6 +1480,8 @@ from routers import marketing_inbox as marketing_inbox_router
 app.include_router(marketing_inbox_router.router)
 from routers import marketing_webhooks as marketing_webhooks_router
 app.include_router(marketing_webhooks_router.router)
+from routers import marketing_decisions as marketing_decisions_router
+app.include_router(marketing_decisions_router.router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---
