@@ -119,5 +119,23 @@ def run_batch(now: Optional[datetime] = None, run=None, rows=None) -> Dict[str, 
             _go_live(gd, opp, d)
         stats["decided"] += 1
         stats[d["status"]] = stats.get(d["status"], 0) + 1
+    stats["estimates"] = sync_estimates(gd, now)
     logger.info("rfq flow: %s", stats)
     return stats
+
+
+def sync_estimates(gd, now: datetime) -> Dict[str, int]:
+    """Every open RFQ has a current estimate; a changed scope or price is a new version (rfq.estimates)."""
+    from rfq import estimates
+    fin, crm, decisions = gd("finance_db"), gd("crm_db"), gd("email_automation")["rfq_decisions"]
+    out: Dict[str, int] = {}
+    for opp in crm["opportunities"].find({"status": "open", "metadata.rfq": {"$exists": True},
+                                          "is_deleted": {"$ne": True}}):
+        try:
+            d = decisions.find_one({"opportunity_id": str(opp["_id"])})
+            res, _ = estimates.sync(fin, opp, d, now=now, reason="rfq run", customer=estimates.customer_for(fin, opp))
+            out[res] = out.get(res, 0) + 1
+        except Exception as e:
+            logger.warning("estimate sync %s: %s", opp["_id"], e)
+            out["failed"] = out.get("failed", 0) + 1
+    return out

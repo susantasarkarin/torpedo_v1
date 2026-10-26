@@ -87,7 +87,7 @@ def test_rate_card_uses_verified_ids_only():
 
 @pytest.fixture
 def dbs(monkeypatch):
-    d = {n: FakeDB() for n in ("crm_db", "email_automation", "torpedo_gmail", "cint_research")}
+    d = {n: FakeDB() for n in ("crm_db", "email_automation", "torpedo_gmail", "cint_research", "finance_db")}
     monkeypatch.setattr(runner, "_gd", lambda: (lambda name: d[name]))
     monkeypatch.setattr(runner, "_bu", lambda aid, opp: "SFW")
     monkeypatch.setattr(config_store, "get", lambda section, db=None: config_store.defaults(section))
@@ -106,6 +106,8 @@ def test_shadow_runner_decides_once_and_never_touches_the_rfq(dbs):
     dec = dbs["email_automation"]["rfq_decisions"].find_one({"opportunity_id": str(oid)})
     assert dec["mode"] == "shadow" and dec["pricing"][0]["client_cpi_usd"] is not None
     assert "flow" not in dbs["crm_db"]["opportunities"].find_one({"_id": oid})["metadata"]["rfq"]
+    est = dbs["finance_db"]["estimates"].find({"estimate_group_id": str(oid)})
+    assert [e["version"] for e in est] == [1] and s1["estimates"] == {"created": 1} and s2["estimates"] == {"unchanged": 1}
 
 
 def test_rules_tier_answers_a_plain_rfq_without_any_model():

@@ -1170,6 +1170,19 @@ def _get_next_document_number(collection, prefix: str) -> str:
     return f"{prefix}-{year_month}-{next_num:04d}"
 
 
+@router.get("/{rfq_id}/estimates")
+async def rfq_estimate_versions(rfq_id: str) -> Dict[str, Any]:
+    """Every version of the RFQ's estimate, oldest first, with what changed in each."""
+    from rfq import estimates as rfq_estimates
+    rfq = spine_rfq.get_rfq(rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    versions = rfq_estimates.history(finance_db, rfq["opportunity_id"])
+    for v in versions:
+        v["_id"] = str(v["_id"])
+    return {"success": True, "count": len(versions), "versions": versions}
+
+
 @router.post("/{rfq_id}/convert-to-estimate", response_model=ConversionResponse)
 async def convert_rfq_to_estimate(
     rfq_id: str,
@@ -1248,11 +1261,18 @@ async def convert_rfq_to_estimate(
         "updated_at": now
     }
     
-    result = estimates_collection.insert_one(estimate)
-    estimate_id = str(result.inserted_id)
-    
-    # Move the spine opportunity to "proposal" and cross-link the estimate.
+    # A version of the RFQ's estimate (rfq.estimates), not a second estimate:
+    # what the person built here supersedes the previous version, which is kept.
     from app.services import crm_service
+    from rfq import estimates as rfq_estimates
+    opp_doc = crm_service._col("opportunities").find_one({"_id": ObjectId(rfq["opportunity_id"])})
+    _, written = rfq_estimates.sync(finance_db, opp_doc, None, now=now, reason="estimate built by a person",
+                                    customer={"_id": customer["_id"], "name": customer.get("name", "")},
+                                    override={**estimate, "line_items": line_items, "status": "draft"})
+    estimate_id = str(written["_id"])
+    estimate_number = written["estimate_number"]
+
+    # Move the spine opportunity to "proposal" and cross-link the estimate.
 
     crm_service._col("opportunities").update_one(
         {"_id": ObjectId(rfq["opportunity_id"])},

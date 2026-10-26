@@ -646,3 +646,29 @@ def mail_invoice_links(c, apply=False, now=None):
 
 
 STEPS.append(("mail_invoice_links", mail_invoice_links))
+
+
+def rfq_estimates(c, apply=False, now=None):
+    """Owner 2026-10-26: every RFQ has an estimate (version 1 from its current scope and price); rfq.estimates."""
+    from collections import Counter
+    from rfq import estimates
+    now = now or datetime.utcnow()
+    fin, decisions = c.finance_db, c.email_automation.rfq_decisions
+    if apply:
+        fin.estimates.create_index([("estimate_group_id", 1), ("version", 1)], unique=True, background=True,
+                                   partialFilterExpression={"estimate_group_id": {"$type": "string"}})
+    rep, samples = Counter(), []
+    for opp in c.crm_db.opportunities.find({"metadata.rfq": {"$exists": True}, "is_deleted": {"$ne": True}}):
+        d = decisions.find_one({"opportunity_id": str(opp["_id"])})
+        res, doc = estimates.sync(fin, opp, d, now=now, reason="backfill: every RFQ has an estimate",
+                                  customer=estimates.customer_for(fin, opp), apply=apply)
+        rep[res] += 1
+        rep[f"status {doc['status']}"] += 1
+        rep["priced (has a value)" if doc["total_amount"] else "no price yet (scope only)"] += 1
+        if res != "unchanged" and len(samples) < 8:
+            samples.append(f"{doc['estimate_number']} {doc['status']} {doc['currency'] or '-'} {doc['total_amount']:,.0f} "
+                           f"| {len(doc['items'])} line(s)")
+    return {**rep, "samples": samples}
+
+
+STEPS.append(("rfq_estimates", rfq_estimates))
