@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { FileText, Search, Pencil, Trash2, Loader2, Upload, Download, Plus, Eye } from "lucide-react"
@@ -9,6 +9,7 @@ import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import { formatMoney } from "../../utils/currency"
+import Pagination from "../../components/ui/Pagination"
 
 // Estimate status options
 const ESTIMATE_STATUS_OPTIONS = [
@@ -53,11 +54,19 @@ function EstimatesPage() {
 
   const [formData, setFormData] = useState(initialFormData)
 
+  const [totalRecords, setTotalRecords] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+
   useEffect(() => {
-    fetchEstimates()
     fetchCustomers()
     fetchItems()
   }, [])
+
+  // The server pages, searches and filters (14k+ estimates; the old list loaded none of them)
+  useEffect(() => {
+    const t = setTimeout(fetchEstimates, searchTerm ? 300 : 0)
+    return () => clearTimeout(t)
+  }, [currentPage, recordsPerPage, statusFilter, searchTerm])
 
   const fetchEstimates = async () => {
     const sessionId = localStorage.getItem("session_id")
@@ -68,7 +77,11 @@ function EstimatesPage() {
 
     try {
       setError(null)
-      const response = await authFetch(buildApiUrl(`/finance/estimates/`), {
+      setLoading(true)
+      const qs = new URLSearchParams({ page: currentPage, page_size: recordsPerPage })
+      if (searchTerm.trim()) qs.set("search", searchTerm.trim())
+      if (statusFilter !== "all") qs.set("status", statusFilter)
+      const response = await authFetch(buildApiUrl(`/finance/estimates/?${qs}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -84,7 +97,9 @@ function EstimatesPage() {
 
       if (response.ok) {
         const data = await response.json()
-        setEstimates(data)
+        setEstimates(Array.isArray(data) ? data : data.estimates || [])
+        setTotalRecords(Array.isArray(data) ? data.length : data.total || 0)
+        setTotalPages(Array.isArray(data) ? 1 : data.pages || 1)
       } else {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.detail || "Failed to fetch estimates")
@@ -321,27 +336,8 @@ function EstimatesPage() {
     setError(null)
   }
 
-  // Filtered estimates with search and status filter
-  const filteredEstimates = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase()
-    return estimates.filter((estimate) => {
-      const matchesSearch =
-        !q ||
-        estimate.estimate_number?.toLowerCase().includes(q) ||
-        estimate.customer_name?.toLowerCase().includes(q) ||
-        estimate.reference?.toLowerCase().includes(q)
-
-      const matchesStatus = statusFilter === "all" || estimate.status === statusFilter
-
-      return matchesSearch && matchesStatus
-    })
-  }, [estimates, searchTerm, statusFilter])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredEstimates.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedEstimates = filteredEstimates.slice(startIdx, endIdx)
+  // Search, status and paging happen on the server; this is the current page
+  const paginatedEstimates = estimates
 
   const handleSearch = (value) => {
     setSearchTerm(value)
@@ -629,6 +625,10 @@ function EstimatesPage() {
                 <tr key={estimate._id} style={styles.tr}>
                   <td style={styles.td}>
                     <span style={styles.estimateNo}>{estimate.estimate_number || "N/A"}</span>
+                    {estimate.project_name && (
+                      <div style={{ fontSize: "0.875rem", color: "#6b7280", maxWidth: "22rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={estimate.project_name}>{estimate.project_name}</div>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -653,8 +653,8 @@ function EstimatesPage() {
                     </div>
                   </td>
                   <td style={styles.td}>
-                    {estimate.estimate_date
-                      ? formatDate(estimate.estimate_date)
+                    {estimate.estimate_date || estimate.date
+                      ? formatDate(estimate.estimate_date || estimate.date)
                       : "-"}
                   </td>
                   <td style={styles.td}>
@@ -687,7 +687,7 @@ function EstimatesPage() {
                   </td>
                 </tr>
               ))}
-              {paginatedEstimates.length === 0 && filteredEstimates.length === 0 && (
+              {paginatedEstimates.length === 0 && (
                 <tr>
                   <td colSpan={7} style={styles.emptyState}>
                     <FileText style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -703,7 +703,7 @@ function EstimatesPage() {
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalRecords={filteredEstimates.length}
+        totalRecords={totalRecords}
         pageSize={recordsPerPage}
         onPageChange={setCurrentPage}
         onPageSizeChange={handleRecordsPerPageChange}

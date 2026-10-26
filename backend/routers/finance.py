@@ -1716,7 +1716,9 @@ def get_estimates(
 ):
     """Get estimates with customer details, paginated"""
     try:
-        match_stage = {"is_deleted": {"$ne": True}}
+        # The list is the current estimates: not the 12.6k archived mail-pool drafts
+        # (backfill estimates_archive), not superseded versions (GET /rfq/{id}/estimates has those)
+        match_stage = {"is_deleted": {"$ne": True}, "archived_backlog": {"$ne": True}, "is_latest": {"$ne": False}}
         if status:
             match_stage["status"] = status
         if search:
@@ -1744,6 +1746,7 @@ def get_estimates(
             pipeline.append({"$match": {"$or": [
                 {"estimate_number": {"$regex": search, "$options": "i"}},
                 {"customer_name": {"$regex": search, "$options": "i"}},
+                {"project_name": {"$regex": search, "$options": "i"}},
             ]}})
             # Remove the pre-lookup search since we now search customer_name post-lookup
             match_stage.pop("$or", None)
