@@ -34,34 +34,19 @@ logger = logging.getLogger(__name__)
 
 SCHEMA = {
     "type": "object",
-    "required": ["sender_type"],
+    "required": ["sender_type", "is_rfq", "rfq_scope", "rfq_budget", "business_unit", "company_hint"],
     "properties": {
         "sender_type": {
             "type": "string",
             "enum": ["client", "vendor", "internal", "unknown"],
             "description": "Sender classification based on domain, relationships, and content"
         },
-        "is_rfq": {
-            "type": ["boolean", "null"],
-            "description": "Is this mail (or thread) an RFQ / request for quote?"
-        },
-        "rfq_scope": {
-            "type": ["string", "null"],
-            "description": "What they're asking to quote"
-        },
-        "rfq_budget": {
-            "type": ["string", "number", "null"],
-            "description": "Stated budget or price mention"
-        },
-        "business_unit": {
-            "type": ["string", "null"],
-            "enum": ["SFW", "BIM", "COGENTIX", None],
-            "description": "Which business unit owns this relationship / project?"
-        },
-        "company_hint": {
-            "type": ["string", "null"],
-            "description": "Company name or domain extracted (for CRM matching)"
-        },
+        "is_rfq": {"type": "boolean", "description": "Is this mail an RFQ / request for quote?"},
+        "rfq_scope": {"type": "string", "description": "What they ask to quote; empty if not an RFQ"},
+        "rfq_budget": {"type": "string", "description": "Stated budget or price; empty if none"},
+        "business_unit": {"type": "string", "enum": ["SFW", "BIM", "COGENTIX", "none"],
+                          "description": "Which business unit the mail belongs to"},
+        "company_hint": {"type": "string", "description": "Sender's company name; empty if unknown"},
     }
 }
 
@@ -82,7 +67,7 @@ def _check_result(data, _text):
     issues = []
     if data.get("sender_type") not in ("client", "vendor", "internal", "unknown"):
         issues.append("invalid sender_type")
-    if data.get("business_unit") and data["business_unit"] not in ("SFW", "BIM", "COGENTIX"):
+    if data.get("business_unit") not in (None, "SFW", "BIM", "COGENTIX", "none"):
         issues.append("invalid business_unit")
     return issues
 
@@ -119,7 +104,7 @@ SUBJECT: {subject}
         return {"sender_type": "unknown", "_msg_id": msg_id}
 
 
-def run(c, apply=False, limit: Optional[int] = None, now=None) -> Dict[str, Any]:
+def run(c, apply=False, limit: Optional[int] = None, now=None, workers: int = 10) -> Dict[str, Any]:
     now = now or datetime.utcnow()
     stamp = {"backfill.mail_reanalysis": now, "updated_at": now}
 
@@ -140,15 +125,30 @@ def run(c, apply=False, limit: Optional[int] = None, now=None) -> Dict[str, Any]
     rfq_processed = 0
     errors = 0
 
-    for msg in md.find(q, {"subject": 1, "body_plain": 1, "from_email": 1, "from_name": 1, "timestamp": 1}).sort("timestamp", -1).limit(limit or 999999):
-        if processed % 100 == 0 and processed > 0:
-            logger.info("mail_reanalysis: %d processed, %d RFQs, %d errors", processed, rfq_processed, errors)
+    from concurrent.futures import ThreadPoolExecutor
+    q["reanalysis"] = {"$exists": False}      # resume: skip mails already done
+    cur = md.find(q, {"subject": 1, "body_plain": 1, "from_email": 1, "from_name": 1, "timestamp": 1}) \
+        .sort("timestamp", -1).limit(limit or 0)
+
+    def batches(it, n=64):
+        buf = []
+        for x in it:
+            buf.append(x)
+            if len(buf) == n:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
+
+    def results():
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for b in batches(cur):
+                yield from zip(b, ex.map(lambda m: _process_mail(m, ladder), b))
+
+    for msg, result in results():
+        if processed % 500 == 0 and processed > 0:
+            print(f"mail_reanalysis: {processed} processed, {rfq_processed} RFQs", flush=True)
         processed += 1
-
-        msg_id = str(msg["_id"])
-
-        # Run Haiku classification
-        result = _process_mail(msg, ladder)
         sender_type = result.get("sender_type") or "unknown"
         is_rfq = result.get("is_rfq")
         rfq_scope = result.get("rfq_scope")
@@ -171,7 +171,7 @@ def run(c, apply=False, limit: Optional[int] = None, now=None) -> Dict[str, Any]
                         "subject": (msg.get("subject") or "")[:60],
                         "scope": rfq_scope or ""
                     })
-        if business_unit:
+        if business_unit and business_unit != "none":
             rep[f"bu:{business_unit}"] += 1
 
         rep[f"tier:{tier}"] += 1
@@ -207,6 +207,13 @@ def main():
     ap.add_argument("--apply", action="store_true", help="Write to databases")
     a = ap.parse_args()
 
+    if not a.apply and not a.limit:
+        sys.exit("a dry run calls the model for every mail: pass --limit N, or --apply")
+    if a.apply:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+        from sync_zoho_invoices import backup_age_hours
+        if backup_age_hours() > 3:
+            sys.exit("refusing to apply: newest mongodump is older than 3 h")
     from database import get_database
     c = type("", (), {
         "torpedo_gmail": get_database("torpedo_gmail"),
