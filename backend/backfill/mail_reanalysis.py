@@ -124,11 +124,12 @@ def run(c, apply=False, limit: Optional[int] = None, now=None, workers: int = 10
     processed = 0
     rfq_processed = 0
     errors = 0
+    streak = 0
 
     from concurrent.futures import ThreadPoolExecutor
     q["reanalysis"] = {"$exists": False}      # resume: skip mails already done
-    cur = md.find(q, {"subject": 1, "body_plain": 1, "from_email": 1, "from_name": 1, "timestamp": 1}) \
-        .sort("timestamp", -1).limit(limit or 0)
+    cur = md.find(q, {"subject": 1, "body_plain": 1, "from_email": 1, "from_name": 1, "timestamp": 1}, no_cursor_timeout=True) \
+        .sort("timestamp", -1).limit(limit or 0).batch_size(64)
 
     def batches(it, n=64):
         buf = []
@@ -157,8 +158,14 @@ def run(c, apply=False, limit: Optional[int] = None, now=None, workers: int = 10
         company_hint = result.get("company_hint")
         tier = result.get("tier", "unknown")
 
-        if "error" in result:
+        if tier == "unknown":          # the model gave no answer (no credit, outage): never save it as a verdict
             errors += 1
+            streak += 1
+            if streak >= 20:
+                print("aborting: 20 model failures in a row (credit or outage); finished mails are kept", flush=True)
+                break
+            continue
+        streak = 0
 
         rep[f"sender_type:{sender_type}"] += 1
         if is_rfq:
