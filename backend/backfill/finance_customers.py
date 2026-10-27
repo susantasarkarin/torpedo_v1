@@ -39,7 +39,10 @@ def is_person(name: str) -> bool:
 
 def company_name(billed: list, account: str, others: list) -> str:
     """The one name the account and its finance customer both carry."""
-    cands = [*billed, account, *others]
+    # an email address, a bare domain or "A Division of ..." is not a company name
+    cands = [n for n in [*billed, account, *others]
+             if n and "@" not in n and not re.fullmatch(r"[\w.-]+\.[a-z]{2,}", n.strip(), re.I)
+             and not re.match(r"(?i)a (division|cint group company|part) of|a .* company$", n.strip())]
     for n in cands:
         if n and n.strip() and not is_person(n):
             return n.strip()
@@ -66,7 +69,7 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
             by_acc[str(cu["crm_account_id"])].append(cu)
     target = set(rfq_accounts) | {a for a, cs in by_acc.items() if any(invoiced[str(x["_id"])] for x in cs)}
     accounts = {str(a["_id"]): a for a in crm.accounts.find(
-        {"_id": {"$in": [ObjectId(a) for a in target if ObjectId.is_valid(a)]}}, {"name": 1, "domain": 1, "bu": 1})}
+        {"_id": {"$in": [ObjectId(a) for a in target if ObjectId.is_valid(a)]}}, {"name": 1, "domain": 1, "bu": 1, "company_review": 1})}
 
     rep: Counter = Counter()
     samples = defaultdict(list)
@@ -78,8 +81,12 @@ def run(c, apply=False, now=None) -> Dict[str, Any]:
             continue
         group = by_acc.get(aid, [])
         acc_name = (acc.get("name") or "").strip()
-        name = company_name([x.get("name") for x in group if invoiced[str(x["_id"])]], acc_name,
-                            [x.get("name") for x in group])
+        review = acc.get("company_review") or {}
+        if review.get("method") and not review.get("needs_review"):
+            name = acc_name                    # the company review named it (scripts/company_review.py): that name wins
+        else:
+            name = company_name([x.get("name") for x in group if invoiced[str(x["_id"])]], acc_name,
+                                [x.get("name") for x in group])
         if name != acc_name:
             rep["account renamed (was a person / not the billed company)"] += 1
             if len(samples["account_renamed"]) < 12:
