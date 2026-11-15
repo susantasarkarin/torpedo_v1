@@ -6,8 +6,6 @@ import { buildApiUrl } from "../../../config"
 import { fetchAllClients, authFetch } from "../../../utils/api"
 import { notify } from "../../../utils/notify"
 import { formatDateTime } from "../../../utils/format"
-// Temporarily disabled for debugging
-// import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
 
 // Cint country_language ID to country code mapping
@@ -46,12 +44,6 @@ export default function SurveyPool() {
   const [cintEntryLink, setCintEntryLink] = useState(null); // Current entry link for selected Cint survey
   const [loadingEntryLink, setLoadingEntryLink] = useState(false); // Loading state for entry link fetch
   const [creatingEntryLink, setCreatingEntryLink] = useState(false); // Creating entry link in progress
-
-  // WebSocket hooks temporarily disabled for debugging
-  // const { 
-  //   surveys: cintSurveys, 
-  //   isConnected: cintConnected 
-  // } = useSurveyWebSocket('cint');
   
   // Temporary fallback values
   const cintSurveys = [];

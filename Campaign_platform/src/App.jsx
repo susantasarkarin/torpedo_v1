@@ -5,8 +5,6 @@ import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
 import { PageLoading } from "./components/ui/PageLayout"
 // Temporarily disabled for debugging login issue
-// import { SyncStatusProvider } from "./contexts/SyncStatusContext"
-// import GlobalSyncStatus from "./components/GlobalSyncStatus"
 
 // Auth - Keep non-lazy for fast initial load
 import Login from "./pages/Login"
@@ -106,7 +104,6 @@ const FinanceRecordPage = lazy(() => import("./pages/finance/FinanceRecordPage")
 
 // Vendor Pages
 const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard"))
-const UnifiedVendorsPage = lazy(() => import("./pages/vendor/UnifiedVendorsPage"))
 const VendorLeadsPage = lazy(() => import("./pages/vendor/VendorLeadsPage"))
 const VendorVendorsPage = lazy(() => import("./pages/vendor/VendorsPage"))
 

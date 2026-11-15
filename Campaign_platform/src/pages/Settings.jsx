@@ -6,7 +6,6 @@ import { confirmAction } from "../utils/notify"
 import { formatDate } from "../utils/format"
 import { authFetch } from "../utils/api"
 // Temporarily disabled for debugging
-// import { useSyncStatus } from "../contexts/SyncStatusContext"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
@@ -39,8 +38,6 @@ const getErrorMessage = (error, fallback = "An error occurred") => {
 }
 
 function Settings() {
-  // Global sync status - temporarily disabled for debugging
-  // const { isSyncActive } = useSyncStatus()
   const isSyncActive = false; // Temporary fallback
 
   // App Settings state
