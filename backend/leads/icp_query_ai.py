@@ -45,7 +45,7 @@ def remaining_daily_budget(icp: Dict[str, Any],
     return max(0, budget - used)
 
 
-def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
+def _generate_icp_queries(icp: Dict[str, Any], count: int = 10,
                          leads_per_icp: Optional[Dict[str, int]] = None,
                          allow_fallback: bool = True,
                          used: Optional[List[str]] = None) -> List[str]:
@@ -107,4 +107,20 @@ def generate_icp_queries(icp: Dict[str, Any], count: int = 10,
     queries = generate_search_queries(config, count)
     logger.info("icp=%s query generation path=template generated=%d requested=%d",
                 slug, len(queries), count)
+    return queries
+
+
+def generate_icp_queries(icp: Dict[str, Any], count: int = 10, leads_per_icp: Optional[Dict[str, int]] = None,
+                         allow_fallback: bool = True, used: Optional[List[str]] = None) -> List[str]:
+    """Generated queries, then the feedback loop's hints for this ICP (leads/query_feedback.py): proven queries
+    first, retired ones dropped, learned exclusions added. Any problem with the hints leaves the queries untouched."""
+    queries = _generate_icp_queries(icp, count, leads_per_icp, allow_fallback, used)
+    try:
+        from database import get_database
+        from leads import query_feedback as qf
+        hints = qf.load_hints(get_database, icp.get("slug", ""))
+        if hints:
+            queries = qf.apply_hints(qf.merge_seeds(queries, hints, used or [], count), hints)
+    except Exception:
+        logger.exception("icp=%s search hints not applied", icp.get("slug"))
     return queries

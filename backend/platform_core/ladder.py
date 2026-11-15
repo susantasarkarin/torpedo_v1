@@ -62,9 +62,10 @@ DEFAULTS: Dict[str, Any] = {
         "lead_bucketing": ["haiku", "sonnet"],
         "company_review": ["haiku", "sonnet"],
         "mail_reanalysis": ["haiku", "sonnet"],
+        "query_refinement": ["haiku", "sonnet"],
     },
     "cloud_max_tokens": {"default": 400, "rfq_extraction": 3000, "vendor_bid_parse": 800, "reply_draft": 600,
-                         "mail_summary": 250, "company_review": 300, "mail_reanalysis": 900,
+                         "mail_summary": 250, "company_review": 300, "mail_reanalysis": 900, "query_refinement": 600,
                          "marketing_decision_p3": 900},   # a ceiling only: billed on tokens used; multi-country RFQs list a line per market
 }
 

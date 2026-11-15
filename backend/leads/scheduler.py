@@ -353,6 +353,9 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState, icp_se
 
                 imported = result.imported
                 total_imported += imported
+                from database import get_database
+                from .query_feedback import record_run
+                record_run(get_database, icp_segment, query, leads_found, imported, result.duplicates)
                 
                 # Update state counters
                 state.leads_today += imported
