@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { publicFetch } from '../../utils/api'
 
 /**
  * Landing page for the Unsubscribe link in panel email.
@@ -19,7 +20,7 @@ export default function Unsubscribe() {
   const [manualEmail, setManualEmail] = useState('')
 
   const submit = async (payload) => {
-    const res = await fetch('/api/panel/unsubscribe', {
+    const res = await publicFetch('/api/panel/unsubscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

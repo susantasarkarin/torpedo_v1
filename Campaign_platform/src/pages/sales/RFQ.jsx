@@ -122,7 +122,7 @@ function RFQ() {
       if (filters.search) params.append("search", filters.search)
 
       const url = buildApiUrl(`/api/rfq/?${params.toString()}`)
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         headers: { Authorization: token }
       })
       

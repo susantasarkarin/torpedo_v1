@@ -208,7 +208,7 @@ function UserManagement() {
                 payload.password = formData.password
             }
 
-            const res = await fetch(url, {
+            const res = await authFetch(url, {
                 method: method,
                 headers: {
                     "Content-Type": "application/json",

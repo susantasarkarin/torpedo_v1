@@ -486,7 +486,7 @@ function MailPool() {
       if (filterFolder === "starred") url += `&is_starred=true`
       if (filterAICategory) url += `&ai_category=${filterAICategory}`
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         headers: { Authorization: sessionId },
         signal: AbortSignal.timeout(30000),
       })
@@ -575,7 +575,7 @@ function MailPool() {
         body = { corrections }
       }
       
-      const res = await fetch(endpoint, {
+      const res = await authFetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

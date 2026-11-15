@@ -212,7 +212,7 @@ function VendorLeadsPage() {
         : buildApiUrl(`/vendor-leads`)
       const method = editingLead ? "PUT" : "POST"
       
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",

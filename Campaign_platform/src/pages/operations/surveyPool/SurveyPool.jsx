@@ -45,10 +45,6 @@ export default function SurveyPool() {
   const [loadingEntryLink, setLoadingEntryLink] = useState(false); // Loading state for entry link fetch
   const [creatingEntryLink, setCreatingEntryLink] = useState(false); // Creating entry link in progress
   
-  // Temporary fallback values
-  const cintSurveys = [];
-  const cintConnected = false;
-
   // Fetch Cint entry link when a Cint survey is selected
   useEffect(() => {
     if (selectedSurvey && selectedSurvey.account_name && showDetailsModal) {
@@ -148,27 +144,6 @@ export default function SurveyPool() {
     }
   };
 
-  // Merge WebSocket surveys with existing state
-  useEffect(() => {
-    if (cintSurveys.length > 0) {
-      setSurveys(prev => {
-        // Create a map of existing surveys by id
-        const surveyMap = new Map(prev.map(s => [s.id || s.survey_id, s]));
-        
-        // Update/add CINT surveys
-        cintSurveys.forEach(s => {
-          const id = s.id || s.survey_id;
-          surveyMap.set(id, { ...s, source: 'CINT' });
-        });
-        
-        const merged = Array.from(surveyMap.values());
-        setTotalSurveys(merged.length);
-        return merged;
-      });
-      setLastUpdated(new Date().toISOString());
-    }
-  }, [cintSurveys]);
-
   // Fetch surveys on mount
   useEffect(() => {
     if (token) {
@@ -178,18 +153,15 @@ export default function SurveyPool() {
     }
   }, [token]);
 
-  // Auto-refresh every 2 minutes as fallback (WebSocket is primary)
+  // Auto-refresh every 2 minutes
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
-      // Only fetch if WebSocket is not connected
-      if (!cintConnected) {
-        fetchAllSurveys();
-      }
+      fetchAllSurveys();
       fetchTrafficStats(); // Always refresh traffic stats
-    }, 120000); // 2 minutes fallback
+    }, 120000); // 2 minutes
     return () => clearInterval(interval);
-  }, [token, cintConnected]);
+  }, [token]);
 
   // The pool's surveys, 100 at a time (up to the 1,000 this page shows): the
   // first batch appears at once instead of waiting for one 2 MB response.

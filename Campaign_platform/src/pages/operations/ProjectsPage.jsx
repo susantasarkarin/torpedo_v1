@@ -566,7 +566,7 @@ function ProjectsPage() {
           vendorQuotaFullRD: normalizeList(preparedForm.vendorQuotaFullRD),
         };
 
-        const res = await fetch(op.url, {
+        const res = await authFetch(op.url, {
           method: op.method,
           headers: {
             "Content-Type": "application/json",

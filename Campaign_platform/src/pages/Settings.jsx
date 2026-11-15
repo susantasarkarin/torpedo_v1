@@ -38,8 +38,6 @@ const getErrorMessage = (error, fallback = "An error occurred") => {
 }
 
 function Settings() {
-  const isSyncActive = false; // Temporary fallback
-
   // App Settings state
   const [appSettings, setAppSettings] = useState({
     mongo_uri: "",

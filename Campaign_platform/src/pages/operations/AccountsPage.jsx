@@ -43,7 +43,7 @@ function AccountsPage() {
       if (filterType) params.append("account_type", filterType);
       if (params.toString()) url += `?${params.toString()}`;
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         headers: { Authorization: token },
       });
       if (res.ok) {
@@ -85,7 +85,7 @@ function AccountsPage() {
         : buildApiUrl(`/api/operations/accounts/`);
       const method = editingAccount ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { buildApiUrl } from "../../config"
+import { publicFetch } from "../../utils/api"
 import { fireLandingPixel } from "../../utils/adPixels";
 import "./TrafficFlowParser.css";
 
@@ -123,7 +124,7 @@ async function fetchClientIP() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    const response = await fetch(buildApiUrl('/api/prefetch-ip'), {
+    const response = await publicFetch('/api/prefetch-ip', {
       signal: controller.signal,
       mode: "cors",
     });
@@ -326,7 +327,7 @@ function getBotSignals() {
 // the test can be compared on completes per landing.
 function sendInAppEvent(event, arm, params) {
   try {
-    fetch(buildApiUrl("/api/routing/inapp-event"), {
+    publicFetch("/api/routing/inapp-event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       keepalive: true,
@@ -416,7 +417,7 @@ export default function TrafficFlowParser() {
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
 
-    fetch(buildApiUrl(`/api/routing/landing${window.location.search}`), { cache: "no-store" })
+    publicFetch(`/api/routing/landing${window.location.search}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((cfg) => {
         if (!cfg) return;
@@ -431,7 +432,7 @@ export default function TrafficFlowParser() {
     // Ad clicks: load the platform's base pixel (PageView) so the ad platform
     // sees the visit and sets its first-party cookie (_fbp) before /api/store.
     if (parsedParams.fbclid || parsedParams.gclid || parsedParams.ttclid || parsedParams.utm_source) {
-      fetch(buildApiUrl(`/api/adpixel/landing${window.location.search}`), { cache: "no-store" })
+      publicFetch(`/api/adpixel/landing${window.location.search}`, { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => fireLandingPixel(data?.pixel))
         .catch(() => {}); // never block the survey on a tracking failure
@@ -629,7 +630,7 @@ export default function TrafficFlowParser() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(new DOMException("Request timed out after 60 seconds", "AbortError")), 60000); // 60 second timeout
 
-      const response = await fetch(buildApiUrl(`/api/store`), {
+      const response = await publicFetch(`/api/store`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         mode: "cors",

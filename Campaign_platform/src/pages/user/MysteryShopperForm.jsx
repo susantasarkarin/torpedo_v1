@@ -12,21 +12,16 @@ import {
   ratingMeta,
   initResponses,
 } from "../operations/MysteryShoppingTab";
-
-const API_BASE = (() => {
-  if (typeof window !== "undefined" && window.location.hostname === "localhost")
-    return "http://localhost:8000";
-  return "";
-})();
+import { publicFetch } from "../../utils/api";
 
 async function fetchAudit(id) {
-  const res = await fetch(`${API_BASE}/api/mystery-shopping/public/${id}`);
+  const res = await publicFetch(`/api/mystery-shopping/public/${id}`);
   if (!res.ok) throw new Error("Audit not found");
   return res.json();
 }
 
 async function saveAudit(id, payload) {
-  const res = await fetch(`${API_BASE}/api/mystery-shopping/public/${id}/submit`, {
+  const res = await publicFetch(`/api/mystery-shopping/public/${id}/submit`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -483,7 +478,7 @@ export default function MysteryShopperForm() {
                 style={{ padding: "0.75rem 2rem", background: "#667eea", color: "#fff", border: "none", borderRadius: 10, fontSize: "1rem", fontWeight: 700, cursor: "pointer" }}
                 onClick={async () => {
                   try {
-                    const res = await fetch("/api/mystery-shopping/public/new", { method: "POST" });
+                    const res = await publicFetch("/api/mystery-shopping/public/new", { method: "POST" });
                     const data = await res.json();
                     window.location.href = `/mystery-shopper/${data.id}`;
                   } catch {

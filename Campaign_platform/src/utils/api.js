@@ -245,6 +245,15 @@ export const authFetch = (url, options = {}) => {
 };
 
 /**
+ * Unauthenticated counterpart of authFetch for public pages (survey landing,
+ * unsubscribe, ad pixel, mystery-shopper form). Takes an API path, resolves it
+ * against the shared API base URL and sends no Authorization header and does
+ * no 401 redirect. Returns the untouched Response, like fetch.
+ */
+export const publicFetch = (path, options = {}) =>
+  fetch(buildApiUrl(path), options);
+
+/**
  * Fetch every real client, following pagination. The single source of truth for
  * "what counts as a client" — three pages each rolled their own and each got it
  * wrong the same two ways:

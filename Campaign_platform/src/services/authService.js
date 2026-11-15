@@ -1,5 +1,5 @@
 import { buildApiUrl } from "../config";
-import { clearAuth } from "../utils/api";
+import { clearAuth, authFetch } from "../utils/api";
 
 /**
  * Log out the current user.
@@ -10,12 +10,8 @@ import { clearAuth } from "../utils/api";
  * user is never stuck in a broken session.
  */
 export const logout = async (navigate) => {
-  const sessionId = localStorage.getItem("session_id");
   try {
-    await fetch(buildApiUrl(`/api/logout/`), {
-      method: "POST",
-      headers: { Authorization: sessionId },
-    });
+    await authFetch(buildApiUrl(`/api/logout/`), { method: "POST" });
   } catch (err) {
     console.error("Logout request failed:", err);
   } finally {

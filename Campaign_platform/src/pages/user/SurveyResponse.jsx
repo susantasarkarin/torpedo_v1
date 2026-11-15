@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { API_BASE_URL, buildApiUrl } from "../../config";
+import { publicFetch } from "../../utils/api";
 import "./TrafficFlowParser.css";
 
 /**
@@ -36,7 +36,7 @@ export default function SurveyResponse() {
     }
 
     try {
-      const response = await fetch(buildApiUrl(`/transaction/${transId}`), {
+      const response = await publicFetch(`/transaction/${transId}`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         mode: "cors",

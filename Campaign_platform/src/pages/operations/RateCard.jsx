@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
+import { authFetch } from "../../utils/api";
 import { formatTime } from "../../utils/format"
 import "./RateCard.css";
 
@@ -27,7 +28,7 @@ function RateCard() {
       
       console.log("Fetching rate card from:", apiUrl);
       
-      const response = await fetch(apiUrl);
+      const response = await authFetch(apiUrl);
       
       if (!response.ok) {
         throw new Error(`API returned status ${response.status}`);

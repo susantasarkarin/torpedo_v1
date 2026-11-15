@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { buildApiUrl } from "../../config";
+import { publicFetch } from "../../utils/api";
 import { firePixel } from "../../utils/adPixels";
 import "./AdPixelThankYou.css";
 
@@ -16,7 +16,7 @@ export default function AdPixelThankYou() {
     if (!rid || requestedRef.current) return;
     requestedRef.current = true;
 
-    fetch(buildApiUrl(`/api/adpixel?rid=${encodeURIComponent(rid)}`), { cache: "no-store" })
+    publicFetch(`/api/adpixel?rid=${encodeURIComponent(rid)}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => firePixel(data?.pixel))
       .catch(() => {}); // the respondent never sees a pixel failure

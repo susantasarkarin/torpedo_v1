@@ -120,7 +120,7 @@ function VendorsPage() {
         : buildApiUrl(`/api/vendors/`);
       const method = editingId ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
