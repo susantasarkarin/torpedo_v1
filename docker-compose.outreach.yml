@@ -77,7 +77,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=INFO
@@ -102,7 +102,7 @@ services:
       dockerfile: Dockerfile
     container_name: torpedo-celery-worker
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -125,7 +125,7 @@ services:
       dockerfile: Dockerfile
     container_name: torpedo-celery-beat
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
