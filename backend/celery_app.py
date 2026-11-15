@@ -118,7 +118,6 @@ celery_app.conf.update(
         'backend.tasks.linkedin_tasks.*': {'queue': 'linkedin_automation', 'routing_key': 'linkedin.#'},
         # Route survey tasks to dedicated queue
         'backend.tasks.traffic_tasks.fetch_and_broadcast_cpx_surveys': {'queue': 'surveys', 'routing_key': 'surveys.cpx'},
-        'backend.tasks.survey_tasks.*': {'queue': 'surveys', 'routing_key': 'surveys.task'},
     },
     
     # Beat scheduler (for periodic tasks)
@@ -265,9 +264,6 @@ celery_app.conf.update(
         },
         'backend.tasks.ai_tasks.*': {
             'rate_limit': '20/m',  # Increased from 10/m - AI tasks for classification
-        },
-        'backend.tasks.survey_tasks.*': {
-            'rate_limit': '60/m',  # Survey tasks should be fast
         },
         'backend.tasks.linkedin_tasks.*': {
             'rate_limit': '50/m',  # LinkedIn tasks can run fairly often

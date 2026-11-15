@@ -4,9 +4,10 @@ Reply Handler Service.
 Classifies incoming email replies and generates appropriate responses.
 """
 
+import asyncio
 import json
 import logging
-from typing import Literal, Optional, Any
+from typing import Literal, Optional, Any, get_args
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -93,6 +94,47 @@ class ReplyContext(BaseModel):
     company_name: str = ""
 
 
+# JSON shapes for the ladder (escalate_json). The check reuses the pydantic
+# models so a malformed answer climbs to the next tier instead of being used.
+_CLASSIFY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "classification": {"type": "string", "enum": list(get_args(ReplyClassification))},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "sentiment": {"type": "string", "enum": list(get_args(Sentiment))},
+        "key_phrases": {"type": "array", "items": {"type": "string"}},
+        "recommended_action": {"type": "string"},
+    },
+    "required": ["classification", "confidence", "sentiment", "recommended_action"],
+}
+
+_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject": {"type": "string"},
+        "body": {"type": "string"},
+        "tone_used": {"type": "string"},
+    },
+    "required": ["subject", "body", "tone_used"],
+}
+
+
+def _check_classified(data: Any) -> list[str]:
+    try:
+        ClassifiedReply(**data)
+        return []
+    except Exception as e:
+        return [str(e).splitlines()[0][:200]]
+
+
+def _check_response(data: Any) -> list[str]:
+    try:
+        AutoResponse(**data)
+        return []
+    except Exception as e:
+        return [str(e).splitlines()[0][:200]]
+
+
 # =============================================================================
 # Service Implementation
 # =============================================================================
@@ -152,19 +194,20 @@ class ReplyHandlerService:
         prompt_context = self._build_classification_context(context)
         
         try:
-            # Qwen-only via bedrock_client (single source of truth)
-            from leads.bedrock_client import converse_json_object
+            from platform_core import ladder
 
-            data = converse_json_object(
-                role="cheap",
+            # The ladder blocks on network I/O; run it on a thread so the event loop stays free.
+            data, _tier, _attempts = await asyncio.to_thread(
+                ladder.escalate_json,
+                task="reply_classification",
                 system=REPLY_CLASSIFIER_PROMPT,
                 user=f"REPLY TO CLASSIFY:\n{prompt_context}",
+                schema=_CLASSIFY_SCHEMA,
+                check=_check_classified,
                 max_tokens=400,
-                temperature=0.1,
-                priority="rfq",  # a prospect's reply: sales tier
             )
             if not data:
-                raise ValueError("empty Qwen classification response")
+                raise ValueError("no cloud tier answered the reply classification")
             return ClassifiedReply(**data)
 
         except Exception as e:
@@ -225,15 +268,16 @@ CONTACT: {context.contact_name} at {context.company_name}
 """
         
         try:
-            from leads.bedrock_client import converse_json_object
+            from platform_core import ladder
 
-            data = converse_json_object(
-                role="smart",
+            data, _tier, _attempts = await asyncio.to_thread(
+                ladder.escalate_json,
+                task="reply_draft",
                 system=AUTO_RESPONSE_PROMPT,
                 user=prompt_context,
+                schema=_RESPONSE_SCHEMA,
+                check=_check_response,
                 max_tokens=400,
-                temperature=0.5,
-                priority="rfq",
             )
             if not data:
                 return None

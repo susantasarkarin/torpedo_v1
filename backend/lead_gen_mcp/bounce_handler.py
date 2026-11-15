@@ -1,5 +1,5 @@
 """
-Bounce re-enrichment using Qwen (via AWS Bedrock Mantle — see qwen_client.py).
+Bounce re-enrichment using Claude Haiku (see llm_client.py).
 
 When a sent email hard-bounces, this module:
 
@@ -35,7 +35,7 @@ import httpx
 from . import state as st
 from .enricher import apply_pattern
 from . import skrapp
-from .qwen_client import call_qwen
+from .llm_client import call_llm
 from .schemas import EnrichedLead
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def _generate_variants(first: str, last: str, domain: str) -> List[Tuple[str, st
 
 
 # ---------------------------------------------------------------------------
-# Qwen re-enrichment
+# LLM re-enrichment
 # ---------------------------------------------------------------------------
 
 _AI_SYSTEM = """You are an expert at B2B email deliverability.
@@ -159,8 +159,8 @@ Generate alternative email candidates.
 """
 
     try:
-        raw = call_qwen(system=_AI_SYSTEM, user=prompt.strip(), max_tokens=1024)
-        logger.debug("BounceHandler Qwen raw: %s", raw[:400])
+        raw = call_llm(system=_AI_SYSTEM, user=prompt.strip(), max_tokens=1024)
+        logger.debug("BounceHandler LLM raw: %s", raw[:400])
 
         # Parse JSON
         text = raw.strip()
@@ -174,7 +174,7 @@ Generate alternative email candidates.
         return sorted(candidates, key=lambda c: c.get("confidence", 0), reverse=True)
 
     except Exception as exc:
-        logger.error("BounceHandler Qwen call failed: %s", exc)
+        logger.error("BounceHandler LLM call failed: %s", exc)
         return []
 
 
@@ -208,7 +208,7 @@ async def handle_bounce(
 
     Lookup order:
       1. Cheap pattern variants (SMTP probe each, no API)
-      2. Qwen AI candidates (SMTP probe each)
+      2. LLM AI candidates (SMTP probe each)
       3. Skrapp lookup (last resort, costs a credit)
 
     Returns a dict describing the outcome:
@@ -278,7 +278,7 @@ async def handle_bounce(
                 "candidates_tried": candidates_tried,
             }
 
-    # 3. Qwen AI candidates
+    # 3. LLM AI candidates
     existing_domain_patterns = [known_pattern] if known_pattern else []
     ai_suggestions = _call_claude_for_candidates(
         first, last, domain, title, company, bounced_email,

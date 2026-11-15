@@ -38,33 +38,17 @@ logger = logging.getLogger(__name__)
 
 # Use shared connection pools instead of creating standalone MongoClient
 # This prevents connection exhaustion and ensures proper resource sharing
-try:
-    from db_pools import pool_manager, get_background_collection
-    
-    # Get collections from the background pool (optimized for sync operations)
-    gmail_db = pool_manager.get_client('background')['torpedo_gmail']
-    email_db = pool_manager.get_client('background')['email_automation']
-    
-    imap_accounts_collection = gmail_db['imap_accounts']
-    parallel_sync_progress = gmail_db['parallel_sync_progress']
-    email_sync_log = gmail_db['email_sync_log']
-    email_leads_collection = email_db['email_leads']
-    
-    logger.info("Using shared MongoDB connection pool for email sync")
-except ImportError:
-    # Fallback to direct connection if db_pools not available
-    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    gmail_db = client['torpedo_gmail']
-    email_db = client['email_automation']
+from db import mail as _mail, legacy as _legacy
 
-    # Collections
-    imap_accounts_collection = gmail_db['imap_accounts']
-    parallel_sync_progress = gmail_db['parallel_sync_progress']
-    email_sync_log = gmail_db['email_sync_log']
-    email_leads_collection = email_db['email_leads']
-    
-    logger.warning("db_pools not available, using standalone MongoDB client")
+gmail_db = _mail()
+email_db = _legacy()
+
+imap_accounts_collection = gmail_db['imap_accounts']
+parallel_sync_progress = gmail_db['parallel_sync_progress']
+email_sync_log = gmail_db['email_sync_log']
+email_leads_collection = email_db['email_leads']
+
+logger.info("Using shared MongoDB connection pool for email sync")
 
 
 # ============== CONFIGURATION ==============

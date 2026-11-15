@@ -1,27 +1,24 @@
 """
-OPENAI BATCH API ENRICHMENT (Phase 4)
-Uses OpenAI's Batch API for 50% cost reduction on lead enrichment.
+BATCH LEAD ENRICHMENT (Phase 4)
+Queues leads for enrichment and processes each job with a plain loop over
+platform_core.ladder.escalate_json (Claude Haiku, then Sonnet). The old
+OpenAI Batch API upload/poll/download flow is gone; a job now runs to
+completion inside submit_batch_job().
 
 How it works:
 1. Queue leads for enrichment (stored in MongoDB)
-2. Submit batch to OpenAI Batch API
-3. Poll for completion (can take up to 24h, usually <1h)
-4. Process results and update leads_enriched
-
-Cost savings:
-- Regular API: $0.15/$0.60 per 1M tokens (gpt-4o-mini)
-- Batch API:   $0.075/$0.30 per 1M tokens (50% off)
+2. submit_batch_job() enriches every lead in the job and upserts leads_enriched
+3. Per-lead outcomes are logged in batch_enrichment_results
 
 Constraints:
-- Batch results available within 24 hours
-- Best for non-urgent enrichment
-- Minimum batch size: 10 leads (to justify overhead)
+- Honours the DISABLE_AI_CALLS kill switch
+- Cost is logged by the ladder (ai_governance.ladder_jobs), capped by its monthly budget
+- Minimum batch size: 10 leads
 """
 
 import os
 import json
 import time
-import tempfile
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from pymongo import MongoClient
@@ -36,7 +33,6 @@ def _get_pooled_client():
 
 load_dotenv()
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -62,14 +58,11 @@ except Exception:
 
 # ============== CONFIGURATION ==============
 
-# Minimum leads to justify batch API overhead
+# Minimum leads per queued job
 MIN_BATCH_SIZE = 10
 
-# Maximum leads per batch (OpenAI limit is ~50k requests)
+# Maximum leads per job
 MAX_BATCH_SIZE = 1000
-
-# Batch API model
-BATCH_MODEL = "gpt-4o-mini"
 
 # System prompt (same as ai_classifier.py)
 BATCH_SYSTEM_PROMPT = """B2B lead enrichment expert. Respond with JSON only.
@@ -118,7 +111,7 @@ def queue_leads_for_batch_enrichment(
         "created_at": datetime.utcnow(),
         "submitted_at": None,
         "completed_at": None,
-        "batch_id": None,  # OpenAI batch ID
+        "batch_id": None,  # legacy field (no provider batch id any more)
         "input_file_id": None,
         "output_file_id": None,
         "error": None,
@@ -143,341 +136,223 @@ def get_queued_batch_jobs(min_leads: int = MIN_BATCH_SIZE) -> List[Dict]:
     return jobs
 
 
+ENRICHMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "first_name": {"type": "string"},
+        "last_name": {"type": "string"},
+        "predicted_email": {"type": "string"},
+        "seniority_level": {"type": "string"},
+        "department": {"type": "string"},
+        "persona": {"type": "string"},
+        "buying_role": {"type": "string"},
+        "gender": {"type": "string"},
+        "company_size": {"type": "string"},
+        "region": {"type": "string"},
+        "inferred_location": {"type": "string"},
+        "company_name": {"type": "string"},
+        "company_domain": {"type": "string"},
+        "company_website": {"type": "string"},
+        "company_employee_count": {"type": "string"},
+        "company_employee_count_range": {"type": "string"},
+        "company_founded": {"type": "string"},
+        "company_industry": {"type": "string"},
+        "company_type": {"type": "string"},
+        "company_headquarters": {"type": "string"},
+        "company_revenue_range": {"type": "string"},
+        "company_linkedin_url": {"type": "string"},
+        "confidence_score": {"type": "number"},
+    },
+    "required": ["first_name", "last_name", "confidence_score"],
+}
+
+
+def _store_enriched(raw_lead: Dict[str, Any], parsed: Dict[str, Any], job_id: str) -> bool:
+    """Upsert one enriched lead into leads_enriched and log the outcome. True on success."""
+    from bson import ObjectId
+    leads_enriched = db['leads_enriched']
+    lead_id = str(raw_lead["_id"])
+    try:
+        enriched = {
+            "raw_lead_id": lead_id,
+            "linkedin_url": raw_lead.get("linkedin_url"),
+            "name": raw_lead.get("name"),
+            "title": raw_lead.get("title"),
+            "first_name": parsed.get("first_name", ""),
+            "last_name": parsed.get("last_name", ""),
+            "predicted_email": parsed.get("predicted_email"),
+            "seniority_level": parsed.get("seniority_level", "Unknown"),
+            "department": parsed.get("department", "Other"),
+            "persona": parsed.get("persona", "Practitioner"),
+            "buying_role": parsed.get("buying_role", "Unknown"),
+            "gender": parsed.get("gender", "Unknown"),
+            "company_size": parsed.get("company_size", "SMB"),
+            "region": parsed.get("region", "Other"),
+            "inferred_location": parsed.get("inferred_location"),
+            "company_name": parsed.get("company_name") or raw_lead.get("company_name"),
+            "company_domain": parsed.get("company_domain"),
+            "company_website": parsed.get("company_website"),
+            "company_employee_count": parsed.get("company_employee_count"),
+            "company_employee_count_range": parsed.get("company_employee_count_range"),
+            "company_founded": parsed.get("company_founded"),
+            "company_industry": parsed.get("company_industry"),
+            "company_type": parsed.get("company_type"),
+            "company_headquarters": parsed.get("company_headquarters"),
+            "company_revenue_range": parsed.get("company_revenue_range"),
+            "company_linkedin_url": parsed.get("company_linkedin_url"),
+            "confidence_score": float(parsed.get("confidence_score", 0.5)),
+            "enriched_at": datetime.utcnow(),
+            "enrichment_source": "batch_api",
+        }
+        leads_enriched.replace_one({"linkedin_url": enriched["linkedin_url"]}, enriched, upsert=True)
+        db['leads_raw'].update_one({"_id": ObjectId(lead_id)}, {"$set": {"classification_status": "completed"}})
+        batch_results.insert_one({
+            "batch_job_id": job_id, "lead_id": lead_id, "success": True,
+            "confidence_score": enriched["confidence_score"], "processed_at": datetime.utcnow(),
+        })
+        return True
+    except Exception as e:
+        batch_results.insert_one({
+            "batch_job_id": job_id, "lead_id": lead_id, "success": False,
+            "error": str(e), "processed_at": datetime.utcnow(),
+        })
+        return False
+
+
 def submit_batch_job(job_id: str) -> Tuple[bool, str]:
     """
-    Submit a queued batch job to OpenAI Batch API.
-    
+    Run a queued batch job: enrich each lead through the escalation ladder
+    (plain loop over escalate_json) and store the results. Runs to completion
+    before returning.
+
     Args:
         job_id: MongoDB batch job ID
-        
+
     Returns:
         Tuple of (success, message/error)
     """
     from bson import ObjectId
-    from .openai_wrapper import get_openai_client
-    
-    # Get job
+    from platform_core.ladder import escalate_json
+
+    if os.getenv("DISABLE_AI_CALLS", "").lower() in ("1", "true", "yes"):
+        return False, "AI calls disabled (DISABLE_AI_CALLS)"
+
     job = batch_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         return False, "Job not found"
-    
+
     if job["status"] != BatchJobStatus.QUEUED:
         return False, f"Job not in queued state: {job['status']}"
-    
-    # Get leads
+
     leads_raw = db['leads_raw']
     lead_ids = [ObjectId(lid) for lid in job["lead_ids"]]
     leads = list(leads_raw.find({"_id": {"$in": lead_ids}}))
-    
+
     if not leads:
         batch_jobs.update_one(
             {"_id": ObjectId(job_id)},
             {"$set": {"status": BatchJobStatus.FAILED, "error": "No leads found"}}
         )
         return False, "No leads found"
-    
-    # Create JSONL file for batch
+
+    batch_jobs.update_one(
+        {"_id": ObjectId(job_id)},
+        {"$set": {"status": BatchJobStatus.IN_PROGRESS, "submitted_at": datetime.utcnow()}}
+    )
+
+    success_count = 0
+    failure_count = 0
     try:
-        openai_client = get_openai_client()
-        
-        # Build batch requests
-        batch_requests = []
         for lead in leads:
             user_prompt = f"""Enrich lead:
 Name:{lead.get('name', '')} Title:{lead.get('title', '')} URL:{lead.get('linkedin_url', '')}
-Context:{lead.get('snippet', '-')[:200]} Location:{lead.get('location', '-')} Company:{lead.get('company_name', '-')} Email:{lead.get('email', '-')}
+Context:{str(lead.get('snippet') or '-')[:200]} Location:{lead.get('location', '-')} Company:{lead.get('company_name', '-')} Email:{lead.get('email', '-')}
 Return JSON."""
-            
-            request = {
-                "custom_id": str(lead["_id"]),
-                "method": "POST",
-                "url": "/v1/chat/completions",
-                "body": {
-                    "model": BATCH_MODEL,
-                    "messages": [
-                        {"role": "system", "content": BATCH_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "max_tokens": 300,
-                    "temperature": 0.1,
-                    "response_format": {"type": "json_object"}
-                }
-            }
-            batch_requests.append(request)
-        
-        # Write to temp JSONL file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            for req in batch_requests:
-                f.write(json.dumps(req) + '\n')
-            temp_path = f.name
-        
-        # Upload file to OpenAI
-        with open(temp_path, 'rb') as f:
-            file_response = openai_client.files.create(
-                file=f,
-                purpose="batch"
+            data, _tier, attempts = escalate_json(
+                task="lead_enrichment",
+                system=BATCH_SYSTEM_PROMPT,
+                user=user_prompt,
+                schema=ENRICHMENT_SCHEMA,
+                check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
+                max_tokens=300,
             )
-        
-        input_file_id = file_response.id
-        
-        # Clean up temp file
-        os.unlink(temp_path)
-        
-        # Create batch
-        batch_response = openai_client.batches.create(
-            input_file_id=input_file_id,
-            endpoint="/v1/chat/completions",
-            completion_window="24h"
-        )
-        
-        openai_batch_id = batch_response.id
-        
-        # Update job record
+            if data is None:
+                failure_count += 1
+                problems = [p for a in attempts for p in (a.get("problems") or [])][:3]
+                batch_results.insert_one({
+                    "batch_job_id": job_id, "lead_id": str(lead["_id"]), "success": False,
+                    "error": "; ".join(str(p) for p in problems) or "no tier answered",
+                    "processed_at": datetime.utcnow(),
+                })
+                continue
+            if _store_enriched(lead, data, job_id):
+                success_count += 1
+            else:
+                failure_count += 1
+
         batch_jobs.update_one(
             {"_id": ObjectId(job_id)},
             {"$set": {
-                "status": BatchJobStatus.SUBMITTED,
-                "submitted_at": datetime.utcnow(),
-                "batch_id": openai_batch_id,
-                "input_file_id": input_file_id
+                "status": BatchJobStatus.COMPLETED,
+                "completed_at": datetime.utcnow(),
+                "results_processed": success_count + failure_count,
+                "success_count": success_count,
+                "failure_count": failure_count,
             }}
         )
-        
-        print(f"[BatchAPI] Submitted batch {openai_batch_id} with {len(leads)} leads")
-        return True, openai_batch_id
-        
+        print(f"[BatchEnrich] Job {job_id}: {success_count} enriched, {failure_count} failed")
+        return True, f"{success_count} enriched, {failure_count} failed"
+
     except Exception as e:
         batch_jobs.update_one(
             {"_id": ObjectId(job_id)},
-            {"$set": {"status": BatchJobStatus.FAILED, "error": str(e)}}
+            {"$set": {"status": BatchJobStatus.FAILED, "error": str(e),
+                      "success_count": success_count, "failure_count": failure_count}}
         )
         return False, str(e)
 
 
 def check_batch_status(job_id: str) -> Dict[str, Any]:
     """
-    Check status of a submitted batch job.
-    
+    Status of a batch job. Jobs run synchronously in submit_batch_job(), so this
+    only reads the job record.
+
     Args:
         job_id: MongoDB batch job ID
-        
+
     Returns:
         Dict with status info
     """
     from bson import ObjectId
-    from .openai_wrapper import get_openai_client
-    
+
     job = batch_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         return {"error": "Job not found"}
-    
-    if job["status"] == BatchJobStatus.QUEUED:
-        return {"status": "queued", "message": "Batch not yet submitted"}
-    
-    if not job.get("batch_id"):
-        return {"status": job["status"], "message": "No OpenAI batch ID"}
-    
-    try:
-        openai_client = get_openai_client()
-        batch = openai_client.batches.retrieve(job["batch_id"])
-        
-        status_map = {
-            "validating": BatchJobStatus.SUBMITTED,
-            "in_progress": BatchJobStatus.IN_PROGRESS,
-            "completed": BatchJobStatus.COMPLETED,
-            "failed": BatchJobStatus.FAILED,
-            "cancelled": BatchJobStatus.CANCELLED,
-            "expired": BatchJobStatus.FAILED,
-        }
-        
-        new_status = status_map.get(batch.status, job["status"])
-        
-        # Update our record
-        update = {"status": new_status}
-        
-        if batch.status == "completed" and batch.output_file_id:
-            update["output_file_id"] = batch.output_file_id
-            update["completed_at"] = datetime.utcnow()
-        
-        if batch.status == "failed":
-            update["error"] = getattr(batch, 'errors', 'Unknown error')
-        
-        batch_jobs.update_one({"_id": ObjectId(job_id)}, {"$set": update})
-        
-        return {
-            "status": new_status,
-            "openai_status": batch.status,
-            "request_counts": {
-                "total": batch.request_counts.total if batch.request_counts else 0,
-                "completed": batch.request_counts.completed if batch.request_counts else 0,
-                "failed": batch.request_counts.failed if batch.request_counts else 0
-            },
-            "output_file_id": batch.output_file_id,
-            "created_at": job.get("created_at"),
-            "submitted_at": job.get("submitted_at")
-        }
-        
-    except Exception as e:
-        return {"status": job["status"], "error": str(e)}
+    return {
+        "status": job.get("status"),
+        "lead_count": job.get("lead_count"),
+        "success_count": job.get("success_count", 0),
+        "failure_count": job.get("failure_count", 0),
+        "submitted_at": job.get("submitted_at"),
+        "completed_at": job.get("completed_at"),
+        "error": job.get("error"),
+    }
 
 
 def process_batch_results(job_id: str) -> Tuple[int, int]:
     """
-    Process completed batch results and update leads_enriched.
-    
+    Results are written by submit_batch_job(); returns the stored counts.
+
     Args:
         job_id: MongoDB batch job ID
-        
+
     Returns:
         Tuple of (success_count, failure_count)
     """
     from bson import ObjectId
-    from .openai_wrapper import get_openai_client
-    from .models import AIClassificationOutput, SeniorityLevel, Department, Persona, CompanySize, Region, BuyingRole, Gender
-    
-    job = batch_jobs.find_one({"_id": ObjectId(job_id)})
-    if not job:
-        return 0, 0
-    
-    if job["status"] != BatchJobStatus.COMPLETED:
-        return 0, 0
-    
-    if not job.get("output_file_id"):
-        return 0, 0
-    
-    try:
-        openai_client = get_openai_client()
-        
-        # Download results file
-        file_response = openai_client.files.content(job["output_file_id"])
-        content = file_response.read().decode('utf-8')
-        
-        leads_raw = db['leads_raw']
-        leads_enriched = db['leads_enriched']
-        
-        success_count = 0
-        failure_count = 0
-        
-        for line in content.strip().split('\n'):
-            if not line:
-                continue
-            
-            result = json.loads(line)
-            custom_id = result.get("custom_id")  # This is our lead_id
-            
-            if not custom_id:
-                failure_count += 1
-                continue
-            
-            response = result.get("response", {})
-            
-            if response.get("status_code") != 200:
-                failure_count += 1
-                # Log failure
-                batch_results.insert_one({
-                    "batch_job_id": job_id,
-                    "lead_id": custom_id,
-                    "success": False,
-                    "error": response.get("error", {}).get("message", "Unknown error"),
-                    "processed_at": datetime.utcnow()
-                })
-                continue
-            
-            # Parse response
-            try:
-                body = response.get("body", {})
-                content = body.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-                parsed = json.loads(content)
-                
-                # Get raw lead
-                raw_lead = leads_raw.find_one({"_id": ObjectId(custom_id)})
-                if not raw_lead:
-                    failure_count += 1
-                    continue
-                
-                # Create enriched lead
-                enriched = {
-                    "raw_lead_id": custom_id,
-                    "linkedin_url": raw_lead.get("linkedin_url"),
-                    "name": raw_lead.get("name"),
-                    "title": raw_lead.get("title"),
-                    "first_name": parsed.get("first_name", ""),
-                    "last_name": parsed.get("last_name", ""),
-                    "predicted_email": parsed.get("predicted_email"),
-                    "seniority_level": parsed.get("seniority_level", "Unknown"),
-                    "department": parsed.get("department", "Other"),
-                    "persona": parsed.get("persona", "Practitioner"),
-                    "buying_role": parsed.get("buying_role", "Unknown"),
-                    "gender": parsed.get("gender", "Unknown"),
-                    "company_size": parsed.get("company_size", "SMB"),
-                    "region": parsed.get("region", "Other"),
-                    "inferred_location": parsed.get("inferred_location"),
-                    "company_name": parsed.get("company_name") or raw_lead.get("company_name"),
-                    "company_domain": parsed.get("company_domain"),
-                    "company_website": parsed.get("company_website"),
-                    "company_employee_count": parsed.get("company_employee_count"),
-                    "company_employee_count_range": parsed.get("company_employee_count_range"),
-                    "company_founded": parsed.get("company_founded"),
-                    "company_industry": parsed.get("company_industry"),
-                    "company_type": parsed.get("company_type"),
-                    "company_headquarters": parsed.get("company_headquarters"),
-                    "company_revenue_range": parsed.get("company_revenue_range"),
-                    "company_linkedin_url": parsed.get("company_linkedin_url"),
-                    "confidence_score": float(parsed.get("confidence_score", 0.5)),
-                    "enriched_at": datetime.utcnow(),
-                    "enrichment_source": "batch_api"
-                }
-                
-                # Upsert to leads_enriched
-                leads_enriched.replace_one(
-                    {"linkedin_url": enriched["linkedin_url"]},
-                    enriched,
-                    upsert=True
-                )
-                
-                # Update raw lead status
-                leads_raw.update_one(
-                    {"_id": ObjectId(custom_id)},
-                    {"$set": {"classification_status": "completed"}}
-                )
-                
-                success_count += 1
-                
-                # Log success
-                batch_results.insert_one({
-                    "batch_job_id": job_id,
-                    "lead_id": custom_id,
-                    "success": True,
-                    "confidence_score": enriched["confidence_score"],
-                    "processed_at": datetime.utcnow()
-                })
-                
-            except Exception as e:
-                failure_count += 1
-                batch_results.insert_one({
-                    "batch_job_id": job_id,
-                    "lead_id": custom_id,
-                    "success": False,
-                    "error": str(e),
-                    "processed_at": datetime.utcnow()
-                })
-        
-        # Update job with results
-        batch_jobs.update_one(
-            {"_id": ObjectId(job_id)},
-            {"$set": {
-                "results_processed": success_count + failure_count,
-                "success_count": success_count,
-                "failure_count": failure_count
-            }}
-        )
-        
-        print(f"[BatchAPI] Processed batch {job_id}: {success_count} success, {failure_count} failed")
-        return success_count, failure_count
-        
-    except Exception as e:
-        print(f"[BatchAPI] Error processing batch {job_id}: {e}")
-        return 0, 0
+
+    job = batch_jobs.find_one({"_id": ObjectId(job_id)}) or {}
+    return int(job.get("success_count") or 0), int(job.get("failure_count") or 0)
 
 
 # ============== BATCH MANAGER ==============
@@ -569,12 +444,11 @@ if __name__ == "__main__":
     import sys
     
     if len(sys.argv) < 2:
-        print("OpenAI Batch API Enrichment")
+        print("Batch Lead Enrichment (escalation ladder)")
         print("\nUsage:")
         print("  python batch_enrichment.py status       # Show batch stats")
         print("  python batch_enrichment.py run          # Run enrichment cycle")
         print("  python batch_enrichment.py check <id>   # Check specific job")
-        print("\nCost savings: 50% vs regular API")
     
     elif sys.argv[1] == "status":
         stats = get_batch_stats()

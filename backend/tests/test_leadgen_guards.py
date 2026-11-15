@@ -78,14 +78,23 @@ def test_extraction_does_not_freeze_the_event_loop(monkeypatch):
     while it waits (it froze the whole backend on 2026-09-28)."""
     import asyncio
     import time
-    import leads.bedrock_client as bc
+    import platform_core.ladder as ladder
     import leads.ingestion as ing
 
-    def slow_model(**kw):
-        time.sleep(0.5)
-        return {"leads": []}
+    result = {"title": "Jane Roe - Head of Research", "link": "https://www.linkedin.com/in/jane-roe",
+              "snippet": "s"}
 
-    monkeypatch.setattr(bc, "converse_json_object", slow_model)
+    window = []
+
+    def slow_model(**kw):
+        window.append(time.monotonic())
+        time.sleep(0.5)
+        window.append(time.monotonic())
+        # a grounded answer, so the call does not fall through to the regex parser
+        return ({"leads": [{"name": "Jane Roe", "title": "Head of Research",
+                            "linkedin_url": "https://www.linkedin.com/in/jane-roe"}]}, "haiku", [])
+
+    monkeypatch.setattr(ladder, "escalate_json", slow_model)
     ticks = []
 
     async def other_requests():
@@ -94,60 +103,31 @@ def test_extraction_does_not_freeze_the_event_loop(monkeypatch):
             await asyncio.sleep(0.05)
 
     async def main():
-        await asyncio.gather(
-            ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"),
-            other_requests())
+        await asyncio.gather(ing.extract_leads_from_google_results([result], "q"), other_requests())
 
     asyncio.run(main())
-    assert len(ticks) == 8 and ticks[-1] - ticks[0] < 0.45  # they ran during the 0.5s call
-
-
-def test_queue_wait_override_is_scoped():
-    from leads import local_llm_gate as g
-    default = g.queue_timeout_seconds()
-    with g.queue_wait(90):
-        assert g.queue_timeout_seconds() == 90
-    assert g.queue_timeout_seconds() == default
-
-
-def test_lead_extraction_waits_longer_for_the_model_slot(monkeypatch):
-    import asyncio
-    import leads.bedrock_client as bc
-    import leads.ingestion as ing
-    from leads import local_llm_gate as g
-    seen = []
-    monkeypatch.setattr(bc, "converse_json_object",
-                        lambda **kw: seen.append((g.queue_timeout_seconds(), g.current_priority())) or {"leads": []})
-    asyncio.run(ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"))
-    # 240s (2026-10-14): one extraction call takes 46-103s, so 90s was shorter
-    # than the call already holding the slot; and it queues as "extraction".
-    assert seen == [(240.0, "extraction")]
-
-
-def test_extraction_gets_a_longer_inference_limit(monkeypatch):
-    import asyncio
-    import leads.bedrock_client as bc
-    import leads.ingestion as ing
-    from leads import local_llm_gate as g
-    seen = []
-    monkeypatch.setattr(bc, "converse_json_object",
-                        lambda **kw: seen.append(g.inference_timeout_override()) or {"leads": []})
-    asyncio.run(ing.extract_leads_from_google_results([{"title": "t", "link": "https://x", "snippet": "s"}], "q"))
-    assert seen == [180.0] and g.inference_timeout_override() is None
+    # other requests ticked while the model call was in flight (wall-clock
+    # spread is not used: a loaded machine makes it noisy on its own)
+    assert len(ticks) == 8
+    start, end = window
+    assert any(start < t < end for t in ticks)
 
 
 def test_no_results_means_no_model_call(monkeypatch):
     import asyncio
-    import leads.bedrock_client as bc
+    import platform_core.ladder as ladder
     import leads.ingestion as ing
-    monkeypatch.setattr(bc, "converse_json_object", lambda **kw: {"leads": [{"name": "John Doe"}]})
+    calls = []
+    monkeypatch.setattr(ladder, "escalate_json",
+                        lambda **kw: calls.append(kw) or ({"leads": [{"name": "John Doe"}]}, "haiku", []))
     assert asyncio.run(ing.extract_leads_from_google_results([], "q")) == []
+    assert calls == []
 
 
 def test_extraction_runs_in_small_batches_and_keeps_the_real_snippet(monkeypatch):
     import asyncio
     import json
-    import leads.bedrock_client as bc
+    import platform_core.ladder as ladder
     import leads.ingestion as ing
     results = [{"title": f"P{i} - Head of Research", "link": f"https://www.linkedin.com/in/p{i}",
                 "snippet": f"snippet {i}"} for i in range(12)]
@@ -156,10 +136,11 @@ def test_extraction_runs_in_small_batches_and_keeps_the_real_snippet(monkeypatch
     def fake(**kw):
         prompts.append(kw["user"])
         batch = json.loads(kw["user"].split("Search results:\n", 1)[1].split("\n\nReturn", 1)[0])
-        return {"leads": [{"name": r["title"].split(" - ")[0], "title": "Head of Research",
+        data = {"leads": [{"name": r["title"].split(" - ")[0], "title": "Head of Research",
                            "linkedin_url": r["link"]} for r in batch]}
+        return data, "haiku", []
 
-    monkeypatch.setattr(bc, "converse_json_object", fake)
+    monkeypatch.setattr(ladder, "escalate_json", fake)
     leads = asyncio.run(ing.extract_leads_from_google_results(results, "q"))
     # 3 results per call (2026-10-15: five-result calls ran past the 180s limit)
     assert len(prompts) == 4 and len(leads) == 12

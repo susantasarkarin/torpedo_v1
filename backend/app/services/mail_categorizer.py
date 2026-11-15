@@ -516,16 +516,16 @@ _MODEL_SYSTEM = (
 
 
 def model_categorize(doc: Dict[str, Any]) -> Tuple[Optional[str], str]:
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     from sales.reply_triage import strip_quoted
     body = strip_quoted(doc.get("body") or doc.get("body_plain") or doc.get("snippet") or "")
     user = (f"FROM: {doc.get('from_email') or ''}\nSUBJECT: {(doc.get('subject') or '')[:150]}\n\n"
             f"BODY:\n{body[:1000]}")
-    try:
-        out = chat_json(system=_MODEL_SYSTEM, user=user, max_tokens=120, json_schema=_MODEL_SCHEMA,
-                       priority="bulk")
-    except LocalSLMError as e:
-        return None, f"model unavailable: {e}"[:300]
+    out, _tier, attempts = ladder.escalate_json(
+        task="mail_category", system=_MODEL_SYSTEM, user=user, schema=_MODEL_SCHEMA, max_tokens=300,
+        check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"])
+    if out is None:
+        return None, ("model unavailable: " + "; ".join(str(a.get("problems") or a.get("error")) for a in attempts))[:300]
     cat = out.get("category")
     if cat not in MODEL_CATEGORIES:
         return None, "model returned an invalid category"
@@ -630,9 +630,8 @@ def ensure_indexes(client) -> None:
 def run_scheduled_cycle() -> Dict[str, Any]:
     """APScheduler entry point: label new mail by rules, then let the model
     place a small, capped batch of the pending ones (newest first)."""
-    from pymongo import MongoClient
-    client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                         serverSelectionTimeoutMS=5000)
+    from db import get_client
+    client = get_client()
     ensure_indexes(client)
     rules = run_rules_pass(client, limit=5000)
     # ~15 calls x ~20s every 10 min keeps roughly half of the single shared

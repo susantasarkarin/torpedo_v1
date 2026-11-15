@@ -33,26 +33,21 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
+from db import DB_FINANCE, get_client
+
 logger = logging.getLogger(__name__)
 
 REMINDER_MILESTONES = (1, 7, 15, 30)
 REMINDER_MAX_AGE_DAYS = int(os.getenv("INVOICE_REMINDER_MAX_AGE_DAYS", "120"))
 OPEN_STATUSES = ("sent", "partial", "overdue")
 
-_client = None
-
-
 def _mongo():
-    global _client
-    if _client is None:
-        from pymongo import MongoClient
-        _client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                              serverSelectionTimeoutMS=5000)
-    return _client
+    """Shared client from db.py (the test seam; never constructs a client here)."""
+    return get_client()
 
 
 def _fin():
-    return _mongo()["finance_db"]
+    return _mongo()[DB_FINANCE]
 
 
 def _from_mailbox() -> str:
@@ -80,8 +75,7 @@ def _as_dt(value) -> Optional[datetime]:
 def _draft(to: List[str], subject: str, body: str,
            attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     from app.services.gmail_workspace_service import GmailWorkspaceService
-    svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                                db_name="torpedo_gmail")
+    svc = GmailWorkspaceService(db_name="torpedo_gmail")
     svc.load_service_account()
     sender = _from_mailbox()
     return svc.create_draft(from_email=sender, to=to, subject=subject, body_plain=body,
@@ -104,8 +98,7 @@ def _send(to: List[str], subject: str, body_html: str, body_plain: str,
         logger.info("finance send gated (%s) to=%s: %s", category, addr, reason)
         return {"success": False, "error": f"{category}: {reason}", "blocked": True}
     from app.services.gmail_workspace_service import GmailWorkspaceService
-    svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                                db_name="torpedo_gmail")
+    svc = GmailWorkspaceService(db_name="torpedo_gmail")
     svc.load_service_account()
     sender = _from_mailbox()
     return svc.send_email(from_email=sender, to=to, subject=subject, body_html=body_html, body_plain=body_plain,

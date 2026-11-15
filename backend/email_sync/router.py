@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, Path, BackgroundTasks
 from pydantic import BaseModel, EmailStr, Field
-from pymongo import MongoClient
+from db import mail
 import os
 
 from .orchestrator import EmailSyncOrchestrator
@@ -73,9 +73,9 @@ def get_orchestrator() -> EmailSyncOrchestrator:
     global _orchestrator
     
     if _orchestrator is None:
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        db_name = os.getenv("MONGO_DB_NAME", "campaign_platform")
-        _orchestrator = EmailSyncOrchestrator(mongo_uri=mongo_uri, db_name=db_name)
+        # email_sync collections (emails, mailboxes, aliases, sync_states,
+        # categorization_queue) live in the mail pool database (torpedo_gmail).
+        _orchestrator = EmailSyncOrchestrator(db=mail())
     
     return _orchestrator
 
@@ -711,8 +711,25 @@ class RecategorizeRequest(BaseModel):
 def _run_ai_recategorization(db, email_ids: List[str], task_id: str):
     """Background task to re-categorize emails using AI"""
     import json
-    from leads.openai_wrapper import chat_completion
-    
+    import os
+    from platform_core.ladder import escalate_json
+
+    _RECAT_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "category": {"type": "string"},
+            "sub_category": {"type": "string"},
+            "confidence": {"type": "number"},
+            "intent": {"type": "string"},
+            "priority": {"type": "string"},
+            "department": {"type": "string"},
+            "is_reply": {"type": "boolean"},
+            "reply_sentiment": {"type": "string"},
+            "suggested_action": {"type": "string"},
+        },
+        "required": ["category"],
+    }
+
     emails_collection = db.emails
     
     _background_tasks[task_id]["status"] = "running"
@@ -796,24 +813,23 @@ Respond with JSON only."""
                 body=body
             )
             
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ]
-            
-            # Call AI
-            response = chat_completion(
-                messages=messages,
-                source="background",
-                endpoint="recategorization",
-                max_output_tokens=300,
-                response_format={"type": "json_object"}
+            # Call AI (kill switch honoured)
+            if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
+                errors += 1
+                _background_tasks[task_id]["errors"] = errors
+                continue
+            parsed, _tier, _attempts = escalate_json(
+                task="email_recategorization",
+                system=SYSTEM_PROMPT,
+                user=user_prompt,
+                schema=_RECAT_SCHEMA,
+                check=lambda d: [] if isinstance(d, dict) and d.get("category") else ["missing category"],
+                max_tokens=300,
             )
-            
-            if response["success"]:
+
+            if parsed is not None:
                 try:
-                    parsed = json.loads(response["content"])
-                    
+
                     # Update email with new category
                     emails_collection.update_one(
                         {"_id": ObjectId(email_id)},
@@ -836,11 +852,12 @@ Respond with JSON only."""
                         }
                     )
                     processed += 1
-                except json.JSONDecodeError:
+                except Exception as _upd_err:
+                    logger.error(f"Recategorization update failed for {email_id}: {_upd_err}")
                     errors += 1
             else:
                 errors += 1
-            
+
             _background_tasks[task_id]["processed"] = processed
             _background_tasks[task_id]["errors"] = errors
             
@@ -915,11 +932,7 @@ async def recategorize_all_emails(
     import uuid
     
     # Get emails collection
-    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-    db_name = os.getenv("MONGO_DB_NAME", "campaign_platform")
-    client = MongoClient(mongo_uri)
-    db = client[db_name]
-    emails_collection = db.emails
+    emails_collection = mail().emails
     
     # Build query
     query = {}
@@ -961,7 +974,7 @@ async def recategorize_all_emails(
     if request.use_ai:
         thread = threading.Thread(
             target=_run_ai_recategorization,
-            args=(db, email_ids, task_id)
+            args=(mail(), email_ids, task_id)
         )
     else:
         thread = threading.Thread(

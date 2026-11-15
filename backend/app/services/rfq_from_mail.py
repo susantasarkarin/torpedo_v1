@@ -379,7 +379,7 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
     messages, the quoted history and attachments (rfq_thread_text). Each piece
     is read separately (the model's window is 2,048 tokens) and grounded
     against that piece's own text. Re-read when the client writes again."""
-    from leads.local_slm_client import LocalSLMError, LocalSLMMalformedResponse, chat_json
+    from platform_core import ladder
     from app.services.rfq_thread_text import sections
     opp = client["crm_db"]["opportunities"]
     max_calls = max_calls if max_calls is not None else int(os.getenv("RFQ_DETAILS_CALLS_PER_RUN", "6"))
@@ -399,28 +399,31 @@ def enrich_open(client, limit: int = 2, max_calls: Optional[int] = None) -> Dict
         found: List[Tuple[str, Dict[str, Any]]] = []
         all_pieces = sections(client, rfq, size=PIECE_CHARS)
         pieces = all_pieces[:int(os.getenv("RFQ_DETAILS_MAX_PIECES", "8"))]
-        try:
-            from leads.local_llm_gate import queue_wait
-            for p in pieces:
-                # Quoted history only while something is still empty.
-                if p["kind"] == "quoted" and not set(_missing(rfq)) - set(merge_details(rfq, found)):
-                    break
-                stats["calls"] += 1
-                try:
-                    with queue_wait(200, priority="rfq"):  # background: outwait one running extraction call (100-170s)
-                        out = chat_json(system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
-                                        max_tokens=260, json_schema=_DETAIL_SCHEMA)
-                except LocalSLMMalformedResponse as e:
-                    # One unreadable answer skips that piece only; breaking here
-                    # left the RFQ unmarked and retried, failing, every cycle.
-                    stats["bad_answers"] += 1
-                    logger.info("rfq details: unreadable answer for one piece of %s: %s", o["_id"], e)
-                    continue
-                found.append((p["kind"], grounded_details(out, f"{p['subject']}\n{p['text']}")))
-        except LocalSLMError as e:
-            stats["unavailable"] += 1
-            logger.warning("rfq details: local model unavailable: %s", e)
-            break  # an outage is never written as details; retried next cycle
+        unavailable = False
+        for p in pieces:
+            # Quoted history only while something is still empty.
+            if p["kind"] == "quoted" and not set(_missing(rfq)) - set(merge_details(rfq, found)):
+                break
+            stats["calls"] += 1
+            out, _tier, attempts = ladder.escalate_json(
+                task="rfq_details", system=_DETAIL_SYSTEM, user=f"SUBJECT: {p['subject']}\n\n{p['text']}",
+                schema=_DETAIL_SCHEMA, max_tokens=400,
+                check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"])
+            if out is None:
+                if any(a.get("status") in ("failed", "skipped") for a in attempts):
+                    unavailable = True
+                    stats["unavailable"] += 1
+                    logger.warning("rfq details: model unavailable: %s",
+                                   "; ".join(str(a.get("problems") or a.get("error")) for a in attempts)[:300])
+                    break      # an outage is never written as details; retried next cycle
+                # One unreadable answer skips that piece only; breaking here
+                # left the RFQ unmarked and retried, failing, every cycle.
+                stats["bad_answers"] += 1
+                logger.info("rfq details: unreadable answer for one piece of %s", o["_id"])
+                continue
+            found.append((p["kind"], grounded_details(out, f"{p['subject']}\n{p['text']}")))
+        if unavailable:
+            break
         fields = {f"metadata.rfq.{k}": v for k, v in merge_details(rfq, found).items()}
         stats["fields_set"] += len(fields)
         fields.update({"metadata.rfq.details_at": datetime.utcnow(), "metadata.rfq.details_source": "qwen",

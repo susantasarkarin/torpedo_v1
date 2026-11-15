@@ -8,7 +8,6 @@ Modules:
 - models: Data structures (ReplyIntent, ReplyLog, ClassificationResult)
 - matcher: Multi-layer thread matching (4 fallback levels)
 - cleaner: Text extraction (quote/signature stripping)
-- classifier: Hybrid classification (rules + AI)
 
 Phase 1: Core Classification (this release)
 - Match replies to outbound sends
@@ -26,7 +25,6 @@ Usage:
     from outreach_engine.reply_engine import (
         ReplyMatcher,
         TextCleaner,
-        HybridClassifier,
         ReplyIntent,
         ReplyLog
     )
@@ -46,10 +44,9 @@ Usage:
     cleaner = TextCleaner()
     cleaned_text, _ = cleaner.clean(raw_body, is_html=True)
     
-    # Classify intent
-    classifier = HybridClassifier()
-    result = classifier.classify(cleaned_text)
-    
+    # Classify intent (classifier no longer lives in this package; see ai_governance)
+    result = ...
+
     # Log result
     reply_log = ReplyLog(
         reply_id=gmail_message_id,
@@ -105,15 +102,6 @@ from .cleaner import (
     MIN_REPLY_LENGTH,
 )
 
-# Classifier
-from .classifier import (
-    RuleClassifier,
-    AIClassifier,
-    HybridClassifier,
-    RulePatterns,
-    classify_reply,
-    get_classification_stats,
-)
 
 __all__ = [
     # Enums
@@ -140,14 +128,8 @@ __all__ = [
     # Classes
     "ReplyMatcher",
     "TextCleaner",
-    "RuleClassifier",
-    "AIClassifier",
-    "HybridClassifier",
-    "RulePatterns",
     
     # Functions
     "setup_reply_log_indexes",
     "clean_reply_text",
-    "classify_reply",
-    "get_classification_stats",
 ]

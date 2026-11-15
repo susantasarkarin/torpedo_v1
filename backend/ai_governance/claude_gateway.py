@@ -1,27 +1,24 @@
 """
-BEDROCK GATEWAY - Governed generic LLM access (AWS Bedrock Mantle)
-====================================================================
-AWS Bedrock Mantle (OpenAI-compatible, serverless, per-token billed) is the
-AI provider in this codebase. Billed through the same AWS account as SES.
+CLAUDE GATEWAY - Governed generic LLM access (Anthropic API)
+=============================================================
+The Anthropic Messages API is the AI provider in this codebase. Models come
+from the ladder config (platform_core.ladder.cfg()): `haiku` = fast/cheap,
+`sonnet` = smart. Defaults claude-haiku-5-5 / claude-sonnet-5-5, overridable
+with env LLM_MODEL_FAST / LLM_MODEL_SMART.
 
 `ai_gateway.AIGateway` keeps the task-specific operations (classify /
 summarize / extract / draft). This module adds:
 
 - generate():      governed generic text/JSON generation for everything else
-- web_search():    server-side web search via a Claude model also hosted on
-                   Bedrock Mantle (open-weight models don't support this tool)
-- claude_chat_client() / async_claude_chat_client():
-                   drop-in replacements for openai.OpenAI / AsyncOpenAI
-                   exposing .chat.completions.create(...) — now a thin
-                   pass-through since Bedrock Mantle speaks that shape natively
-- ClaudeGenerativeModel: drop-in replacement for
-                   google.generativeai.GenerativeModel(...).generate_content()
+- web_search():    server-side web search (Anthropic web_search tool)
+- chat_completion(), chat_completion_with_escalation(), ClaudeChatClient,
+  AsyncClaudeChatClient: the .chat.completions.create(...) compat surface for
+  the call sites migrated off the OpenAI SDK. Text calls go through the
+  ladder's Anthropic transport (platform_core.ladder.anthropic_transport).
+- ClaudeGenerativeModel: kept for routers/cold_outreach_router.py only.
 
 Every call goes through the same governance checks (daily hard limit) and is
-recorded in the `ai_governance_log` collection with caller + task_type, so
-usage is auditable in one place.
-
-Names kept as "Claude*"/"claude_*" throughout for compat with existing callers.
+recorded in the `ai_governance_log` collection with caller + task_type.
 """
 
 import os
@@ -30,33 +27,53 @@ import logging
 import re
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
-
-import anthropic
-import openai
+from typing import Any, Dict, List, Optional, Tuple
 
 from .governance_checks import (
     check_ai_daily_limit,
     increment_ai_daily_usage,
     AIDailyLimitExceeded,
 )
-from .ai_gateway import _get_anthropic_api_key, _get_mongo_client, BEDROCK_BASE_URL
+
+try:  # backend dir on sys.path (uvicorn main:app)
+    from db import settings as _settings_db
+except ImportError:  # imported as backend.* from the repo root
+    from backend.db import settings as _settings_db  # type: ignore
 
 logger = logging.getLogger(__name__)
 
-# Anthropic-route base_url for the same Bedrock Mantle deployment — only used
-# by web_search(). DELIBERATE, DOCUMENTED EXCEPTION to the Qwen-only policy:
-# server-side web search is Anthropic-specific and Qwen (or any open-weight
-# model) does not support it on Bedrock. Every other call in this codebase
-# must resolve to Qwen; do not extend this exception to any other task.
-BEDROCK_ANTHROPIC_BASE_URL = os.getenv(
-    "BEDROCK_MANTLE_ANTHROPIC_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/anthropic")
-WEB_SEARCH_MODEL = os.getenv("BEDROCK_MODEL_WEB_SEARCH", "anthropic.claude-haiku-4-5")
+_FAST_FALLBACK = "claude-haiku-5-5"
+_SMART_FALLBACK = "claude-sonnet-5-5"
 
-# Default for generic generation. Qwen-only policy: same model as
-# ai_gateway's cheap tier and bedrock_client's "smart" role — override per-call
-# or via env, but never default to a different provider here.
-DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "qwen.qwen3-32b-v1:0")
+
+def _ladder():
+    try:
+        from platform_core import ladder
+    except ImportError:  # pragma: no cover
+        from backend.platform_core import ladder  # type: ignore
+    return ladder
+
+
+def model_for(tier: str = "fast") -> str:
+    """Model id for 'fast'/'haiku' or 'smart'/'sonnet': env override, else ladder config."""
+    key = "sonnet" if tier in ("smart", "sonnet", "premium") else "haiku"
+    env = os.getenv("LLM_MODEL_SMART" if key == "sonnet" else "LLM_MODEL_FAST")
+    if env:
+        return env
+    try:
+        return _ladder().cfg()["models"][key]["model"]
+    except Exception:
+        return _SMART_FALLBACK if key == "sonnet" else _FAST_FALLBACK
+
+
+# Names kept because other modules import them. Import-time values come from env
+# or the built-in default only (no DB read at import); the call paths below use
+# model_for(), which also honours the ladder config.
+DEFAULT_MODEL = os.getenv("LLM_MODEL_FAST") or _FAST_FALLBACK
+WEB_SEARCH_MODEL = os.getenv("LLM_MODEL_WEB_SEARCH") or DEFAULT_MODEL
+PREMIUM_MODEL = os.getenv("LLM_MODEL_SMART") or _SMART_FALLBACK
+CHEAP_MODEL = DEFAULT_MODEL
+ANTHROPIC_DEFAULT_MODEL = CHEAP_MODEL   # name kept from the retired wrapper
 
 
 def _strip_markdown_json(text: str) -> str:
@@ -69,9 +86,8 @@ def _strip_markdown_json(text: str) -> str:
 def _log_usage(task_type: str, model: str, usage: Any, caller: str = "") -> None:
     """Best-effort governance audit record. Never raises."""
     try:
-        db = _get_mongo_client()["torpedo_settings"]
-        db["ai_governance_log"].insert_one({
-            "provider": "bedrock",
+        _settings_db()["ai_governance_log"].insert_one({
+            "provider": "anthropic",
             "model": model,
             "task_type": task_type,
             "caller": caller,
@@ -89,42 +105,47 @@ def _governance_gate() -> None:
     increment_ai_daily_usage()
 
 
-def _bedrock_client() -> openai.OpenAI:
-    return openai.OpenAI(api_key=_get_anthropic_api_key(), base_url=BEDROCK_BASE_URL)
+def _flatten(messages: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """OpenAI-style messages -> (system, single user string) for the ladder transport.
+    A lone user turn is passed through verbatim; longer conversations are
+    flattened with role labels."""
+    system_parts, turns = [], []
+    for m in messages:
+        content = str(m.get("content") or "")
+        if m.get("role") == "system":
+            system_parts.append(content)
+        else:
+            turns.append((m.get("role") or "user", content))
+    if len(turns) == 1:
+        user = turns[0][1]
+    else:
+        user = "\n\n".join(f"{r.upper()}: {c}" for r, c in turns)
+    return "\n\n".join(p for p in system_parts if p), user
+
+
+def _text_call(system: str, user: str, *, model: str, max_tokens: int) -> Tuple[str, Any]:
+    """One governed text call through the ladder's Anthropic transport. -> (text, usage)."""
+    _governance_gate()
+    text, tin, tout = _ladder().anthropic_transport(
+        model=model, system=system or "", user=user, schema=None, max_tokens=max_tokens,
+        thinking={"type": "disabled"})
+    return (text or "").strip(), SimpleNamespace(input_tokens=tin, output_tokens=tout)
 
 
 class ClaudeGateway:
-    """Governed generic Bedrock access. Singleton via get_claude_gateway()."""
-
-    def __init__(self):
-        self._client: Optional[openai.OpenAI] = None
-
-    def _client_or_create(self) -> openai.OpenAI:
-        if self._client is None:
-            self._client = _bedrock_client()
-        return self._client
+    """Governed generic Anthropic access. Singleton via get_claude_gateway()."""
 
     def generate(self, prompt: str, system: Optional[str] = None,
                  model: Optional[str] = None, max_tokens: int = 16000,
                  json_only: bool = False, task_type: str = "generate",
                  caller: str = "", temperature: Optional[float] = None) -> str:
-        """Governed single-turn generation. Returns the text response."""
-        _governance_gate()
-        model = model or DEFAULT_MODEL
+        """Governed single-turn generation. Returns the text response.
+        `temperature` is accepted for compat; the transport leaves it at the default."""
+        model = model or model_for("fast")
         if json_only:
-            suffix = "\n\nReturn ONLY valid JSON. No preamble. No markdown."
-            prompt = prompt + suffix
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        kwargs: Dict[str, Any] = dict(
-            model=model, max_tokens=max_tokens, messages=messages)
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        response = self._client_or_create().chat.completions.create(**kwargs)
-        _log_usage(task_type, model, response.usage, caller)
-        text = (response.choices[0].message.content or "").strip()
+            prompt = prompt + "\n\nReturn ONLY valid JSON. No preamble. No markdown."
+        text, usage = _text_call(system or "", prompt, model=model, max_tokens=max_tokens)
+        _log_usage(task_type, model, usage, caller)
         return _strip_markdown_json(text) if json_only else text
 
     def generate_json(self, prompt: str, **kw) -> Optional[Dict[str, Any]]:
@@ -139,14 +160,10 @@ class ClaudeGateway:
 
     def web_search(self, query: str, num_results: int = 10,
                    model: Optional[str] = None, caller: str = "") -> Dict[str, Any]:
-        """
-        Web search via a Claude model's server-side web_search tool, hosted on
-        the same Bedrock Mantle deployment (Anthropic Messages route).
-        """
+        """Web search via the Anthropic server-side web_search tool."""
         _governance_gate()
-        model = model or WEB_SEARCH_MODEL
-        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=BEDROCK_ANTHROPIC_BASE_URL)
-        response = client.messages.create(
+        model = model or os.getenv("LLM_MODEL_WEB_SEARCH") or model_for("fast")
+        response = _anthropic_client().messages.create(
             model=model,
             max_tokens=16000,
             tools=[{"type": "web_search_20260209", "name": "web_search",
@@ -155,12 +172,8 @@ class ClaudeGateway:
         )
         _log_usage("web_search", model, response.usage, caller)
         text = " ".join(b.text for b in response.content if b.type == "text").strip()
-        # Preserve what the server-side web_search tool actually retrieved —
-        # previously discarded entirely, which is why nothing downstream
-        # could ever cite a source for a claim. web_search_tool_result
-        # blocks carry the URL/title of each page the tool looked at;
-        # citation annotations on text blocks (when present) tie a
-        # specific sentence back to one of those URLs.
+        # web_search_tool_result blocks carry the URL/title of each page the
+        # tool looked at, so downstream code can cite a source for a claim.
         sources = []
         for block in response.content:
             if getattr(block, "type", None) == "web_search_tool_result":
@@ -176,6 +189,12 @@ class ClaudeGateway:
                 "searched_at": datetime.utcnow().isoformat()}
 
 
+def _anthropic_client():
+    import anthropic
+    from .ai_gateway import _get_anthropic_api_key
+    return anthropic.Anthropic(api_key=_get_anthropic_api_key(), max_retries=2, timeout=120.0)
+
+
 _gateway: Optional[ClaudeGateway] = None
 
 
@@ -187,57 +206,59 @@ def get_claude_gateway() -> ClaudeGateway:
 
 
 # ======================================================================
-# OpenAI chat.completions drop-in compatibility (Bedrock-backed)
+# chat.completions drop-in compatibility (Anthropic via the ladder transport)
 # ======================================================================
-# Bedrock Mantle speaks the OpenAI Chat Completions shape natively, so these
-# are now thin pass-throughs — only the model name is overridden (call sites
-# pass placeholder gpt-*/gemini-* strings that get ignored).
+# Call sites pass placeholder gpt-*/gemini-* model strings, which are ignored.
+
+def _to_openai_shape(text: str, model: str, tin: int, tout: int, finish: str = "stop") -> SimpleNamespace:
+    usage = SimpleNamespace(prompt_tokens=tin, completion_tokens=tout, total_tokens=tin + tout)
+    choice = SimpleNamespace(index=0, message=SimpleNamespace(role="assistant", content=text),
+                             finish_reason=finish)
+    return SimpleNamespace(id="", model=model, choices=[choice], usage=usage)
+
+
+def _chat_create(kwargs: Dict[str, Any]) -> SimpleNamespace:
+    system, user = _flatten(list(kwargs.get("messages") or []))
+    model = model_for("fast")
+    max_tokens = int(kwargs.get("max_tokens") or kwargs.get("max_completion_tokens") or 1024)
+    text, usage = _text_call(system, user, model=model, max_tokens=max_tokens)
+    _log_usage("chat_compat", model, usage)
+    return _to_openai_shape(text, model, usage.input_tokens, usage.output_tokens)
+
 
 class _Completions:
     def create(self, **kwargs) -> Any:
-        _governance_gate()
-        client = _bedrock_client()
-        kwargs = dict(kwargs)
-        kwargs["model"] = DEFAULT_MODEL
-        kwargs.pop("response_format", None)  # not guaranteed supported across models
-        response = client.chat.completions.create(**kwargs)
-        _log_usage("chat_compat", kwargs["model"], response.usage)
-        return response
+        return _chat_create(kwargs)
 
 
 class _AsyncCompletions:
     async def create(self, **kwargs) -> Any:
-        _governance_gate()
-        client = openai.AsyncOpenAI(api_key=_get_anthropic_api_key(), base_url=BEDROCK_BASE_URL)
-        kwargs = dict(kwargs)
-        kwargs["model"] = DEFAULT_MODEL
-        kwargs.pop("response_format", None)
-        response = await client.chat.completions.create(**kwargs)
-        _log_usage("chat_compat", kwargs["model"], response.usage)
-        return response
+        import asyncio
+        return await asyncio.to_thread(_chat_create, kwargs)
 
 
 class _WebSearchCompletions:
     def create(self, **kwargs) -> Any:
         _governance_gate()
-        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=BEDROCK_ANTHROPIC_BASE_URL)
         system, turns = _split_messages(kwargs.get("messages") or [])
         ck: Dict[str, Any] = dict(
-            model=WEB_SEARCH_MODEL,
+            model=os.getenv("LLM_MODEL_WEB_SEARCH") or model_for("fast"),
             max_tokens=kwargs.get("max_tokens") or kwargs.get("max_completion_tokens") or 16000,
             messages=turns,
             tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}],
         )
         if system:
             ck["system"] = system
-        response = client.messages.create(**ck)
+        response = _anthropic_client().messages.create(**ck)
         _log_usage("web_search_chat", ck["model"], response.usage)
-        return _to_openai_shape(response)
+        text = "\n".join(b.text for b in response.content if b.type == "text").strip()
+        return _to_openai_shape(
+            text, response.model, response.usage.input_tokens, response.usage.output_tokens,
+            "stop" if response.stop_reason == "end_turn" else response.stop_reason)
 
 
 def _split_messages(messages: List[Dict[str, Any]]):
-    """Extract system text; pass through user/assistant turns. Only used by
-    the Anthropic-route web-search shim above."""
+    """Extract system text; pass through user/assistant turns (web-search shim only)."""
     system_parts, turns = [], []
     for m in messages:
         if m.get("role") == "system":
@@ -247,21 +268,6 @@ def _split_messages(messages: List[Dict[str, Any]]):
     if not turns:
         turns = [{"role": "user", "content": system_parts.pop() if system_parts else ""}]
     return ("\n\n".join(p for p in system_parts if p) or None), turns
-
-
-def _to_openai_shape(response) -> SimpleNamespace:
-    text = "\n".join(b.text for b in response.content if b.type == "text").strip()
-    usage = SimpleNamespace(
-        prompt_tokens=response.usage.input_tokens,
-        completion_tokens=response.usage.output_tokens,
-        total_tokens=response.usage.input_tokens + response.usage.output_tokens,
-    )
-    message = SimpleNamespace(role="assistant", content=text)
-    choice = SimpleNamespace(index=0, message=message,
-                             finish_reason="stop" if response.stop_reason == "end_turn"
-                             else response.stop_reason)
-    return SimpleNamespace(id=response.id, model=response.model,
-                           choices=[choice], usage=usage)
 
 
 class ClaudeChatClient:
@@ -295,18 +301,8 @@ def async_claude_chat_client(*args, **kwargs) -> AsyncClaudeChatClient:
 
 
 # ======================================================================
-# Retired leads.openai_wrapper replacements (Bedrock-backed)
+# Retired leads.openai_wrapper replacements
 # ======================================================================
-
-# Qwen-only policy: both tiers resolve to the same model as ai_gateway.py and
-# bedrock_client.py. PREMIUM_MODEL/CHEAP_MODEL are kept as two names (used by
-# chat_completion_with_escalation's cheap-then-premium retry) but must never
-# default to a different provider.
-PREMIUM_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "qwen.qwen3-32b-v1:0")
-CHEAP_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
-# High-volume email classification default (name kept from the retired wrapper)
-ANTHROPIC_DEFAULT_MODEL = CHEAP_MODEL
-
 
 def chat_completion(messages: List[Dict[str, Any]], model: Optional[str] = None,
                     max_output_tokens: int = 1024,
@@ -314,30 +310,27 @@ def chat_completion(messages: List[Dict[str, Any]], model: Optional[str] = None,
                     source: str = "", endpoint: str = "",
                     **_ignored) -> Dict[str, Any]:
     """
-    Bedrock-backed replacement for the retired leads.openai_wrapper.chat_completion.
+    Replacement for the retired leads.openai_wrapper.chat_completion.
     Returns {"success", "content", "model", "provider", "escalated", "error"}.
     """
     try:
-        _governance_gate()
-        client = _bedrock_client()
         turns = list(messages)
         if response_format and response_format.get("type") in ("json_object", "json_schema") and turns:
             last = dict(turns[-1])
             last["content"] = str(last["content"]) + \
                 "\n\nReturn ONLY valid JSON. No preamble. No markdown."
             turns[-1] = last
-        use_model = model or CHEAP_MODEL
-        response = client.chat.completions.create(
-            model=use_model, max_tokens=max_output_tokens, messages=turns)
-        _log_usage(endpoint or "chat_completion", use_model, response.usage, caller=source)
-        text = (response.choices[0].message.content or "").strip()
+        use_model = model or model_for("fast")
+        system, user = _flatten(turns)
+        text, usage = _text_call(system, user, model=use_model, max_tokens=max_output_tokens)
+        _log_usage(endpoint or "chat_completion", use_model, usage, caller=source)
         return {"success": True, "content": _strip_markdown_json(text),
-                "model": use_model, "provider": "bedrock",
+                "model": use_model, "provider": "anthropic",
                 "escalated": False, "error": None}
     except Exception as e:
         logger.error(f"chat_completion failed: {e}")
         return {"success": False, "content": None, "model": None,
-                "provider": "bedrock", "escalated": False, "error": str(e)}
+                "provider": "anthropic", "escalated": False, "error": str(e)}
 
 
 def chat_completion_with_escalation(messages: List[Dict[str, Any]],
@@ -345,11 +338,11 @@ def chat_completion_with_escalation(messages: List[Dict[str, Any]],
                                     confidence_threshold: float = 0.7,
                                     **kw) -> Dict[str, Any]:
     """
-    Two-tier classification: cheap model first, escalate to premium when
+    Two-tier classification: fast model first, escalate to the smart model when
     the parsed confidence is below threshold. Replaces the retired
     leads.openai_wrapper.chat_completion_with_escalation.
     """
-    result = chat_completion(messages, model=CHEAP_MODEL, **kw)
+    result = chat_completion(messages, model=model_for("fast"), **kw)
     if not result["success"]:
         return result
     try:
@@ -357,7 +350,7 @@ def chat_completion_with_escalation(messages: List[Dict[str, Any]],
     except Exception:
         confidence = 0.0
     if confidence < confidence_threshold:
-        escalated = chat_completion(messages, model=PREMIUM_MODEL, **kw)
+        escalated = chat_completion(messages, model=model_for("smart"), **kw)
         if escalated["success"]:
             escalated["escalated"] = True
             return escalated
@@ -365,7 +358,7 @@ def chat_completion_with_escalation(messages: List[Dict[str, Any]],
 
 
 # ======================================================================
-# google.generativeai drop-in compatibility (Bedrock-backed)
+# google.generativeai shim: only routers/cold_outreach_router.py still uses it
 # ======================================================================
 
 class _GenerateContentResponse(SimpleNamespace):
@@ -376,7 +369,7 @@ class ClaudeGenerativeModel:
     """Drop-in for google.generativeai.GenerativeModel: .generate_content(prompt).text"""
 
     def __init__(self, model_name: str = "", *args, **kwargs):
-        self._model = DEFAULT_MODEL  # gemini-* model strings are ignored
+        self._model = model_for("fast")  # the passed model string is ignored
 
     def generate_content(self, prompt, *args, **kwargs) -> _GenerateContentResponse:
         if isinstance(prompt, (list, tuple)):

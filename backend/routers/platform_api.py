@@ -13,12 +13,13 @@ from app.security import require
 
 require_approve = require("approve")
 
+from platform_core import config_store, review_queue
+
 try:      # confirmed Zoho customer -> account alias applies to all that customer's invoices
     from backfill.zoho_link import apply_confirmed_alias
     review_queue.register_handler("zoho_alias", apply_confirmed_alias)
 except Exception:   # pragma: no cover
     pass
-from platform_core import config_store, qwen_gateway, review_queue
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
 
@@ -77,12 +78,3 @@ async def review_resolve(item_id: str, action: str, body: Dict[str, Any] = Body(
         raise HTTPException(400, str(e))
 
 
-# --------------------------------------------------------------- AI jobs
-@router.get("/ai/failed-jobs")
-async def ai_failed_jobs(limit: int = Query(100, le=500), user: str = Depends(verify_session)):
-    return {"jobs": qwen_gateway.failed_jobs(limit)}
-
-
-@router.post("/ai/failed-jobs/{job_id}/retry")
-async def ai_retry(job_id: str, user: str = Depends(verify_session)):
-    return qwen_gateway.retry_failed(job_id)

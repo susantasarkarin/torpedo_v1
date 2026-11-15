@@ -25,24 +25,14 @@ from pymongo.errors import AutoReconnect, NetworkTimeout, PyMongoError
 from bson import ObjectId
 
 
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
-
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-mongo_client = _get_pooled_client()
+# MongoDB handles come from the single entry point (db.py).
+from db import mail as _mail_db, legacy as _legacy_db, settings as _settings_db_fn
 
 # Email source collection - stores all incoming emails from Gmail
-torpedo_gmail_db = mongo_client["torpedo_gmail"]
+torpedo_gmail_db = _mail_db()
 mail_pool_emails = torpedo_gmail_db["email_metadata"]
 
 # HONEST NAMING: this layer is rule-based, not AI. Its per-email verdict is
@@ -69,22 +59,20 @@ def _segment_expr():
                         f"${LEGACY_RULE_STATUS_FIELD}.segment"]}
 
 # Email automation database - where classification results are stored
-email_automation_db = mongo_client["email_automation"]
+email_automation_db = _legacy_db()
 email_leads = email_automation_db["email_leads"]
 email_conversations = email_automation_db["email_conversations"]
 classified_emails = email_automation_db["classified_emails"]
 
-# Leads database
-try:
-    leads_db = mongo_client.get_database("leads")
-    leads_db.list_collection_names()
-except Exception:
-    leads_db = mongo_client.get_database("ai_enrichment")
+# Leads: the old code probed phantom databases "leads"/"ai_enrichment" (a missing
+# db lists as empty, never raises, so it always wrote to an empty "leads" db).
+# The real leads collection lives in email_automation (see database.get_leads_collection).
+leads_db = _legacy_db()
 leads_collection = leads_db["leads"]
 lead_extraction_logs = leads_db["lead_extraction_logs"]
 
 # Settings database (for internal domains lookup)
-settings_db = mongo_client["torpedo_settings"]
+settings_db = _settings_db_fn()
 
 
 # ============================================================

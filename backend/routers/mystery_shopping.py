@@ -4,13 +4,11 @@ from typing import Dict, Any
 from datetime import datetime, timezone
 from bson import ObjectId
 import os, io, csv
-from motor.motor_asyncio import AsyncIOMotorClient
+from db import by_name_async
 
 router = APIRouter(prefix="/api/mystery-shopping", tags=["Mystery Shopping"])
 
-_MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-_client = AsyncIOMotorClient(_MONGO_URI)
-_col = _client["operations_db"]["mystery_shopping_audits"]
+_col = by_name_async("operations_db")["mystery_shopping_audits"]
 
 
 def _serialize(doc):

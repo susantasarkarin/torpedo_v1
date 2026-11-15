@@ -1,13 +1,13 @@
 """
-AI GATEWAY - Single Entry Point for All AI Operations (AWS Bedrock Mantle)
-============================================================================
+AI GATEWAY - Single Entry Point for Task-Specific AI Operations (Anthropic API)
+================================================================================
 Task-specific LLM operations live here; generic generation and web search
-live in claude_gateway.py. AWS Bedrock Mantle (OpenAI-compatible, serverless,
-per-token billed) is the AI provider in this codebase.
+live in claude_gateway.py. The Anthropic Messages API is the provider.
 
-Qwen-only policy: uses qwen.qwen3-32b-v1:0 for high-volume classification /
-summarization / extraction tasks — the same model leads/bedrock_client.py
-uses for its "cheap" role. No other model should be substituted here.
+JSON tasks go through platform_core.ladder.escalate_json (Haiku, then Sonnet,
+budget and PII masking applied there); free-text calls use the ladder's
+Anthropic transport directly. No model id lives in this file: models come from
+the ladder config (env LLM_MODEL_FAST / LLM_MODEL_SMART override the defaults).
 
 Constraints (MANDATORY):
 - Hard limit: 50,000 requests per day (configurable safeguard)
@@ -27,11 +27,13 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from dotenv import load_dotenv
 
-import openai
-from pymongo import MongoClient
-
 # Load backend environment variables from the backend/.env file
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
+try:  # backend dir on sys.path (uvicorn main:app)
+    from db import settings as settings_db
+except ImportError:  # imported as backend.* from the repo root
+    from backend.db import settings as settings_db  # type: ignore
 
 from .governance_checks import (
     check_ai_daily_limit,
@@ -54,65 +56,28 @@ def _strip_markdown_json(text: str) -> str:
     return text.strip()
 
 
-# ============== CONFIGURATION ==============
-#
-# Primary provider is AWS Bedrock Mantle — a serverless, per-token-billed
-# OpenAI-compatible endpoint that fronts open-weight models (GLM, DeepSeek,
-# Kimi, etc). Billed through the AWS account already used for SES, no
-# separate prepaid wallet. Auth is a Bedrock API key (bearer token).
+# ============== CREDENTIALS / HANDLES ==============
 
-BEDROCK_BASE_URL = os.getenv("BEDROCK_MANTLE_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
-# Qwen-only policy: same model, same env var, as leads/bedrock_client.py's
-# "cheap" role — this module must never default to a different provider.
-# The default model for gateway calls. Named ANTHROPIC_MODEL historically; it
-# has held a BEDROCK model id for as long as it has had this value, and there
-# is no Anthropic model in the path. Renamed; the old name is kept as an alias
-# because other modules import it.
-DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
-ANTHROPIC_MODEL = DEFAULT_MODEL  # deprecated alias
-
-_mongo_client: Optional[MongoClient] = None
+def _get_mongo_client():
+    """The shared process-wide Mongo client, kept for legacy callers that index
+    `_get_mongo_client()["torpedo_settings"]`. New code: `from db import settings`."""
+    return settings_db().client
 
 
-def _get_mongo_client() -> MongoClient:
-    global _mongo_client
-    if _mongo_client is None:
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        _mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-    return _mongo_client
-
-
-def _get_bedrock_bearer_token() -> str:
-    """
-    Bearer token for the OpenAI-compatible Bedrock gateway endpoint.
-
-    Only used when AI_GATEWAY_USE_BEARER_TOKEN=true. The default path is boto3
-    Converse (see _call_llm), which authenticates with the standard AWS
-    credential chain and needs none of this.
-
-    NOTE the trap this function used to spring: its last fallback is
-    ANTHROPIC_API_KEY, so on a host with an Anthropic key but no Bedrock
-    bearer token it returned an `sk-ant-...` key and presented it to an AWS
-    endpoint, which answered 401 "Invalid bearer token". That is what broke
-    lead classification for months.
-    """
+def _get_anthropic_api_key() -> str:
+    """Anthropic API key: Settings (app_config.anthropic_api_key) first, then env
+    ANTHROPIC_API_KEY. Raises when neither is set."""
     try:
-        client = _get_mongo_client()
-        settings = client['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
-        if settings:
-            key = settings.get('bedrock_api_key', '') or settings.get('anthropic_api_key', '')
-            if key:
-                return key
+        cfg = settings_db()["app_settings"].find_one({"_id": "app_config"})
+        key = (cfg or {}).get("anthropic_api_key", "")
+        if key:
+            return key
     except Exception as e:
-        logger.warning(f"Could not read Bedrock key from MongoDB: {e}")
-    env_key = os.getenv("AWS_BEARER_TOKEN_BEDROCK", "") or os.getenv("ANTHROPIC_API_KEY", "")
+        logger.warning(f"Could not read Anthropic key from MongoDB: {e}")
+    env_key = os.getenv("ANTHROPIC_API_KEY", "")
     if env_key:
         return env_key
-    raise ValueError("No Bedrock API key configured — save it in Settings or set AWS_BEARER_TOKEN_BEDROCK env var")
-
-
-# Deprecated alias: the name says Anthropic, the value is a Bedrock token.
-_get_anthropic_api_key = _get_bedrock_bearer_token
+    raise ValueError("No Anthropic API key configured: save it in Settings or set ANTHROPIC_API_KEY")
 
 
 # ============== DATA CLASSES ==============
@@ -142,49 +107,27 @@ class LeadExtractionResult:
 
 # ============== AI GATEWAY ==============
 
+def _json_check(data: Any) -> List[str]:
+    return [] if isinstance(data, dict) else ["answer is not a JSON object"]
+
+
 class AIGateway:
     """
-    SINGLE ENTRY POINT for all LLM operations.
-    Backed by Anthropic Claude. Drop-in replacement for the old OpenAI/Gemini gateway.
+    SINGLE ENTRY POINT for task-specific LLM operations (Anthropic Claude).
     """
 
-    def __init__(self):
-        self._client: Optional[openai.OpenAI] = None
-
-    def _get_client(self) -> openai.OpenAI:
-        api_key = _get_bedrock_bearer_token()
-        self._client = openai.OpenAI(api_key=api_key, base_url=BEDROCK_BASE_URL)
-        return self._client
-
     def _call_llm(self, prompt: str, model: str = None, max_tokens: int = 1024,
-                  temperature: float = 0.3, role: str = "cheap") -> str:
+                  temperature: float = 0.3, role: str = "cheap",
+                  json_task: Optional[str] = None) -> str:
         """
-        Internal method — one governed model call. Enforces the daily limit.
+        Internal method: one governed model call. Enforces the daily limit.
 
-        Routed through leads.bedrock_client (boto3 `bedrock-runtime.Converse`),
-        which is the path that actually authenticates on this deployment and
-        the one the runbook designates as the only permitted Bedrock client.
+        json_task set  -> JSON task: ladder.escalate_json (Haiku -> Sonnet; role
+                          "smart" starts at Sonnet). Returns the JSON as text.
+        json_task None -> free text through the ladder's Anthropic transport.
 
-        WHY THIS CHANGED (2026-09-01)
-        -----------------------------
-        This used to build an `openai.OpenAI` client pointed at
-        BEDROCK_MANTLE_BASE_URL and authenticate with a bearer token resolved
-        from settings/env. On production that token resolution fell through to
-        ANTHROPIC_API_KEY — a genuine `sk-ant-...` Anthropic key — which was
-        then presented to an AWS endpoint. AWS rejected it:
-
-            401 invalid_api_key: "Invalid bearer token"
-
-        Every gateway call failed, which is why lead classification had been
-        writing classification_status="Failed" for months while mail
-        segregation (which uses leads.bedrock_client directly) worked fine.
-        The two paths were never the same "Bedrock".
-
-        Using boto3 needs no new secret: AWS_ACCESS_KEY_ID/SECRET are already
-        present and verified working against bedrock-runtime in ap-south-1.
-
-        The bearer-token path is kept below as an explicit opt-in for anyone
-        who does have a real AWS Bedrock API key (AWS_BEARER_TOKEN_BEDROCK).
+        `temperature` is accepted for compat; the transport uses the default.
+        An explicit `model` id overrides the tier choice for the text path.
         """
         if not check_ai_daily_limit():
             raise AIDailyLimitExceeded(
@@ -192,37 +135,27 @@ class AIGateway:
             )
         increment_ai_daily_usage()
 
-        if os.getenv("AI_GATEWAY_USE_BEARER_TOKEN", "false").lower() in ("1", "true", "yes"):
-            try:
-                client = self._get_client()
-                response = client.chat.completions.create(
-                    model=model or DEFAULT_MODEL,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return response.choices[0].message.content.strip()
-            except Exception as e:
-                logger.error(f"Bedrock (bearer-token path) failed: {e}. NO AUTOMATIC RETRY.")
-                raise
-
+        from .claude_gateway import _ladder
+        ladder = _ladder()
+        system = "You are a precise assistant. Follow the user's instructions exactly."
         try:
-            from leads.bedrock_client import converse
-        except ImportError:  # pragma: no cover
-            from backend.leads.bedrock_client import converse
-        try:
-            # The gateway's callers put everything in one prompt; Converse wants
-            # a system/user split, so the instruction goes in system and the
-            # payload in user.
-            return converse(
-                role,
-                "You are a precise assistant. Follow the user's instructions exactly.",
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            ).strip()
+            if json_task:
+                tiers = ["sonnet"] if role == "smart" else ["haiku", "sonnet"]
+                data, _tier, attempts = ladder.escalate_json(
+                    task=json_task, system=system, user=prompt, schema=None,
+                    check=_json_check, tiers=tiers, max_tokens=max_tokens)
+                if data is None:
+                    why = "; ".join(str(p) for a in attempts for p in (a.get("problems") or [a.get("error")] or []) if p)
+                    raise RuntimeError(f"no tier produced a valid JSON answer: {why[:200]}")
+                return json.dumps(data)
+            from .claude_gateway import model_for
+            chosen = model or model_for("smart" if role == "smart" else "fast")
+            text, _tin, _tout = ladder.anthropic_transport(
+                model=chosen, system=system, user=prompt, schema=None, max_tokens=max_tokens,
+                thinking={"type": "disabled"})
+            return text.strip()
         except Exception as e:
-            logger.error(f"Bedrock Converse call failed: {e}. NO AUTOMATIC RETRY.")
+            logger.error(f"LLM call failed: {e}. NO AUTOMATIC RETRY.")
             raise
 
     def complete(self, prompt: str, model: str = None, max_tokens: int = 1024,
@@ -249,7 +182,7 @@ class AIGateway:
         acquire_classification_lock(email_id, source)
         try:
             prompt = self._build_classification_prompt(subject, body, from_email)
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, json_task="email_classification")
             result = self._parse_classification_response(email_id, response_text)
             complete_classification(email_id, asdict(result))
             return result
@@ -278,7 +211,7 @@ Body: {body[:2000]}
 Return JSON only:
 {{"summary": "...", "key_points": ["...", "..."], "sentiment": "positive|neutral|negative"}}"""
         try:
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, json_task="mail_summary")
             parsed = json.loads(_strip_markdown_json(response_text))
             return {"email_id": email_id, "summary": parsed.get("summary", ""),
                     "key_points": parsed.get("key_points", []),
@@ -316,7 +249,7 @@ Return JSON only:
 
 If no leads found, return {{"leads": []}}"""
         try:
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, max_tokens=1500, json_task="lead_extraction")
             parsed = json.loads(_strip_markdown_json(response_text))
             return LeadExtractionResult(
                 email_id=email_id, leads=parsed.get("leads", []),
@@ -356,7 +289,7 @@ Rules for email_address:
 
 No preamble. No markdown. Only JSON."""
         try:
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, json_task="lead_enrichment")
             clean = _strip_markdown_json(response_text)
             return json.loads(clean)
         except Exception as e:
@@ -369,13 +302,10 @@ No preamble. No markdown. Only JSON."""
 
     def generate_email_draft(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
         try:
-            # Routed through _call_llm (bedrock_client.converse), same as every
-            # other method below — this used to build its own openai.OpenAI
-            # client pointed straight at BEDROCK_BASE_URL, which bypassed the
-            # local:/self-hosted provider seam entirely. role="smart" since this
-            # is human/client-facing content, matching mail_pool_ai's writer role.
+            # Client-facing content: role="smart" starts at Sonnet.
             raw = self._call_llm(f"{system_prompt}\n\n{user_prompt}",
-                                  max_tokens=600, temperature=0.7, role="smart")
+                                  max_tokens=600, temperature=0.7, role="smart",
+                                  json_task="outreach_draft")
             clean = _strip_markdown_json(raw)
             result = json.loads(clean)
             if "subject" in result and "body" in result:
@@ -405,7 +335,7 @@ Return JSON only:
 
 No preamble. No markdown."""
         try:
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, max_tokens=2000, json_task="sender_type")
             clean = _strip_markdown_json(response_text)
             return json.loads(clean).get("results", [])
         except Exception as e:
@@ -435,7 +365,7 @@ Return JSON only:
 
 No preamble. No markdown."""
         try:
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, json_task="reply_classification")
             clean = _strip_markdown_json(response_text)
             result = json.loads(clean)
             result.update({"email_id": email_id,
@@ -481,7 +411,7 @@ Return JSON only:
 
 No preamble. No markdown. Only JSON."""
         try:
-            response_text = self._call_llm(prompt, temperature=0.4)
+            response_text = self._call_llm(prompt, temperature=0.4, json_task="bu_routing")
             clean = _strip_markdown_json(response_text)
             result = json.loads(clean)
             result.update({"routed_at": datetime.utcnow().isoformat(), "success": True})
@@ -529,11 +459,10 @@ Return JSON only:
 
 No preamble. No markdown. Only JSON."""
         try:
-            # Same seam as generate_email_draft above — was a direct
-            # openai.OpenAI(base_url=BEDROCK_BASE_URL) client, now routed
-            # through _call_llm so it respects the local:/self-hosted chain.
+            # Client-facing content: role="smart" starts at Sonnet.
             raw = self._call_llm(f"{system_prompt}\n\n{user_prompt}",
-                                  max_tokens=600, temperature=0.7, role="smart")
+                                  max_tokens=600, temperature=0.7, role="smart",
+                                  json_task="outreach_draft")
             clean = _strip_markdown_json(raw)
             return json.loads(clean)
         except Exception as e:

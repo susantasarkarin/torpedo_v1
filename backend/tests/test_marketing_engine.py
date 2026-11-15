@@ -194,15 +194,14 @@ def test_outcomes_and_stop_loss(env, monkeypatch):
     assert d["email_automation"]["decision_outcomes"].count_documents({}) == 10
 
 
-def test_qwen_lane_tasks_registered_without_dropping_existing():
-    from platform_core import config_store
-    before = set(config_store.SECTIONS["qwen"]()["tasks"])
+def test_marketing_decision_tasks_registered_in_ladder_without_dropping_existing():
+    from platform_core import ladder
+    tasks = ladder.DEFAULTS["task_cfg"]                # the ladder is the only task registry now (no "qwen" section)
+    assert {"marketing_decision_p1", "marketing_decision_p2", "marketing_decision_p3"} <= set(tasks)
+    assert tasks["marketing_decision_p3"]["max_input_chars"] <= 2500
+    assert set(E.QWEN_TASK.values()) <= set(tasks)
+    mcfg.register_qwen_tasks()                         # legacy call from engine/content: must be a harmless no-op
     mcfg.register_qwen_tasks()
-    mcfg.register_qwen_tasks()                       # idempotent
-    tasks = config_store.SECTIONS["qwen"]()["tasks"]
-    assert before <= set(tasks) and {"marketing_decision_p1", "marketing_decision_p2", "marketing_decision_p3"} <= set(tasks)
-    assert tasks["marketing_decision_p1"]["priority"] == "P1" and tasks["marketing_decision_p3"]["max_input_chars"] <= 2500
-    assert set(E.QWEN_TASK.values()) == set(mcfg.QWEN_TASKS)
 
 
 def test_brief_fits_the_small_model_context():

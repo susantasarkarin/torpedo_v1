@@ -8,15 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from bson import ObjectId
 from datetime import datetime
-from pymongo import MongoClient
 import logging
-import os
-
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
 
 
 logger = logging.getLogger(__name__)
@@ -24,21 +16,17 @@ logger = logging.getLogger(__name__)
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
 # from per-router copies into backend/utils.py.
 from utils import serialize_doc, serialize_docs
+from db import legacy, finance
 
 router = APIRouter(prefix="/sales", tags=["Sales Accounts"])
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-client = _get_pooled_client()
+# MongoDB connection (db.py handles; shared client pair)
 # Sales accounts stored in email_automation database (same as leads, contacts)
-db = client["email_automation"]
+db = legacy()
 accounts_collection = db["sales_accounts"]
 
 # Joined-in modules for the account 360 view.
-finance_db = client["finance_db"]
+finance_db = finance()
 customers_collection = finance_db["customers"]
 invoices_collection = finance_db["invoices"]
 estimates_collection = finance_db["estimates"]

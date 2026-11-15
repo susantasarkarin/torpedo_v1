@@ -88,7 +88,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -732,15 +731,12 @@ def process_new_emails_pipeline(
 
 def get_agents_status() -> Dict[str, Any]:
     """Get status of both AI agents"""
-    gemini_status = get_gemini_status()
-    
     # Count summaries and categories
     total_summaries = ai_summaries_collection.count_documents({})
     total_categories = ai_categories_collection.count_documents({})
     total_categorized = email_leads_collection.count_documents({"ai_category_id": {"$exists": True, "$ne": None}})
     
     return {
-        "gemini_status": gemini_status,
         "agent1": {
             "name": "Email Summary & Contact Extraction",
             "total_summaries_generated": total_summaries,

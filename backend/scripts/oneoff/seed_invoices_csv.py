@@ -46,7 +46,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 
 # --- config -----------------------------------------------------------------
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 ROOT = os.path.dirname(HERE)
 load_dotenv(os.path.join(HERE, ".env"))
 

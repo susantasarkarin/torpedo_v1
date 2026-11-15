@@ -1,10 +1,11 @@
 """Escalation ladder for every AI task (owner, 2026-10-25).
 
-    rules (in the caller)  ->  Qwen 1.5B (local)  ->  Claude Haiku  ->  Claude Sonnet  ->  a person
+    rules (in the caller)  ->  Claude Haiku  ->  Claude Sonnet  ->  a person
 
-`run()` is a drop-in for qwen_gateway.run (same arguments, same result
-shape), so every caller that already tries its rules first and then calls the
-model gets the ladder by switching the import. A tier's answer is accepted
+(The local Qwen model, its Redis gate and the RunPod/DigitalOcean fallbacks were
+retired 2026-11-15; every AI task is cloud-only.) Callers that try their rules
+first and then call the model use `run()`; modules with their own prompt and
+their own check use `escalate_json()`. A tier's answer is accepted
 only if it is valid against the task's JSON schema AND passes the task's code
 checks (numbers found in the mail, countries named, allowed labels...). The
 model's own confidence is never trusted. When a tier fails, the next one is
@@ -31,7 +32,7 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from . import config_store, qwen_gateway, review_queue
+from . import config_store, review_queue
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,19 @@ DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "monthly_budget_usd": 30.0,
     "mask_pii": True,
-    # Owner 2026-10-26: the 1.5B local model is off every task. local_slm_client.chat_json
-    # callers (mail categorizer, RFQ detail, buckets, company fit, summaries...) go to
-    # Haiku -> Sonnet instead; set False to send them back to the local model.
-    "replace_local_model": True,
+    "max_input_chars": 6000,
+    "task_cfg": {                         # per task: input cap, and whether a person reviews every answer
+        "reply_classification": {"max_input_chars": 2500},
+        "mail_summary": {"max_input_chars": 2500},
+        "contact_classification": {"max_input_chars": 2000},
+        "sender_type": {"max_input_chars": 2500},
+        "lead_bucketing": {"max_input_chars": 2500},
+        "rfq_extraction": {"max_input_chars": 2500, "always_review": True},     # until >= 95% per field
+        "vendor_bid_parse": {"max_input_chars": 2500, "always_review": True},
+        "marketing_decision_p1": {"max_input_chars": 2500},
+        "marketing_decision_p2": {"max_input_chars": 2500},
+        "marketing_decision_p3": {"max_input_chars": 2500},
+    },
     "models": {
         "haiku": {"model": "claude-haiku-5-5", "usd_in_per_m": 0.10, "usd_out_per_m": 0.50,
                   "thinking": {"type": "disabled"}},
@@ -79,6 +89,72 @@ def cfg() -> Dict[str, Any]:
         return config_store.get("ladder")
     except Exception:
         return DEFAULTS
+
+
+# ---------------------------------------------------------------- input cleaning / parsing
+_QUOTE_SPLIT = re.compile(
+    r"\n(?:-{2,}\s*Original Message\s*-{2,}|_{5,}|From:\s.+\nSent:|On .{5,120}wrote:|"
+    r"Le .{5,120}a écrit|Am .{5,120}schrieb)", re.I)
+_SIG_SPLIT = re.compile(r"\n(?:--\s*\n|Regards,|Best regards,|Kind regards,|Thanks(?: and| &) regards,|Warm regards,|Sent from my )", re.I)
+_DISCLAIMER = re.compile(r"\n(?:DISCLAIMER|CONFIDENTIALITY NOTICE|This (?:e-?mail|communication|message) (?:and any|is) (?:confidential|intended)).*", re.I | re.S)
+_TRACKING = re.compile(r"<https?://[^>]+>|\[(?:image|cid)[^\]]*\]|https?://\S*(?:utm_|track|click|open)\S*", re.I)
+
+
+def strip_html(html_text: str) -> str:
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_text or "", "html.parser")
+        for t in soup(["script", "style", "img"]):
+            t.decompose()
+        return soup.get_text("\n")
+    except Exception:
+        return re.sub(r"<[^>]+>", " ", html_text or "")
+
+
+def clean_input(subject: str = "", body: str = "", body_is_html: bool = False,
+                attachments_text: Optional[List[Dict[str, str]]] = None, max_chars: int = 6000) -> str:
+    """Newest message only + subject + labelled attachment blocks, capped."""
+    text = strip_html(body) if body_is_html else (body or "")
+    text = _QUOTE_SPLIT.split(text)[0]
+    text = _DISCLAIMER.sub("", text)
+    text = _SIG_SPLIT.split(text)[0]
+    text = _TRACKING.sub("", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text).strip()
+    parts = [f"SUBJECT: {subject.strip()}" if subject else "", f"MESSAGE:\n{text}"]
+    budget = max_chars - sum(len(p) for p in parts)
+    for att in attachments_text or []:
+        if budget <= 200:
+            break
+        block = (att.get("text") or "")[: max(0, budget - 80)]
+        parts.append(f"ATTACHMENT ({att.get('name', 'file')}):\n{block}")
+        budget -= len(block) + 80
+    out = "\n\n".join(p for p in parts if p)
+    return out[:max_chars]
+
+
+def _parse_json(raw: str) -> Any:
+    s = re.sub(r"^```(?:json)?|```$", "", (raw or "").strip()).strip()
+    return json.loads(s)
+
+
+def _validate(data: Any, schema: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not schema:
+        return None
+    try:
+        import jsonschema
+        jsonschema.validate(data, schema)
+        return None
+    except Exception as e:
+        return str(e).split("\n")[0][:200]
+
+
+def _gov_db():
+    try:
+        from database import get_database
+    except ImportError:
+        from ..database import get_database
+    return get_database("ai_governance")
 
 
 # ---------------------------------------------------------------- masking
@@ -220,8 +296,8 @@ def _cloud_attempt(tier: str, *, task: str, system: str, clean: str, schema: Opt
     usd = tin / 1e6 * float(m["usd_in_per_m"]) + tout / 1e6 * float(m["usd_out_per_m"])
     _add_spend(db, usd, tier, task)
     try:
-        data = unmask(qwen_gateway._parse_json(raw), mapping)
-        problem = qwen_gateway._validate(data, schema)
+        data = unmask(_parse_json(raw), mapping)
+        problem = _validate(data, schema)
     except Exception as e:
         data, problem = None, f"invalid JSON: {str(e)[:120]}"
     problems = [problem] if problem else []
@@ -237,29 +313,27 @@ def _cloud_attempt(tier: str, *, task: str, system: str, clean: str, schema: Opt
 def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_html: bool = False,
         attachments_text=None, schema: Optional[Dict[str, Any]] = None, code_check=None,
         ref: Optional[Dict[str, Any]] = None, bu: Optional[str] = None, now: Optional[datetime] = None,
-        db=None, qwen_run: Callable[..., Dict[str, Any]] = None, cloud_transport=None,
+        db=None, cloud_transport=None,
         tiers: Optional[List[str]] = None, rules_result: Any = None, rules_complete: Optional[bool] = None,
         enqueue_on_fail: bool = True, **_ignored) -> Dict[str, Any]:
-    """Same contract as qwen_gateway.run; adds `tier` (who answered) and `attempts`.
+    """Result: {status ok|review|failed|skipped, data, problems, tier (who answered), attempts, review_item, job_id}.
+    status "skipped" = the ladder is switched off (config enabled=False): the caller
+    falls back to its rules / its own review item.
 
     rules_result: the caller's rules answer (the first rung). Accepted without
     any model when it is valid, complete (rules_complete, default True) and
     passes code_check -- same bar as a model answer."""
     c = cfg()
-    db = db if db is not None else qwen_gateway._gov_db()
-    qwen_run = qwen_run or qwen_gateway.run
+    db = db if db is not None else _gov_db()
     cloud_transport = cloud_transport or anthropic_transport
-    qcfg = config_store.get("qwen")
-    tcfg = (qcfg.get("tasks") or {}).get(task) or {}
-    ladder = list(tiers or (c.get("task_tiers") or {}).get(task) or c.get("default_tiers") or ["qwen"])
-    if not c.get("enabled", True):
-        ladder = [t for t in ladder if t == "qwen"] or ["qwen"]
-    clean = qwen_gateway.clean_input(subject, body, body_is_html, attachments_text,
-                                     int(tcfg.get("max_input_chars") or qcfg.get("max_input_chars") or 6000))
+    tcfg = (c.get("task_cfg") or {}).get(task) or {}
+    ladder = list(tiers or (c.get("task_tiers") or {}).get(task) or c.get("default_tiers") or ["haiku", "sonnet"])
+    clean = clean_input(subject, body, body_is_html, attachments_text,
+                        int(tcfg.get("max_input_chars") or c.get("max_input_chars") or 6000))
     attempts: List[Dict[str, Any]] = []
     best = None
     if rules_result is not None:
-        problem = qwen_gateway._validate(rules_result, schema)
+        problem = _validate(rules_result, schema)
         problems = [problem] if problem else []
         if not problem and code_check:
             problems += code_check(rules_result, clean) or []
@@ -268,23 +342,10 @@ def run(*, task: str, system: str, subject: str = "", body: str = "", body_is_ht
         attempts.append({"tier": "rules", "status": "ok" if not problems else "rejected", "problems": problems})
         if not problems:
             return _finish(task, rules_result, "rules", attempts, tcfg, ref, bu, clean, db, now)
+    if not c.get("enabled", True):
+        return {"status": "skipped", "data": None, "problems": ["ladder disabled"], "tier": None,
+                "attempts": attempts, "review_item": None, "job_id": None}
     for tier in ladder:
-        if tier == "qwen":
-            if task not in (qcfg.get("tasks") or {}):
-                continue
-            r = qwen_run(task=task, system=system, subject=subject, body=body, body_is_html=body_is_html,
-                         attachments_text=attachments_text, schema=schema, code_check=code_check, ref=ref, bu=bu,
-                         now=now, enqueue_review=False)
-            if r.get("status") == "deferred":
-                return {**r, "tier": "qwen", "attempts": attempts}          # night-only work: wait, don't buy it
-            passed = r.get("status") in ("ok", "review") and not (r.get("problems") or []) and r.get("data") is not None
-            attempts.append({"tier": "qwen", "status": "ok" if passed else (r.get("status") or "failed"),
-                             "problems": r.get("problems") or ([r["error"]] if r.get("error") else []), "job_id": r.get("job_id")})
-            if passed:
-                return _finish(task, r.get("data"), "qwen", attempts, tcfg, ref, bu, clean, db, now)
-            if r.get("data") is not None:
-                best = {"tier": "qwen", "data": r.get("data"), "problems": r.get("problems") or []}
-            continue
         if tier not in (c.get("models") or {}):
             continue
         if _UNAVAILABLE.get(tier, 0) > time.time():
@@ -339,30 +400,21 @@ def _log(db, task, ref, a, now):
 
 
 def escalate_json(*, task: str, system: str, user: str, schema: Optional[Dict[str, Any]],
-                  check: Callable[[Any], List[str]], local: Optional[Callable[[], Any]] = None,
+                  check: Callable[[Any], List[str]],
                   tiers: Optional[List[str]] = None, db=None, cloud_transport=None,
                   max_tokens: Optional[int] = None) -> Tuple[Any, Optional[str], List[Dict[str, Any]]]:
-    """For older modules that call the local model themselves (local_slm_client.chat_json)
-    and validate the answer with their own check. Tries `local()` first, then the
-    cloud rungs, each judged by `check(data) -> [problems]`. Returns
+    """For modules with their own prompt and their own check. Tries the cloud
+    rungs in order, each judged by `check(data) -> [problems]`. Returns
     (data or None, tier or None, attempts); never opens a review item -- the caller
-    keeps its own fallback (template, task, no proposal)."""
+    keeps its own fallback (template, task, no proposal). Ladder disabled
+    (config enabled=False) -> (None, None, [skipped])."""
     c = cfg()
-    db = db if db is not None else qwen_gateway._gov_db()
+    db = db if db is not None else _gov_db()
     cloud_transport = cloud_transport or anthropic_transport
     attempts: List[Dict[str, Any]] = []
-    if local is not None:
-        try:
-            data = local()
-            probs = check(data) or []
-        except Exception as e:
-            data, probs = None, [f"local model: {str(e)[:160]}"]
-        attempts.append({"tier": "qwen", "status": "ok" if not probs else "rejected", "problems": probs})
-        if not probs:
-            return data, "qwen", attempts
-    ladder = [t for t in (tiers or (c.get("task_tiers") or {}).get(task) or c.get("default_tiers") or []) if t != "qwen"]
     if not c.get("enabled", True):
-        ladder = []
+        return None, None, [{"tier": None, "status": "skipped", "problems": ["ladder disabled"]}]
+    ladder = list(tiers or (c.get("task_tiers") or {}).get(task) or c.get("default_tiers") or ["haiku", "sonnet"])
     for tier in ladder:
         if tier not in (c.get("models") or {}):
             continue
@@ -386,7 +438,7 @@ def escalate_json(*, task: str, system: str, user: str, schema: Optional[Dict[st
 def stats(db=None, days: int = 30) -> Dict[str, Any]:
     """Per task and tier: calls, accepted %, spend -- for the System Health dashboard."""
     from datetime import timedelta
-    db = db if db is not None else qwen_gateway._gov_db()
+    db = db if db is not None else _gov_db()
     since = datetime.utcnow() - timedelta(days=days)
     out: Dict[str, Any] = {}
     for r in db["ladder_jobs"].aggregate([

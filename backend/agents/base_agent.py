@@ -49,7 +49,7 @@ class BaseAgent(ABC, Generic[T]):
     
     Features:
     - Retry logic with exponential backoff
-    - Cost tracking via existing openai_wrapper
+    - Cost tracking via ai_governance (ai_governance_log)
     - JSON array response parsing
     - Pydantic output validation
     - Configurable via AgentConfig
@@ -68,30 +68,24 @@ class BaseAgent(ABC, Generic[T]):
             config: Agent-specific configuration dict
         """
         self.config = config or {}
-        self._openai_client: Optional[ClaudeChatClient] = None
-        self._mongo_client = None
-        self._db = None
+        self._llm_client: Optional[ClaudeChatClient] = None
 
     @property
     def client(self) -> ClaudeChatClient:
         """Default LLM client (Claude via the governed compat layer)."""
-        return self._get_openai_client()
+        return self._get_llm_client()
 
-    def _get_openai_client(self) -> ClaudeChatClient:
-        """Get the Claude-backed chat client (name kept for compat)."""
-        if self._openai_client is None:
+    def _get_llm_client(self) -> ClaudeChatClient:
+        """Get the Claude-backed chat client (governed compat layer)."""
+        if self._llm_client is None:
             # Key resolution happens inside ai_governance (DB settings, then env)
-            self._openai_client = ClaudeChatClient()
-        return self._openai_client
+            self._llm_client = ClaudeChatClient()
+        return self._llm_client
     
     def _get_db(self):
-        """Get MongoDB database connection."""
-        if self._db is None:
-            from pymongo import MongoClient
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            self._mongo_client = MongoClient(mongo_uri)
-            self._db = self._mongo_client['email_automation']
-        return self._db
+        """Get the shared legacy database handle (email_automation)."""
+        from db import legacy
+        return legacy()
     
     @abstractmethod
     def build_prompt(self, input_data: Any) -> str:
@@ -245,11 +239,11 @@ class BaseAgent(ABC, Generic[T]):
     def _call_with_web_search(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """
         Make a chat completion call with web search capability.
-        NOTE: web_search_preview is not available in standard OpenAI SDK.
+        NOTE: server-side web search is not wired into this compat path.
         Falls back to regular chat completion.
         """
         try:
-            openai_client = self._get_openai_client()
+            llm_client = self._get_llm_client()
             
             # Log that we're using fallback
             logger.warning("Web search not available in standard SDK. Using chat completion fallback.")
@@ -260,8 +254,8 @@ class BaseAgent(ABC, Generic[T]):
                 enhanced_messages[0]["content"] += "\n\nNote: Real-time web search is not available. Provide information based on your training data."
             
             # Use standard chat completion
-            response = openai_client.chat.completions.create(
-                model=WEB_SEARCH_MODEL,  # gpt-4o-mini
+            response = llm_client.chat.completions.create(
+                model=WEB_SEARCH_MODEL,
                 messages=enhanced_messages,
                 temperature=0.7
             )
@@ -284,7 +278,7 @@ class BaseAgent(ABC, Generic[T]):
             
         except Exception as e:
             logger.warning(f"Chat completion failed: {e}")
-            # Fallback to regular OpenAI completion
+            # Fallback to regular chat completion
             return self._call_chat_completion(messages)
     
     # USD per 1K tokens

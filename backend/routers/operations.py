@@ -66,17 +66,16 @@ router = APIRouter(prefix="/api/operations", tags=["Operations"])
 # ----------------------------
 # MongoDB Connection
 # ----------------------------
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
 client = _get_pooled_client()
 
 # Operations Database (email_automation - contains projects, clients)
-operations_db = client["email_automation"]
-projects_collection = operations_db["projects"]
-clients_collection = operations_db["clients"]
-vendors_collection = operations_db["vendors"]  # Panel vendors
+legacy_db = client["email_automation"]
+projects_collection = legacy_db["projects"]
+clients_collection = legacy_db["clients"]
+vendors_collection = legacy_db["vendors"]  # Panel vendors
 
 # Finance Database
 finance_db = client["finance_db"]
@@ -88,8 +87,8 @@ expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
 
-# Unified Accounts collection (in operations_db for now)
-accounts_collection = operations_db["accounts"]
+# Unified Accounts collection (in legacy_db for now)
+accounts_collection = legacy_db["accounts"]
 
 # Traffic Database
 traffic_db = client["traffic_flow_db"]
@@ -1441,7 +1440,7 @@ def get_unenriched_potential_clients(
 # see the same list rather than device-local localStorage.
 # ============================================================
 _ROSTER_DOC_ID = "potential_clients_roster"
-_app_settings_collection = operations_db["app_settings"]
+_app_settings_collection = legacy_db["app_settings"]
 
 
 @router.get("/potential-clients/roster")

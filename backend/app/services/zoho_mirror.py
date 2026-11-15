@@ -11,6 +11,8 @@ import os
 from datetime import datetime
 from typing import Any, Dict
 
+from db import finance
+
 logger = logging.getLogger(__name__)
 
 INVOICE_FIELDS = ("invoice_id", "invoice_number", "customer_id", "customer_name", "status", "date",
@@ -22,11 +24,6 @@ CONTACT_FIELDS = ("contact_id", "contact_name", "company_name", "contact_type", 
 PAYMENT_FIELDS = ("payment_id", "payment_number", "customer_id", "customer_name", "date", "amount",
                   "unused_amount", "currency_code", "reference_number", "payment_mode", "invoice_numbers",
                   "last_modified_time")
-
-
-def _client():
-    from pymongo import MongoClient
-    return MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
 
 
 def _mirror(col, rows, key, fields, now) -> int:
@@ -42,7 +39,7 @@ def run_mirror() -> Dict[str, Any]:
     from integrations import zoho_books as zb
     if not zb.configured():
         return {"skipped": "Zoho Books not connected", "missing": zb.missing_settings()}
-    fin = _client()["finance_db"]
+    fin = finance()
     now = datetime.utcnow()
     out = {
         "invoices": _mirror(fin["zoho_invoices"], zb.invoices(), "invoice_id", INVOICE_FIELDS, now),

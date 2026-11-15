@@ -12,24 +12,17 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from pymongo import MongoClient
 from pymongo import ReturnDocument
 
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import panel
 
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
-_client = _get_pooled_client()
-_db = _client["campaign_platform"]
+_db = panel()
 
 suppression_collection = _db["panel_email_suppression"]
 invitation_log_collection = _db["panel_invitation_log"]

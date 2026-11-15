@@ -35,7 +35,7 @@ from bson import ObjectId
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
-from pymongo import MongoClient
+from db import outreach as _outreach_db, legacy as _legacy_db, mail as _mail_db
 from pymongo import ReturnDocument as _ReturnDocument
 
 logger = logging.getLogger(__name__)
@@ -84,25 +84,18 @@ BUSINESS_BASKET = {v: k for k, v in BASKET_BUSINESS.items()}
 # â”€â”€ DB connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-    db_name = os.getenv("MONGO_DB_NAME") or "torpedo"
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-    return client[db_name]
+    return _outreach_db()
 
 
 def get_leads_db():
     """Return the email_automation database that holds leads_enriched."""
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-    return client["email_automation"]
+    return _legacy_db()
 
 
 def _get_gmail_db():
     """Return the torpedo_gmail database that holds workspace_mailboxes."""
     try:
-        uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        return client["torpedo_gmail"]
+        return _mail_db()
     except Exception:
         return None
 
@@ -438,8 +431,7 @@ def generate_step_email(campaign_id: str, step_number: int):
 
     Requires business_context to be saved on the campaign first (via the AI Context tab).
     """
-    from ai_governance.claude_gateway import ClaudeChatClient
-    from leads.openai_rotator import get_pipeline_rotator as _get_pipeline_rotator
+    from ai_governance.claude_gateway import chat_completion
 
     db = get_db()
     campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
@@ -452,13 +444,6 @@ def generate_step_email(campaign_id: str, step_number: int):
             400,
             "No business context saved yet — fill in the AI Context tab first so the AI knows what to write."
         )
-
-    # Pipeline rotator kept for per-pipeline quota accounting only
-    try:
-        _rotator = _get_pipeline_rotator("outreach")
-        key_index, _unused_key = _rotator.get_available_key()
-    except Exception:
-        _rotator, key_index = None, None
 
     # Step metadata
     day_labels = {1: "Day 1 (initial outreach)", 2: "Day 4 (first follow-up)",
@@ -530,19 +515,17 @@ Do not write a signature block — the system appends one automatically.
 """
 
     try:
-        _client = ClaudeChatClient()  # governed Claude client via ai_governance
-        _response = _client.chat.completions.create(
-            model="claude-opus-4-8",
-            messages=[
+        _result = chat_completion(
+            [
                 {"role": "system", "content": "You are a professional B2B cold email copywriter. Follow instructions precisely."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=600,
+            max_output_tokens=600, source="cold_outreach", endpoint="generate_step_email",
         )
-        raw = _response.choices[0].message.content.strip()
-        tokens_used = _response.usage.total_tokens if _response.usage else 0
-        if _rotator is not None:
-            _rotator.log_request(key_index, tokens_used, "email_generation", success=True)
+        if not _result.get("success"):
+            raise RuntimeError(_result.get("error") or "empty AI response")
+        raw = (_result.get("content") or "").strip()
+        tokens_used = int(_result.get("tokens_used") or 0)
     except Exception as e:
         logger.error(f"Claude generate_step_email failed: {e}")
         raise HTTPException(500, f"AI generation failed: {e}")
@@ -1707,16 +1690,9 @@ def _daily_limit_for(from_email: str) -> int:
     return limit
 
 
-_GMAIL_DB = None
-
-
 def _gmail_db_cached():
-    """One shared client for torpedo_gmail (the _get_gmail_db helper opens a new
-    client per call)."""
-    global _GMAIL_DB
-    if _GMAIL_DB is None:
-        _GMAIL_DB = _get_gmail_db()
-    return _GMAIL_DB
+    """torpedo_gmail handle from the shared pool (kept for existing callers)."""
+    return _get_gmail_db()
 
 
 def _mark_warmup_started(from_email: str) -> None:
@@ -2111,22 +2087,20 @@ Sender: {sender_name} ({campaign_ctx.get("sender_title", "")})
 Return JSON exactly: {{"subject": "...", "body": "..."}}"""
 
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
-    from leads.bedrock_client import JSONParseError, converse_json_object
+    from platform_core import ladder
 
     # Not a `with` block deliberately: ThreadPoolExecutor.__exit__ calls
     # shutdown(wait=True), which would block until the slow call finishes
     # anyway -- exactly what the timeout below is trying to avoid.
     # shutdown(wait=False) lets the in-flight thread finish/error on its own
     # in the background while we return immediately.
-    from leads.local_llm_gate import llm_priority
 
     def _generate():
-        # Set inside the worker thread: a context variable set by the caller
-        # does not cross into a pool thread, and an unlabelled call would
-        # queue as "interactive" ahead of RFQ and extraction work.
-        with llm_priority("bulk"):
-            return converse_json_object(role="smart", system=system, user=user,
-                                        max_tokens=700, temperature=0.7)
+        data, _tier, _att = ladder.escalate_json(
+            task="outreach_email", system=system, user=user,
+            schema=None, check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
+            max_tokens=700)
+        return data
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
@@ -2136,9 +2110,8 @@ Return JSON exactly: {{"subject": "...", "body": "..."}}"""
         logger.warning("[Outreach] AI generation exceeded %ss, falling back to template",
                        _AI_GENERATION_TIMEOUT_SECONDS)
         return "", ""
-    except JSONParseError as e:
-        # converse_json already retried once with a JSON reminder.
-        logger.warning("[Outreach] AI output was not parseable JSON: %s", e)
+    except Exception as e:
+        logger.warning("[Outreach] AI generation failed: %s", e)
         return "", ""
     finally:
         pool.shutdown(wait=False)
@@ -2202,8 +2175,7 @@ def _get_gmail_workspace_service():
     """Return a ready GmailWorkspaceService instance loaded from DB credentials."""
     from app.services.gmail_workspace_service import GmailWorkspaceService
 
-    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-    svc = GmailWorkspaceService(mongo_uri=mongo_uri, db_name="torpedo_gmail")
+    svc = GmailWorkspaceService(db_name="torpedo_gmail")
     svc.load_service_account()
     return svc
 

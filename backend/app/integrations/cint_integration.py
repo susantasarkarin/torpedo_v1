@@ -12,7 +12,6 @@ Orchestrates:
 import os
 import logging
 from typing import Optional, Dict, Any
-from pymongo import MongoClient
 from pymongo.collection import Collection
 
 from app.services.cint_service import CintService
@@ -31,7 +30,6 @@ class CintIntegration:
 
     def __init__(
         self,
-        mongo_uri: str,
         api_key: str,
         supplier_code: str,
         environment: str = "sandbox",
@@ -47,7 +45,6 @@ class CintIntegration:
             environment: "sandbox" or "production"
             webhook_secret: Secret for webhook signature validation
         """
-        self.mongo_uri = mongo_uri
         self.api_key = api_key
         self.supplier_code = supplier_code
         self.environment = environment
@@ -72,8 +69,8 @@ class CintIntegration:
             logger.info("Initializing Cint integration...")
             
             # Setup MongoDB collections
-            self.cint_collections = setup_cint_database(self.mongo_uri)
-            self.survey_collections = setup_survey_allocation_extensions(self.mongo_uri)
+            self.cint_collections = setup_cint_database()
+            self.survey_collections = setup_survey_allocation_extensions()
             
             # Initialize CintService
             self.cint_service = CintService(
@@ -135,7 +132,6 @@ class CintIntegration:
         Returns:
             Initialized CintIntegration instance
         """
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         api_key = os.getenv("CINT_API_KEY")
         supplier_code = os.getenv("CINT_SUPPLIER_CODE")
         environment = os.getenv("CINT_ENVIRONMENT", "sandbox")
@@ -148,7 +144,6 @@ class CintIntegration:
             )
         
         integration = CintIntegration(
-            mongo_uri=mongo_uri,
             api_key=api_key,
             supplier_code=supplier_code,
             environment=environment,

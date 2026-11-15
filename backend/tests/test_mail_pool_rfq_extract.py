@@ -8,8 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from leads import local_slm_client as slm
 from sales import mail_pool_rfq_extract as ex
+
+ESC = "platform_core.ladder.escalate_json"
+OUTAGE = (None, None, [{"status": "failed", "problems": ["down"]}])
+
+
+def _ok(answer):
+    return (answer, "haiku", [])
 
 
 def rfq_doc(**kw):
@@ -43,9 +49,9 @@ def test_classify_puts_the_email_last_so_the_fixed_prefix_can_be_cached():
 
     def fake(**kw):
         seen.update(kw)
-        return {"is_rfq": True}
+        return _ok({"is_rfq": True})
 
-    with patch.object(slm, "chat_json", side_effect=fake):
+    with patch(ESC, side_effect=fake):
         assert ex.classify_is_rfq("Sub X", "a@b.com", "body text") is True
     assert seen["max_tokens"] == ex.CLASSIFY_MAX_TOKENS
     assert seen["user"].index("Now the email to judge.") < seen["user"].index("Sub X")
@@ -55,26 +61,26 @@ def test_classify_puts_the_email_last_so_the_fixed_prefix_can_be_cached():
 @pytest.mark.parametrize("raw,expected", [
     ({"is_rfq": False}, False), ({"is_rfq": "yes"}, True), ({"is_rfq": "No"}, False)])
 def test_classify_coerces_verdict(raw, expected):
-    with patch.object(slm, "chat_json", return_value=raw):
+    with patch(ESC, return_value=_ok(raw)):
         assert ex.classify_is_rfq("s", "a@b.com", "b") is expected
 
 
 def test_classify_unusable_answer_raises_not_false():
-    with patch.object(slm, "chat_json", return_value={"answer": "maybe"}):
+    with patch(ESC, return_value=_ok({"answer": "maybe"})):
         with pytest.raises(ex.RFQModelError):
             ex.classify_is_rfq("s", "a@b.com", "b")
 
 
 def test_classify_transport_failure_raises():
-    with patch.object(slm, "chat_json", side_effect=slm.LocalSLMUnavailable("down")):
+    with patch(ESC, return_value=OUTAGE):
         with pytest.raises(ex.RFQModelError):
             ex.classify_is_rfq("s", "a@b.com", "b")
 
 
 def test_classify_only_sees_the_newest_message():
     seen = {}
-    with patch.object(slm, "chat_json",
-                      side_effect=lambda **kw: seen.update(kw) or {"is_rfq": False}):
+    with patch(ESC,
+                      side_effect=lambda **kw: _ok(seen.update(kw) or {"is_rfq": False})):
         ex.classify_is_rfq("s", "a@b.com", "Thanks!\n\nOn Mon, Jan 5 Bob wrote:\n> please quote 500 n")
     assert "please quote 500" not in seen["user"]
 
@@ -159,20 +165,20 @@ def test_phrase_not_in_email_is_dropped():
 
 def _model(classify, extract):
     def fake(**kw):
-        return classify if kw["max_tokens"] == ex.CLASSIFY_MAX_TOKENS else extract
+        return _ok(classify if kw["max_tokens"] == ex.CLASSIFY_MAX_TOKENS else extract)
     return fake
 
 
 def test_prefiltered_email_never_reaches_the_model():
-    with patch.object(slm, "chat_json", side_effect=AssertionError("model called")):
+    with patch(ESC, side_effect=AssertionError("model called")):
         r = ex.analyze_email(rfq_doc(subject="Delivery Status Notification (Failure)"))
     assert r.skipped_reason == "bounce_subject" and r.rfq is None
 
 
 def test_classified_not_rfq_stops_before_extraction():
     calls = []
-    with patch.object(slm, "chat_json",
-                      side_effect=lambda **kw: calls.append(kw["max_tokens"]) or {"is_rfq": False}):
+    with patch(ESC,
+                      side_effect=lambda **kw: _ok(calls.append(kw["max_tokens"]) or {"is_rfq": False})):
         r = ex.analyze_email(rfq_doc())
     assert r.is_rfq is False and r.rfq is None and calls == [ex.CLASSIFY_MAX_TOKENS]
 
@@ -182,7 +188,7 @@ def test_rfq_gets_code_made_ref_source_id_and_grounded_fields():
                "sample_size": 300, "country": "US", "loi": 15, "ir": 30,
                "methodology": "online survey", "budget": 9999, "currency": "USD",
                "target_audience": None, "deadline": None, "timeline": None}
-    with patch.object(slm, "chat_json", side_effect=_model({"is_rfq": True}, extract)):
+    with patch(ESC, side_effect=_model({"is_rfq": True}, extract)):
         r = ex.analyze_email(rfq_doc())
     rfq = r.rfq
     assert rfq["ref"] == "thr-t9" and rfq["source_email_id"] == "e1"
@@ -198,14 +204,14 @@ def test_ref_falls_back_to_email_id_without_a_thread():
 
 def test_second_mail_in_a_known_thread_makes_no_second_rfq_and_skips_extraction():
     calls = []
-    with patch.object(slm, "chat_json",
-                      side_effect=lambda **kw: calls.append(kw["max_tokens"]) or {"is_rfq": True}):
+    with patch(ESC,
+                      side_effect=lambda **kw: _ok(calls.append(kw["max_tokens"]) or {"is_rfq": True})):
         r = ex.analyze_email(rfq_doc(), known_refs=["thr-t9"])
     assert r.rfq is None and calls == [ex.CLASSIFY_MAX_TOKENS]
 
 
 def test_model_failure_raises_never_no_rfq():
-    with patch.object(slm, "chat_json", side_effect=slm.LocalSLMUnavailable("timeout")):
+    with patch(ESC, return_value=OUTAGE):
         with pytest.raises(ex.RFQModelError):
             ex.analyze_email(rfq_doc())
 
@@ -214,15 +220,12 @@ def test_model_failure_raises_never_no_rfq():
 
 def test_scan_chunk_returns_none_when_any_call_fails():
     docs = [rfq_doc(_id="a", gmail_thread_id="t1"), rfq_doc(_id="b", gmail_thread_id="t2")]
-    answers = iter([{"is_rfq": False}, slm.LocalSLMUnavailable("down")])
+    answers = iter([_ok({"is_rfq": False}), OUTAGE])
 
     def fake(**kw):
-        v = next(answers)
-        if isinstance(v, Exception):
-            raise v
-        return v
+        return next(answers)
 
-    with patch.object(slm, "chat_json", side_effect=fake):
+    with patch(ESC, side_effect=fake):
         assert ex.scan_chunk([], docs) is None
 
 
@@ -232,7 +235,7 @@ def test_scan_chunk_collects_rfqs_counts_and_respects_the_ledger():
             rfq_doc(_id="c", gmail_thread_id="t3"),
             rfq_doc(_id="d", gmail_thread_id="t4")]
     extract = {"title": "T", "summary": "S", "sample_size": 300, "country": "US"}
-    with patch.object(slm, "chat_json", side_effect=_model({"is_rfq": True}, extract)):
+    with patch(ESC, side_effect=_model({"is_rfq": True}, extract)):
         out = ex.scan_chunk([{"ref": "thr-t3"}], docs)
     assert [r["ref"] for r in out["new_rfqs"]] == ["thr-t2", "thr-t4"]
     assert out["rfq_updates"] == []
@@ -241,10 +244,10 @@ def test_scan_chunk_collects_rfqs_counts_and_respects_the_ledger():
 
 def test_both_stages_constrain_the_output_with_a_schema():
     seen = {}
-    with patch.object(slm, "chat_json",
-                      side_effect=lambda **kw: seen.__setitem__(kw["max_tokens"], kw.get("json_schema")) or (
+    with patch(ESC,
+                      side_effect=lambda **kw: _ok(seen.__setitem__(kw["max_tokens"], kw.get("schema")) or (
                           {"is_rfq": True} if kw["max_tokens"] == ex.CLASSIFY_MAX_TOKENS
-                          else {"title": "T"})):
+                          else {"title": "T"}))):
         ex.analyze_email(rfq_doc())
     assert seen == {ex.CLASSIFY_MAX_TOKENS: ex.CLASSIFY_SCHEMA, ex.EXTRACT_MAX_TOKENS: ex.EXTRACT_SCHEMA}
 
@@ -262,11 +265,11 @@ def test_chunk_runs_every_classification_before_any_extraction():
     def fake(**kw):
         stage = "classify" if kw["max_tokens"] == ex.CLASSIFY_MAX_TOKENS else "extract"
         order.append(stage)
-        return {"is_rfq": True} if stage == "classify" else {"title": "T"}
+        return _ok({"is_rfq": True} if stage == "classify" else {"title": "T"})
 
     docs = [rfq_doc(_id="a", gmail_thread_id="t1"), rfq_doc(_id="b", gmail_thread_id="t2"),
             rfq_doc(_id="c", gmail_thread_id="t3")]
-    with patch.object(slm, "chat_json", side_effect=fake):
+    with patch(ESC, side_effect=fake):
         results = ex.analyze_chunk(docs)
     assert order == ["classify"] * 3 + ["extract"] * 3
     assert [r.rfq["ref"] for r in results] == ["thr-t1", "thr-t2", "thr-t3"]
@@ -274,6 +277,6 @@ def test_chunk_runs_every_classification_before_any_extraction():
 
 def test_chunk_dedups_two_mails_of_the_same_thread():
     docs = [rfq_doc(_id="a", gmail_thread_id="t1"), rfq_doc(_id="b", gmail_thread_id="t1")]
-    with patch.object(slm, "chat_json", side_effect=_model({"is_rfq": True}, {"title": "T"})):
+    with patch(ESC, side_effect=_model({"is_rfq": True}, {"title": "T"})):
         results = ex.analyze_chunk(docs)
     assert results[0].rfq and results[1].rfq is None

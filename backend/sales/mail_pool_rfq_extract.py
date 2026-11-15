@@ -1,5 +1,5 @@
 """
-Two-stage RFQ detection + extraction for the local small model.
+Two-stage RFQ detection + extraction through the cloud escalation ladder.
 
 Why two stages: the 2026-09-20 real-data benchmark showed the old single
 "read a whole sender history and fill a 15-field template" prompt makes the
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from leads import local_slm_client as _slm
+from platform_core import ladder
 from sales import mail_prefilter
 
 logger = logging.getLogger(__name__)
@@ -157,11 +157,13 @@ def classify_is_rfq(subject: str, from_email: str, body: str) -> bool:
     user = (f"{_CLASSIFY_INSTRUCTIONS}Subject: {subject or '(none)'}\n"
             f"From: {from_email or 'unknown'}\nEmail: {top or '(empty)'}\nAnswer:")
     try:
-        parsed = _slm.chat_json(system=_CLASSIFY_SYSTEM, user=user,
-                                max_tokens=CLASSIFY_MAX_TOKENS, timeout=CLASSIFY_TIMEOUT_S,
-                                json_schema=CLASSIFY_SCHEMA, priority="rfq")
-    except _slm.LocalSLMError as e:
+        parsed, _tier, _att = ladder.escalate_json(
+            task="rfq_classify", system=_CLASSIFY_SYSTEM, user=user, schema=CLASSIFY_SCHEMA,
+            check=lambda d: [], max_tokens=CLASSIFY_MAX_TOKENS)
+    except Exception as e:
         raise RFQModelError(f"classify call failed: {e}") from e
+    if parsed is None:
+        raise RFQModelError("classify call failed: no cloud tier answered")
     verdict = _coerce_bool(parsed.get("is_rfq"))
     if verdict is None:
         raise RFQModelError(f"classify returned no usable is_rfq: {parsed!r}")
@@ -200,11 +202,14 @@ def extract_fields(subject: str, body: str) -> Dict[str, Any]:
     user = (f"{_EXTRACT_INSTRUCTIONS}Subject: {subject or '(none)'}\n"
             f"{(body or '')[:EXTRACT_BODY_CHARS]}")
     try:
-        return _slm.chat_json(system=_EXTRACT_SYSTEM, user=user,
-                              max_tokens=EXTRACT_MAX_TOKENS, timeout=EXTRACT_TIMEOUT_S,
-                              json_schema=EXTRACT_SCHEMA, priority="rfq")
-    except _slm.LocalSLMError as e:
+        data, _tier, _att = ladder.escalate_json(
+            task="rfq_extraction", system=_EXTRACT_SYSTEM, user=user, schema=EXTRACT_SCHEMA,
+            check=lambda d: [], max_tokens=EXTRACT_MAX_TOKENS)
+    except Exception as e:
         raise RFQModelError(f"extract call failed: {e}") from e
+    if data is None:
+        raise RFQModelError("extract call failed: no cloud tier answered")
+    return data
 
 
 # --------------------------------------------------------------------------

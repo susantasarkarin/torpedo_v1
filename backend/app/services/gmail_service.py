@@ -31,8 +31,8 @@ from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from pymongo import MongoClient
 from bson import ObjectId
+from db import by_name
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +160,9 @@ class GmailService:
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0
     
-    def __init__(self, mongo_uri: str, db_name: str = "torpedo_gmail"):
-        """Initialize Gmail service with MongoDB connection"""
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client[db_name]
+    def __init__(self, mongo_uri: Optional[str] = None, db_name: str = "torpedo_gmail"):
+        """Initialize Gmail service on the shared db.py handle (mongo_uri is ignored)."""
+        self.db = by_name(db_name)
         
         # Collections
         self.mailboxes = self.db["mailboxes"]

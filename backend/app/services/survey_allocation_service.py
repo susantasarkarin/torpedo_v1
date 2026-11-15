@@ -24,6 +24,7 @@ from app.services.cpx_service import CPXService
 load_dotenv()
 
 from database import get_client
+from db import by_name, cint, cpx, settings
 
 # Import models
 from app.models.survey_allocation import Respondent, RespondentCreate, RespondentStatus, RespondentUpdate, Survey, SurveyCreate, SurveyStatus, SurveyUpdate, SurveyMetrics, AllocationSettings, AllocationRequest, AllocationResponse, CallbackEvent, CallbackResponse
@@ -43,9 +44,9 @@ class SurveyAllocationService:
     
     def __init__(self, mongo_uri: str = None):
         """Initialize service with MongoDB connection"""
-        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        self.client = get_client()
-        self.db = self.client["survey_allocation"]
+        self.mongo_uri = mongo_uri  # unused: connection comes from db.py
+        self.client = get_client()  # shared pool; kept only because app/services/activation_service.py reads it
+        self.db = by_name("survey_allocation")
         
         # Collections
         self.respondents = self.db["respondents"]
@@ -55,11 +56,11 @@ class SurveyAllocationService:
         
         # CPX and CINT survey collections for click tracking
         # These are the source survey pools that need click_count updates
-        self.cpx_surveys = self.client["cpx_research"]["cpx_surveys"]
-        self.cint_surveys = self.client["cint_research"]["cint_surveys"]
+        self.cpx_surveys = cpx()["cpx_surveys"]
+        self.cint_surveys = cint()["cint_surveys"]
         
         # Settings collection (shared with main settings)
-        self.settings_db = self.client["torpedo_settings"]
+        self.settings_db = settings()
         self.settings_collection = self.settings_db["app_settings"]
         
         # Create indexes for performance and uniqueness
@@ -488,9 +489,7 @@ class SurveyAllocationService:
         is_testing = False
         if external_id and survey.get("provider", "").upper() == "CINT":
             try:
-                from pymongo import MongoClient
-                client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-                cint_doc = client["cint_research"]["cint_surveys"].find_one(
+                cint_doc = cint()["cint_surveys"].find_one(
                     {"survey_id": int(external_id) if str(external_id).isdigit() else external_id},
                     {"is_testing": 1}
                 )
@@ -1093,9 +1092,7 @@ class SurveyAllocationService:
                 deact_threshold = float((threshold_doc.get("global") or {}).get("inactive_conv_threshold", 0.05))
 
                 # Get Cint metrics for internal conversion
-                from pymongo import MongoClient
-                client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-                cint_metrics_col = client["cint_research"]["cint_metrics"]
+                cint_metrics_col = cint()["cint_metrics"]
                 cint_m = cint_metrics_col.find_one({"survey_id": survey_id})
 
                 if cint_m:
@@ -1135,12 +1132,8 @@ class SurveyAllocationService:
         Mirrors what the PATCH /surveys/{id}/yield-status endpoint does.
         """
         try:
-            from pymongo import MongoClient
-            import os
-
-            client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-            cint_metrics_col = client["cint_research"]["cint_metrics"]
-            cint_surveys_col = client["cint_research"]["cint_surveys"]
+            cint_metrics_col = cint()["cint_metrics"]
+            cint_surveys_col = cint()["cint_surveys"]
 
             now = datetime.utcnow()
 

@@ -10,15 +10,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 
 
 def setup_clay_indexes():
     """Create all MongoDB indexes for Clay collections"""
     
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        db = client['campaign_platform']
+        from db import panel
+        db = panel()
         
         # ============== SOURCES COLLECTION ==============
         sources = db['sources']
@@ -125,7 +124,6 @@ def setup_clay_indexes():
         
         print("\n✅ All Clay indexes created successfully!")
         
-        client.close()
         return True
     
     except Exception as e:

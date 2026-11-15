@@ -19,6 +19,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+from db import get_client
+
 logger = logging.getLogger(__name__)
 
 VERDICTS = ("positive", "negative", "needs_human", "auto_reply")
@@ -207,13 +209,17 @@ def _trust_model_positive() -> bool:
 
 
 def model_verdict(reply: str, subject: str = "") -> Optional[Dict[str, str]]:
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     user = f"SUBJECT: {subject[:150]}\n\nREPLY:\n{reply[:1200]}"
     try:
-        out = chat_json(system=_MODEL_SYSTEM, user=user, max_tokens=120,
-                        json_schema=_MODEL_SCHEMA, priority="rfq")  # a prospect's reply: sales tier
-    except LocalSLMError as e:
-        logger.warning("reply triage: local model unavailable: %s", e)
+        out, _tier, _att = ladder.escalate_json(
+            task="reply_classification", system=_MODEL_SYSTEM, user=user, schema=_MODEL_SCHEMA,
+            check=lambda d: [], max_tokens=120)
+    except Exception as e:
+        logger.warning("reply triage: ladder error: %s", e)
+        return None
+    if out is None:
+        logger.warning("reply triage: no cloud tier answered")
         return None
     verdict = out.get("verdict")
     if verdict not in ("positive", "negative", "needs_human"):
@@ -276,16 +282,8 @@ LEAD_STATUS_FOR_VERDICT = {
     "auto_reply": "Neutral",
 }
 
-_client = None
-
-
 def _mongo():
-    global _client
-    if _client is None:
-        from pymongo import MongoClient
-        uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-        _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-    return _client
+    return get_client()
 
 
 def _latest_reply(gmail_db, email: str) -> Optional[Dict[str, Any]]:

@@ -38,7 +38,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 from bson import ObjectId
-from pymongo import MongoClient
 
 
 def _get_pooled_client():
@@ -93,7 +92,6 @@ from leads.fit_signals import strongest_fit
 
 logger = logging.getLogger("bucket_classifier")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -558,84 +556,47 @@ def classify_lead(lead: Dict[str, Any],
 
 
 def _roles_share_a_model() -> bool:
-    """True when the escalation role resolves to the same model as the first
-    pass, making escalation a no-op. Resolved at call time, not import time, so
-    pointing the roles at different models via env re-enables escalation without
-    a code change."""
-    from leads.bedrock_client import model_for_role
-    try:
-        return model_for_role(CLASSIFIER_ROLE_FIRST_PASS) == model_for_role(
-            CLASSIFIER_ROLE_ESCALATION)
-    except Exception:
-        return False
-
-
-# Opt-in, off by default: routes ONLY the first-pass ("cheap") role to the
-# local Qwen2.5-0.5B instead of bedrock_client's cheap-role chain. Never
-# applies to the escalation ("smart") role -- that stays on bedrock_client
-# unconditionally, per standing instruction not to touch smart-role routing.
-# This is the one workload this session's live testing validated as reliable
-# on the local model (see docs/AI_VALIDATION_RESULTS.md); every other tested
-# shape failed. Enabled in production 2026-09-17 after mail-pool-ai and
-# lead-bucket-classification were both found silently failing every
-# scheduled run (Bedrock unavailable, no working cheap-role fallback) --
-# see docs/AI_MIGRATION_STATUS.md.
-USE_LOCAL_SLM_FOR_FIRST_PASS = os.getenv(
-    "BUCKET_CLASSIFIER_USE_LOCAL_SLM", "").strip().lower() in ("1", "true", "yes")
+    """False: on platform_core.ladder the first-pass role is Haiku and the
+    escalation role is Sonnet, so escalation is always a real second opinion."""
+    return False
 
 
 def _classify_with(role: str, prompt: str, lead_id: str
                    ) -> Tuple[str, float, str, Optional[str]]:
     """
-    One classification pass. Returns (bucket, confidence, reason, error).
-    `error` is None on success.
+    One classification pass through platform_core.ladder (Haiku for the
+    first-pass role, Sonnet for the escalation role). Returns
+    (bucket, confidence, reason, error); `error` is None on success. The ladder
+    only accepts an answer that passes `_contract_problems`, so a malformed
+    model response is retried on the next tier instead of being guessed at.
     """
-    if role == CLASSIFIER_ROLE_FIRST_PASS and USE_LOCAL_SLM_FOR_FIRST_PASS:
-        return _classify_with_local(prompt, lead_id)
-
-    from leads.bedrock_client import converse_json_object
-    from leads.local_llm_gate import llm_priority
-
+    from platform_core.ladder import escalate_json
+    tiers = ["sonnet"] if role == CLASSIFIER_ROLE_ESCALATION else ["haiku"]
     try:
-        with llm_priority("bulk"):
-            data = converse_json_object(
-                role=role,
-                system=SYSTEM_PROMPT,
-                user=prompt,
-                max_tokens=CLASSIFIER_MAX_TOKENS,
-                temperature=CLASSIFIER_TEMPERATURE,
-            )
+        data, _tier, attempts = escalate_json(
+            task="lead_bucket", system=SYSTEM_PROMPT, user=prompt, schema=None,
+            check=_contract_problems, tiers=tiers, max_tokens=CLASSIFIER_MAX_TOKENS)
     except Exception as e:
-        logger.warning("lead=%s %s classification call failed: %s",
-                       lead_id, role, e)
+        logger.warning("lead=%s %s classification call failed: %s", lead_id, role, e)
         return REVIEW_BUCKET, 0.0, "", f"model call failed: {e}"
-
+    if data is None:
+        problems = "; ".join(str(p) for a in attempts for p in (a.get("problems") or []))[:300]
+        logger.warning("lead=%s %s classification gave no valid answer: %s", lead_id, role, problems)
+        return REVIEW_BUCKET, 0.0, "", f"model call failed: {problems or 'no answer'}"
     bucket, confidence, reason = validate_result(data)
     return bucket, confidence, reason, None
 
 
-def _classify_with_local(prompt: str, lead_id: str
-                         ) -> Tuple[str, float, str, Optional[str]]:
-    """
-    First-pass classification via the local Qwen2.5-0.5B server, gated by
-    local_llm_gate (through local_slm_client.chat_json). Reuses the exact
-    same SYSTEM_PROMPT/prompt and validate_result() as the Bedrock path, so
-    behavior on a malformed/unexpected response is identical regardless of
-    provider -- only the transport differs.
-    """
-    from leads import local_slm_client as slm
+_CONTRACT_REASONS = ("model response was not", "missing 'bucket'", "unknown bucket",
+                     "confidence was not", "confidence ")
 
-    try:
-        data = slm.chat_json(
-            system=SYSTEM_PROMPT, user=prompt, max_tokens=CLASSIFIER_MAX_TOKENS,
-            priority="bulk")
-    except slm.LocalSLMError as e:
-        logger.warning("lead=%s local SLM classification call failed: %s",
-                       lead_id, e)
-        return REVIEW_BUCKET, 0.0, "", f"local model call failed: {e}"
 
+def _contract_problems(data: Any) -> List[str]:
+    """Ladder check: the exact contract validate_result() enforces."""
     bucket, confidence, reason = validate_result(data)
-    return bucket, confidence, reason, None
+    if bucket == REVIEW_BUCKET and confidence == 0.0 and reason.startswith(_CONTRACT_REASONS):
+        return [reason]
+    return []
 
 
 # ============================================================

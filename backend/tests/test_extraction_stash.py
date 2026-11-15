@@ -124,12 +124,16 @@ def ingestion(monkeypatch):
     sys.modules.pop("leads.ingestion", None)
 
 
+# What platform_core.ladder.escalate_json returns when no cloud tier answered.
+OUTAGE = (None, None, [{"status": "failed", "problems": ["down"]}])
+
+
 def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
 def test_model_outage_returns_nothing_not_regex_junk(ingestion):
-    with patch("leads.bedrock_client.converse_json_object", side_effect=RuntimeError("401 Unauthorized")), \
+    with patch("platform_core.ladder.escalate_json", return_value=OUTAGE), \
          patch.object(ingestion, "stash_unextracted_results") as stash_mock:
         out = _run(ingestion.extract_leads_from_google_results(RESULTS, "b2b saas", start=11))
     assert out == []
@@ -141,7 +145,7 @@ def test_model_outage_returns_nothing_not_regex_junk(ingestion):
 
 def test_model_answering_with_nothing_still_uses_regex_path(ingestion):
     """Only an outage fails closed; a model that answered keeps the old behaviour."""
-    with patch("leads.bedrock_client.converse_json_object", return_value={"leads": []}), \
+    with patch("platform_core.ladder.escalate_json", return_value=({"leads": []}, "haiku", [])), \
          patch.object(ingestion, "stash_unextracted_results") as stash_mock:
         _run(ingestion.extract_leads_from_google_results(RESULTS, "b2b saas"))
     stash_mock.assert_not_called()
@@ -154,7 +158,7 @@ def test_outage_does_not_cache_or_mark_the_query_done(ingestion):
          patch.object(ingestion, "perform_google_search", return_value=RESULTS), \
          patch.object(ingestion, "cache_response") as cache_mock, \
          patch.object(ingestion, "stash_unextracted_results"), \
-         patch("leads.bedrock_client.converse_json_object", side_effect=RuntimeError("outage")):
+         patch("platform_core.ladder.escalate_json", return_value=OUTAGE):
         out = _run(ingestion.search_linkedin_leads("b2b saas", num_results=10))
     assert out == []
     cache_mock.assert_not_called()

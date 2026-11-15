@@ -34,7 +34,6 @@ def _get_pooled_client():
 
 load_dotenv()
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -63,6 +62,12 @@ Location: {location}
 Additional Context: {context}
 
 Return JSON: {{"queries": ["query1", "query2", ...]}}"""
+
+_SEARCH_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {"queries": {"type": "array", "items": {"type": "string"}}},
+    "required": ["queries"],
+}
 
 
 def generate_search_plan_hash(persona: str, industry: str, location: str) -> str:
@@ -133,13 +138,13 @@ def generate_search_plan(
             print(f"[QueryGen] Using cached plan ({len(cached)} queries)")
             return cached
     
-    # Qwen-only path via bedrock_client (single source of truth)
+    # Cloud ladder (platform_core/ladder.py); no cloud answer -> template fallback
     try:
         import os
         if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
             return _generate_fallback_queries(persona, industry, location, count)
 
-        from leads.bedrock_client import converse_string_list, BedrockError, JSONParseError
+        from platform_core import ladder
 
         user_prompt = SEARCH_PLAN_USER_PROMPT.format(
             count=count,
@@ -149,17 +154,18 @@ def generate_search_plan(
             context=context or "Focus on decision-makers"
         )
 
-        raw = converse_string_list(
-            role="cheap",
+        data, _tier, _attempts = ladder.escalate_json(
+            task="query_refinement",
             system=SEARCH_PLAN_SYSTEM_PROMPT,
             user=user_prompt,
-            key="queries",
+            schema=_SEARCH_PLAN_SCHEMA,
+            check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
             max_tokens=500,
-            temperature=0.7,
         )
+        raw = data.get("queries") if isinstance(data, dict) else None
 
         if not raw:
-            print("[QueryGen] Qwen returned no usable queries, using fallback")
+            print("[QueryGen] No cloud model returned usable queries, using fallback")
             return _generate_fallback_queries(persona, industry, location, count)
 
         queries = [q for q in raw if isinstance(q, str) and q.strip()][:count]
@@ -167,12 +173,9 @@ def generate_search_plan(
             return _generate_fallback_queries(persona, industry, location, count)
 
         cache_search_plan(persona, industry, location, queries)
-        print(f"[QueryGen] Generated {len(queries)} smart queries via Qwen")
+        print(f"[QueryGen] Generated {len(queries)} smart queries via ladder ({_tier})")
         return queries
 
-    except (BedrockError, JSONParseError) as e:
-        print(f"[QueryGen] Qwen call failed: {e}, using fallback")
-        return _generate_fallback_queries(persona, industry, location, count)
     except Exception as e:
         print(f"[QueryGen] Error: {e}, using fallback")
         return _generate_fallback_queries(persona, industry, location, count)

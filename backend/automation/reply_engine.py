@@ -7,6 +7,7 @@ Classifies inbound replies and automates sequence decisions.
 import json
 import logging
 import hashlib
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from bson import ObjectId
@@ -29,13 +30,12 @@ class ReplyIntelligenceEngine:
         "spam_risk",
     }
 
-    def __init__(self, db: Database, openai_wrapper=None, decision_logger=None):
+    def __init__(self, db: Database, decision_logger=None):
         self.db = db
         self.reply_decisions = db["reply_decisions"]
         self.campaign_recipients = db["campaign_recipients"]
         self.leads_enriched = db["leads_enriched"]
         self.leads = db["leads"]
-        self.openai_wrapper = openai_wrapper
         self.decision_logger = decision_logger
         self._setup_indexes()
 
@@ -60,15 +60,15 @@ class ReplyIntelligenceEngine:
                 error="Empty reply_text"
             )
 
-        if not self.openai_wrapper:
+        if os.getenv("DISABLE_AI_CALLS", "").lower() in ("1", "true", "yes"):
             return self._build_fallback_result(
                 lead_id,
                 campaign_id,
                 "neutral_response",
                 0.0,
-                "OpenAI wrapper not configured",
+                "AI calls disabled",
                 requires_manual_review=True,
-                error="OpenAI wrapper not configured"
+                error="DISABLE_AI_CALLS"
             )
 
         prompt = (
@@ -79,44 +79,36 @@ class ReplyIntelligenceEngine:
             f"\n\nReply:\n{reply_text}"
         )
 
-        response = self.openai_wrapper.chat_completion(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You classify inbound B2B replies for outreach automation. Respond only with JSON."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            source="api",
-            endpoint="reply_classification",
-            model="gpt-4o-mini",
-            max_output_tokens=200,
-            temperature=0.2,
-            response_format={"type": "json_object"}
+        from platform_core.ladder import escalate_json
+        schema = {
+            "type": "object",
+            "properties": {
+                "classification": {"type": "string", "enum": sorted(self.ALLOWED_CLASSIFICATIONS)},
+                "confidence_score": {"type": "number"},
+                "reasoning": {"type": "string"},
+            },
+            "required": ["classification", "confidence_score", "reasoning"],
+        }
+        data, _tier, attempts = escalate_json(
+            task="reply_classification",
+            system="You classify inbound B2B replies for outreach automation. Respond only with JSON.",
+            user=prompt,
+            schema=schema,
+            check=lambda d: [] if d.get("classification") in self.ALLOWED_CLASSIFICATIONS
+            else [f"bad label {d.get('classification')!r}"],
+            max_tokens=200,
         )
 
-        if not response.get("success"):
+        if data is None:
+            problems = [p for a in attempts for p in (a.get("problems") or [])][:3]
             return self._build_fallback_result(
                 lead_id,
                 campaign_id,
                 "neutral_response",
                 0.0,
-                "OpenAI classification failed",
+                "AI classification failed",
                 requires_manual_review=True,
-                error=response.get("error")
-            )
-
-        try:
-            data = json.loads(response.get("content", "{}"))
-        except json.JSONDecodeError as exc:
-            return self._build_fallback_result(
-                lead_id,
-                campaign_id,
-                "neutral_response",
-                0.0,
-                "Invalid JSON from model",
-                requires_manual_review=True,
-                error=str(exc)
+                error="; ".join(str(p) for p in problems)
             )
 
         classification = str(data.get("classification", "neutral_response")).strip()

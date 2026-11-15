@@ -55,16 +55,17 @@ def test_sign_off_trimmed():
 
 
 def test_falls_back_to_the_template_when_the_model_is_down():
-    from leads import local_slm_client
-    with patch.object(local_slm_client, "chat_json", side_effect=local_slm_client.LocalSLMUnavailable("down")):
+    from platform_core import ladder
+    outage = (None, None, [{"status": "failed", "problems": ["down"]}])
+    with patch.object(ladder, "escalate_json", return_value=outage):
         out = re_.write_check_in("quote_no_reply", {"first": "Keya", "company": "Hansa", "what": "Iceland B2B"})
     assert out["source"] == "template" and out["subject"] == "Re: Iceland B2B" and "Hi Keya" in out["body"]
 
 
 def test_model_text_used_when_it_passes():
-    from leads import local_slm_client
+    from platform_core import ladder
     body = "Hi Keya, " + "we wanted to see if the quote for Iceland B2B works for you and whether anything should change. " * 2
-    with patch.object(local_slm_client, "chat_json", return_value={"subject": "Quote", "body": body + "\nBest,\nSusanta"}):
+    with patch.object(ladder, "escalate_json", return_value=({"subject": "Quote", "body": body + "\nBest,\nSusanta"}, "haiku", [])):
         out = re_.write_check_in("quote_no_reply", {"first": "Keya", "company": "Hansa", "what": "Iceland B2B"})
     assert out["source"] == "ai" and out["subject"] == "Re: Iceland B2B" and not out["body"].endswith("Susanta")
 
@@ -85,9 +86,9 @@ def test_reply_subject_keeps_the_thread():
 
 
 def test_model_subject_never_leaks_our_labels():
-    from leads import local_slm_client
+    from platform_core import ladder
     body = "Hi Lucy, " + "picking up where we left off on fieldwork support in APAC, would a short call help? " * 2
-    with patch.object(local_slm_client, "chat_json", return_value={"subject": "Positive response from Lucy", "body": body}):
+    with patch.object(ladder, "escalate_json", return_value=({"subject": "Positive response from Lucy", "body": body}, "haiku", [])):
         out = re_.write_check_in("positive_quiet", {"first": "Lucy", "what": "RE: fieldwork support"})
     assert out["subject"] == "Re: fieldwork support"
 
@@ -106,8 +107,9 @@ def test_our_rfq_codes_and_domains_stay_out_of_the_letter():
 
 
 def test_quote_draft_keeps_the_threads_subject():
-    from leads import local_slm_client
-    with patch.object(local_slm_client, "chat_json", side_effect=local_slm_client.LocalSLMUnavailable("down")):
+    from platform_core import ladder
+    outage = (None, None, [{"status": "failed", "problems": ["down"]}])
+    with patch.object(ladder, "escalate_json", return_value=outage):
         out = re_.write_check_in("quote_no_reply", {"first": "Ramiz", "what": "RFQ_Fitted Homes Study_HRG_SFW",
                                                     "thread_subject": "RE: Fitted Homes - costs"})
     assert out["subject"] == "Re: Fitted Homes - costs" and "Fitted Homes Study" in out["body"]

@@ -68,7 +68,6 @@ load_dotenv()
 
 # ============== CONFIGURATION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -238,74 +237,6 @@ async def search_linkedin_leads_openai(
         "ChatGPT is only for parsing/enrichment, not new lead generation."
     )
     return []  # Return empty - do not generate leads from ChatGPT
-    api_key = get_openai_api_key()
-    if not api_key:
-        logger.error("OpenAI API key not configured")
-        return []
-    
-    try:
-        # from openai import OpenAI  # DISABLED — OpenAI removed
-        # client_ai = OpenAI(api_key=api_key)  # DISABLED
-        raise RuntimeError("OpenAI disabled — web search lead generation now uses Google CSE")
-        
-        search_prompt = f"""Search the web for LinkedIn profiles matching this criteria:
-{query}
-
-Find real people on LinkedIn who match these roles/criteria.
-Focus on LinkedIn profile pages (linkedin.com/in/).
-
-Return a JSON object with "leads" array containing up to {num_results} people with:
-- name (full name)
-- title (job title)
-- linkedin_url (their LinkedIn profile URL - must be a real linkedin.com/in/ URL)
-- company_name (current company)
-- location (city/country if known)
-- seniority_level (Entry/Mid/Senior/Director/VP/C-Level)
-- department (Sales/Marketing/Engineering/etc)
-- snippet (brief description from their profile)
-
-Only include REAL people with valid LinkedIn URLs. Do not make up information.
-Return JSON format: {{"leads": [...]}}"""
-
-        # Use chat.completions API (web_search_preview is not available in standard SDK)
-        # This is a fallback - Google CSE should be the primary search method
-        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
-        
-        response = client_ai.chat.completions.create(
-            model="claude-opus-4-8",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that provides information about professionals based on your training data. Note: You cannot perform real-time web searches."},
-                {"role": "user", "content": search_prompt}
-            ],
-            temperature=0.7
-        )
-        
-        # Extract content from response
-        content = ""
-        if response.choices and len(response.choices) > 0:
-            content = response.choices[0].message.content or ""
-        
-        if not content:
-            logger.warning(f"OpenAI web search returned no content for: {query}")
-            return []
-        
-        # Parse the response
-        leads = parse_openai_linkedin_response(content, num_results)
-        
-        # Add source marker
-        for lead in leads:
-            lead["source"] = "openai_search"
-        
-        # Deduplication
-        if deduplicate and leads:
-            unique_leads, duplicates = check_duplicates_batch(leads)
-            return unique_leads
-        
-        return leads
-        
-    except Exception as e:
-        logger.error(f"OpenAI web search error: {e}")
-        return []
 
 
 async def search_linkedin_leads(
@@ -408,12 +339,9 @@ def normalize_lead_data(item: dict) -> dict:
 
 async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
     """
-    Extract structured leads from Google CSE results using Claude on AWS
-    Bedrock, routed through the governed gateway (daily spend cap + cost
-    logging), with regex fallback.
-
-    Previously called anthropic.Anthropic() directly with no base_url, which
-    went to Anthropic's public API and bypassed both Bedrock and governance.
+    Extract structured leads from Google CSE results using Claude, routed
+    through the governed gateway (daily spend cap + cost logging), with regex
+    fallback. The model is chosen by the gateway; none is named here.
     """
     search_context = []
     for item in search_results:
@@ -446,18 +374,25 @@ Only include real people with a valid linkedin.com/in/ URL. Exclude company page
 Return only valid JSON. No markdown fences."""
 
     try:
-        from .bedrock_client import converse_json_object
+        from platform_core import ladder
+
+        def _has_leads_list(d):
+            return [] if isinstance(d, dict) and isinstance(d.get("leads"), list) else ["no leads list"]
 
         # Blocking model call: off the event loop (see leads/ingestion.py).
-        data = await asyncio.to_thread(
-            converse_json_object,
-            role="cheap",
+        data, _tier, _attempts = await asyncio.to_thread(
+            ladder.escalate_json,
+            task="linkedin_lead_extraction",
             system="You extract structured lead data. You return only valid JSON.",
             user=extraction_prompt,
+            schema=None,
+            check=_has_leads_list,
             max_tokens=2048,
-            temperature=0.0,
         )
-        parsed_leads = (data or {}).get("leads", [])
+        if data is None:
+            # No cloud tier answered -- take the fail-closed path below.
+            raise RuntimeError("no cloud tier answered lead extraction")
+        parsed_leads = data.get("leads", [])
         if not isinstance(parsed_leads, list):
             parsed_leads = []
 
@@ -733,7 +668,6 @@ CRITICAL:
 
     try:
         response = client_ai.chat.completions.create(
-            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "You find market research, consumer insights, and analytics professionals on LinkedIn. ONLY include people with insights/research/analytics roles - NO CEOs, CTOs, or generic executives. Never fabricate LinkedIn URLs - real URLs have random alphanumeric suffixes. Return valid JSON arrays only."},
                 {"role": "user", "content": search_prompt}
@@ -858,7 +792,6 @@ CRITICAL: Only include REAL companies with verified information. Use empty strin
 
     try:
         response = client_ai.chat.completions.create(
-            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": f"You are a B2B market researcher identifying top companies in {industry} in {region_name}. Only return real, verifiable companies. Return valid JSON arrays."},
                 {"role": "user", "content": search_prompt}
@@ -1011,7 +944,6 @@ CRITICAL:
 
     try:
         response = client_ai.chat.completions.create(
-            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": f"You find decision makers at {company_name} who purchase research/insights services. Only return real LinkedIn profiles with verified URLs. Real LinkedIn URLs have random alphanumeric suffixes. Return valid JSON arrays."},
                 {"role": "user", "content": search_prompt}

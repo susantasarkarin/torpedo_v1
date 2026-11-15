@@ -118,11 +118,10 @@ _CINT_BUYER_STATS_CACHE_TTL = 300  # refresh every 5 minutes
 def _refresh_cint_metrics_cache():
     """Bulk-read cint_metrics (+ join cint_surveys for enrichment) into memory."""
     global _cint_metrics_cache, _cint_metrics_cache_ts
-    from pymongo import MongoClient as _MC
+    from db import cint as _cint_db
     try:
-        uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-        client = _MC(uri, serverSelectionTimeoutMS=3000)
-        col = client["cint_research"]["cint_metrics"]
+        cint_db = _cint_db()
+        col = cint_db["cint_metrics"]
         docs = col.find({}, {
             "survey_id": 1, "allocations": 1, "completions": 1,
             "terminations": 1, "entrants_n": 1, "quality_term_n": 1,
@@ -139,7 +138,7 @@ def _refresh_cint_metrics_cache():
                 new_cache[sid] = doc
         if new_cache:
             survey_ids_int = [int(k) for k in new_cache if k.isdigit()]
-            surveys_col = client["cint_research"]["cint_surveys"]
+            surveys_col = cint_db["cint_surveys"]
             for sdoc in surveys_col.find(
                 {"survey_id": {"$in": survey_ids_int}},
                 {"survey_id": 1, "total_remaining": 1, "conversion": 1,
@@ -162,11 +161,9 @@ def _refresh_cint_metrics_cache():
 def _refresh_buyer_stats_cache():
     """Bulk-read cint_buyer_stats into memory."""
     global _cint_buyer_stats_cache, _cint_buyer_stats_cache_ts
-    from pymongo import MongoClient as _MC
+    from db import cint as _cint_db
     try:
-        uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-        client = _MC(uri, serverSelectionTimeoutMS=3000)
-        col = client["cint_research"]["cint_buyer_stats"]
+        col = _cint_db()["cint_buyer_stats"]
         new_cache = {}
         for doc in col.find({}, {"buyer_name": 1, "total_sessions": 1, "total_completes": 1, "conversion_rate": 1}):
             name = doc.get("buyer_name", "")
@@ -3700,28 +3697,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     allocation_error = "CINT fallback has no candidates for this country"
                     return False
 
-                # SFW panelists: let Qwen reorder the already-filtered candidates
-                # by profile fit. Off unless AI_ALLOCATION_SHARE > 0; any failure
-                # keeps the rule-based order.
-                ai_allocation_meta = {"ranked": False}
-                if panel_id:
-                    try:
-                        from services.ai_allocation import rerank_cint_candidates
-                        try:
-                            from tasks.cint_survey_cleanup import get_cached_offerwall
-                        except ImportError:
-                            from .tasks.cint_survey_cleanup import get_cached_offerwall
-                        survey_lookup = {
-                            str(s.get("SurveyNumber")): s
-                            for s in (get_cached_offerwall().get("surveys") or [])
-                        }
-                        candidates, ai_allocation_meta = await rerank_cint_candidates(
-                            panel_id, candidates, survey_lookup
-                        )
-                        if ai_allocation_meta.get("ranked"):
-                            print(f"   🤖 AI allocation: panel={panel_id} reordered top {len(ai_allocation_meta['aiTop'])} in {ai_allocation_meta['latencyMs']}ms")
-                    except Exception as ai_err:
-                        print(f"   [warn] AI allocation skipped: {ai_err}")
+                ai_allocation_meta = {"ranked": False}  # AI re-ranking retired; kept for the traffic record shape
 
                 # Try candidates one by one until we get a working entry link
                 # user_email is accessible from the enclosing /api/store scope
@@ -5032,13 +5008,11 @@ def get_cpx_diagnostic_logs(
     - Over-restrictive filter settings
     - Specific rejection reasons (LOI, CPI, IR)
     """
-    from pymongo import MongoClient
-    
+    from db import cpx as _cpx_db
+
     try:
         # Connect to cpx_diagnostic_logs
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        client = MongoClient(mongo_uri)
-        cpx_db = client["cpx_research"]
+        cpx_db = _cpx_db()
         diagnostic_logs = cpx_db["cpx_diagnostic_logs"]
         
         # Time window

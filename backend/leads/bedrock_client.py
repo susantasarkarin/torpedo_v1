@@ -18,49 +18,23 @@ Roles, not model names, are what callers choose:
 Swapping either model to e.g. Nova Lite or Claude Haiku requires changing only
 the environment variable.
 
-Each role fails over ACROSS PROVIDERS: AWS Bedrock primary, DigitalOcean
-serverless inference (GradientAI) as the fallback. A model returning a "not
-usable" error (validation, access denied, not found, bad key) is skipped and
-the next entry answers. Throttles still retry on the same model first.
-
-    cheap:  bedrock qwen3-32b  ->  do:alibaba-qwen3-32b
-    smart:  bedrock qwen3-32b  ->  do:alibaba-qwen3-32b
-
-Chain entries prefixed `do:` are routed to do_inference_client; everything else
-goes to Bedrock. This module still owns every model ID either way.
-
-This replaced a three-deep Bedrock-only chain (qwen -> deepseek -> haiku), which
-protected nothing: all Bedrock models share one account credential, so when the
-Bedrock API key expired on 2026-08-09 the entire chain failed with the same
-error in under a second and lead classification stopped silently for a day.
-Failover only buys anything across a failure boundary — hence a second provider
-rather than a third model.
+A model returning a "not usable" error (validation, access denied, not found)
+is skipped and the next chain entry answers. Throttles still retry on the same
+model first. The local Qwen server and the DigitalOcean fallback were removed
+2026-11-15: every model call here is a Bedrock Converse call.
 
 Configuration (env only — no credentials in code, standard chain applies):
     BEDROCK_MODEL_CHEAP       default qwen.qwen3-32b-v1:0
     BEDROCK_MODEL_SMART       default qwen.qwen3-32b-v1:0
-    BEDROCK_FALLBACKS_CHEAP   comma-separated; default do:alibaba-qwen3-32b
-    BEDROCK_FALLBACKS_SMART   comma-separated; default do:alibaba-qwen3-32b
+    BEDROCK_FALLBACKS_CHEAP   comma-separated; default none
+    BEDROCK_FALLBACKS_SMART   comma-separated; default none
     AWS_REGION                default ap-south-1  (Mumbai)
     BEDROCK_MAX_RETRIES       default 3
     BEDROCK_FAILOVER_MEMORY_SECONDS  default 300
-    DO_INFERENCE_API_KEY      DigitalOcean model access key (fallback; required
-                              for the fallback to be usable at all)
-    DO_INFERENCE_BASE_URL     default https://inference.do-ai.run/v1
 
 Bedrock auth note: Bedrock here authenticates via AWS_BEARER_TOKEN_BEDROCK (a
 Bedrock API key) when present, falling back to the standard SigV4 credential
-chain. Bedrock API keys EXPIRE; the IAM user currently in AWS_ACCESS_KEY_ID
-(ses-api-mailer) has no Bedrock permissions, so when the key lapses there is no
-SigV4 path behind it. That is exactly the failure the DigitalOcean fallback now
-covers.
-
-Single-model policy: Qwen serves BOTH roles on BOTH providers. The cheap/smart
-split is kept as an interface so callers never name a model and the two can be
-pointed at different models later via env, but today they resolve to the same
-one. Note this weakens the confidence-based escalation in bucket_classifier —
-escalating "cheap" to "smart" now re-asks the same model rather than a stronger
-one (see that module's note).
+chain.
 
 Thinking mode is deliberately NOT enabled. Qwen3 supports a reasoning mode whose
 tokens bill as output and are wasted on short classification and email tasks, so
@@ -84,40 +58,10 @@ DEFAULT_MODEL_CHEAP = "qwen.qwen3-32b-v1:0"
 DEFAULT_MODEL_SMART = "qwen.qwen3-32b-v1:0"
 DEFAULT_REGION = "ap-south-1"
 
-# Fallback chain: AWS Bedrock primary, DigitalOcean serverless inference as the
-# fallback. Entries prefixed `do:` are routed to do_inference_client instead of
-# Bedrock (see _call_converse).
-#
-# This used to be three Bedrock models deep (qwen -> deepseek -> haiku) and that
-# protected nothing. Every Bedrock model authenticates with the same account
-# credential, so when the Bedrock API key expired on 2026-08-09 all three failed
-# with the identical error inside 0.6s and lead classification stopped dead for a
-# day. Failover is only meaningful across a failure boundary; one model per
-# provider, two providers, is strictly stronger than three models on one account.
-#
-# Qwen only, by policy — both roles, both providers. The DO slug below is the
-# closest Qwen match to the Bedrock primary. DO's catalogue is account-specific,
-# so confirm it against a real key with `do_inference_client.list_models()` (see
-# health()) and override via BEDROCK_FALLBACKS_CHEAP / BEDROCK_FALLBACKS_SMART
-# if the slug differs.
-DO_MODEL_CHEAP = "do:alibaba-qwen3-32b"
-DO_MODEL_SMART = "do:alibaba-qwen3-32b"
-
-DEFAULT_FALLBACKS_CHEAP = (DO_MODEL_CHEAP,)
-DEFAULT_FALLBACKS_SMART = (DO_MODEL_SMART,)
-
-# Marks a chain entry as belonging to the DigitalOcean provider.
-DO_PREFIX = "do:"
-
-# Self-hosted / any OpenAI-compatible endpoint. Same transport as `do:`, but
-# reads its own base URL and key, so a local Qwen and the DigitalOcean
-# fallback can be configured independently and used in the same chain:
-#
-#     BEDROCK_MODEL_CHEAP=local:qwen3-32b
-#     BEDROCK_FALLBACKS_CHEAP=qwen.qwen3-32b-v1:0,do:alibaba-qwen3-32b
-#
-# i.e. try your own box first, fall back to Bedrock, then to DigitalOcean.
-LOCAL_PREFIX = "local:"
+# Fallback chain: Bedrock only. The DigitalOcean and local self-hosted fallbacks
+# were removed 2026-11-15 (see the module docstring).
+DEFAULT_FALLBACKS_CHEAP: Tuple[str, ...] = ()
+DEFAULT_FALLBACKS_SMART: Tuple[str, ...] = ()
 
 VALID_ROLES = ("cheap", "smart")
 
@@ -126,8 +70,6 @@ _RETRYABLE_CODES = {
     "ThrottlingException", "TooManyRequestsException",
     "ServiceQuotaExceededException", "ModelTimeoutException",
     "InternalServerException", "ServiceUnavailableException",
-    # DigitalOcean equivalents (429 / 5xx / timeout) — same treatment.
-    "DOThrottled",
 }
 
 # Errors meaning "this model is not usable" — fail over to the next model
@@ -137,15 +79,6 @@ _RETRYABLE_CODES = {
 _FAILOVER_CODES = {
     "ValidationException", "AccessDeniedException",
     "ResourceNotFoundException", "ModelNotReadyException",
-    # DigitalOcean: bad key, wrong model slug, or an unclassified failure.
-    # Nothing to gain from retrying any of these on the same model.
-    "DOAuthError", "DOModelNotFound", "DOInferenceError",
-    "DOFallbackNotConfigured",
-    # Local self-hosted model: queue timeout, inference timeout, or transport
-    # error all land here, deliberately never in _RETRYABLE_CODES -- see
-    # LocalLLMUnavailable's own docstring for why retrying the same
-    # single-concurrency instance is exactly the failure mode to avoid.
-    "LocalLLMUnavailable",
 }
 
 # How long to keep using a fallback after the primary fails, before probing the
@@ -231,24 +164,14 @@ def max_retries() -> int:
 
 
 def config_summary() -> Dict[str, Any]:
-    """Effective routing config. Includes whether the DigitalOcean fallback is
-    actually usable — a chain that lists a fallback with no key configured is
-    the same as having no fallback, and that should be visible here rather than
-    discovered when the primary fails."""
-    try:
-        from leads.do_inference_client import is_configured as _do_configured
-    except ImportError:  # pragma: no cover - DO client not present
-        _do_configured = lambda: False  # noqa: E731
-
+    """Effective routing config."""
     return {
-        "primary_provider": "bedrock",
-        "fallback_provider": "digitalocean",
+        "provider": "bedrock",
         "region": get_region(),
         "model_cheap": model_for_role("cheap"),
         "model_smart": model_for_role("smart"),
         "chain_cheap": models_for_role("cheap"),
         "chain_smart": models_for_role("smart"),
-        "do_fallback_configured": bool(_do_configured()),
         "max_retries": max_retries(),
         "failover_memory_seconds": FAILOVER_MEMORY_SECONDS,
     }
@@ -264,18 +187,6 @@ class BedrockError(RuntimeError):
 
 class ModelAccessError(BedrockError):
     """A configured model is not accessible in the configured region."""
-
-
-class DOFallbackNotConfigured(BedrockError):
-    """The DigitalOcean fallback was reached but has no API key set."""
-
-
-class LocalLLMUnavailable(BedrockError):
-    """The self-hosted local model (torpedo-v2-llm.service) couldn't answer --
-    queue timeout, inference timeout, or a transport error. Always classified
-    in _FAILOVER_CODES, never _RETRYABLE_CODES: retrying the same
-    single-concurrency local instance is what caused the 2026-09-16 incident
-    (VM load ~107) -- move to the next chain entry immediately instead."""
 
 
 class JSONParseError(ValueError):
@@ -328,27 +239,12 @@ def validate_model_access(roles: Tuple[str, ...] = VALID_ROLES) -> Dict[str, str
     region = get_region()
     wanted = {role: model_for_role(role) for role in roles}
 
-    def _fallback_can_serve() -> bool:
-        from leads.do_inference_client import is_configured
-        return is_configured()
-
     try:
         response = _get_control_client().list_foundation_models()
     except Exception as e:
-        # Bedrock being unreachable is no longer fatal IF DigitalOcean can take
-        # the traffic — that is the entire point of a cross-provider fallback.
-        # Warn loudly (running entirely on the fallback is a degraded state
-        # someone needs to fix) but let the run proceed.
-        if _fallback_can_serve():
-            logger.warning(
-                "Bedrock unavailable in %s (%s) — continuing on the DigitalOcean "
-                "fallback. Primary is DEGRADED; fix Bedrock access.", region, e)
-            return wanted
         raise ModelAccessError(
             f"Could not list Bedrock foundation models in {region}: {e}. "
-            f"Check AWS credentials and that Bedrock is available in this region. "
-            f"The DigitalOcean fallback is also unconfigured (set DO_INFERENCE_API_KEY), "
-            f"so there is no path to a model at all."
+            f"Check AWS credentials and that Bedrock is available in this region."
         ) from e
 
     available = set()
@@ -363,11 +259,6 @@ def validate_model_access(roles: Tuple[str, ...] = VALID_ROLES) -> Dict[str, str
         role: model for role, model in wanted.items()
         if model not in available and model.split(":")[0] not in available
     }
-    if missing and _fallback_can_serve():
-        logger.warning(
-            "Bedrock model(s) not accessible in %s: %s — continuing on the "
-            "DigitalOcean fallback. Primary is DEGRADED.", region, missing)
-        return wanted
     if missing:
         raise ModelAccessError(
             "Model(s) not accessible in region "
@@ -431,128 +322,16 @@ JSON_REMINDER = (
 # CONVERSE
 # ============================================================
 
-def is_do_model(model_id: str) -> bool:
-    return str(model_id or "").startswith(DO_PREFIX)
-
-
-def is_local_model(model_id: str) -> bool:
-    """True for a `local:`-prefixed entry — any OpenAI-compatible endpoint."""
-    return str(model_id or "").startswith(LOCAL_PREFIX)
-
-
 def provider_of(model_id: str) -> str:
-    if is_local_model(model_id):
-        return "self_hosted"
-    return "digitalocean" if is_do_model(model_id) else "bedrock"
-
-
-def _call_do(model_id: str, system: str, user: str,
-             max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
-    """Route a `do:`-prefixed chain entry to DigitalOcean."""
-    from leads.do_inference_client import chat, is_configured
-
-    if not is_configured():
-        # Distinct from an auth failure: nothing is misconfigured upstream,
-        # the fallback simply has no key yet. Its own type so the code shows up
-        # verbatim in the "all N models failed" summary.
-        raise DOFallbackNotConfigured(
-            "DO_INFERENCE_API_KEY not set — DigitalOcean fallback unavailable")
-
-    return chat(model_id[len(DO_PREFIX):], system, user, max_tokens, temperature)
-
-
-def _self_hosted_extra_params() -> Dict[str, Any]:
-    """
-    Extra JSON payload keys for the self-hosted endpoint, from
-    SELF_HOSTED_EXTRA_PARAMS (a JSON object).
-
-    Reasoning models need this. GLM-5.2 thinks by default and will spend the
-    entire max_tokens budget producing reasoning, returning empty content —
-    which costs two billed calls (converse_json retries once) and then raises
-    JSONParseError. Disable it with:
-
-        SELF_HOSTED_EXTRA_PARAMS={"thinking": {"type": "disabled"}}
-
-    Malformed JSON is logged and ignored rather than taking the chain down.
-    """
-    raw = os.getenv("SELF_HOSTED_EXTRA_PARAMS", "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("SELF_HOSTED_EXTRA_PARAMS is not valid JSON, ignoring: %r",
-                       raw[:120])
-        return {}
-    if not isinstance(parsed, dict):
-        logger.warning("SELF_HOSTED_EXTRA_PARAMS must be a JSON object, got %s",
-                       type(parsed).__name__)
-        return {}
-    return parsed
-
-
-def _call_self_hosted(model_id: str, system: str, user: str,
-                      max_tokens: int, temperature: float
-                      ) -> Tuple[str, Dict[str, int], float]:
-    """
-    Route a `local:`-prefixed entry to a self-hosted OpenAI-compatible server.
-
-    Reuses do_inference_client's transport — it is a plain POST to
-    /chat/completions, which is what vLLM, Ollama, llama.cpp and LM Studio all
-    speak — but with its own base URL and key so the two providers stay
-    independently configurable.
-
-    Gated by local_llm_gate.acquire_local_llm_slot() -- see that module's
-    docstring. Nothing else stops multiple Celery worker PROCESSES from
-    hammering a `--parallel 1` server at once, which is what caused the
-    2026-09-16 incident (VM load average ~107 on a 2-vCPU box). Any failure
-    here -- queue timeout, inference timeout, transport error -- is wrapped as
-    LocalLLMUnavailable, deliberately distinct from DOThrottled/DOInferenceError
-    (which stay _RETRYABLE_CODES for *real* DigitalOcean calls) so this always
-    fails over to the next chain entry instead of retrying the same
-    already-overloaded local instance.
-    """
-    from leads import do_inference_client as _oai
-    from leads.local_llm_gate import acquire_local_llm_slot, LocalLLMQueueTimeout
-
-    base = os.getenv(_oai.SELF_HOSTED_BASE_URL_ENV, "").strip()
-    if not base:
-        raise DOFallbackNotConfigured(
-            f"{_oai.SELF_HOSTED_BASE_URL_ENV} not set — self-hosted model "
-            f"{model_id!r} is in the chain but has nowhere to call")
-
-    from leads.local_llm_gate import inference_timeout_override
-    inference_timeout = (inference_timeout_override()
-                         or float(os.getenv("LOCAL_LLM_INFERENCE_TIMEOUT_SECONDS", "12")))
-
-    try:
-        with acquire_local_llm_slot():
-            return _oai.chat(
-                model_id[len(LOCAL_PREFIX):], system, user, max_tokens, temperature,
-                base_url=base,
-                api_key=os.getenv(_oai.SELF_HOSTED_KEY_ENV, "") or "not-required",
-                extra_params=_self_hosted_extra_params(),
-                timeout=inference_timeout,
-            )
-    except LocalLLMQueueTimeout as e:
-        raise LocalLLMUnavailable(f"queue timeout waiting for a local inference slot: {e}") from e
-    except _oai.DOInferenceError as e:
-        raise LocalLLMUnavailable(f"local inference call failed: {e}") from e
+    return "bedrock"
 
 
 def _call_converse(model_id: str, system: str, user: str,
                    max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
-    """One raw model call, routed to whichever provider owns `model_id`.
+    """One raw Bedrock Converse call.
 
-    Returns (text, usage, latency_seconds) in Bedrock's shape regardless of
-    provider, so the retry loop and cost-audit logging above stay
-    provider-agnostic.
+    Returns (text, usage, latency_seconds).
     """
-    if is_local_model(model_id):
-        return _call_self_hosted(model_id, system, user, max_tokens, temperature)
-    if is_do_model(model_id):
-        return _call_do(model_id, system, user, max_tokens, temperature)
-
     client = _get_runtime_client()
 
     kwargs: Dict[str, Any] = {
@@ -646,8 +425,8 @@ def converse_meta(role: str, system: str, user: str,
                 break
 
         _demote(model_id)
-        # The cause, not just the class: "LocalLLMUnavailable" alone could not
-        # tell a queue timeout from an inference timeout or a rejected prompt.
+        # The cause, not just the class, so a rejected prompt is distinguishable
+        # from a throttle or a bad key in the failure summary.
         failures.append(f"{model_id}: {_error_code(last_error)} ({str(last_error)[:160]})")
         remaining = len(chain) - position - 1
         if remaining:
@@ -712,14 +491,9 @@ def converse_json_object(role: str, system: str, user: str, priority: Optional[s
                          **kw) -> Optional[Dict[str, Any]]:
     """converse_json constrained to an object. Returns None if not an object.
 
-    priority: the local-model queue tier for this call (local_llm_gate
-    PRIORITY_RANK); None keeps whatever the caller's context already set."""
-    if priority:
-        from leads.local_llm_gate import llm_priority
-        with llm_priority(priority):
-            value = converse_json(role, system, user, **kw)
-    else:
-        value = converse_json(role, system, user, **kw)
+    priority: accepted for caller compatibility and ignored (it used to pick the
+    local-model queue tier; the local model was removed 2026-11-15)."""
+    value = converse_json(role, system, user, **kw)
     return value if isinstance(value, dict) else None
 
 

@@ -17,7 +17,6 @@ import_lists    every lead in every Skrapp list on the account (free) whose
 Company details come from Skrapp's free company card in leads/company_fit.py.
 """
 import logging
-import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -30,8 +29,8 @@ BASKET = {"sfw": "A", "cogentix": "B", "bimwave": "C"}
 
 
 def _client():
-    from pymongo import MongoClient
-    return MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/", serverSelectionTimeoutMS=8000)
+    from db import get_client
+    return get_client()
 
 
 def _names(row: Dict[str, Any], lead: Dict[str, Any]):

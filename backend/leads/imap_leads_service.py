@@ -59,7 +59,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # MongoDB connection
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -453,7 +452,7 @@ def extract_contact_info_regex(
 ) -> dict:
     """
     Extract structured contact information from email using ONLY regex/script.
-    Drop-in replacement for gemini_enrichment.extract_contact_info().
+    Drop-in replacement for the retired LLM enrichment extract_contact_info() (see enrichment_ai).
     
     Args:
         email_body: Raw email text

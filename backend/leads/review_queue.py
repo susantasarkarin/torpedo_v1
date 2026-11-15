@@ -19,9 +19,6 @@ logger = logging.getLogger(__name__)
 # Confidence threshold - classifications below this go to review queue
 CONFIDENCE_THRESHOLD = float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.7"))
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-
 
 class ReviewStatus(str, Enum):
     """Status of a review queue item."""
@@ -52,8 +49,8 @@ class ReviewQueueService:
     
     def __init__(self, db=None):
         if db is None:
-            client = MongoClient(MONGO_URI)
-            self.db = client["email_automation"]
+            from db import legacy
+            self.db = legacy()
         else:
             self.db = db
         

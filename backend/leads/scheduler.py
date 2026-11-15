@@ -21,7 +21,7 @@ Architecture:
 AI GOVERNANCE POLICY (Effective Jan 2026):
 - Gemini operations (email classification, summarization) are DISABLED in scheduler
 - Gemini calls can only be triggered via manual API request (not scheduled/automated)
-- OpenAI (gpt-4o-mini): Web search, company discovery, enrichment, lead classification
+- Claude ladder (platform_core.ladder): lead classification, tier-2 analysis, outreach drafts
 """
 
 import os
@@ -30,26 +30,15 @@ import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 from threading import Thread, Event
-from pymongo import MongoClient
 from dotenv import load_dotenv
-
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
-
 
 load_dotenv()
 
 # ============== CONFIGURATION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-client = _get_pooled_client()
-db = client['email_automation']
+# Database handles come from backend/db.py (shared pool, no own client).
+from db import legacy, mail, settings
+db = legacy()
 
 # Scheduler state collection
 scheduler_state_collection = db['scheduler_state']
@@ -57,13 +46,8 @@ scheduler_logs_collection = db['scheduler_logs']
 
 # ============== SCHEDULER CONSTANTS ==============
 
-# MongoDB connection for dynamic rate limits
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-_settings_client = _get_pooled_client()
-_settings_db = _settings_client['torpedo_settings']
-_app_settings = _settings_db['app_settings']
+# Dynamic rate limit settings
+_app_settings = settings()['app_settings']
 
 def get_rate_limits():
     """Get rate limits from settings (legacy - returns defaults only)"""
@@ -494,7 +478,7 @@ async def run_gmail_sync_batch() -> dict:
     Uses Gmail API - syncs all active mailboxes.
     """
     try:
-        torpedo_gmail = client['torpedo_gmail']
+        torpedo_gmail = mail()
         
         # Get active Gmail accounts
         active_accounts = list(torpedo_gmail['gmail_accounts'].find(
@@ -553,7 +537,7 @@ async def run_cint_health_check() -> dict:
             print("[Scheduler] Cint Health: ⚠️ Subscription inactive, resubscribing...")
             
             # Get callback URL from settings
-            settings = db_torpedo_settings['app_settings'].find_one({"key": "app_settings"}) or {}
+            settings = _app_settings.find_one({"key": "app_settings"}) or {}
             callback_url = settings.get("cint_callback_url", "")
             
             if not callback_url:
@@ -607,7 +591,8 @@ async def run_cpx_refresh() -> dict:
     except ImportError:
         # Try alternative method
         try:
-            cpx_db = client['cpx_db']
+            from db import cpx as _cpx_db
+            cpx_db = _cpx_db()
             surveys = cpx_db['cpx_surveys']
             count = surveys.count_documents({})
             print(f"[Scheduler] CPX Refresh: ✅ {count} surveys in DB")
@@ -619,16 +604,19 @@ async def run_cpx_refresh() -> dict:
         return {"processed": 0, "error": str(e)}
 
 
-# ============== TIER 2 ANALYSIS (OpenAI GPT-4o) ==============
+# ============== TIER 2 ANALYSIS (Claude ladder) ==============
 
 async def run_tier2_analysis_batch() -> dict:
     """
-    Process high-value leads with GPT-4o for deeper analysis.
-    Uses OpenAI (premium tier) - 1 lead at a time for quality.
+    Process high-value leads for deeper analysis via the Claude ladder
+    (platform_core.ladder.escalate_json) - 1 lead at a time for quality.
     """
     try:
-        from .openai_wrapper import chat_completion
-        
+        if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
+            return {"processed": 0, "analyzed": 0, "message": "AI disabled (DISABLE_AI_CALLS)"}
+        from platform_core.ladder import escalate_json
+        import json as _json
+
         # Get high-score leads needing tier 2 analysis
         leads_needing_analysis = list(db['leads_enriched'].find(
             {
@@ -662,28 +650,34 @@ Provide:
 
 Return as JSON with these keys: pain_points, outreach_approach, value_prop, timing, risk_level"""
 
-            result = chat_completion(
-                messages=[
-                    {"role": "system", "content": "You are a B2B sales strategy expert. Provide actionable insights."},
-                    {"role": "user", "content": prompt}
-                ],
-                source="scheduler_tier2",
-                max_output_tokens=500,
-                provider="openai"  # Use OpenAI GPT-4o for premium analysis
+            _keys = ["pain_points", "outreach_approach", "value_prop", "timing", "risk_level"]
+            data, tier, _attempts = escalate_json(
+                task="lead_tier2_analysis",
+                system="You are a B2B sales strategy expert. Provide actionable insights.",
+                user=prompt,
+                schema={"type": "object",
+                        "properties": {"pain_points": {"type": "string"},
+                                       "outreach_approach": {"type": "string"},
+                                       "value_prop": {"type": "string"},
+                                       "timing": {"type": "string"},
+                                       "risk_level": {"type": "string"}},
+                        "required": _keys},
+                check=lambda d: [] if isinstance(d, dict) and d.get("outreach_approach") else ["missing outreach_approach"],
+                max_tokens=500,
             )
-            
-            if result.get("success"):
+
+            if data is not None:
                 db['leads_enriched'].update_one(
                     {"_id": lead["_id"]},
                     {"$set": {
-                        "tier2_analysis": result["content"],
+                        "tier2_analysis": _json.dumps(data),
                         "tier2_analyzed_at": datetime.utcnow(),
-                        "tier2_provider": "openai"
+                        "tier2_provider": f"claude_{tier}"
                     }}
                 )
                 analyzed_count += 1
-        
-        print(f"[Scheduler] Tier 2 Analysis: {analyzed_count}/{len(leads_needing_analysis)} (OpenAI GPT-4o)")
+
+        print(f"[Scheduler] Tier 2 Analysis: {analyzed_count}/{len(leads_needing_analysis)} (Claude ladder)")
         
         return {"processed": len(leads_needing_analysis), "analyzed": analyzed_count}
     
@@ -692,16 +686,19 @@ Return as JSON with these keys: pain_points, outreach_approach, value_prop, timi
         return {"processed": 0, "analyzed": 0, "error": str(e)}
 
 
-# ============== OUTREACH EMAIL GENERATION (OpenAI) ==============
+# ============== OUTREACH EMAIL GENERATION (Claude ladder) ==============
 
 async def run_outreach_email_batch() -> dict:
     """
-    Generate personalized outreach emails using OpenAI.
-    Uses OpenAI GPT-4o - 5 leads per batch for quality.
+    Generate personalized outreach emails via the Claude ladder
+    (platform_core.ladder.escalate_json) - 5 leads per batch for quality.
     """
     try:
-        from .openai_wrapper import chat_completion
-        
+        if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
+            return {"processed": 0, "generated": 0, "message": "AI disabled (DISABLE_AI_CALLS)"}
+        from platform_core.ladder import escalate_json
+        import json as _json
+
         # Get leads with tier2 analysis but no outreach email
         leads_needing_outreach = list(db['leads_enriched'].find(
             {
@@ -736,28 +733,29 @@ Requirements:
 
 Return JSON: {{"subject": "...", "body": "...", "cta": "..."}}"""
 
-            result = chat_completion(
-                messages=[
-                    {"role": "system", "content": "You are a B2B cold email expert. Write concise, personalized emails."},
-                    {"role": "user", "content": prompt}
-                ],
-                source="scheduler_outreach",
-                max_output_tokens=400,
-                provider="openai"  # Use OpenAI for quality
+            data, tier, _attempts = escalate_json(
+                task="lead_outreach_email",
+                system="You are a B2B cold email expert. Write concise, personalized emails.",
+                user=prompt,
+                schema={"type": "object",
+                        "properties": {"subject": {"type": "string"}, "body": {"type": "string"}, "cta": {"type": "string"}},
+                        "required": ["subject", "body", "cta"]},
+                check=lambda d: [] if isinstance(d, dict) and d.get("subject") and d.get("body") else ["missing subject/body"],
+                max_tokens=400,
             )
-            
-            if result.get("success"):
+
+            if data is not None:
                 db['leads_enriched'].update_one(
                     {"_id": lead["_id"]},
                     {"$set": {
-                        "outreach_email": result["content"],
+                        "outreach_email": _json.dumps(data),
                         "outreach_generated_at": datetime.utcnow(),
-                        "outreach_provider": "openai"
+                        "outreach_provider": f"claude_{tier}"
                     }}
                 )
                 generated_count += 1
-        
-        print(f"[Scheduler] Outreach Emails: {generated_count}/{len(leads_needing_outreach)} (OpenAI)")
+
+        print(f"[Scheduler] Outreach Emails: {generated_count}/{len(leads_needing_outreach)} (Claude ladder)")
         
         return {"processed": len(leads_needing_outreach), "generated": generated_count}
     

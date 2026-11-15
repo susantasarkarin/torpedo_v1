@@ -1,10 +1,9 @@
 import logging
-import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
-from database import get_client
+from db import by_name, cint, cpx, settings
 
 from .survey_allocation_service import SurveyAllocationService, SurveyCreate, SurveyStatus
 
@@ -23,24 +22,20 @@ class SurveyActivationService:
     """
 
     def __init__(self, mongo_uri: str = None, survey_allocation_service: SurveyAllocationService = None):
-        mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        
         if survey_allocation_service:
             self.allocation_service = survey_allocation_service
-            self.client = survey_allocation_service.client
         else:
-            self.client = get_client()
             self.allocation_service = SurveyAllocationService(mongo_uri)
 
-        self.db = self.client["survey_allocation"]
-        
+        self.db = by_name("survey_allocation")
+
         # Source collections (the survey pool)
-        self.cpx_surveys = self.client["cpx_research"]["cpx_surveys"]
-        self.cint_surveys = self.client["cint_research"]["cint_surveys"]
-        self.cint_outcomes = self.client["cint_research"]["cint_respondent_outcomes"]
-        
+        self.cpx_surveys = cpx()["cpx_surveys"]
+        self.cint_surveys = cint()["cint_surveys"]
+        self.cint_outcomes = cint()["cint_respondent_outcomes"]
+
         # Settings
-        self.settings_db = self.client["torpedo_settings"]
+        self.settings_db = settings()
         self.settings_collection = self.settings_db["app_settings"]
         
         logger.info("✅ Survey Activation Service initialized")

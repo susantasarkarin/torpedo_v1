@@ -12,25 +12,15 @@ wanting history should read panel_invitation_log or panel_job_state's own
 Mongo oplog, not this.
 """
 
-import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pymongo import MongoClient
+from db import panel
 
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
-
-
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
-_client = _get_pooled_client()
-job_state_collection = _client["campaign_platform"]["panel_job_state"]
+job_state_collection = panel()["panel_job_state"]
 
 
 def record_heartbeat(job_name: str, extra: Optional[Dict[str, Any]] = None) -> None:

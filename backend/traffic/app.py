@@ -1,9 +1,8 @@
 from flask import Flask, request, jsonify, redirect
 from flask_cors import CORS
-from pymongo import MongoClient
 from bson import ObjectId
 from datetime import datetime
-import os
+from db import get_client, traffic
 
 app = Flask(__name__)
 CORS(app, origins="*", supports_credentials=True)
@@ -24,11 +23,8 @@ ZOHO_QUOTA_URL = f"{FRONTEND_URL}/nosurvey"
 
 # ========== MONGO ==========
 try:
-    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.admin.command('ping')
-    db = client['traffic_flow_db']
-    collection = db['url_parameters']
+    get_client().admin.command('ping')
+    collection = traffic()['url_parameters']
     print("✅ MongoDB connected successfully!")
 except Exception:
     collection = None

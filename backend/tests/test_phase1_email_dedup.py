@@ -372,11 +372,11 @@ class TestZeroLLMCallsForSystemEmails:
         # CRITICAL: This MUST be True to prevent LLM call
         assert should_skip is True
     
-    @patch('leads.openai_wrapper.chat_completion_with_escalation')
+    @patch('ai_governance.claude_gateway.chat_completion_with_escalation')
     def test_classifier_does_not_call_llm_for_bounce(self, mock_llm, bounce_email_mailer_daemon):
         """Bounce email classification should NOT call LLM"""
         # Import here to avoid circular imports
-        from email_sync.openai_email_classifier import OpenAIEmailClassifier
+        from email_sync.llm_email_classifier import OpenAIEmailClassifier
         
         # Create classifier with mocked dependencies
         mock_db = MagicMock()
@@ -398,10 +398,10 @@ class TestZeroLLMCallsForSystemEmails:
         assert result["email_type"] == EmailType.SYSTEM.value
         assert result["system_subtype"] == SystemSubtype.BOUNCE.value
     
-    @patch('leads.openai_wrapper.chat_completion_with_escalation')
+    @patch('ai_governance.claude_gateway.chat_completion_with_escalation')
     def test_classifier_does_not_call_llm_for_ooo(self, mock_llm, ooo_email):
         """OOO email classification should NOT call LLM"""
-        from email_sync.openai_email_classifier import OpenAIEmailClassifier
+        from email_sync.llm_email_classifier import OpenAIEmailClassifier
         
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=MagicMock())

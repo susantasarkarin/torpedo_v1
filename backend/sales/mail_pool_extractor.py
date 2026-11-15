@@ -22,8 +22,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from celery_app import celery_app
-from db_pools import get_background_db
-from pymongo import MongoClient
+from db import mail
 
 logger = logging.getLogger(__name__)
 
@@ -326,18 +325,8 @@ def _mark_email_processed(mail_col, email_id) -> None:
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _get_mail_db():
-    """Return the torpedo_gmail database where email_metadata lives.
-    Uses the shared background DB pool instead of creating a raw MongoClient.
-    """
-    try:
-        # Reuse the shared pool managed by db_pools to avoid connection proliferation
-        client = get_background_db().client
-        return client["torpedo_gmail"]
-    except Exception:
-        # Fallback to direct connection if pool is unavailable
-        import os
-        uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        return MongoClient(uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
+    """Return the torpedo_gmail database where email_metadata lives (via db.py)."""
+    return mail()
 
 
 def extract_leads_from_mail_pool_batch(

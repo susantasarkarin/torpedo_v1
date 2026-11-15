@@ -551,31 +551,3 @@ class SendScheduler:
     def is_running(self) -> bool:
         """Check if worker is running"""
         return self._running and self._thread is not None and self._thread.is_alive()
-
-
-# ============== CELERY TASK INTEGRATION ==============
-
-def create_celery_tasks(app, db):
-    """
-    Create Celery tasks for scheduling.
-    
-    Args:
-        app: Celery application
-        db: MongoDB database
-    """
-    scheduler = SendScheduler(db)
-    
-    @app.task(name="outreach.process_queue")
-    def process_queue_task():
-        """Process send queue"""
-        return scheduler.process_queue()
-    
-    @app.task(name="outreach.schedule_follow_up")
-    def schedule_follow_up_task(campaign_id: str, lead_id: str, step: int, delay_days: int):
-        """Schedule follow-up send"""
-        return scheduler.schedule_follow_up(campaign_id, lead_id, step, delay_days)
-    
-    return {
-        "process_queue": process_queue_task,
-        "schedule_follow_up": schedule_follow_up_task
-    }

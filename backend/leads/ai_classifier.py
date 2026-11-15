@@ -7,11 +7,11 @@ Extended with:
 - Email signature parsing for contact extraction
 - Conversation summary generation
 
-COST OPTIMIZATION: Uses centralized openai_wrapper.py for all API calls.
+COST OPTIMIZATION: Free-text calls go through ai_governance.claude_gateway.chat_completion.
 - Strict max_output_tokens enforcement
 - Token usage logging to MongoDB
 - Rate limiting per source (cron/api/user)
-- Global kill switch via DISABLE_OPENAI_CALLS env var
+- Global kill switch via DISABLE_AI_CALLS env var
 """
 
 import os
@@ -31,13 +31,7 @@ from .models import (
     SeniorityLevel, Department, Persona, CompanySize, Region,
     BuyingRole, Gender, EmailThreadMessage
 )
-# COST CONTROL: Import centralized wrapper instead of direct OpenAI client
-# from .openai_wrapper import (
-#     chat_completion, get_openai_client, get_openai_api_key,
-#     DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
-#     build_system_prompt, JSON_ONLY_INSTRUCTION
-# )
-# Uses OpenAI via AI governance gateway
+from ai_governance.claude_gateway import chat_completion
 def _get_pooled_client():
     """The process-wide pooled MongoClient (backend/database.py)."""
     from database import get_client
@@ -96,7 +90,6 @@ MODEL = "ai_governance_gateway"  # OpenAI via governance gateway
 TEMPERATURE = 0.1  # Low temperature for deterministic output
 
 # MongoDB connection for loading prompts from DB
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -187,10 +180,6 @@ def cache_classification(lead: LeadRaw, result: AIClassificationOutput):
     _classification_cache.move_to_end(key)
     while len(_classification_cache) > _CLASSIFICATION_CACHE_MAX_SIZE:
         _classification_cache.popitem(last=False)  # evict oldest
-
-
-# ============== OPENAI CLIENT ==============
-# COST CONTROL: Now uses centralized wrapper from openai_wrapper.py
 
 
 # ============== CLASSIFICATION FUNCTION ==============
@@ -388,7 +377,6 @@ async def classify_leads_batch(leads: list[LeadRaw], batch_size: int = 5) -> lis
 
 # ============== COMPANY ENRICHMENT CACHE ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -610,7 +598,9 @@ def generate_single_email_summary(
     """
     if not body or len(body.strip()) < 10:
         return ""
-    
+    if os.getenv("DISABLE_AI_CALLS", "").lower() in ("1", "true", "yes"):
+        return ""
+
     try:
         # COST CONTROL: Truncate to 1500 chars (was 3000)
         truncated_body = body[:1500] if len(body) > 1500 else body
@@ -627,10 +617,7 @@ def generate_single_email_summary(
             ],
             source=source,
             endpoint="email_summary",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
-            provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
-            temperature=0.2
         )
         
         if not result["success"]:
@@ -666,7 +653,9 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
     """
     if not email_threads:
         return ""
-    
+    if os.getenv("DISABLE_AI_CALLS", "").lower() in ("1", "true", "yes"):
+        return "Summary unavailable: AI calls disabled"
+
     try:
         # COST CONTROL: Compact email formatting to reduce input tokens
         emails_text = ""
@@ -687,10 +676,7 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
             ],
             source=source,
             endpoint="conversation_summary",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
-            provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 300
-            temperature=0.3
         )
         
         if not result["success"]:

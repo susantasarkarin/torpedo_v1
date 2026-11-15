@@ -491,22 +491,22 @@ _TYPE_SCHEMA = {"type": "object", "additionalProperties": False,
 
 def _model_type(name: str, text: str) -> Optional[str]:
     """None = the model could not say (or was unavailable); asked again later."""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     try:
-        with queue_wait(120, priority="bulk"):
-            got = chat_json(
-                system="You sort companies by what they do. Reply only with JSON.",
-                user=(f"Company: {name}\nWhat the company says about itself: {text[:900]}\n\n"
-                      "Which one is it?\n"
-                      "mr_agency = market research, fieldwork, survey or panel company\n"
-                      "aec = architecture, engineering, construction or BIM company\n"
-                      "brand = company selling consumer products or services (FMCG, retail, bank, "
-                      "telecom, auto, pharma, media ...)\n"
-                      "other = anything else (IT services, staffing, software, consulting, government ...)\n"
-                      "unclear = the text does not say"),
-                max_tokens=20, json_schema=_TYPE_SCHEMA, timeout=90)
-    except (LocalSLMError, Exception):
+        got, _tier, _att = ladder.escalate_json(
+            task="company_fit", system="You sort companies by what they do. Reply only with JSON.",
+            user=(f"Company: {name}\nWhat the company says about itself: {text[:900]}\n\n"
+                  "Which one is it?\n"
+                  "mr_agency = market research, fieldwork, survey or panel company\n"
+                  "aec = architecture, engineering, construction or BIM company\n"
+                  "brand = company selling consumer products or services (FMCG, retail, bank, "
+                  "telecom, auto, pharma, media ...)\n"
+                  "other = anything else (IT services, staffing, software, consulting, government ...)\n"
+                  "unclear = the text does not say"),
+            schema=_TYPE_SCHEMA, check=lambda d: [], max_tokens=20)
+    except Exception:
+        return None
+    if got is None:
         return None
     t = got.get("type")
     return t if t in TYPES else None
@@ -529,15 +529,16 @@ _QUESTIONS = {
 
 def _model_confirms(name: str, text: str, ctype: str) -> Optional[str]:
     """'yes' / 'no' -- or None when the model is unavailable."""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     try:
-        with queue_wait(120, priority="bulk"):
-            got = chat_json(system="Answer only yes or no, as JSON.",
-                            user=(f"Company: {name}\nWhat it says about itself: {text[:900]}\n\n"
-                                  + _QUESTIONS[ctype]),
-                            max_tokens=10, json_schema=_YES_NO, timeout=90)
-    except (LocalSLMError, Exception):
+        got, _tier, _att = ladder.escalate_json(
+            task="company_fit", system="Answer only yes or no, as JSON.",
+            user=(f"Company: {name}\nWhat it says about itself: {text[:900]}\n\n"
+                  + _QUESTIONS[ctype]),
+            schema=_YES_NO, check=lambda d: [], max_tokens=10)
+    except Exception:
+        return None
+    if got is None:
         return None
     return got.get("answer") if got.get("answer") in ("yes", "no") else None
 
@@ -654,7 +655,7 @@ def queue_all(client=None) -> Dict[str, int]:
     moving to the right campaign and mailing again), 1 = a lead with an email."""
     from pymongo import UpdateOne
     db = _db(client)
-    tdb = db.client[os.getenv("MONGO_DB_NAME") or "torpedo"]
+    tdb = db.client["torpedo"]  # == db.outreach()
     best: Dict[str, Tuple[int, str, str]] = {}
 
     def _add(email: str, company: str, prio: int):

@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Query, HTTPException, Depends, BackgroundTasks, Body
 from pydantic import BaseModel, Field
 from bson import ObjectId
-from pymongo import MongoClient
+from db import legacy
 
 import os
 
@@ -61,9 +61,7 @@ class CampaignActionRequest(BaseModel):
 
 def get_db():
     """Get MongoDB database instance"""
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri)
-    return client['email_automation']
+    return legacy()
 
 
 def get_campaign_manager(db = Depends(get_db)):

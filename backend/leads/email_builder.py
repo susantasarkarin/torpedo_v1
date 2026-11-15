@@ -43,8 +43,8 @@ WEAK_SOURCES = ("guess",)
 
 
 def _client():
-    from pymongo import MongoClient
-    return MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
+    from db import get_client
+    return get_client()
 
 
 # ---------------------------------------------------------------------------
@@ -120,16 +120,17 @@ def ai_company_domain(client, company: str) -> str:
     hit = cache.find_one({"_id": key})
     if hit:
         return hit.get("domain") or ""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     try:
-        with queue_wait(120, priority="bulk"):
-            got = chat_json(system="You know companies' email domains. Reply only with JSON.",
-                            user=f"Company: {company}\nWhat domain do this company's employees use for email? "
-                                 f"If it is not one specific company (a description, a list of employers, "
-                                 f"an alumni group), answer an empty email_domain.",
-                            max_tokens=60, json_schema=_DOMAIN_SCHEMA, timeout=60)
-    except (LocalSLMError, Exception):
+        got, _tier, _att = ladder.escalate_json(
+            task="email_domain", system="You know companies' email domains. Reply only with JSON.",
+            user=f"Company: {company}\nWhat domain do this company's employees use for email? "
+                 f"If it is not one specific company (a description, a list of employers, "
+                 f"an alumni group), answer an empty email_domain.",
+            schema=_DOMAIN_SCHEMA, check=lambda d: [], max_tokens=60)
+    except Exception:
+        return ""
+    if got is None:
         return ""  # an outage is not an answer; asked again next time
     domain = company_email_domain(str(got.get("email_domain") or ""))
     # the model's own yes/no contradicted its answer (known_company false,
@@ -298,21 +299,20 @@ def ai_check(lead: Dict[str, Any], domain: str, structure: Dict[str, Any], candi
              first: str, last: str, bounced: set) -> Dict[str, Any]:
     """{'verdict': ok|corrected|doubt|domain_doubt|unavailable, 'email', 'reason'}."""
     from app.services.email_structure import structure_of
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     examples = "\n".join(f"- {e['email']}" + (f" ({e['name']})" if e.get("name") else "")
                          for e in structure.get("examples") or []) or "- (none on file)"
     try:
-        with queue_wait(120, priority="bulk"):
-            got = chat_json(system=_SYSTEM, user=_ASK.format(
+        got, _tier, _att = ladder.escalate_json(
+            task="email_check", system=_SYSTEM, user=_ASK.format(
                 name=lead.get("name") or f"{first} {last}", title=(lead.get("title") or "")[:80],
                 company=lead.get("company_name") or "", domain=domain, examples=examples,
                 structure=structure["form"] + "@" + domain, candidate=candidate),
-                max_tokens=160, json_schema=_SCHEMA, timeout=120)
-    except LocalSLMError as e:
+            schema=_SCHEMA, check=lambda d: [], max_tokens=160)
+    except Exception as e:
         return {"verdict": "unavailable", "email": candidate, "reason": str(e)[:160]}
-    except Exception as e:  # the gate's queue timeout
-        return {"verdict": "unavailable", "email": candidate, "reason": str(e)[:160]}
+    if got is None:
+        return {"verdict": "unavailable", "email": candidate, "reason": "no cloud tier answered"}
     reason = str(got.get("reason") or "")[:160]
     if got.get("has_special_characters"):
         return {"verdict": "doubt", "email": candidate, "reason": "model saw special characters: " + reason}

@@ -151,11 +151,12 @@ def record_optout(email: str, source: str) -> bool:
     _suppression.suppress(normalized, reason="unsubscribed", source=source)
     try:
         from datetime import datetime
-        from pymongo import MongoClient
-        db = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                         serverSelectionTimeoutMS=5000)[os.getenv("MONGO_DB_NAME", "torpedo")]
+        try:
+            from db import outreach
+        except ImportError:  # imported as backend.services.* from the repo root
+            from backend.db import outreach  # type: ignore
         now = datetime.utcnow()
-        db["outreach_leads_v2"].update_many({"email": normalized}, {"$set": {
+        outreach()["outreach_leads_v2"].update_many({"email": normalized}, {"$set": {
             "unsubscribed": True, "unsubscribed_at": now, "sendable": False,
             "workflow_status": "suppressed", "updated_at": now}})
     except Exception as exc:  # the suppression write is the one that stops mail

@@ -44,8 +44,8 @@ def get_gmail_service() -> GmailService:
     global _gmail_service
     
     if _gmail_service is None:
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        _gmail_service = GmailService(mongo_uri=mongo_uri)
+        # GmailService connects through db.py (mongo_uri is no longer read here)
+        _gmail_service = GmailService()
     
     return _gmail_service
 

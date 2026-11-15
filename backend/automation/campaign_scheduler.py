@@ -46,20 +46,18 @@ class CampaignScheduler:
         "Unknown": {"open_rate": 0.30, "avg_open_delay_hours": 36}
     }
 
-    def __init__(self, db: Database, openai_wrapper=None, decision_logger=None):
+    def __init__(self, db: Database, decision_logger=None):
         """
         Initialize campaign scheduler.
 
         Args:
             db: MongoDB database instance
-            openai_wrapper: OpenAI wrapper for optimization recommendations
             decision_logger: Optional DecisionLogger for compliance logging
         """
         self.db = db
         self.campaigns = db["campaigns"]
         self.outreach_send_logs = db["outreach_send_logs"]
         self.campaign_recipients = db["campaign_recipients"]
-        self.openai_wrapper = openai_wrapper
         self.decision_logger = decision_logger
 
     def optimize_schedule(

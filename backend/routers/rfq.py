@@ -10,7 +10,6 @@ Provides endpoints for:
 - Convert to Estimate/Invoice
 """
 
-import os
 import re
 import logging
 from datetime import datetime, timedelta
@@ -18,15 +17,11 @@ from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel, Field
-from pymongo import MongoClient, DESCENDING
+from pymongo import DESCENDING
 from bson import ObjectId
 from dotenv import load_dotenv
 
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import legacy, mail, finance
 
 
 load_dotenv()
@@ -40,23 +35,18 @@ router = APIRouter(
     tags=["rfq"]
 )
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-mongo_client = _get_pooled_client()
-db = mongo_client["email_automation"]
+# MongoDB connection (db.py handles; shared client pair)
+db = legacy()
 rfqs_collection = db["rfqs"]
 email_leads_collection = db["email_leads"]
 mail_sender_analysis_collection = db["mail_sender_analysis"]
 
 # Gmail API database (torpedo_gmail)
-gmail_db = mongo_client["torpedo_gmail"]
+gmail_db = mail()
 email_metadata_collection = gmail_db["email_metadata"]
 
 # Finance database for estimates and invoices
-finance_db = mongo_client["finance_db"]
+finance_db = finance()
 customers_collection = finance_db["customers"]
 estimates_collection = finance_db["estimates"]
 invoices_collection = finance_db["invoices"]

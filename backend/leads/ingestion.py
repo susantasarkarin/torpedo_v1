@@ -48,7 +48,6 @@ load_dotenv()
 
 # ============== CONFIGURATION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -549,6 +548,22 @@ def normalize_lead_data(item: dict) -> dict:
 
 EXTRACTION_SYSTEM_PROMPT = "You extract structured lead data. You return only valid JSON."
 
+# The fields build_extraction_prompt asks for. Structured outputs close every
+# object, so the item fields must be spelled out here or they would be dropped.
+_LEAD_STR = {"type": "string"}
+_EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {"leads": {"type": "array", "items": {
+        "type": "object",
+        "properties": {k: _LEAD_STR for k in (
+            "name", "title", "linkedin_url", "company_name", "company_domain",
+            "location", "seniority_level", "department")},
+        "required": ["name", "title", "linkedin_url", "company_name", "company_domain",
+                     "location", "seniority_level", "department"],
+    }}},
+    "required": ["leads"],
+}
+
 
 def build_extraction_prompt(search_results: List[dict], query: str) -> str:
     """
@@ -644,7 +659,7 @@ def grounded_leads(leads: List[dict], search_results: List[dict]) -> List[dict]:
 async def extract_leads_from_google_results(search_results: List[dict], query: str,
                                             start: int = 1) -> List[dict]:
     """
-    Extract leads from Google search results via Bedrock (role="cheap").
+    Extract leads from Google search results via platform_core.ladder.
     If the model is unreachable, returns [] and stashes the raw results for a
     later re-run (see extraction_stash). If it answers but yields nothing
     usable, falls back to regex parsing.
@@ -653,38 +668,29 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         # Given nothing, the local model invents a lead ("John Doe, VP of
         # Sales, Salesforce" -- seen 2026-09-28). Nothing in, nothing out.
         return []
-    # 3 results per call (was 5): on 2026-10-15 five-result calls took
-    # 160-179s on the CPU model and 7 ran past the 180s limit -- a timed-out
-    # call wastes all of its model time and the batch is redone later.
+    # 3 results per call keeps prompt + answer small (chunks are sent whole).
     batch = max(1, int(os.getenv("LEAD_EXTRACTION_BATCH", "3")))
 
     try:
-        from .bedrock_client import converse_json_object
+        from platform_core import ladder
 
-        # converse_json_object blocks (a local-model call takes 10-60s, plus
-        # its wait for the single model slot). Called straight from this
-        # coroutine it froze the web server's event loop for every extraction:
-        # on 2026-09-28 the backend stopped answering entirely -- /takesurvey
-        # included -- whenever the WebSearch job ran. Run it on a thread.
-        from .local_llm_gate import queue_wait
-
+        # The ladder call blocks on network I/O. Called straight from this
+        # coroutine it would freeze the web server's event loop for every
+        # extraction, so run it on a thread.
         def _extract(chunk):
-            # Wait for the shared model slot rather than give up after the
-            # default 5s: the results are already paid for in search quota.
-            # Extraction priority: ahead of bulk classification and mail
-            # summaries. 240s covers one extraction call already in progress
-            # (46-103s measured 2026-10-14) plus a second queued ahead of it --
-            # 90s was shorter than a single call.
-            with queue_wait(float(os.getenv("LEAD_EXTRACTION_QUEUE_WAIT_SECONDS", "240")),
-                            priority="extraction",
-                            inference_seconds=float(os.getenv("LEAD_EXTRACTION_INFERENCE_SECONDS", "180"))):
-                return converse_json_object(
-                    role="cheap",
-                    system=EXTRACTION_SYSTEM_PROMPT,
-                    user=build_extraction_prompt(chunk, query),
-                    max_tokens=1024,
-                    temperature=0.0,
-                )
+            data, _tier, _att = ladder.escalate_json(
+                task="lead_extraction",
+                system=EXTRACTION_SYSTEM_PROMPT,
+                user=build_extraction_prompt(chunk, query),
+                schema=_EXTRACTION_SCHEMA,
+                check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
+                max_tokens=1024,
+            )
+            if data is None:
+                # No cloud tier answered: an outage, so take the stash path below,
+                # not the regex parser.
+                raise RuntimeError("no cloud model answered")
+            return data
 
         # A few results per call so prompt + answer fit the model's window.
         parsed: List[dict] = []

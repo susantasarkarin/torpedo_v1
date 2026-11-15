@@ -72,16 +72,13 @@ ALT_FORMAT_TEMPLATES = [
 # ---------------------------------------------------------------------------
 
 def _get_outreach_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-    db_name = os.getenv("MONGO_DB_NAME") or "torpedo"
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-    return client[db_name]
+    from db import outreach
+    return outreach()
 
 
 def _get_leads_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-    return client["email_automation"]
+    from db import legacy
+    return legacy()
 
 
 # ---------------------------------------------------------------------------

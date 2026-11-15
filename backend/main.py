@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response, RedirectResponse
 from dotenv import load_dotenv
-from pymongo import MongoClient
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 from bson import ObjectId
@@ -2617,7 +2616,7 @@ async def startup_event():
                     print(f"[ContentDraft] Error: {e}")
 
             scheduler.add_job(_content_draft_job, CronTrigger(hour=18, minute=0),  # 23:30 IST, P3 window
-                              id="marketing_content_draft", name="Marketing: Qwen drafts for content ideas (to review)",
+                              id="marketing_content_draft", name="Marketing: AI drafts for content ideas (to review)",
                               max_instances=1, coalesce=True, replace_existing=True)
 
             def _marketing_report_job():
@@ -2732,10 +2731,10 @@ async def startup_event():
 
             def _structure_learn_job():
                 try:
-                    from pymongo import MongoClient as _MC
+                    from db import get_client
                     from app.services.email_structure import learn_from_outreach
                     print(f"[EmailStructure] outreach-delivered: "
-                          f"{learn_from_outreach(_MC(os.getenv('MONGO_URI', 'mongodb://localhost:27017/')))}")
+                          f"{learn_from_outreach(get_client())}")
                 except Exception as e:
                     print(f"[EmailStructure] Error: {e}")
 
@@ -2780,9 +2779,9 @@ async def startup_event():
 
             def _inhouse_verify_job():
                 try:
-                    from pymongo import MongoClient as _MC
+                    from db import get_client
                     from leads.inhouse_verifier import score_outreach_leads
-                    r = score_outreach_leads(_MC(os.getenv("MONGO_URI", "mongodb://localhost:27017/")), apply=True)
+                    r = score_outreach_leads(get_client(), apply=True)
                     print(f"[InhouseVerify] {r['counts']}")
                 except Exception as e:
                     print(f"[InhouseVerify] Error: {e}")
@@ -2819,7 +2818,7 @@ async def startup_event():
                     print(f"[MailPoolLeads] Error: {e}")
 
             scheduler.add_job(_mail_segregation_job, IntervalTrigger(seconds=600),
-                              id="mail_pool_segregation", name="Mail Pool Segregation (rules + Qwen)",
+                              id="mail_pool_segregation", name="Mail Pool Segregation (rules + AI)",
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ Mail pool segregation scheduled (every 10 minutes)")
 

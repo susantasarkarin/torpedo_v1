@@ -6,7 +6,7 @@ import os
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
-from pymongo import MongoClient
+from db import legacy
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +20,9 @@ class LeadDeduplicator:
     Also manages daily quota tracking.
     """
     
-    def __init__(self):
-        self._client = None
-        self._db = None
-    
     def _get_db(self):
-        """Get MongoDB database connection."""
-        if self._db is None:
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            self._client = MongoClient(mongo_uri)
-            self._db = self._client['email_automation']
-        return self._db
+        """Shared legacy database handle (email_automation)."""
+        return legacy()
     
     def check_duplicates(
         self,

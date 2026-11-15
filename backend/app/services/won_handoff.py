@@ -18,28 +18,22 @@ signed terms) are left for a person: the records are drafts, flagged, and a
 CRM task is opened for each.
 """
 import logging
-import os
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from bson import ObjectId
 
+from db import DB_CRM, DB_FINANCE, DB_LEGACY, get_client
+
 logger = logging.getLogger(__name__)
-
-DEFAULT_PAYMENT_TERMS_DAYS = 30
-
-_client = None
 
 
 def _mongo():
-    global _client
-    if _client is None:
-        from pymongo import MongoClient
-        _client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                              serverSelectionTimeoutMS=5000)
-    return _client
+    """Shared client from db.py (the test seam; never constructs a client here)."""
+    return get_client()
 
+DEFAULT_PAYMENT_TERMS_DAYS = 30
 
 def _next_number(col, field: str, prefix: str) -> str:
     last = col.find_one({field: {"$regex": rf"^{prefix}-\d+$"}}, sort=[(field, -1)])
@@ -280,7 +274,7 @@ def _project_spec_fields(rfq: Dict[str, Any], amount: float, account: Dict[str, 
 def _handoff(opportunity: Dict[str, Any], crm_project: Optional[Dict[str, Any]], *,
              historical: bool = False, invoice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     client = _mongo()
-    fin, ops, crm = client["finance_db"], client["email_automation"], client["crm_db"]
+    fin, ops, crm = client[DB_FINANCE], client[DB_LEGACY], client[DB_CRM]
     opp_id = str(opportunity["_id"])
     now = datetime.utcnow()
     won_at = opportunity.get("won_at") or opportunity.get("closed_at") or now

@@ -17,28 +17,25 @@ filled. if not present then we should be able to fill in manually."
   record    qualificationSource = {from: "rfq_email", subject, at}; the
             previous values go to projects_qualification_backup_auto first
 """
-import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from bson import ObjectId
 
+from db import legacy_async, mail_async
 from services import rfq_targeting
 
 RECHECK_HOURS = 6
 AUTO_KEYS = ("genders", "nccs", "cities", "states", "childrenMin", "childAgeMin", "childAgeMax")
-_CLIENT: Dict[str, Any] = {}
 
 
 def _empty(v: Any) -> bool:
     return v in (None, "", [])
 
 
-def _client():
-    if "c" not in _CLIENT:
-        from motor.motor_asyncio import AsyncIOMotorClient
-        _CLIENT["c"] = AsyncIOMotorClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017")
-    return _CLIENT["c"]
+def _dbs() -> Dict[str, Any]:
+    """The two databases this module reads and writes, from db.py's shared async client."""
+    return {"torpedo_gmail": mail_async(), "email_automation": legacy_async()}
 
 
 def merge(project: Dict[str, Any], found: Dict[str, Any]) -> Dict[str, Any]:
@@ -69,7 +66,7 @@ async def fill(project: Dict[str, Any], client=None) -> Optional[Dict[str, Any]]
     """Fill one project from its RFQ email. Returns what was set, or None."""
     if project.get("qualificationManual") or project.get("is_deleted"):
         return None
-    client = client if client is not None else _client()
+    client = client if client is not None else _dbs()
     brief = await rfq_targeting.find_brief(client["torpedo_gmail"]["email_metadata"], project)
     sets = merge(project, rfq_targeting.extract(brief["text"])) if brief else {}
     if not sets:  # no email, or nothing in it to fill: look again after RECHECK_HOURS
@@ -89,7 +86,7 @@ async def fill(project: Dict[str, Any], client=None) -> Optional[Dict[str, Any]]
 
 async def fill_by_id(project_id: str) -> Optional[Dict[str, Any]]:
     try:
-        client = _client()
+        client = _dbs()
         project = await client["email_automation"]["projects"].find_one({"_id": ObjectId(str(project_id))})
         return await fill(project, client) if project else None
     except Exception as e:  # never fails the request that triggered it
@@ -99,7 +96,7 @@ async def fill_by_id(project_id: str) -> Optional[Dict[str, Any]]:
 
 async def fill_open_projects(client=None) -> int:
     """Live and paused projects not under manual control. Returns how many were filled."""
-    client = client if client is not None else _client()
+    client = client if client is not None else _dbs()
     n = 0
     cursor = client["email_automation"]["projects"].find({
         "is_deleted": {"$ne": True}, "qualificationManual": {"$ne": True},
@@ -119,15 +116,9 @@ async def fill_open_projects(client=None) -> int:
 def run_job() -> None:
     """Scheduler entry (BackgroundScheduler thread): its own event loop and its own client."""
     import asyncio
-    from motor.motor_asyncio import AsyncIOMotorClient
 
-    async def _run():
-        client = AsyncIOMotorClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017")
-        try:
-            return await fill_open_projects(client)
-        finally:
-            client.close()
-
-    n = asyncio.run(_run())
+    # database.py rebinds the shared Motor client to whichever loop is running,
+    # so this thread's asyncio.run() is safe. Never close the shared client.
+    n = asyncio.run(fill_open_projects())
     if n:
         print(f"[qualifications] auto-filled {n} project(s) from RFQ emails")

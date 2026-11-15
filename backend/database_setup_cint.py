@@ -15,14 +15,16 @@ Creates and indexes MongoDB collections for:
   - survey_metrics: Extended metrics
 """
 
-from pymongo import MongoClient, ASCENDING, DESCENDING, TEXT
+from pymongo import ASCENDING, DESCENDING, TEXT
 from pymongo.errors import CollectionInvalid, OperationFailure
 import logging
+
+from db import by_name
 
 logger = logging.getLogger(__name__)
 
 
-def setup_cint_database(mongo_uri: str, db_name: str = "cint_research") -> dict:
+def setup_cint_database(mongo_uri: str = None, db_name: str = "cint_research") -> dict:
     """
     Create and index Cint integration database
     
@@ -33,8 +35,7 @@ def setup_cint_database(mongo_uri: str, db_name: str = "cint_research") -> dict:
     Returns:
         Dictionary with collection references
     """
-    client = MongoClient(mongo_uri)
-    db = client[db_name]
+    db = by_name(db_name)
     
     collections = {}
     
@@ -192,7 +193,7 @@ def setup_cint_database(mongo_uri: str, db_name: str = "cint_research") -> dict:
     return collections
 
 
-def setup_survey_allocation_extensions(mongo_uri: str, db_name: str = "survey_allocation") -> dict:
+def setup_survey_allocation_extensions(mongo_uri: str = None, db_name: str = "survey_allocation") -> dict:
     """
     Set up extensions to survey_allocation database for Cint support
     
@@ -203,8 +204,7 @@ def setup_survey_allocation_extensions(mongo_uri: str, db_name: str = "survey_al
     Returns:
         Dictionary with collection references
     """
-    client = MongoClient(mongo_uri)
-    db = client[db_name]
+    db = by_name(db_name)
     
     collections = {}
     
@@ -288,10 +288,8 @@ def setup_survey_allocation_extensions(mongo_uri: str, db_name: str = "survey_al
 
 
 if __name__ == "__main__":
-    # For manual setup
-    mongo_uri = "mongodb://localhost:27017"
-    
-    cint_collections = setup_cint_database(mongo_uri)
-    survey_collections = setup_survey_allocation_extensions(mongo_uri)
+    # For manual setup (connection comes from db.py)
+    cint_collections = setup_cint_database()
+    survey_collections = setup_survey_allocation_extensions()
     
     print("✓ All collections created successfully")

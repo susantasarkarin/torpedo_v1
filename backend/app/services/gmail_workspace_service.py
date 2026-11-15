@@ -32,8 +32,8 @@ from dataclasses import dataclass, field
 from google.oauth2 import service_account
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
-from pymongo import MongoClient
 from bson import ObjectId
+from db import by_name
 
 logger = logging.getLogger(__name__)
 
@@ -125,23 +125,21 @@ class GmailWorkspaceService:
     
     def __init__(
         self,
-        mongo_uri: str,
+        mongo_uri: Optional[str] = None,
         service_account_file: Optional[str] = None,
         service_account_info: Optional[Dict] = None,
         db_name: str = "torpedo_gmail"
     ):
         """
         Initialize Gmail Workspace service.
-        
+
         Args:
-            mongo_uri: MongoDB connection URI
+            mongo_uri: Ignored (kept for call-site compat); connection comes from db.py
             service_account_file: Path to service account JSON key file
             service_account_info: Service account credentials as dict (alternative to file)
             db_name: MongoDB database name
         """
-        self.mongo_uri = mongo_uri
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client[db_name]
+        self.db = by_name(db_name)
         
         # Collections
         self.mailboxes = self.db["workspace_mailboxes"]

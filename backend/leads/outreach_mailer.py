@@ -1,7 +1,7 @@
 """
 OUTREACH MAILER
 ===============
-Generates a personalized cold email per qualified lead via Bedrock, validates
+Generates a personalized cold email per qualified lead via the AI ladder, validates
 it, and either previews it (default) or sends it (explicit --send).
 
 SAFETY POSTURE
@@ -54,7 +54,6 @@ except ImportError:
 
 logger = logging.getLogger("outreach_mailer")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): was its own MongoClient at import time.
 from database import get_client as _get_client
 _db = _get_client()["email_automation"]
@@ -219,33 +218,50 @@ def validate_email(subject: str, body: str, lead: Dict[str, Any]) -> List[str]:
 # GENERATION
 # ============================================================
 
+_EMAIL_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "subject": {"type": "string", "maxLength": 200},
+        "body": {"type": "string", "maxLength": 4000},
+    },
+    "required": ["subject", "body"],
+}
+
+
 def generate_email(lead: Dict[str, Any], bucket: str
                    ) -> Tuple[Optional[str], Optional[str], List[str]]:
     """
     Generate and validate an email, regenerating on validation failure.
     Returns (subject, body, problems). On success problems is empty.
     """
-    from leads.bedrock_client import converse_json_object
+    from platform_core import ladder
 
     lead_id = str(lead.get("_id", "?"))
     last_problems: List[str] = ["not attempted"]
 
     for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
         try:
-            # role="smart" — email copy is the one place worth the better model.
-            data = converse_json_object(
-                role="smart",
+            # Email copy is the one place worth the better model: the ladder
+            # walks its cloud rungs; the per-attempt validation below decides.
+            data, _tier, _attempts = ladder.escalate_json(
+                task="outreach_email",
                 system=SYSTEM_PROMPT,
                 user=build_prompt(lead, bucket),
+                schema=_EMAIL_SCHEMA,
+                check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
                 max_tokens=800,
-                temperature=0.7,
-                priority="bulk",
             )
         except Exception as e:
             logger.warning("lead=%s generation attempt %d failed: %s",
                            lead_id, attempt, e)
             last_problems = [f"generation error: {e}"]
             continue
+
+        if data is None:
+            # No cloud tier answered; the ladder already tried every rung,
+            # so retrying now would only repeat the outage. No send.
+            logger.warning("lead=%s no AI tier available; not generating", lead_id)
+            return None, None, ["AI model unavailable"]
 
         if not data:
             last_problems = ["unparseable model output"]

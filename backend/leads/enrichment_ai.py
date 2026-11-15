@@ -1,25 +1,17 @@
 """
 Lead Enrichment Module
 Provides intelligent lead classification, enrichment, and email processing using Claude
-(governed via ai_governance; the rotator is kept for quota accounting only)
+via platform_core.ladder.escalate_json (Haiku, then Sonnet; budget + usage logged by the ladder).
 """
 
 import os
 import json
 import re
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
-from ai_governance.claude_gateway import ClaudeChatClient
-from .openai_rotator import get_rotator
 
 logger = logging.getLogger(__name__)
-
-# Constants
-MODEL_NAME = "claude-opus-4-8"
-DEFAULT_TEMPERATURE = 0.7
-CLASSIFY_TEMPERATURE = 0.3  # Lower for consistent classification
-EXTRACT_TEMPERATURE = 0.5  # Medium for structured extraction
 
 # Token estimation (rough)
 TOKENS_PER_CHAR = 0.25
@@ -28,6 +20,28 @@ TOKENS_PER_CHAR = 0.25
 def estimate_tokens(text: str) -> int:
     """Estimate token count for text"""
     return int(len(text) * TOKENS_PER_CHAR)
+
+
+def _ai_json(task: str, prompt: str, schema: Dict[str, Any], required: str, max_tokens: int) -> Dict[str, Any]:
+    """One ladder call returning a JSON object for `schema`.
+
+    Raises RuntimeError when the kill switch is on or no tier produced a valid
+    answer, so each caller's existing except-branch supplies its fallback."""
+    if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
+        raise RuntimeError("AI calls disabled (DISABLE_AI_CALLS)")
+    from platform_core.ladder import escalate_json
+    data, _tier, attempts = escalate_json(
+        task=task,
+        system="You are a B2B CRM analyst. Answer strictly from the text given.",
+        user=prompt,
+        schema=schema,
+        check=lambda d: [] if isinstance(d, dict) and d.get(required) not in (None, "") else [f"missing {required}"],
+        max_tokens=max_tokens,
+    )
+    if data is None:
+        problems = [p for a in attempts for p in (a.get("problems") or [])][:3]
+        raise RuntimeError("no valid AI answer: " + "; ".join(str(p) for p in problems))
+    return data
 
 
 def _classify_lead_rule_based(lead_data: dict) -> dict:
@@ -168,16 +182,15 @@ def _classify_lead_rule_based(lead_data: dict) -> dict:
     }
 
 
-def classify_lead(lead_data: dict, rotator=None) -> dict:
+def classify_lead(lead_data: dict) -> dict:
     """
-    Classify a lead into categories using Gemini.
-    
+    Classify a lead into categories using Claude (ladder).
+
     HYBRID: Tries rule-based classification first. Falls back to AI if confidence < 0.7.
-    
+
     Args:
         lead_data: Dictionary containing lead information (email, company, title, etc.)
-        rotator: Optional GeminiRotator instance (will create if not provided)
-        
+
     Returns:
         {
             "category": str,  # CLIENT, VENDOR, RECRUITER, INTERNAL, SPAM
@@ -196,12 +209,7 @@ def classify_lead(lead_data: dict, rotator=None) -> dict:
         return rule_result
     
     logger.info(f"Rule-based low confidence ({rule_result['confidence']}), falling back to AI")
-    if rotator is None:
-        rotator = get_rotator()
-    
-    # Get available key
-    key_index, api_key = rotator.get_available_key()
-    
+
     # Build context from lead_data
     context = []
     if lead_data.get("email"):
@@ -250,44 +258,18 @@ Priority: Based on role seniority, buying intent, and urgency
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=CLASSIFY_TEMPERATURE,
-            max_tokens=500,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="classify",
-            success=True,
-            metadata={
-                "category": result.get("category"),
-                "confidence": result.get("confidence"),
-                "priority": result.get("priority")
-            }
-        )
-        
-        return result
-        
+        return _ai_json(
+            "lead_classification", prompt,
+            {"type": "object",
+             "properties": {"category": {"type": "string"}, "confidence": {"type": "number"},
+                            "department": {"type": "string"}, "seniority": {"type": "string"},
+                            "reasoning": {"type": "string"}, "buying_intent": {"type": "number"},
+                            "priority": {"type": "string"}},
+             "required": ["category", "confidence", "department", "seniority", "reasoning",
+                          "buying_intent", "priority"]},
+            "category", 500)
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="classify",
-            success=False,
-            error=str(e)
-        )
-        
         return {
             "category": "UNKNOWN",
             "confidence": 0.0,
@@ -299,14 +281,13 @@ Priority: Based on role seniority, buying intent, and urgency
         }
 
 
-def enrich_lead(lead_data: dict, rotator=None) -> dict:
+def enrich_lead(lead_data: dict) -> dict:
     """
     Enrich lead with additional inferred details
-    
+
     Args:
         lead_data: Dictionary with partial lead information
-        rotator: Optional GeminiRotator instance
-        
+
     Returns:
         {
             "title_variations": List[str],  # Alternative job titles
@@ -317,11 +298,6 @@ def enrich_lead(lead_data: dict, rotator=None) -> dict:
             "engagement_angle": str  # How to approach this lead
         }
     """
-    if rotator is None:
-        rotator = get_rotator()
-    
-    key_index, api_key = rotator.get_available_key()
-    
     # Build context
     context = []
     if lead_data.get("title"):
@@ -354,39 +330,19 @@ Be specific and actionable. Base inferences on typical patterns for this role/co
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=DEFAULT_TEMPERATURE,
-            max_tokens=700,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="enrich",
-            success=True,
-            metadata={"industry": result.get("industry_vertical")}
-        )
-        
-        return result
-        
+        _s = {"type": "array", "items": {"type": "string"}}
+        return _ai_json(
+            "lead_enrichment", prompt,
+            {"type": "object",
+             "properties": {"title_variations": _s, "inferred_skills": _s,
+                            "industry_vertical": {"type": "string"},
+                            "company_size_estimate": {"type": "string"},
+                            "likely_pain_points": _s, "engagement_angle": {"type": "string"}},
+             "required": ["title_variations", "inferred_skills", "industry_vertical",
+                          "company_size_estimate", "likely_pain_points", "engagement_angle"]},
+            "industry_vertical", 700)
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="enrich",
-            success=False,
-            error=str(e)
-        )
-        
         return {
             "title_variations": [],
             "inferred_skills": [],
@@ -397,7 +353,7 @@ Be specific and actionable. Base inferences on typical patterns for this role/co
         }
 
 
-def extract_contact_info(email_body: str, from_email: str = "", from_name: str = "", rotator=None) -> dict:
+def extract_contact_info(email_body: str, from_email: str = "", from_name: str = "") -> dict:
     """
     Extract structured contact information from email body.
     
@@ -407,8 +363,7 @@ def extract_contact_info(email_body: str, from_email: str = "", from_name: str =
         email_body: Raw email text
         from_email: Sender email address (from header)
         from_name: Sender display name (from header)
-        rotator: Optional GeminiRotator instance
-        
+
     Returns:
         {
             "contacts": [{name, title, email, phone, company}],
@@ -436,11 +391,7 @@ def extract_contact_info(email_body: str, from_email: str = "", from_name: str =
         logger.info(f"Regex extraction found {fields_found} fields, falling back to AI")
     except Exception as e:
         logger.warning(f"Regex extraction failed: {e}, falling back to AI")
-    if rotator is None:
-        rotator = get_rotator()
-    
-    key_index, api_key = rotator.get_available_key()
-    
+
     # Truncate very long emails
     email_body = email_body[:5000]
     
@@ -475,39 +426,20 @@ Leave fields empty if not found.
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=EXTRACT_TEMPERATURE,
-            max_tokens=1000,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="extract",
-            success=True,
-            metadata={"contacts_found": len(result.get("contacts", []))}
-        )
-        
-        return result
-        
+        _c = {"type": "object",
+              "properties": {"name": {"type": "string"}, "title": {"type": "string"}, "email": {"type": "string"},
+                             "phone": {"type": "string"}, "company": {"type": "string"}},
+              "required": ["name", "title", "email", "phone", "company"]}
+        return _ai_json(
+            "contact_extraction", prompt,
+            {"type": "object",
+             "properties": {"contacts": {"type": "array", "items": _c},
+                            "primary_contact": _c,
+                            "signature_extracted": {"type": "boolean"}},
+             "required": ["contacts", "primary_contact", "signature_extracted"]},
+            "contacts", 1000)
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="extract",
-            success=False,
-            error=str(e)
-        )
-        
         return {
             "contacts": [],
             "primary_contact": None,
@@ -515,15 +447,14 @@ Leave fields empty if not found.
         }
 
 
-def summarize_email(email_body: str, subject: str = None, rotator=None) -> dict:
+def summarize_email(email_body: str, subject: str = None) -> dict:
     """
     Generate intelligent summary of email content
-    
+
     Args:
         email_body: Email content
         subject: Optional email subject line
-        rotator: Optional GeminiRotator instance
-        
+
     Returns:
         {
             "summary": str,  # 2-3 sentence overview
@@ -535,13 +466,8 @@ def summarize_email(email_body: str, subject: str = None, rotator=None) -> dict:
             "next_steps": str  # Recommended response/action
         }
     """
-    if rotator is None:
-        rotator = get_rotator()
-    
-    key_index, api_key = rotator.get_available_key()
-    
     email_body = email_body[:5000]
-    
+
     subject_line = f"Subject: {subject}\n" if subject else ""
     
     prompt = f"""Summarize this email and extract key information.
@@ -564,42 +490,18 @@ Focus on business relevance and actionable insights.
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=DEFAULT_TEMPERATURE,
-            max_tokens=800,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="summarize",
-            success=True,
-            metadata={
-                "sentiment": result.get("sentiment"),
-                "urgency": result.get("urgency")
-            }
-        )
-        
-        return result
-        
+        _s = {"type": "array", "items": {"type": "string"}}
+        return _ai_json(
+            "email_summary", prompt,
+            {"type": "object",
+             "properties": {"summary": {"type": "string"}, "key_points": _s, "action_items": _s,
+                            "sentiment": {"type": "string"}, "urgency": {"type": "string"},
+                            "contains_offer": {"type": "boolean"}, "next_steps": {"type": "string"}},
+             "required": ["summary", "key_points", "action_items", "sentiment", "urgency",
+                          "contains_offer", "next_steps"]},
+            "summary", 800)
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="summarize",
-            success=False,
-            error=str(e)
-        )
-        
         return {
             "summary": "Unable to summarize",
             "key_points": [],
@@ -611,7 +513,7 @@ Focus on business relevance and actionable insights.
         }
 
 
-def segment_email(subject: str, body: str, sender_email: str = None, rotator=None) -> dict:
+def segment_email(subject: str, body: str, sender_email: str = None) -> dict:
     """
     Segment email into type (CLIENT, VENDOR, INTERNAL, SPAM)
     Faster than full classify_lead - just categorization
@@ -620,8 +522,7 @@ def segment_email(subject: str, body: str, sender_email: str = None, rotator=Non
         subject: Email subject line
         body: Email body (can be truncated)
         sender_email: Sender email address
-        rotator: Optional GeminiRotator instance
-        
+
     Returns:
         {
             "segment": str,  # CLIENT, VENDOR, RECRUITER, INTERNAL, SPAM
@@ -629,11 +530,6 @@ def segment_email(subject: str, body: str, sender_email: str = None, rotator=Non
             "reasoning": str
         }
     """
-    if rotator is None:
-        rotator = get_rotator()
-    
-    key_index, api_key = rotator.get_available_key()
-    
     body = body[:1500]  # Shorter for quick segmentation
     
     sender_line = f"From: {sender_email}\n" if sender_email else ""
@@ -659,39 +555,15 @@ Definitions:
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=CLASSIFY_TEMPERATURE,
-            max_tokens=200,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="segment",
-            success=True,
-            metadata={"segment": result.get("segment")}
-        )
-        
-        return result
-        
+        return _ai_json(
+            "email_segmentation", prompt,
+            {"type": "object",
+             "properties": {"segment": {"type": "string"}, "confidence": {"type": "number"},
+                            "reasoning": {"type": "string"}},
+             "required": ["segment", "confidence", "reasoning"]},
+            "segment", 200)
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="segment",
-            success=False,
-            error=str(e)
-        )
-        
         return {
             "segment": "UNKNOWN",
             "confidence": 0.0,
@@ -699,22 +571,16 @@ Definitions:
         }
 
 
-def batch_categorize(leads: List[dict], rotator=None) -> List[dict]:
+def batch_categorize(leads: List[dict]) -> List[dict]:
     """
     Categorize multiple leads in a single batch (more efficient for large volumes)
-    
+
     Args:
         leads: List of lead dictionaries (each with email, name, title, company)
-        rotator: Optional GeminiRotator instance
-        
+
     Returns:
         List of dictionaries with categorization results
     """
-    if rotator is None:
-        rotator = get_rotator()
-    
-    key_index, api_key = rotator.get_available_key()
-    
     # Build batch input
     lead_entries = []
     for i, lead in enumerate(leads[:50]):  # Max 50 per batch
@@ -750,39 +616,19 @@ Focus on quick, accurate categorization.
 """
     
     try:
-        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=CLASSIFY_TEMPERATURE,
-            max_tokens=2000,
-            response_format={"type": "json_object"}
-        )
-        
-        text = response.choices[0].message.content.strip()
-        result = json.loads(text)
-        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
-        
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=tokens_used,
-            task_type="batch",
-            success=True,
-            metadata={"batch_size": len(leads)}
-        )
-        
+        result = _ai_json(
+            "lead_batch_categorization", prompt,
+            {"type": "object",
+             "properties": {"results": {"type": "array", "items": {
+                 "type": "object",
+                 "properties": {"lead_index": {"type": "integer"}, "segment": {"type": "string"},
+                                "confidence": {"type": "number"}, "priority": {"type": "string"}},
+                 "required": ["lead_index", "segment", "confidence", "priority"]}}},
+             "required": ["results"]},
+            "results", 2000)
         return result.get("results", [])
-        
+
     except Exception as e:
-        rotator.log_request(
-            key_index=key_index,
-            tokens_used=estimate_tokens(prompt),
-            task_type="batch",
-            success=False,
-            error=str(e)
-        )
-        
         # Return empty results on error
         return [
             {
@@ -824,23 +670,21 @@ john.smith@techcorp.com
     }
     
     try:
-        rotator = get_rotator()
-        
         print("1. Testing classify_lead():")
-        classification = classify_lead(test_lead, rotator)
+        classification = classify_lead(test_lead)
         print(f"   Category: {classification['category']}")
         print(f"   Confidence: {classification['confidence']}")
         print(f"   Priority: {classification['priority']}")
         print(f"   Buying Intent: {classification['buying_intent']}\n")
         
         print("2. Testing enrich_lead():")
-        enrichment = enrich_lead(test_lead, rotator)
+        enrichment = enrich_lead(test_lead)
         print(f"   Industry: {enrichment['industry_vertical']}")
         print(f"   Company Size: {enrichment['company_size_estimate']}")
         print(f"   Title Variations: {', '.join(enrichment['title_variations'][:3])}\n")
         
         print("3. Testing extract_contact_info():")
-        contacts = extract_contact_info(test_lead['email_body'], rotator)
+        contacts = extract_contact_info(test_lead['email_body'])
         print(f"   Contacts Found: {len(contacts['contacts'])}")
         if contacts['primary_contact']:
             print(f"   Primary: {contacts['primary_contact'].get('name', 'N/A')}\n")
@@ -848,8 +692,7 @@ john.smith@techcorp.com
         print("4. Testing summarize_email():")
         summary = summarize_email(
             test_lead['email_body'],
-            test_lead['email_subject'],
-            rotator
+            test_lead['email_subject']
         )
         print(f"   Summary: {summary['summary']}")
         print(f"   Sentiment: {summary['sentiment']}")
@@ -859,21 +702,13 @@ john.smith@techcorp.com
         segment = segment_email(
             test_lead['email_subject'],
             test_lead['email_body'],
-            test_lead['email'],
-            rotator
+            test_lead['email']
         )
         print(f"   Segment: {segment['segment']}")
         print(f"   Confidence: {segment['confidence']}\n")
         
-        print("✅ All tests completed!")
-        
-        # Show quota usage
-        print("\n6. Quota Usage:")
-        quota = rotator.check_quota()
-        print(f"   Total requests: {quota['total_requests_today']}")
-        print(f"   Total tokens: {quota['total_tokens_used']}")
-        print(f"   Percentage used: {quota['percentage_used']}%")
-        
+        print("All tests completed.")
+
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback

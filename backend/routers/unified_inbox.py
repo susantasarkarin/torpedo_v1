@@ -27,7 +27,8 @@ from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Query, HTTPException, Depends
 from pydantic import BaseModel, Field
 from bson import ObjectId
-from pymongo import MongoClient
+from pymongo.database import Database
+from db import legacy, panel
 
 import os
 import time
@@ -222,9 +223,7 @@ class InboxStats(BaseModel):
 
 def get_db():
     """Get MongoDB database instance"""
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri)
-    return client['email_automation']
+    return legacy()
 
 
 # ============== ENDPOINTS (OPTIMIZED) ==============
@@ -252,7 +251,7 @@ async def list_emails(
     sort_by: str = "timestamp",
     sort_order: Literal["asc", "desc"] = "desc",
     
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """
     List emails with filters and pagination.
@@ -339,7 +338,7 @@ async def list_conversations(
     has_unread: Optional[bool] = None,
     search: Optional[str] = None,
     
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """
     List conversation threads.
@@ -429,7 +428,7 @@ async def get_inbox_stats(
     date_from: Optional[datetime] = None,
     bypass_cache: bool = Query(False, description="Force fresh data"),
     
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """Get inbox statistics (CACHED for 60 seconds)"""
     
@@ -514,7 +513,7 @@ async def get_email(
     email_id: str,
     mark_read: bool = True,
     
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """Get a single email by ID"""
     emails_collection = db["emails"]
@@ -540,7 +539,7 @@ async def get_email(
 @router.get("/thread/{thread_id}", response_model=Dict[str, Any])
 async def get_thread(
     thread_id: str,
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """Get all emails in a conversation thread"""
     emails_collection = db["emails"]
@@ -574,7 +573,7 @@ async def get_thread(
 @router.post("/bulk", response_model=Dict[str, Any])
 async def bulk_operation(
     operation: BulkOperation,
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """Perform bulk operations on emails"""
     emails_collection = db["emails"]
@@ -638,7 +637,7 @@ async def bulk_operation(
 async def link_to_lead(
     email_id: str,
     lead_id: str,
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """Link an email to a lead"""
     emails_collection = db["emails"]
@@ -676,7 +675,7 @@ async def link_to_lead(
 async def link_to_project(
     email_id: str,
     project_id: str,
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """
     P1.4: Link an email to an Operations project.
@@ -685,9 +684,7 @@ async def link_to_project(
     emails_collection = db["emails"]
     
     # Get operations database for project validation
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri)
-    operations_db = client["campaign_platform"]
+    operations_db = panel()
     projects_collection = operations_db["projects"]
     
     # Verify email exists
@@ -718,7 +715,7 @@ async def link_to_project(
 async def link_thread_to_project(
     thread_id: str,
     project_id: str,
-    db: MongoClient = Depends(get_db)
+    db: Database = Depends(get_db)
 ):
     """
     P1.4: Link all emails in a thread to an Operations project.
@@ -726,9 +723,7 @@ async def link_thread_to_project(
     emails_collection = db["emails"]
     
     # Get operations database for project validation
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri)
-    operations_db = client["campaign_platform"]
+    operations_db = panel()
     projects_collection = operations_db["projects"]
     
     # Verify project exists

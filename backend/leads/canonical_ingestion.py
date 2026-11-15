@@ -7,32 +7,21 @@ Every lead from Gmail, CSV, or Web Search MUST pass through ingest_lead().
 NO EXCEPTIONS. NO BYPASSES.
 """
 
-import os
 import re
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
-from pymongo import MongoClient, ASCENDING, UpdateOne
+from pymongo import ASCENDING, UpdateOne
 from pymongo.errors import DuplicateKeyError, BulkWriteError
 from dotenv import load_dotenv
-
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
 
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# MongoDB connection
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-_client = _get_pooled_client()
-_db = _client['email_automation']
+# Database handles come from backend/db.py (shared pool, no own client).
+from db import legacy
+_db = legacy()
 leads_raw = _db['leads_raw']
 leads_enriched = _db['leads_enriched']  # Also update enriched collection for full display
 ingestion_log = _db['ingestion_log']
@@ -831,14 +820,11 @@ _torpedo_db_cached = None
 
 
 def _get_torpedo_db():
-    """Cached torpedo DB handle. The auto-enroll path used to open a brand-new
-    MongoClient (TCP + handshake) for EVERY ingested lead, which crushed
-    large imports."""
+    """Cached torpedo (outreach) DB handle from the shared pool (db.py)."""
     global _torpedo_db_cached
     if _torpedo_db_cached is None:
-        _uri = os.getenv('MONGO_URI') or 'mongodb://localhost:27017/'
-        _torpedo_db_cached = MongoClient(
-            _uri, serverSelectionTimeoutMS=5000)[os.getenv('MONGO_DB_NAME', 'torpedo')]
+        from db import outreach
+        _torpedo_db_cached = outreach()
     return _torpedo_db_cached
 
 

@@ -655,14 +655,14 @@ class WorkerManager:
         """
         self.db = db
         
-        # Import OpenAI classification worker
-        from .openai_email_classifier import OpenAIClassificationWorker
+        # Import LLM classification worker
+        from .llm_email_classifier import LLMClassificationWorker
         
         self.workers = {
             "backfill": BackfillWorker(db),
             "incremental": IncrementalSyncWorker(db),
             "categorization": CategorizationWorker(db),
-            "openai_classification": OpenAIClassificationWorker(
+            "openai_classification": LLMClassificationWorker(
                 db=db,
                 batch_size=500,
                 poll_interval=30  # Check for new emails every 30 seconds

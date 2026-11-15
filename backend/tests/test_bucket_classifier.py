@@ -35,13 +35,34 @@ from leads.outreach_config import (
 )
 
 
+def _converse_backed_escalate_json(*, task, system, user, schema, check,
+                                   tiers=None, **_kwargs):
+    """Test seam: the classifier now calls platform_core.ladder.escalate_json.
+    Route each rung to bedrock_client.converse (patched per test) so the
+    scripted cheap/smart answers still drive the ladder's check."""
+    role = "smart" if tiers == ["sonnet"] else "cheap"
+    try:
+        text = bedrock_client.converse(role, system, user)
+        data = bedrock_client.parse_json_strict(text)
+    except Exception as e:  # ladder records the failure as an attempt
+        return None, None, [{"tier": tiers[0] if tiers else None,
+                             "status": "error", "problems": [str(e)]}]
+    problems = check(data)
+    if problems:
+        return None, None, [{"tier": tiers[0] if tiers else None,
+                             "status": "rejected", "problems": problems}]
+    return data, (tiers[0] if tiers else None), [{"status": "ok"}]
+
+
 @pytest.fixture(autouse=True)
 def _model_path_only(monkeypatch):
     """These tests cover the model path; the title rules that decide without
     a model call ("bim", "survey") are tested in test_bucket_classifier_rules.py."""
     from leads import bucket_classifier
+    from platform_core import ladder
     monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
     monkeypatch.setattr(bucket_classifier, "MODEL_CLASSIFICATION_ENABLED", True)
+    monkeypatch.setattr(ladder, "escalate_json", _converse_backed_escalate_json)
 
 
 # A title that names no role we sell to: a model REJECT on it is not second-guessed
@@ -472,21 +493,21 @@ def test_every_bucket_has_a_definition():
 
 
 
-def test_escalation_skipped_when_both_roles_are_the_same_model(monkeypatch):
-    """Qwen-only policy: there is no stronger model to escalate to, so a
-    borderline lead goes straight to review on ONE call instead of paying for a
-    second identical one."""
+def test_escalation_always_runs_on_the_ladder(monkeypatch):
+    """The ladder escalates Haiku -> Sonnet regardless of the BEDROCK_MODEL_*
+    env vars, so a borderline lead always gets a second opinion from the
+    stronger tier."""
     monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
     monkeypatch.setenv("BEDROCK_MODEL_SMART", "qwen.qwen3-32b-v1:0")
 
-    payload = '{"bucket": "BIM", "confidence": 0.4, "reason": "thin"}'
-    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
+    cheap = '{"bucket": "BIM", "confidence": 0.4, "reason": "thin"}'
+    smart = '{"bucket": "BIM", "confidence": 0.9, "reason": "clear"}'
+    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]) as mock:
         result = classify_lead(QUALIFIED, threshold=0.7)
 
-    assert mock.call_count == 1
-    assert result["bucket"] == REVIEW_BUCKET
-    assert result["method"] == "low_confidence_no_escalation"
-    assert result["proposed_bucket"] == "BIM"
+    assert mock.call_count == 2
+    assert result["bucket"] == "BIM"
+    assert result["method"] == "smart_escalation"
 
 
 

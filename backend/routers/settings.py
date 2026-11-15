@@ -3,7 +3,6 @@ Settings Router - Handles application settings management
 """
 from fastapi import APIRouter, Body, HTTPException, Request
 from typing import Dict, Any
-from pymongo import MongoClient
 from datetime import datetime
 import os
 import time
@@ -25,7 +24,6 @@ router = APIRouter(
 )
 
 # MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12). This module built its own MongoClient at
 # import time with socketTimeoutMS=8000; the shared pool uses 20000, which is
 # more forgiving, not less. Everything else (serverSelection/connect timeouts)
@@ -106,25 +104,12 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         # Note: SESSION_SECRET is server-side only for signing session tokens.
         # It is loaded from environment variables and not user-editable.
         settings = {
-            "mongo_uri": stored.get("mongo_uri", os.getenv("MONGO_URI", "mongodb://localhost:27017/")),
+            "mongo_uri": stored.get("mongo_uri", os.getenv("MONGO_URI", "")),
             "cpx_app_id": stored.get("cpx_app_id", os.getenv("CPX_APP_ID", "")),
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
             "anthropic_api_key": stored.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
-            # AI Provider - OpenAI (pay-as-you-go for all AI ops)
-            "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
-            # OpenAI API Keys (up to 10 keys for pipeline rotation)
-            "openai_api_key_1": stored.get("openai_api_key_1", os.getenv("OPENAI_API_KEY_1", "")),
-            "openai_api_key_2": stored.get("openai_api_key_2", os.getenv("OPENAI_API_KEY_2", "")),
-            "openai_api_key_3": stored.get("openai_api_key_3", os.getenv("OPENAI_API_KEY_3", "")),
-            "openai_api_key_4": stored.get("openai_api_key_4", os.getenv("OPENAI_API_KEY_4", "")),
-            "openai_api_key_5": stored.get("openai_api_key_5", os.getenv("OPENAI_API_KEY_5", "")),
-            "openai_api_key_6": stored.get("openai_api_key_6", os.getenv("OPENAI_API_KEY_6", "")),
-            "openai_api_key_7": stored.get("openai_api_key_7", os.getenv("OPENAI_API_KEY_7", "")),
-            "openai_api_key_8": stored.get("openai_api_key_8", os.getenv("OPENAI_API_KEY_8", "")),
-            "openai_api_key_9": stored.get("openai_api_key_9", os.getenv("OPENAI_API_KEY_9", "")),
-            "openai_api_key_10": stored.get("openai_api_key_10", os.getenv("OPENAI_API_KEY_10", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
             # Skrapp.io API keys (3 accounts, 150 searches/month each)
             "skrapp_api_key_1": stored.get("skrapp_api_key_1", os.getenv("SKRAPP_API_KEY_1", "")),
@@ -137,10 +122,6 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         sensitive_fields = [
             "cpx_secure_hash_key",
             "anthropic_api_key",
-            "openai_api_key",
-            "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",
-            "openai_api_key_5", "openai_api_key_6", "openai_api_key_7",
-            "openai_api_key_8", "openai_api_key_9", "openai_api_key_10",
             "google_sheets_service_account",
             "skrapp_api_key_1", "skrapp_api_key_2", "skrapp_api_key_3"
         ]
@@ -189,11 +170,6 @@ async def save_app_settings(
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
             "anthropic_api_key",
-            # AI Providers - OpenAI (pay-as-you-go) for all AI operations
-            "openai_api_key",
-            "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",
-            "openai_api_key_5", "openai_api_key_6", "openai_api_key_7",
-            "openai_api_key_8", "openai_api_key_9", "openai_api_key_10",
             # Legacy Gemini keys (kept for backward compat)
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
@@ -330,7 +306,9 @@ async def test_mongo_connection(
         if not uri:
             raise HTTPException(status_code=400, detail="MongoDB URI is required")
         
-        # Try to connect
+        # Try to connect. Deliberate throwaway client: this endpoint tests a
+        # caller-supplied URI, so the shared pool cannot be used.
+        from pymongo import MongoClient
         test_client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         test_client.admin.command('ping')
         test_client.close()
@@ -469,6 +447,35 @@ async def get_deployment_logs(
 # OpenAI Usage Monitoring - COST CONTROL
 # ============================================
 
+def _claude_usage_summary(hours: int = 24) -> Dict[str, Any]:
+    """Usage summary over ai_governance.ladder_jobs (the ladder's per-attempt log).
+    Same {"breakdown": [...]} shape the retired openai_wrapper.token_logger returned."""
+    try:
+        from datetime import timedelta
+        from platform_core import ladder
+        gdb = ladder._gov_db()
+        since = datetime.utcnow() - timedelta(hours=hours)
+        breakdown = []
+        for row in gdb["ladder_jobs"].aggregate([
+            {"$match": {"at": {"$gte": since}}},
+            {"$group": {"_id": {"tier": "$tier", "task": "$task"},
+                        "total_input_tokens": {"$sum": {"$ifNull": ["$tokens_in", 0]}},
+                        "total_output_tokens": {"$sum": {"$ifNull": ["$tokens_out", 0]}},
+                        "total_requests": {"$sum": 1},
+                        "total_cost": {"$sum": {"$ifNull": ["$usd", 0]}}}}]):
+            breakdown.append({
+                "model": row["_id"].get("tier") or "unknown",
+                "source": row["_id"].get("task") or "unknown",
+                "total_input_tokens": row["total_input_tokens"],
+                "total_output_tokens": row["total_output_tokens"],
+                "total_requests": row["total_requests"],
+                "total_cost": round(float(row["total_cost"] or 0), 6),
+            })
+        return {"breakdown": breakdown, "period_hours": hours, "provider": "anthropic"}
+    except Exception as e:
+        return {"breakdown": [], "error": str(e)}
+
+
 @router.get("/openai/usage")
 async def get_openai_usage(request: Request = None, hours: int = 24) -> Dict[str, Any]:
     """
@@ -487,10 +494,7 @@ async def get_openai_usage(request: Request = None, hours: int = 24) -> Dict[str
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Import usage logger from wrapper
-        from leads.openai_wrapper import token_logger
-        
-        summary = token_logger.get_usage_summary(hours=hours)
+        summary = _claude_usage_summary(hours=hours)
         
         # Calculate totals
         total_cost = 0.0
@@ -517,8 +521,8 @@ async def get_openai_usage(request: Request = None, hours: int = 24) -> Dict[str
             },
             "by_model_and_source": breakdown,
             "cost_control_settings": {
-                "kill_switch": os.getenv("DISABLE_AI_CALLS", os.getenv("DISABLE_OPENAI_CALLS", "false")),
-                "default_model": "claude-haiku-4-5",
+                "kill_switch": os.getenv("DISABLE_AI_CALLS", "false"),
+                "default_model": "claude-haiku-5-5",
                 "max_output_tokens_default": 300,
                 "max_output_tokens_background": 150
             }
@@ -536,8 +540,6 @@ async def get_openai_daily_usage(request: Request = None) -> Dict[str, Any]:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
-        
-        from leads.openai_wrapper import token_logger
         
         # Get usage for last 7 days
         usage_db = mongo_client['email_automation']
@@ -967,7 +969,7 @@ Rules: C-Level=CEO/CTO/CFO/Founder. Startup=1-50,SMB=51-200,Mid-Market=201-1000,
 Name:{name} Title:{title} URL:{linkedin_url}
 Context:{snippet} Location:{location} Company:{company_name} Email:{email}
 Return JSON.""",
-        "model": "gpt-4o-mini",
+        "model": "claude-haiku-5-5",
         "temperature": 0.1,
         "max_output_tokens": 300
     },
@@ -1150,7 +1152,7 @@ Location: {location}
 Criteria: {criteria}
 
 Return JSON with 3 search queries.""",
-        "model": "gpt-4o-mini",
+        "model": "claude-haiku-5-5",
         "temperature": 0.5,
         "max_output_tokens": 300
     }
@@ -1462,16 +1464,22 @@ async def test_ai_prompt(
             email=sample_lead.get("email", "-")
         )
         
-        # Call OpenAI API for test
+        # Call the Claude gateway for test
         try:
-            from leads.openai_wrapper import chat_completion
-            
+            from ai_governance.claude_gateway import chat_completion
+
+            if os.getenv("DISABLE_AI_CALLS", "false").lower() == "true":
+                raise RuntimeError("AI calls disabled (DISABLE_AI_CALLS)")
             result = chat_completion(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
                 source="prompt_test",
                 max_output_tokens=data.get("max_output_tokens", 300)
             )
+            if not result.get("success"):
+                raise RuntimeError(result.get("error") or "ai_call_failed")
             
             return {
                 "success": True,
@@ -1479,7 +1487,7 @@ async def test_ai_prompt(
                 "formatted_user_prompt": user_prompt,
                 "ai_response": result.get("content", ""),
                 "tokens_used": result.get("tokens_used", 0),
-                "model": result.get("model", "gpt-4o-mini")
+                "model": result.get("model", "claude-haiku-5-5")
             }
             
         except Exception as api_error:
@@ -1530,11 +1538,11 @@ async def get_prompts_documentation(request: Request = None) -> Dict[str, Any]:
                     "prompts": []
                 },
                 "openai": {
-                    "provider": "OpenAI",
-                    "tier": "Paid - GPT-4o-mini (~$0.00015 per input token, ~$0.0006 per output token)",
-                    "models": ["gpt-4o-mini", "gpt-4o"],
-                    "cost": "$10-20/month (primarily for web search)",
-                    "use_case": "Lead classification (legacy), web search queries",
+                    "provider": "Anthropic Claude (platform_core.ladder)",
+                    "tier": "Paid - Haiku first, Sonnet on escalation, monthly budget capped",
+                    "models": ["claude-haiku-5-5", "claude-sonnet-5-5"],
+                    "cost": "Capped by ladder.monthly_budget_usd",
+                    "use_case": "Lead classification, enrichment, email categorization, outreach drafts",
                     "prompts": []
                 },
                 "google_cse": {
@@ -1557,8 +1565,8 @@ async def get_prompts_documentation(request: Request = None) -> Dict[str, Any]:
                     ],
                     "prompts_used": ["gemini_classify_lead", "gemini_extract_contacts", "gemini_summarize_email"]
                 },
-                "gemini_enrichment": {
-                    "module": "backend/leads/gemini_enrichment.py",
+                "enrichment_ai": {
+                    "module": "backend/leads/enrichment_ai.py",
                     "functions": [
                         "classify_lead()",
                         "enrich_lead()",

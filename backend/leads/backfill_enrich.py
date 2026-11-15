@@ -74,7 +74,6 @@ except ImportError:  # script context
 
 logger = logging.getLogger("backfill_enrich")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -328,14 +327,15 @@ async def enrich_one(lead: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================
-# BATCH MODE (Bedrock batch inference — 50% cheaper, not time-sensitive)
+# BATCH MODE (deferred extraction: gather first, then one ladder call per lead)
 # ============================================================
 # Three phases:
-#   A. gather   — run the (CSE-limited) Google searches, write extraction
-#                 prompts as JSONL records keyed by lead _id
-#   B. submit   — hand the JSONL to bedrock_client (S3 + batch job), poll
-#   C. ingest   — map results back to leads by record id, then apply the SAME
-#                 scrub/merge/rescore path as on-demand mode
+#   A. gather   — run the (CSE-limited) Google searches, collect the extraction
+#                 prompts keyed by lead _id
+#   B. extract  — platform_core.ladder.escalate_json per prompt (Haiku, then
+#                 Sonnet). No provider batch job; a lead with no answer is
+#                 skipped and retried on the next run
+#   C. ingest   — apply the SAME scrub/merge/rescore path as on-demand mode
 # On-demand mode remains the default and is right for small runs.
 
 def _apply_enrichment_and_rescore(lead: Dict[str, Any],
@@ -404,11 +404,9 @@ def _apply_enrichment_and_rescore(lead: Dict[str, Any],
 
 async def run_batch(dry_run: bool = False, limit: Optional[int] = None,
                     poll_interval: int = 300) -> Dict[str, int]:
-    """Batch-inference variant of the enrichment pass."""
-    from leads.bedrock_client import build_batch_records, fetch_batch_results, poll_batch_job, submit_batch_job, validate_model_access
+    """Deferred-extraction variant of the enrichment pass."""
+    from platform_core import ladder
     from leads.ingestion import EXTRACTION_SYSTEM_PROMPT, _is_cse_paused, build_extraction_prompt, parse_extracted_leads, perform_google_search
-
-    validate_model_access(("cheap",))  # fail fast before burning CSE quota
 
     stats = {
         "scanned": 0, "discarded": 0, "rescored": 0, "segment_changed": 0,
@@ -454,40 +452,36 @@ async def run_batch(dry_run: bool = False, limit: Optional[int] = None,
         lead_by_id[lead_id] = lead
 
     if not items:
-        logger.info("batch mode: nothing to submit")
+        logger.info("batch mode: nothing to extract")
         return stats
 
     stats["batch_records"] = len(items)
-    jsonl = build_batch_records(items, role="cheap")
 
     if dry_run:
-        preview_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            ".backfill_batch_preview.jsonl")
-        with open(preview_path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(jsonl))
-        logger.info("DRY RUN: %d batch records written to %s — no job submitted",
-                    len(jsonl), preview_path)
+        logger.info("DRY RUN: %d extraction prompts would be sent — no calls made", len(items))
         return stats
 
-    # --- Phase B: submit and poll ----------------------------------------
-    job = submit_batch_job(jsonl, role="cheap")
-    status = poll_batch_job(job["job_arn"], interval_seconds=poll_interval)
-    if status != "Completed":
-        logger.error("batch job ended %s — nothing ingested", status)
-        stats["errors"] += 1
-        return stats
-
-    # --- Phase C: ingest --------------------------------------------------
-    results_by_id = fetch_batch_results(job["output_prefix"])
+    # --- Phase B + C: extract per lead, then ingest -----------------------
     active_icps = get_active_icps()
 
-    for record_id, data in results_by_id.items():
-        lead = lead_by_id.get(record_id)
-        if lead is None:
+    for record_id, system, user in items:
+        lead = lead_by_id[record_id]
+        # The ladder blocks on network I/O; keep the event loop free.
+        data, _tier, _attempts = await asyncio.to_thread(
+            ladder.escalate_json,
+            task="lead_extraction",
+            system=system,
+            user=user,
+            schema=None,
+            check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"],
+            max_tokens=1024,
+        )
+        if data is None:
+            # No cloud tier answered: write nothing, the lead stays for the next run.
+            stats["errors"] += 1
             continue
         stats["batch_results"] += 1
-        extracted_leads = parse_extracted_leads(data) if data else []
+        extracted_leads = parse_extracted_leads(data)
         # Prefer the record matching this lead's LinkedIn URL, like on-demand.
         target = (lead.get("linkedin_url") or "").rstrip("/").lower()
         best = None
@@ -647,8 +641,8 @@ def main() -> int:
     parser.add_argument("--no-enrich", action="store_true",
                         help="re-score only; make no search calls")
     parser.add_argument("--batch", action="store_true",
-                        help="use Bedrock batch inference (50%% cheaper; "
-                             "needs BEDROCK_BATCH_S3_BUCKET + _ROLE_ARN)")
+                        help="gather all searches first, then extract per lead "
+                             "through the AI ladder (no provider batch job)")
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT,
                         help="checkpoint file path")
     parser.add_argument("--reset", action="store_true",

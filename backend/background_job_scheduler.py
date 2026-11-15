@@ -955,13 +955,11 @@ def initialize_scheduler(loop=None):
             from database import get_async_collection
 
             def _classify_leads_sync():
-                _client = None
                 try:
-                    import pymongo as _pymongo
                     import datetime as _dt
-                    _client = _pymongo.MongoClient("mongodb://localhost:27017/")
-                    _col_raw = _client["email_automation"]["leads_raw"]
-                    _col_enriched = _client["email_automation"]["leads_enriched"]
+                    from db import legacy as _legacy_db
+                    _col_raw = _legacy_db()["leads_raw"]
+                    _col_enriched = _legacy_db()["leads_enriched"]
 
                     query = {"classification_status": {"$in": ["Pending", "pending"]}}
                     total = _col_raw.count_documents(query)
@@ -1025,9 +1023,6 @@ def initialize_scheduler(loop=None):
                             logger.warning(f"[Scheduler/LeadClassifier] Enrollment sync skipped: {_enroll_err}")
                 except Exception as _e:
                     logger.error(f"[Scheduler/LeadClassifier] Error: {_e}")
-                finally:
-                    if _client is not None:
-                        _client.close()
 
             async def _run_lead_classification():
                 # Blocking pymongo work must stay off the event loop,

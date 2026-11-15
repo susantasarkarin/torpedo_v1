@@ -17,7 +17,6 @@ Stage Mapping:
 - Deal Won: RFQ status = 'won'
 """
 
-import os
 import logging
 import hashlib
 import time
@@ -28,15 +27,10 @@ from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import legacy, finance
 
 
 load_dotenv()
@@ -89,16 +83,11 @@ router = APIRouter(
     tags=["sales-dashboard"]
 )
 
-# MongoDB connections
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-mongo_client = _get_pooled_client()
+# MongoDB connections (db.py handles; shared client pair)
 
 # Databases
-email_automation_db = mongo_client["email_automation"]
-finance_db = mongo_client["finance_db"]
+email_automation_db = legacy()
+finance_db = finance()
 
 # Collections
 leads_raw_collection = email_automation_db["leads_raw"]

@@ -24,28 +24,18 @@ logger = logging.getLogger(__name__)
 
 _URL = re.compile(r"https?://[^\s>\"\]]+", re.I)
 _OUR_LINKS = re.compile(r"surveyfieldwork|cogentix|bimwave|force\.com|salesforce", re.I)
-QUEUE_WAIT_SECONDS = 200  # outwait one running extraction call (100-170s), 2026-10-17
 
 
 def _ask(system: str, user: str, schema: Dict[str, Any], max_tokens: int = 200) -> Optional[Dict[str, Any]]:
     """One model decision; None when the model is unavailable."""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, chat_json
-    # 3,500 characters is ~900 tokens of English, but some mail (Arabic, CJK,
-    # long tracking URLs) runs past the 2,048-token window; that is the
-    # message's size, not an outage -- and treated as one, the same message
-    # was retried every 2 minutes for hours (2026-09-30). Retry shorter.
-    for limit in (3500, 1600, 700):
-        try:
-            with queue_wait(QUEUE_WAIT_SECONDS, priority="rfq"):
-                return chat_json(system=system, user=user[:limit], max_tokens=max_tokens, json_schema=schema,
-                                 timeout=120)
-        except LocalSLMError as e:
-            if "exceeds the available context" in str(e) and limit != 700:
-                continue
-            logger.warning("rfq_ai: model unavailable: %s", e)
-            return None
-    return None
+    from platform_core import ladder
+    data, _tier, attempts = ladder.escalate_json(
+        task="rfq_ai", system=system, user=user[:3500], schema=schema, max_tokens=max(max_tokens, 300),
+        check=lambda d: [] if isinstance(d, dict) else ["not a JSON object"])
+    if data is None:
+        logger.warning("rfq_ai: model unavailable: %s",
+                       "; ".join(str(a.get("problems") or a.get("error")) for a in attempts)[:300])
+    return data
 
 
 # ---------------------------------------------------------------------------

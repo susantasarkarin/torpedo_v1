@@ -16,7 +16,6 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI
-from pymongo import MongoClient
 
 from .orchestrator import EmailSyncOrchestrator
 from .router import router, _orchestrator
@@ -47,7 +46,8 @@ def setup_email_sync(
     """
     global _orchestrator
     
-    mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
+    # The orchestrator never connects with this value; it uses db.get_client() (shared pool).
+    mongo_uri = mongo_uri or os.getenv("MONGO_URI") or "shared-pool"
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):

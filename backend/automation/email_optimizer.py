@@ -6,12 +6,13 @@ Generates 3 personalized email variants for a campaign based on:
 2. Campaign context
 3. Historical performance data
 
-Uses OpenAI (gpt-4o-mini) to generate variants with maximum personalization.
+Uses the escalation ladder (Claude Haiku, then Sonnet) to generate variants with maximum personalization.
 Maximum personalization means tone, style, and messaging change based on lead attributes.
 """
 
 import logging
 import json
+import os
 from typing import Optional, Dict, Any, List
 from pymongo.database import Database
 from datetime import datetime
@@ -27,20 +28,18 @@ class EmailOptimizer:
     Selects best variant based on confidence score.
     """
 
-    def __init__(self, db: Database, openai_wrapper=None, decision_logger=None):
+    def __init__(self, db: Database, decision_logger=None):
         """
         Initialize email optimizer.
 
         Args:
             db: MongoDB database instance
-            openai_wrapper: OpenAI wrapper for API calls
             decision_logger: Optional DecisionLogger for compliance logging
         """
         self.db = db
         self.campaigns = db["campaigns"]
         self.email_templates = db["email_templates"]
         self.email_variants = db["email_variants"]
-        self.openai_wrapper = openai_wrapper
         self.decision_logger = decision_logger
 
     def generate_variants(
@@ -86,9 +85,9 @@ class EmailOptimizer:
 
         logger.info(f"Generating email variants for campaign {campaign_id}")
 
-        # If OpenAI wrapper not available, return default template
-        if not self.openai_wrapper:
-            logger.warning("OpenAI wrapper not available, returning base template only")
+        # Kill switch: no AI calls -> return the base template only
+        if os.getenv("DISABLE_AI_CALLS", "").lower() in ("1", "true", "yes"):
+            logger.warning("AI calls disabled (DISABLE_AI_CALLS), returning base template only")
             return {
                 "campaign_id": campaign_id,
                 "variants": [self._template_to_variant(base_template, "Original")],
@@ -229,38 +228,35 @@ For each variant, provide:
   "confidence_score": 0.85
 }}
 
-Return ONLY valid JSON array with 3 variants, no other text."""
+Return ONLY a JSON object {"variants": [3 variant objects]}, no other text."""
 
         try:
-            response = self.openai_wrapper.chat_completion(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert B2B email copywriter. Generate highly personalized email variants with maximum variation in tone and style."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                source="background",
-                endpoint="email_optimization",
-                max_output_tokens=1500,
-                temperature=0.7  # Higher temp for variety
+            from platform_core.ladder import escalate_json
+            variant_schema = {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "subject_line": {"type": "string"},
+                    "body": {"type": "string"},
+                    "personalization_note": {"type": "string"},
+                    "confidence_score": {"type": "number"},
+                },
+                "required": ["name", "subject_line", "body", "personalization_note", "confidence_score"],
+            }
+            data, _tier, _attempts = escalate_json(
+                task="email_variants",
+                system="You are an expert B2B email copywriter. Generate highly personalized email variants with maximum variation in tone and style.",
+                user=prompt,
+                schema={"type": "object", "properties": {"variants": {"type": "array", "items": variant_schema}},
+                        "required": ["variants"]},
+                check=lambda d: [] if isinstance(d.get("variants"), list) and d["variants"] else ["no variants"],
+                max_tokens=1500,
             )
-
-            if not response.get("success"):
-                logger.error(f"OpenAI call failed: {response.get('error')}")
+            if data is None:
+                logger.error("Email variant generation failed on every AI tier")
                 return [self._template_to_variant(base_template, "Original")]
 
-            # Parse response
-            try:
-                variants_data = json.loads(response.get("content", "[]"))
-                if not isinstance(variants_data, list):
-                    variants_data = [variants_data]
-            except json.JSONDecodeError:
-                logger.error("Failed to parse OpenAI response")
-                return [self._template_to_variant(base_template, "Original")]
+            variants_data = data.get("variants") or []
 
             # Convert to internal format
             variants = []

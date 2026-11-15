@@ -3,7 +3,8 @@ AI GOVERNANCE FRAMEWORK
 =======================
 Consolidated AI functionality with governance checks, hard daily limits, and zero duplication.
 
-Provider: Anthropic Claude — the ONLY AI provider in this codebase.
+Provider: Anthropic Claude, called through the platform_core.ladder config
+(fast = haiku, smart = sonnet, escalation on failure or low confidence).
 
 This module is the SINGLE entry point for all AI operations:
 - ai_gateway:     task-specific operations (classify/summarize/extract/draft)
@@ -44,15 +45,6 @@ from .governance_checks import (
 get_gemini_gateway = get_ai_gateway
 GeminiGateway = AIGateway
 
-# Web gateway (Claude-backed; OpenAI names kept for compat)
-from .openai_gateway import (
-    OpenAIGateway,
-    get_openai_gateway,
-    web_search,
-    discover_leads_external,
-    OpenAIWebSearchOnly,
-)
-
 __all__ = [
     # Claude gateway (generic governed access)
     'ClaudeGateway',
@@ -74,13 +66,6 @@ __all__ = [
     'AIDailyLimitExceeded',
     'GeminiDailyLimitExceeded',  # backward compat alias
     'EmailAlreadyClassified',
-    
-    # OpenAI Web Search (if available)
-    'OpenAIGateway',
-    'get_openai_gateway',
-    'web_search',
-    'discover_leads_external',
-    'OpenAIWebSearchOnly',
     
     # Governance
     'validate_no_deepseek',

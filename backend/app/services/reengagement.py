@@ -205,15 +205,9 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
             "reply_subject": _reply_subject(ctx.get("what"))}
     refused = ""
     if kind in _ASK:
-        from leads.local_llm_gate import queue_wait
-        from leads.local_slm_client import LocalSLMError, chat_json
         try:
             user = _ASK[kind].format(**fill) + f" Greet them as \"Hi {first},\". No sign-off, no placeholders, under 90 words."
             allowed = " ".join(str(v) for v in fill.values())
-
-            def _local():
-                with queue_wait(300, priority="bulk"):  # a daily job; the one model slot is often busy
-                    return chat_json(system=_SYSTEM, user=user, max_tokens=320, json_schema=_SCHEMA, timeout=120)
 
             def _check(d):
                 if not isinstance(d, dict):
@@ -222,10 +216,10 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
                 r = check_text(b, first if first != "there" else "", allowed) or \
                     ("no subject" if not " ".join(str(d.get("subject") or "").split()) else "")
                 return [r] if r else []
-            # escalation ladder: local Qwen, then Haiku / Sonnet when it fails the same check
+            # escalation ladder: Haiku, then Sonnet when it fails the same check
             from platform_core import ladder
             got, _tier, tries = ladder.escalate_json(task="reengagement_draft", system=_SYSTEM, user=user,
-                                                     schema=_SCHEMA, check=_check, local=_local)
+                                                     schema=_SCHEMA, check=_check, max_tokens=320)
             if got is None:
                 got = {}
             body = _trim_sign_off(str(got.get("body") or ""))
@@ -241,9 +235,7 @@ def write_check_in(kind: str, ctx: Dict[str, Any]) -> Dict[str, str]:
                 elif re.search(r"\b(positive|leads?|rfq|dormant|re-?engage\w*|follow[- ]?up email)\b", subject, re.I):
                     subject = _TEMPLATES[kind][0]
                 return {"subject": subject, "body": body, "source": "ai"}
-        except LocalSLMError as e:
-            refused = f"model unavailable: {e}"
-        except Exception as e:  # queue timeout, redis down
+        except Exception as e:
             refused = f"model call failed: {e}"
     subj, body = _TEMPLATES.get(kind, ("Checking in", "Hi {first},\n\nChecking in."))
     subject = _quote_subject(ctx, fill) if kind == "quote_no_reply" else subj.format(**fill)
@@ -439,8 +431,7 @@ def _suppressed(email: str) -> bool:
 
 def _create_draft(box: Dict[str, str], to: str, subject: str, body: str, thread_id: Optional[str]) -> Dict[str, Any]:
     from app.services.gmail_workspace_service import GmailWorkspaceService
-    svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                                db_name="torpedo_gmail")
+    svc = GmailWorkspaceService(db_name="torpedo_gmail")
     svc.load_service_account()
     return svc.create_draft(from_email=box["email"], to=[to], subject=subject, body_plain=body,
                             thread_id=thread_id, signature_html=svc.get_signature(box["email"]))
@@ -450,8 +441,8 @@ def run(client=None, now: Optional[datetime] = None, dry_run: bool = False,
         max_drafts: Optional[int] = None) -> Dict[str, Any]:
     """The daily sweep. dry_run: find and write nothing (no model calls)."""
     if client is None:
-        from pymongo import MongoClient
-        client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/")
+        from db import get_client
+        client = get_client()
     now = now or datetime.utcnow()
     state = client["email_automation"]["reengagement"]
     le = client["email_automation"]["leads_enriched"]

@@ -42,8 +42,8 @@ async def detailed_health() -> Dict[str, Any]:
     """
     Comprehensive health check including all dependencies.
     """
-    from pymongo import MongoClient
-    
+    from db import get_client
+
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -52,12 +52,12 @@ async def detailed_health() -> Dict[str, Any]:
     
     # Check MongoDB
     try:
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+        client = get_client()
         client.admin.command('ping')
+        _addr = getattr(client, "address", None)
         health_status["components"]["mongodb"] = {
             "status": "healthy",
-            "host": mongo_uri.split("@")[-1].split("/")[0] if "@" in mongo_uri else mongo_uri.split("//")[-1].split("/")[0]
+            "host": f"{_addr[0]}:{_addr[1]}" if _addr else "shared pool"
         }
     except Exception as e:
         health_status["components"]["mongodb"] = {

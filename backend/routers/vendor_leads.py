@@ -8,14 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Optional, List
 from bson import ObjectId
 from datetime import datetime
-from pymongo import MongoClient
-import os
-
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import legacy, finance
 
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
@@ -26,13 +19,8 @@ from leads.service import get_emails_for_lead
 
 router = APIRouter(prefix="/vendor-leads", tags=["Vendor Leads"])
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-client = _get_pooled_client()
-db = client["email_automation"]
+# MongoDB connection (db.py handles; shared client pair)
+db = legacy()
 
 # Collections
 vendor_leads_collection = db["vendor_leads"]
@@ -487,7 +475,7 @@ async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
     # Create vendor in appropriate collection
     if vendor_type == "billing":
         # Billing vendor goes to finance_db.vendors
-        finance_db = client["finance_db"]
+        finance_db = finance()
         billing_vendors = finance_db["vendors"]
         
         # Generate vendor number

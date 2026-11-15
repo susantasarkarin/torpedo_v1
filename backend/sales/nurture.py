@@ -23,6 +23,8 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
+from db import by_name
+
 logger = logging.getLogger(__name__)
 
 TRACK = "positive_nurture"
@@ -50,16 +52,8 @@ def _steps() -> List[Dict[str, Any]]:
         return []
 
 
-_client = None
-
-
 def _db(name: str):
-    global _client
-    if _client is None:
-        from pymongo import MongoClient
-        _client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                              serverSelectionTimeoutMS=5000)
-    return _client[name]
+    return by_name(name)
 
 
 def _leads():
@@ -205,8 +199,7 @@ def _deliver(lead: Dict[str, Any], rendered: Dict[str, str], box: Dict[str, Opti
     if not box.get("email"):
         return {"mode": "stored", "error": "no outreach mailbox on the reply thread"}
     from app.services.gmail_workspace_service import GmailWorkspaceService
-    svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                                db_name="torpedo_gmail")
+    svc = GmailWorkspaceService(db_name="torpedo_gmail")
     svc.load_service_account()
     signature = svc.get_signature(box["email"])
     if _auto_send():

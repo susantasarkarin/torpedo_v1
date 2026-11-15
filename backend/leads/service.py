@@ -23,7 +23,6 @@ from .models import (
     BuyingRole, Gender, EmailStatus
 )
 from .ai_classifier import classify_lead
-from .openai_rotator import SEGMENT_PIPELINE_MAP
 from .deduplication import (
     check_duplicate,
     add_to_dedup_index,
@@ -42,7 +41,6 @@ logger = logging.getLogger(__name__)
 
 # ============== DATABASE CONNECTION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -242,7 +240,6 @@ def get_pending_leads(limit: Optional[int] = None) -> List[dict]:
 def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     """
     Classify a single lead and store results.
-    Routes to the correct Gemini pipeline based on the lead's icp_segment.
     Returns: (success, error_message)
     """
     # Get raw lead
@@ -304,11 +301,8 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         )
         return False, f"LeadRaw build error: {build_exc}"
     
-    # Classify — route to the correct Gemini pipeline
-    pipeline = SEGMENT_PIPELINE_MAP.get(
-        (raw_lead.get("icp_segment") or "").lower(), "sfw_bim"
-    )
-    result, log = classify_lead(lead, pipeline=pipeline)
+    # Classify (single Claude ladder; no per-segment key pipelines)
+    result, log = classify_lead(lead)
     
     # Store classification log (prompt truncated — full prompts ballooned
     # this collection to 16GB on disk before the TTL was added)

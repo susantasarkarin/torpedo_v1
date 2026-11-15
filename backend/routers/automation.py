@@ -23,11 +23,8 @@ router = APIRouter(prefix="/automation", tags=["Automation"])
 # Dependency: Get database
 def get_database() -> Database:
     """Get MongoDB database instance"""
-    from pymongo import MongoClient
-    import os
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-    return client['email_automation']
+    from db import legacy
+    return legacy()
 
 
 @router.post("/campaigns/{campaign_id}/auto-route")
@@ -129,8 +126,6 @@ async def trigger_email_optimization(
     """
     try:
         from automation.email_optimizer import EmailOptimizer
-        from leads.openai_wrapper import get_openai_client
-        from leads.openai_wrapper import chat_completion
         from automation.decision_logger import DecisionLogger
 
         decision_logger = None
@@ -139,7 +134,6 @@ async def trigger_email_optimization(
 
         optimizer = EmailOptimizer(
             db,
-            openai_wrapper=type('obj', (object,), {'chat_completion': chat_completion})(),
             decision_logger=decision_logger
         )
 

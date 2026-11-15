@@ -26,28 +26,21 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
 
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import panel, traffic
 
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
-_client = _get_pooled_client()
-
-panelists_collection = _client["campaign_platform"]["panelists"]
-traffic_collection = _client["traffic_flow_db"]["url_parameters"]
+panelists_collection = panel()["panelists"]
+traffic_collection = traffic()["url_parameters"]
 # Resume point for the daily job, so it never re-scans what it has already done.
-job_state_collection = _client["campaign_platform"]["panel_job_state"]
+job_state_collection = panel()["panel_job_state"]
 
 _BATCH_SIZE = 5000
 _WATERMARK_KEY = "traffic_lead_promotion"

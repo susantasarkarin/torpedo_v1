@@ -46,7 +46,7 @@ def test_an_unclassifiable_lead_goes_to_nurture_not_to_every_brand():
 
 def test_basket_assignment_makes_no_model_call():
     """The strongest form of the guarantee: assert nothing reaches a provider."""
-    with patch("leads.bedrock_client.converse_json_object",
+    with patch("platform_core.ladder.escalate_json",
                side_effect=AssertionError("basket assignment called a model")):
         assert compute_icp_basket(
             {"company_industry": "market research", "department": "insights"}

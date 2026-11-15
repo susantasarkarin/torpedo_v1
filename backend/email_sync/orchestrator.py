@@ -74,7 +74,7 @@ class EmailSyncOrchestrator:
             db: Existing database instance (optional)
             db_name: Database name
         """
-        if db:
+        if db is not None:
             self.db = db
         elif mongo_uri:
             self.db = get_client()[db_name]

@@ -132,12 +132,11 @@ class EmailPatternSystem:
     
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation", hunter_api_key: str = None):
         """Initialize pattern system with MongoDB and Hunter.io"""
-        if mongo_uri is None:
-            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client[database_name]
-        self.settings_db = self.client["torpedo_settings"]
+        # mongo_uri is ignored: all handles come from the shared pool (db.py)
+        from db import by_name, get_client, settings as _settings
+        self.client = get_client()
+        self.db = by_name(database_name)
+        self.settings_db = _settings()
         self.patterns_collection = self.db["email_patterns"]
         
         # Load Hunter.io API key
@@ -1086,7 +1085,7 @@ class EmailPatternSystem:
         return None
 
     def get_stats(self) -> Dict:
-
+        total_patterns = self.patterns_collection.count_documents({})
         by_source = list(self.patterns_collection.aggregate([
             {"$group": {"_id": "$source", "count": {"$sum": 1}}}
         ]))

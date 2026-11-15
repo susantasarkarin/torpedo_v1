@@ -7,15 +7,8 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
 from bson import ObjectId
 from datetime import datetime
-from pymongo import MongoClient
 from random import randint
-import os
-
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import legacy, finance
 
 
 # Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
@@ -24,19 +17,14 @@ from utils import serialize_doc, serialize_docs
 
 router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-# Shared pooled client (TOR-12): this module built its own
-# MongoClient at import time. 101 modules did, each with a pool of
-# up to 100 connections on a 2 GB box shared with mongod.
-client = _get_pooled_client()
+# MongoDB connection (db.py handles; shared client pair)
 
 # Panel vendors are in email_automation database
-operations_db = client["email_automation"]
+operations_db = legacy()
 panel_vendors_collection = operations_db["vendors"]
 
 # Billing vendors are in finance_db database
-finance_db = client["finance_db"]
+finance_db = finance()
 billing_vendors_collection = finance_db["vendors"]
 
 def _normalize_string(value) -> str:

@@ -161,17 +161,16 @@ def test_live_link_mail_is_matched_to_the_rfq_by_company_and_study_words():
     assert rb._rfq_for_live_link(client, same_thread, "")["_id"] == 2
 
 
-def test_an_oversized_message_is_retried_shorter_not_treated_as_an_outage():
+def test_ask_returns_the_ladder_answer_and_truncates_the_user_text():
     from unittest.mock import patch
-    from leads import local_slm_client
-    from app.services import rfq_ai
-    sizes = []
-
-    def fake(**kw):
-        sizes.append(len(kw["user"]))
-        if len(kw["user"]) > 1600:
-            raise local_slm_client.LocalSLMUnavailable("request (2686 tokens) exceeds the available context size")
-        return {"ok": True}
-    with patch.object(local_slm_client, "chat_json", side_effect=fake):
+    with patch("platform_core.ladder.escalate_json", return_value=({"ok": True}, "haiku", [])) as esc:
         assert rfq_ai._ask("s", "x" * 5000, {}) == {"ok": True}
-    assert sizes == [3500, 1600]
+    assert esc.call_args.kwargs["task"] == "rfq_ai"
+    assert len(esc.call_args.kwargs["user"]) == 3500
+
+
+def test_ask_returns_none_without_raising_when_the_ladder_gives_no_answer():
+    from unittest.mock import patch
+    attempts = [{"status": "failed", "problems": ["down"]}]
+    with patch("platform_core.ladder.escalate_json", return_value=(None, None, attempts)):
+        assert rfq_ai._ask("s", "hello", {}) is None

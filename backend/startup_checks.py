@@ -18,9 +18,9 @@ a silently missing module.
 
 INDEX VISIBILITY (TOR-09)
 -------------------------
-`indexes.py` holds 576 lines of index definitions that nothing ever calls, so
-what production actually has has never been verified. The obvious fix — call
-setup_indexes() on startup — is the one thing we must NOT do by default, and
+`indexes.py` holds the single index registry (INDEXES, every database). Startup
+calls ensure_indexes() once, read-only by default, so what production actually
+has is verified. Building on startup is the one thing we must NOT do by default, and
 main.py said so: on MongoDB 4.2+ `background=True` is ignored, so 130+
 foreground builds would lock collections for minutes on every boot.
 
@@ -86,8 +86,23 @@ def assert_routes_mounted(app, required=REQUIRED_ROUTE_PREFIXES) -> int:
 # ---------------------------------------------------------------------------
 # Index audit
 # ---------------------------------------------------------------------------
+def _log_index_summary(summary: dict) -> None:
+    """One-line roll-up of an ensure_indexes() result, WARNING if anything is wrong."""
+    def total(key):
+        return sum(len(s[key]) if isinstance(s[key], list) else s[key] for s in summary.values())
+
+    line = ("index registry: created=%d existing=%d missing=%d conflicts=%d failed=%d "
+            "(%d databases)")
+    args = (total("created"), total("existing"), total("missing"),
+            total("conflicts"), total("failed"), len(summary))
+    if total("conflicts") or total("failed"):
+        logger.warning(line, *args)
+    else:
+        logger.info(line, *args)
+
+
 def _audit_indexes() -> None:
-    """Report (and optionally create) the indexes defined in indexes.py."""
+    """Run the index registry (indexes.py) and the subset audit, on the startup thread."""
     auto_create = os.getenv("AUTO_CREATE_INDEXES", "false").strip().lower() in (
         "1", "true", "yes", "on")
 
@@ -99,18 +114,22 @@ def _audit_indexes() -> None:
             "bottleneck; prefer running `python indexes.py` in a maintenance "
             "window instead."
         )
+
+    # The whole registry (indexes.py INDEXES) goes through ensure_indexes().
+    # Default build=False: read-only, reports missing/conflicting indexes.
+    try:
         try:
-            try:
-                from indexes import setup_indexes
-            except ImportError:
-                from .indexes import setup_indexes
-            setup_indexes()
-            logger.info("index creation pass complete")
-        except Exception:
-            logger.exception("index creation failed")
+            from indexes import ensure_indexes
+        except ImportError:
+            from .indexes import ensure_indexes
+        _log_index_summary(ensure_indexes(build=auto_create))
+    except Exception:
+        logger.exception("index registry pass failed")
+
+    if auto_create:
         return
 
-    # Default: read-only visibility.
+    # Default: read-only visibility of the high-value subset.
     try:
         try:
             from database import get_client

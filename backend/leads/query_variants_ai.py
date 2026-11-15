@@ -123,21 +123,21 @@ def _ask(prompt: str, count: int) -> Optional[List[Any]]:
     """The model's queries; None when it is unavailable. Output it garbles
     (truncated JSON) is retried once for a shorter list, then counts as
     "nothing usable" -- a garbled answer is not an outage."""
-    from leads.local_llm_gate import queue_wait
-    from leads.local_slm_client import LocalSLMError, LocalSLMMalformedResponse, chat_json
+    from platform_core import ladder
     for attempt, n in enumerate((count, max(3, count // 2))):
         try:
-            with queue_wait(QUEUE_WAIT_SECONDS, priority="extraction"):
-                got = chat_json(system=_SYSTEM, user=prompt.replace(f"Write {count} ", f"Write {n} "),
-                                max_tokens=120 + 60 * n, json_schema=_schema(n), timeout=120)
-        except LocalSLMMalformedResponse as e:
-            logger.info("query_variants_ai: garbled answer (attempt %d): %s", attempt + 1, e)
-            continue
-        except LocalSLMError as e:
-            logger.warning("query_variants_ai: model unavailable: %s", e)
-            return None
-        except Exception as e:  # the gate's queue timeout, redis down, ...
+            got, _tier, atts = ladder.escalate_json(
+                task="query_refinement", system=_SYSTEM,
+                user=prompt.replace(f"Write {count} ", f"Write {n} "),
+                schema=_schema(n), check=lambda d: [], max_tokens=120 + 60 * n)
+        except Exception as e:  # ladder config / budget error
             logger.warning("query_variants_ai: model call failed: %s", e)
+            return None
+        if got is None:
+            if any(a.get("status") == "rejected" for a in atts):
+                logger.info("query_variants_ai: garbled answer (attempt %d)", attempt + 1)
+                continue
+            logger.warning("query_variants_ai: no cloud tier answered")
             return None
         q = got.get("queries")
         return q if isinstance(q, list) else []

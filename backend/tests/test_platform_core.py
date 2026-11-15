@@ -1,11 +1,11 @@
-"""Shared platform (CRM plan 3.1): config store, Review Queue, Qwen gateway, throttle."""
+"""Shared platform (CRM plan 3.1): config store, Review Queue, escalation ladder, throttle."""
 import json
 from datetime import datetime, timedelta
 
 import pytest
 
 from tests._fakemongo import FakeDB
-from platform_core import config_store, qwen_gateway as gw, review_queue as rq
+from platform_core import config_store, ladder as gw, review_queue as rq
 
 
 @pytest.fixture
@@ -60,89 +60,61 @@ def test_reject_does_not_resume(dbs):
     assert rq.resolve(i, "reject", actor="owner")["status"] == "rejected" and seen == []
 
 
-# ------------------------------------------------------------ qwen gateway
+# ------------------------------------------------------------ escalation ladder
 def test_clean_input_keeps_newest_message_only():
     body = "Please quote India n=500 LOI 15.\n\nRegards,\nAsha\n\nOn Mon, 1 Jan 2026 at 10:00 Bob wrote:\n> old"
     out = gw.clean_input("RFQ", body)
     assert "n=500" in out and "old" not in out and "Asha" not in out and out.startswith("SUBJECT: RFQ")
 
 
-def test_p3_runs_only_at_night():
-    assert gw.in_p3_window(datetime(2026, 10, 24, 17, 0)) is True      # 22:30 IST
-    assert gw.in_p3_window(datetime(2026, 10, 24, 6, 0)) is False      # 11:30 IST
+def _tx(text, calls=None, tin=10, tout=10):
+    """A cloud transport: (text, input_tokens, output_tokens), as anthropic_transport returns."""
+    def t(*a, **k):
+        if calls is not None:
+            calls.append(k.get("model"))
+        return text, tin, tout
+    return t
 
 
 def _run(dbs, transport, task="reply_classification", **kw):
-    return gw.run(task=task, system="Return JSON", subject="s", body="hello", transport=transport,
+    return gw.run(task=task, system="Return JSON", subject="s", body="hello", cloud_transport=transport,
                   schema={"type": "object", "required": ["category"]}, db=dbs["gov"],
-                  now=datetime(2026, 10, 24, 6, 0), sleep=lambda s: None, **kw)
+                  now=datetime(2026, 10, 24, 6, 0), **kw)
 
 
-def test_ok_result_is_cached_by_content_hash(dbs):
+def test_accepted_answer_stops_the_ladder_at_haiku(dbs):
     calls = []
-    t = lambda *a, **k: calls.append(1) or json.dumps({"category": "positive"})
-    assert _run(dbs, t)["status"] == "ok"
-    again = _run(dbs, t)
-    assert again["cached"] is True and len(calls) == 1
+    out = _run(dbs, _tx(json.dumps({"category": "positive"}), calls))
+    assert out["status"] == "ok" and out["tier"] == "haiku" and len(calls) == 1
 
 
-def test_invalid_json_twice_goes_to_review_never_ok(dbs):
-    out = _run(dbs, lambda *a, **k: "not json")
-    assert out["status"] == "review" and out["review_item"]
+def test_invalid_json_on_every_tier_goes_to_review_never_ok(dbs):
+    calls = []
+    out = _run(dbs, _tx("not json", calls))
+    assert out["status"] == "review" and out["review_item"] and len(calls) == 2    # haiku, then sonnet
     assert rq.list_items()[0]["type"] == "ai_invalid_output"
 
 
 def test_code_check_problems_send_valid_output_to_review(dbs):
-    out = _run(dbs, lambda *a, **k: json.dumps({"category": "rfq"}), code_check=lambda d, t: ["LOI 150 not in mail"])
+    out = _run(dbs, _tx(json.dumps({"category": "rfq"})), code_check=lambda d, t: ["LOI 150 not in mail"])
     assert out["status"] == "review" and "LOI 150" in out["problems"][0]
 
 
 def test_always_review_task_never_returns_ok(dbs):
-    t = lambda *a, **k: json.dumps({"line_items": []})
-    out = gw.run(task="rfq_extraction", system="x", body="RFQ", transport=t, db=dbs["gov"],
-                 now=datetime(2026, 10, 24, 6, 0), sleep=lambda s: None)
-    assert out["status"] == "review"
+    out = gw.run(task="rfq_extraction", system="x", body="RFQ", cloud_transport=_tx(json.dumps({"line_items": []})),
+                 db=dbs["gov"], now=datetime(2026, 10, 24, 6, 0))
+    assert out["status"] == "review" and out["review_item"]
 
 
-def test_transport_failure_retries_then_records_failed_job(dbs):
-    calls = []
-
-    def boom(*a, **k):
-        calls.append(1)
-        raise TimeoutError("slow")
-    out = _run(dbs, boom)
-    assert out["status"] == "failed" and len(calls) == 4                    # 1 + 3 retries
-    assert gw.failed_jobs(db=dbs["gov"])[0]["task"] == "reply_classification"
-
-
-def test_client_error_is_not_retried(dbs):
-    import requests
+def test_failing_rung_is_tried_once_then_next_rung_runs(dbs):
     calls = []
 
     def bad(*a, **k):
-        calls.append(1)
-        resp = requests.Response()
-        resp.status_code = 400
-        raise requests.HTTPError("400 exceeds context", response=resp)
+        calls.append(k.get("model"))
+        raise ValueError("400 exceeds context")          # not an outage: the tier stays on
     out = _run(dbs, bad)
-    assert out["status"] == "failed" and len(calls) == 1
-
-
-def test_small_model_tasks_get_a_smaller_input_budget(dbs):
-    seen = []
-
-    def t(model, system, user, *a, **k):
-        seen.append(user)
-        return json.dumps({"category": "other", "confidence": 0.9})
-    gw.run(task="reply_classification", system="Return JSON", body="x " * 5000, transport=t,
-           schema={"type": "object", "required": ["category"]}, db=dbs["gov"], now=datetime(2026, 10, 24, 6, 0), sleep=lambda s: None)
-    assert len(seen[0]) <= 2600
-
-
-def test_p3_task_deferred_in_daytime(dbs):
-    out = gw.run(task="lead_bucketing", system="x", body="Acme", transport=lambda *a, **k: "{}",
-                 db=dbs["gov"], now=datetime(2026, 10, 24, 6, 0))
-    assert out["status"] == "deferred"
+    assert out["status"] == "review" and len(calls) == 2                       # one call per rung, no retry
+    assert [a["tier"] for a in out["attempts"]] == ["haiku", "sonnet"]
 
 
 # ----------------------------------------------------------------- throttle

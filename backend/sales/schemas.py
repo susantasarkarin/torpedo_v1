@@ -4,21 +4,19 @@ Creates collections, indexes, and validation for the sales module.
 Four collections: leads, company_domains, email_events, rfqs.
 """
 
-import os
 import logging
-from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING
+from pymongo import IndexModel, ASCENDING, DESCENDING
 from dotenv import load_dotenv
+
+from db import legacy
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-
 
 def get_sales_db():
-    """Get the email_automation database for sales collections."""
-    client = MongoClient(MONGO_URI)
-    return client["email_automation"]
+    """Get the email_automation (legacy) database for sales collections, via db.py."""
+    return legacy()
 
 
 def setup_leads_collection(db=None):

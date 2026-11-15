@@ -37,7 +37,6 @@ router = APIRouter(prefix="/leads/agents", tags=["Lead Generation Agents"])
 
 # ============== MONGODB CONNECTION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.

@@ -15,8 +15,6 @@ from .clay_models import CampaignClayConfig, CostControl, DeduplicationRule
 
 load_dotenv()
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-
 
 class CampaignClayIntegration:
     """
@@ -25,8 +23,8 @@ class CampaignClayIntegration:
     """
     
     def __init__(self):
-        self.client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        self.db = self.client['campaign_platform']
+        from db import panel
+        self.db = panel()
         self.campaigns_collection = self.db['campaigns']
         self.clay_configs_collection = self.db['campaign_clay_configs']
     

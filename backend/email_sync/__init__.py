@@ -68,9 +68,9 @@ from .workers import (
 )
 
 # OpenAI Email Classifier (Two-tier with Gemini fallback)
-from .openai_email_classifier import (
+from .llm_email_classifier import (
     OpenAIEmailClassifier,
-    OpenAIClassificationWorker,
+    LLMClassificationWorker,
     classify_single_email,
     start_background_classification,
 )
@@ -111,7 +111,7 @@ __all__ = [
     "WorkerManager",
     # OpenAI Email Classifier
     "OpenAIEmailClassifier",
-    "OpenAIClassificationWorker",
+    "LLMClassificationWorker",
     "classify_single_email",
     "start_background_classification",
     # Main

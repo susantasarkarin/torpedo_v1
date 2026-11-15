@@ -43,7 +43,6 @@ load_dotenv()
 
 # ============== MONGODB CONNECTION FOR JOBS ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -92,10 +91,10 @@ class JobStatus:
 def get_global_search_control() -> dict:
     """Get global search control settings (pause all jobs, circuit breaker state)"""
     try:
-        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        settings_db = settings_client['torpedo_settings']
+        from db import settings as _settings
+        settings_db = _settings()
         app_settings = settings_db['app_settings']
-        control = app_settings.find_one({"_id": "search_control"})
+        control =app_settings.find_one({"_id": "search_control"})
         if control:
             return {
                 "paused": control.get("paused", False),
@@ -122,8 +121,8 @@ def get_global_search_control() -> dict:
 def set_global_search_control(updates: dict):
     """Update global search control settings"""
     try:
-        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        settings_db = settings_client['torpedo_settings']
+        from db import settings as _settings
+        settings_db = _settings()
         app_settings = settings_db['app_settings']
         app_settings.update_one(
             {"_id": "search_control"},

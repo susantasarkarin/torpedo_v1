@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 ROOT = os.path.dirname(HERE)
 load_dotenv(os.path.join(HERE, ".env"))
 

@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, Query, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from bson import ObjectId
-from pymongo import MongoClient
+from db import legacy
 
 import os
 
@@ -37,9 +37,7 @@ class RunJobRequest(BaseModel):
 
 def get_db():
     """Get MongoDB database instance"""
-    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    client = MongoClient(mongo_uri)
-    return client['email_automation']
+    return legacy()
 
 
 def get_classifier(db = Depends(get_db)):
@@ -98,9 +96,7 @@ async def run_classification_job(
     def run_job():
         # Need to recreate classifier in background thread
         from ..email_sync.historical_classifier import HistoricalClassifier
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        bg_classifier = HistoricalClassifier(client['email_automation'])
+        bg_classifier = HistoricalClassifier(legacy())
         
         try:
             bg_classifier.run(
@@ -238,8 +234,8 @@ async def get_ai_status():
     # Get usage stats from the last 24 hours if available
     usage_stats = {}
     try:
-        from ..leads.openai_wrapper import token_logger
-        usage_stats = token_logger.get_usage_summary(hours=24)
+        from platform_core import ladder
+        usage_stats = ladder.stats(days=1)
     except Exception as e:
         usage_stats = {"error": str(e)}
     

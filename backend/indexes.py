@@ -1,24 +1,800 @@
 """
-DATABASE INDEXES MODULE
-Creates and maintains MongoDB indexes for optimal query performance.
+DATABASE INDEX REGISTRY
+=======================
 
-Run this module to ensure all indexes are created:
-    python -m backend.indexes
+Every index the backend expects lives in ONE registry, ``INDEXES``, keyed by
+database name and then by collection. Each entry is ``(keys, options)``:
 
-Or import and call setup_indexes() during application startup.
+    keys     "field"                       ascending single field
+             [("a", 1), ("b", -1)]         compound; 1 / -1 / "text" / "hashed"
+    options  kwargs for pymongo create_index: unique, sparse, name,
+             expireAfterSeconds, partialFilterExpression ...
+
+The registry is documented per database and collection, with the files that
+still create indexes themselves, in docs/mongo_index_registry.md.
+
+Entry points (all go through the shared handles in backend/db.py):
+
+    ensure_indexes(db_names=None, client=None, build=True) -> dict
+        Idempotent. Reports, per database, how many indexes were created,
+        already existed, conflicted (same keys or name with different options,
+        which MongoDB rejects with IndexOptionsConflict / IndexKeySpecsConflict)
+        or failed. Never raises for a single bad index.
+        build=False is a read-only comparison: nothing is created, and the
+        indexes that are absent are listed under "missing".
+
+    setup_indexes(db_manager=None)      alias: ensure_indexes(build=True)
+    create_index_safe(collection, keys, **kwargs)
+                                        helper for one-off callers
+    drop_all_indexes(db_manager=None, confirm=False)
+
+Run as a maintenance task (builds everything, logs a summary):
+    python indexes.py
 """
 
-from pymongo import ASCENDING, DESCENDING, TEXT
-from pymongo.errors import OperationFailure
 import logging
 
+from pymongo.errors import OperationFailure, PyMongoError
+
 logger = logging.getLogger(__name__)
+
+# MongoDB error codes for "an index with this name/keys exists with other options".
+_CONFLICT_CODES = {85, 86}  # 85 IndexOptionsConflict, 86 IndexKeySpecsConflict
+
+INDEXES = {
+    "crm_db": {
+        # migrations/001_init_crm_collections.py + crm_service / mail_pipeline lookups.
+        # Non-unique throughout: 001 defines no unique constraints, and the
+        # writers do not guarantee uniqueness on these fields.
+        "accounts": [
+            ("name", {}),
+            ("account_type", {}),
+            ("status", {}),
+            ("domain", {}),            # written by crm writers; there is no domain_normalized field
+            ("root_domain", {}),
+            ("name_normalized", {}),   # crm_service.find_account_by_name
+        ],
+        "contacts": [
+            ("email", {}),             # crm_service writes email lowercased; not unique (other writers do not lowercase)
+            ("account_id", {}),
+        ],
+        "leads": [
+            ("email", {}),
+            ("status", {}),
+        ],
+        "opportunities": [
+            ("account_id", {}),
+            ("status", {}),
+            ("stage", {}),
+        ],
+        "activities": [
+            ("contact_id", {}),
+            ("account_id", {}),
+            ("created_at", {}),
+        ],
+        "tasks": [
+            ("owner_id", {}),
+            ("status", {}),
+            ("due_date", {}),
+        ],
+        "ai_decisions": [
+            ("agent_name", {}),
+            ("status", {}),
+            ([("linked_object_type", 1), ("linked_object_id", 1)], {}),
+        ],
+    },
+    "torpedo": {
+        # Live outreach v2. Collection names from outreach_engine/migration.py
+        # NEW_COLLECTIONS, sending_engine, workflow_engine, scheduler,
+        # mailbox_manager, logging_service, leads/canonical_ingestion.py.
+        # The uniques below are only the ones the writers enforce today.
+        "outreach_leads_v2": [
+            # email is NOT unique: canonical_ingestion enrolls one lead per
+            # (email, campaign_id), so one address legitimately has several docs.
+            ("email", {}),
+            ([("email", 1), ("campaign_id", 1)], {}),
+            ("lead_id", {}),
+            ([("workflow_id", 1), ("workflow_status", 1), ("next_send_at", 1)], {}),
+            ("assigned_mailbox_id", {}),
+            ("next_send_at", {}),
+        ],
+        "outreach_campaigns_v2": [
+            ("campaign_id", {}),
+            ("status", {}),
+        ],
+        "outreach_templates_v2": [
+            ("template_id", {}),
+            ([("company_brand", 1), ("step_type", 1)], {}),
+        ],
+        "outreach_sends_v2": [
+            ("message_id", {"unique": True}),   # sending_engine + workflow_engine enforce this
+            ([("campaign_id", 1), ("lead_id", 1)], {}),
+            ([("status", 1), ("scheduled_at", 1)], {}),
+        ],
+        "outreach_send_logs": [
+            ([("logged_at", -1)], {}),
+            ([("campaign_id", 1), ("logged_at", -1)], {}),
+            ([("mailbox_used", 1), ("logged_at", -1)], {}),
+            ("status", {}),
+        ],
+        "outreach_error_logs": [
+            ([("logged_at", -1)], {}),
+            ("error_type", {}),
+        ],
+        "outreach_send_queue": [
+            # Idempotency guard: one queued step per lead per campaign (scheduler.py).
+            ([("campaign_id", 1), ("lead_id", 1), ("step_number", 1)],
+             {"unique": True, "name": "idempotency_unique_idx"}),
+            ([("scheduled_at", 1), ("status", 1)], {}),
+            ("campaign_id", {}),
+            ("lead_id", {}),
+        ],
+        "outreach_mailboxes": [
+            ("mailbox_id", {"unique": True}),
+            ("email_address", {"unique": True}),
+            ([("health_status", 1), ("is_active", 1)], {}),
+        ],
+        "outreach_bounce_suppression": [
+            ("email", {"unique": True}),        # sending_engine suppression; canonical_ingestion reads it
+        ],
+    },
+    "finance_db": {
+        "invoices": [
+            ('invoice_number', {'unique': True, 'sparse': True}),
+            ('idempotency_key', {'unique': True, 'sparse': True}),
+            ('customer_id', {'sparse': True}),
+            ('customer_name', {}),
+            ('status', {}),
+            ('due_date', {}),
+            ('created_at', {}),
+            ([('status', 1), ('due_date', 1)], {}),
+            ([('status', 1), ('created_at', -1)], {'name': 'invoices_status_date'}),
+            ([('customer_id', 1), ('status', 1)], {'name': 'invoices_customer_status'}),
+        ],
+        "customers": [
+            ('name', {}),
+            ('email', {'sparse': True}),
+            ('operations_client_id', {'sparse': True}),
+            ('createdAt', {}),
+        ],
+        "billing_vendors": [
+            ('name', {}),
+            ('email', {'sparse': True}),
+            ('status', {}),
+            ('createdAt', {}),
+        ],
+        "bills": [
+            ([('status', 1), ('due_date', 1)], {'name': 'bills_status_due'}),
+            ([('vendor_id', 1), ('status', 1)], {'name': 'bills_vendor_status'}),
+        ],
+        "expenses": [
+            ([('approval_status', 1), ('created_at', -1)], {'name': 'expenses_approval_date'}),
+        ],
+        "payments_received": [
+            ([('invoice_id', 1), ('created_at', -1)], {'name': 'payments_received_invoice_date'}),
+        ],
+        "payments_made": [
+            ([('bill_id', 1), ('created_at', -1)], {'name': 'payments_made_bill_date'}),
+        ],
+        "purchase_orders": [
+            ([('status', 1), ('created_at', -1)], {'name': 'po_status_date'}),
+        ],
+    },
+    "torpedo_gmail": {
+        "email_metadata": [
+            ('gmail_message_id', {'unique': True}),
+            ('mailbox_id', {}),
+            ('from_email', {}),
+            ('ai_category', {'sparse': True}),
+            ('ai_analysis', {}),
+            ([('mailbox_id', 1), ('timestamp', -1)], {}),
+            ([('ai_category', 1), ('ai_confidence', -1)], {}),
+            ([('ai_category', 1), ('mailbox_id', 1)], {}),
+            ([('mailbox_id', 1), ('ai_category', 1), ('timestamp', -1)], {'name': 'email_metadata_mailbox_category_time'}),
+            ([("mailbox_id", 1), ("gmail_message_id", 1)], {"unique": True}),  # gmail_service / gmail_workspace_service
+        ],
+        "parallel_sync_progress": [
+            ('email', {'unique': True}),
+            ('status', {}),
+            ([('status', 1), ('updated_at', -1)], {}),
+        ],
+        "imap_accounts": [
+            ('email', {'unique': True}),
+            ('is_active', {}),
+        ],
+        "email_sync_log": [
+            ('account_email', {}),
+            ('started_at', {}),
+            ([('account_email', 1), ('started_at', -1)], {}),
+        ],
+    },
+    "campaign_platform": {
+        "panelists": [
+            ('email', {'unique': True}),
+            ('country', {}),
+            ('status', {}),
+            ('double_opt_in_completed', {}),
+            ([('status', 1), ('created_at', -1)], {'name': 'panelists_status_date'}),
+            ([('status', 1), ('last_invited_at', 1)], {'name': 'panelists_status_last_invited'}),
+            ([('double_opt_in_completed', 1), ('last_login_invite_sent_at', 1)], {'name': 'panelists_optin_last_login_invite'}),
+            ('sfw_profile_complete', {'sparse': True}),
+            ('sfw_last_login', {'sparse': True}),
+            ('sfw_country', {'sparse': True}),
+            ('invite_clicked_at', {'sparse': True}),
+            ('last_invited_at', {'sparse': True}),
+        ],
+        "panel_invitation_log": [
+            ('email', {}),
+            ([('email', 1), ('sent_at', -1)], {'name': 'invitation_log_email_sent'}),
+            ('batch_id', {}),
+            ('status', {}),
+            ('type', {}),
+            ('ses_message_id', {'sparse': True}),
+            ('invite_token', {'unique': True, 'sparse': True}),
+        ],
+        "panel_email_suppression": [
+            ('email', {'unique': True}),
+            ('reason', {}),
+        ],
+        "panel_rewards": [
+            ('panelist_id', {}),
+            ([('type', 1), ('status', 1)], {'name': 'rewards_type_status'}),
+        ],
+    },
+    "torpedo_settings": {
+    },
+    "email_automation": {
+        "users": [
+            ('username', {'unique': True}),
+            ('email', {'sparse': True}),
+            ('createdAt', {}),
+        ],
+        "contacts": [
+            ('email', {'unique': True}),
+            ('listId', {}),
+            ([('firstName', 1), ('lastName', 1)], {}),
+            ('tags', {}),
+            ('createdAt', {}),
+            ([('email', 'text'), ('firstName', 'text'), ('lastName', 'text'), ('company', 'text')], {'name': 'contacts_text_search'}),
+        ],
+        "rfq_review_queue": [
+            ('source_email_id', {'unique': True}),
+            ('status', {}),
+        ],
+        "lists": [
+            ('name', {}),
+            ('createdAt', {}),
+        ],
+        "templates": [
+            ('name', {}),
+            ('createdAt', {}),
+        ],
+        "projects": [
+            ('name', {}),
+            ('status', {}),
+            ('createdAt', {}),
+            ([('projectStatus', 1), ('createdAt', -1)], {'name': 'projects_status_date'}),
+            ([('user_id', 1), ('createdAt', -1)], {'name': 'projects_user_date'}),
+        ],
+        "leads": [
+            ('email', {'sparse': True}),
+            ('linkedin_url', {'sparse': True}),
+            ('source', {}),
+            ('classification_status', {}),
+            ('seniority', {}),
+            ('country', {}),
+            ('createdAt', {}),
+            ([('email', 'text'), ('name', 'text'), ('company', 'text'), ('title', 'text')], {'name': 'leads_text_search'}),
+            ('engagement_score', {'sparse': True}),
+            ('reengagement_eligible', {'sparse': True}),
+            ('last_outreach_date', {'sparse': True}),
+            ('linkedin_connection_status', {'sparse': True}),
+            ([('engagement_score', -1), ('reengagement_eligible', 1), ('last_outreach_date', -1)], {'name': 'leads_reengagement_query'}),
+            ([('source', 1), ('createdAt', -1)], {'name': 'leads_source_date'}),
+            ([('classification_status', 1), ('createdAt', -1)], {'name': 'leads_classification_date'}),
+            ([('country', 1), ('seniority', 1), ('createdAt', -1)], {'name': 'leads_country_seniority_date'}),
+        ],
+        "web_search_jobs": [
+            ('job_id', {'unique': True}),
+            ('status', {}),
+            ('created_at', {}),
+            ([('status', 1), ('created_at', -1)], {}),
+        ],
+        "panel_vendors": [
+            ('name', {}),
+            ('email', {'sparse': True}),
+            ('status', {}),
+            ('createdAt', {}),
+            ('vid', {'unique': True, 'sparse': True}),
+            ([('status', 1), ('createdAt', -1)], {'name': 'panel_vendors_status_date'}),
+        ],
+        "clients": [
+            ('name', {}),
+            ('email', {'sparse': True}),
+            ('status', {}),
+            ('sales_account_id', {'sparse': True}),
+            ('createdAt', {}),
+            ([('status', 1), ('createdAt', -1)], {'name': 'clients_status_date'}),
+        ],
+        "vendors": [
+            ('name', {}),
+            ('status', {}),
+        ],
+        "openai_usage_logs": [
+            ('timestamp', {}),
+            ([('source', 1), ('timestamp', -1)], {}),
+            ([('model', 1), ('timestamp', -1)], {}),
+        ],
+        "suppression_list": [
+            ('email', {'unique': True}),
+            ('reason', {}),
+            ('suppressed_at', {}),
+        ],
+        "campaign_sends": [
+            ('idempotency_key', {'unique': True, 'sparse': True}),
+            ('campaign_id', {}),
+            ('recipient_id', {}),
+            ('sent_at', {}),
+            ('status', {'sparse': True}),
+            ([('campaign_id', 1), ('status', 1), ('created_at', -1)], {'name': 'campaign_sends_analytics'}),
+        ],
+        "email_audit_log": [
+            ([('campaign_id', 1), ('timestamp', -1)], {}),
+            ('timestamp', {}),
+            ('action', {}),
+        ],
+        "audit_log": [
+            ([('entity_type', 1), ('entity_id', 1), ('timestamp', -1)], {}),
+            ('timestamp', {}),
+            ('user_id', {'sparse': True}),
+            ('action', {}),
+        ],
+        "ai_review_queue": [
+            ([('status', 1), ('queued_at', -1)], {}),
+            ('entity_type', {}),
+        ],
+        "imap_accounts": [
+            ('email', {'unique': True}),
+            ('is_active', {}),
+        ],
+        "email_leads": [
+            ('email_id', {'unique': True}),
+            ('segment', {}),
+            ('from_email', {}),
+            ('received_at', {}),
+        ],
+        "campaign_recipients": [
+            ('campaign_id', {}),
+            ('lead_id', {}),
+            ('ab_variant', {'sparse': True}),
+            ('engagement_status', {'sparse': True}),
+            ([('campaign_id', 1), ('ab_variant', 1)], {'name': 'campaign_recipients_ab_test'}),
+            ([('campaign_id', 1), ('engagement_status', 1)], {'name': 'campaign_recipients_engagement'}),
+        ],
+        "linkedin_connections": [
+            ('lead_id', {}),
+            ('session_id', {'sparse': True}),
+            ('status', {'sparse': True}),
+            ('sent_at', {'sparse': True}),
+            ('accepted_at', {'sparse': True}),
+            ([('lead_id', 1), ('status', 1)], {'name': 'linkedin_connections_by_lead_status'}),
+            ([('session_id', 1), ('sent_at', -1)], {'name': 'linkedin_connections_session_timeline'}),
+        ],
+        "linkedin_sessions": [
+            ('session_id', {'unique': True}),
+            ('email', {'sparse': True}),
+            ('status', {'sparse': True}),
+            ('login_date', {'sparse': True}),
+            ('last_active', {'sparse': True}),
+        ],
+        "linkedin_messages": [
+            ('lead_id', {}),
+            ('connection_id', {'sparse': True}),
+            ('sent_at', {}),
+            ('read_at', {'sparse': True}),
+            ('replied_at', {'sparse': True}),
+            ([('lead_id', 1), ('sent_at', -1)], {'name': 'linkedin_messages_by_lead_timeline'}),
+        ],
+        "linkedin_activities": [
+            ('session_id', {}),
+            ('date', {}),
+            ([('date', 1), ('session_id', 1)], {'name': 'linkedin_activities_daily_summary'}),
+            ([('session_id', -1), ('date', -1)], {'name': 'linkedin_activities_session_timeline'}),
+        ],
+        "linkedin_templates": [
+            ('name', {'sparse': True}),
+            ('created_at', {'sparse': True}),
+        ],
+        "domain_health": [
+            ('domain', {'unique': True}),
+            ('last_checked', {'sparse': True}),
+        ],
+        "gmail_account_usage": [
+            ('account_id', {'unique': True, 'sparse': True}),
+            ('last_sync', {'sparse': True}),
+            ([('account_id', 1), ('last_sync', -1)], {'name': 'gmail_account_usage_sync_tracking'}),
+        ],
+        "sales_accounts": [
+            ('account_name', {}),
+            ('company', {}),
+            ('status', {}),
+            ('createdAt', {}),
+            ([('status', 1), ('createdAt', -1)], {'name': 'sales_accounts_status_date'}),
+        ],
+        "search_cache": [
+            ('query_hash', {'unique': True}),
+            ('created_at', {}),
+            ('provider', {}),
+            ([('job_title', 1), ('industry', 1), ('location', 1)], {'name': 'search_cache_components'}),
+            ("expires_at", {"expireAfterSeconds": 0}),   # TTL, search_cache expiry
+        ],
+        "search_cache_metrics": [
+            ('date', {}),
+            ([('date', 1), ('hour', 1)], {}),
+        ],
+        "dedup_index": [
+            ('linkedin_url_hash', {'unique': True, 'sparse': True}),
+            ('email_hash', {'sparse': True}),
+            ('name_company_hash', {'sparse': True}),
+            ('lead_id', {}),
+            ('created_at', {}),
+        ],
+        "dedup_logs": [
+            ('rejected_at', {}),
+            ('reason', {}),
+            ('source', {}),
+        ],
+        "rfqs": [
+            ([('status', 1), ('created_at', -1)], {'name': 'rfqs_status_date'}),
+        ],
+        "leads_raw": [
+            ("email", {"unique": True, "sparse": True}),   # canonical_ingestion.py
+            ("linkedin_url", {"unique": True, "sparse": True}),
+        ],
+        # marketing/schema.py (DB = email_automation; not written by any crm writer)
+        "web_sites": [
+            ('domain', {'unique': True}),
+            ('bu', {}),
+        ],
+        "web_visitors": [
+            ('visitor_id', {'unique': True}),
+            ('contact_id', {'sparse': True}),
+            ('lead_id', {'sparse': True}),
+            ('last_seen', {}),
+        ],
+        "web_sessions": [
+            ('session_id', {'unique': True}),
+            ('visitor_id', {}),
+            ([('started_at', 1), ('bu', 1)], {}),
+        ],
+        "web_events": [
+            ('visitor_id', {}),
+            ([('at', 1), ('bu', 1)], {}),
+            ('type', {}),
+        ],
+        "consents": [
+            ('visitor_id', {}),
+            ('at', {}),
+        ],
+        "touchpoints": [
+            ('tp_key', {'unique': True}),
+            ([('lead_id', 1), ('at', 1)], {}),
+            ('contact_id', {'sparse': True}),
+            ('visitor_id', {'sparse': True}),
+            ('click_ids.gclid', {'sparse': True}),
+            ('click_ids.fbclid', {'sparse': True}),
+            ('click_ids.li_fat_id', {'sparse': True}),
+            ('campaign_id', {'sparse': True}),
+        ],
+        "attribution_results": [
+            ([('lead_id', 1), ('conversion_id', 1), ('model', 1)], {'unique': True}),
+            ([('bu', 1), ('model', 1), ('event', 1)], {}),
+        ],
+        "ga4_daily": [
+            ([('property_id', 1), ('date', 1), ('dims_key', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "gsc_queries_daily": [
+            ([('site', 1), ('date', 1), ('query', 1), ('page', 1), ('country', 1), ('device', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "gsc_pages_daily": [
+            ([('site', 1), ('date', 1), ('page', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "gsc_sitemaps": [
+            ([('site', 1), ('path', 1)], {'unique': True}),
+        ],
+        "gsc_url_index": [
+            ('url', {'unique': True}),
+            ('site', {}),
+        ],
+        "seo_audits": [
+            ([('site', 1), ('started_at', -1)], {}),
+        ],
+        "seo_issues": [
+            ('key', {'unique': True}),
+            ([('site', 1), ('status', 1), ('severity', 1)], {}),
+            ('audit_id', {}),
+        ],
+        "cwv_results": [
+            ([('url', 1), ('strategy', 1), ('date', 1)], {}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "keywords": [
+            ([('bu', 1), ('keyword', 1)], {'unique': True}),
+        ],
+        "keyword_positions": [
+            ([('keyword_id', 1), ('date', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "content_gaps": [
+            ([('bu', 1), ('status', 1)], {}),
+        ],
+        "seo_fix_plans": [
+            ('site', {'unique': True}),
+        ],
+        "ad_accounts": [
+            ([('platform', 1), ('account_id', 1)], {'unique': True}),
+            ('bu', {}),
+        ],
+        "ad_campaigns": [
+            ([('platform', 1), ('campaign_id', 1)], {'unique': True}),
+            ('bu', {}),
+        ],
+        "ad_groups": [
+            ([('platform', 1), ('group_id', 1)], {'unique': True}),
+            ('campaign_id', {}),
+        ],
+        "ads": [
+            ([('platform', 1), ('ad_id', 1)], {'unique': True}),
+            ('campaign_id', {}),
+        ],
+        "ad_metrics_daily": [
+            ([('platform', 1), ('level', 1), ('entity_id', 1), ('date', 1)], {'unique': True}),
+            ('campaign_id', {}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "search_terms": [
+            ([('campaign_id', 1), ('term', 1), ('date', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "offline_conversion_uploads": [
+            ([('platform', 1), ('lead_id', 1), ('event', 1)], {'unique': True}),
+            ('status', {}),
+        ],
+        "audiences": [
+            ([('bu', 1), ('platform', 1), ('name', 1)], {'unique': True}),
+        ],
+        "social_accounts": [
+            ([('platform', 1), ('account_id', 1)], {'unique': True}),
+            ('bu', {}),
+        ],
+        "social_posts": [
+            ([('platform', 1), ('post_id', 1)], {'unique': True, 'sparse': True}),
+            ('content_item_id', {}),
+        ],
+        "social_metrics_daily": [
+            ([('platform', 1), ('entity_id', 1), ('date', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+        "inbox_items": [
+            ([('channel', 1), ('external_id', 1)], {'unique': True}),
+            ([('status', 1), ('due_at', 1)], {}),
+            ('phone_hash', {'sparse': True}),
+            ('contact_id', {'sparse': True}),
+            ('lead_id', {'sparse': True}),
+        ],
+        "whatsapp_optins": [
+            ('phone_hash', {}),
+            ('contact_id', {'sparse': True}),
+        ],
+        "marketing_touches": [
+            ([('lead_id', 1), ('at', -1)], {}),
+            ('phone_hash', {'sparse': True}),
+            ('email', {'sparse': True}),
+        ],
+        "lead_form_pending": [
+            ('leadgen_id', {'unique': True}),
+            ('status', {}),
+        ],
+        "whatsapp_templates": [
+            ([('bu', 1), ('name', 1), ('language', 1)], {'unique': True}),
+        ],
+        "content_items": [
+            ([('bu', 1), ('channel', 1), ('status', 1)], {}),
+            ('scheduled_for', {'sparse': True}),
+        ],
+        "brand_voice": [
+            ('bu', {'unique': True}),
+        ],
+        "experiments": [
+            ([('bu', 1), ('status', 1)], {}),
+        ],
+        "decision_candidates": [
+            ([('decision_type', 1), ('status', 1)], {}),
+            ([('entity_key', 1), ('created_at', -1)], {}),
+        ],
+        "decisions": [
+            ([('decision_type', 1), ('status', 1)], {}),
+            ([('entity_key', 1), ('created_at', -1)], {}),
+            ('candidate_id', {}),
+        ],
+        "decision_outcomes": [
+            ('decision_id', {'unique': True}),
+            ([('decision_type', 1), ('measured_at', -1)], {}),
+        ],
+        "marketing_eval_cases": [
+            ('key', {'unique': True}),
+            ('decision_type', {}),
+        ],
+        "marketing_eval_runs": [
+            ([('at', -1)], {}),   # marketing/schema.py has this as a bare tuple (unpack bug, see HANDOFF)
+        ],
+        "marketing_reports": [
+            ('week', {'unique': True}),
+        ],
+        "marketing_kpi_snapshots": [
+            ([('kpi', 1), ('date', 1), ('bu', 1)], {'unique': True}),
+            ([('date', 1), ('bu', 1)], {}),
+        ],
+    },
+    "cint_research": {
+        # database_setup_cint.py (setup_cint_database, default db name cint_research)
+        "cint_surveys": [
+            ([('survey_id', 1)], {'unique': True}),
+            ([('is_active', 1)], {}),
+            ([('is_live', 1)], {}),
+            ([('country_language', 1)], {}),
+            ([('buyer_id', 1)], {}),
+            ([('message_reason', 1)], {}),
+            ([('received_at', -1)], {}),
+            ([('total_remaining', 1)], {}),
+            ([('survey_id', 1), ('is_active', 1)], {}),
+        ],
+        "cint_entry_links": [
+            ([('survey_id', 1)], {'unique': True}),
+            ([('created_at', -1)], {}),
+            ([('updated_at', -1)], {}),
+        ],
+        "cint_settings": [
+            ([('user_id', 1)], {}),
+            ([('supplier_code', 1)], {}),
+            ([('is_active', 1)], {}),
+        ],
+        "cint_filters": [
+            ([('user_id', 1)], {}),
+            ([('name', 1)], {}),
+        ],
+        "cint_metrics": [
+            ([('survey_id', 1)], {'unique': True}),
+            ([('last_updated', -1)], {}),
+            ([('last_allocation', -1)], {}),
+        ],
+        "cint_subscriptions": [
+            ([('supplier_code', 1)], {'unique': True}),
+            ([('status', 1)], {}),
+            ([('last_webhook_received_at', -1)], {}),
+        ],
+        "cint_buyer_stats": [
+            ([('buyer_name', 1)], {'unique': True}),
+            ([('conversion_rate', -1)], {}),
+            ([('last_updated', -1)], {}),
+        ],
+        "cint_respondent_outcomes": [
+            ([('respondent_id', 1)], {}),
+            ([('session_id', 1)], {'unique': True}),
+            ([('survey_id', 1)], {}),
+            ([('marketplace_status', 1)], {}),
+            ([('client_status', 1)], {}),
+            ([('received_at', -1)], {}),
+            ([('entry_date', -1), ('last_date', -1)], {}),
+        ],
+        "respondents": [
+            ([('provider', 1)], {}),
+            ([('supplier_code', 1)], {}),
+        ],
+        "surveys": [
+            ([('provider', 1)], {}),
+            ([('provider', 1), ('external_id', 1)], {}),
+            ([('provider', 1), ('is_active', 1)], {}),
+        ],
+        "survey_metrics": [
+            ([('survey_id', 1)], {}),
+            ([('provider', 1)], {}),
+            ([('last_updated', -1)], {}),
+        ],
+        "allocation_log": [
+            ([('respondent_id', 1)], {}),
+            ([('survey_id', 1)], {}),
+            ([('provider', 1)], {}),
+            ([('timestamp', -1)], {}),
+            ([('status', 1)], {}),
+            ([('timestamp', 1)], {'expireAfterSeconds': 2592000}),
+        ],
+    },
+    "cpx_research": {
+        "cpx_surveys": [
+            ('survey_id', {'unique': True}),
+            ('status', {}),
+            ('loi', {}),
+            ('cpi', {}),
+            ('last_updated', {}),
+            ([('loi', 1), ('cpi', -1)], {}),
+            ("payout", {}),
+            ("country", {}),
+            ("category", {}),
+            ([("country", 1), ("last_updated", -1)], {}),
+        ],
+        "cpx_filters": [
+            ('name', {}),
+        ],
+        "cpx_diagnostic_logs": [
+            ([("timestamp", 1)], {"expireAfterSeconds": 604800}),
+            ("country_code", {}),
+            ("outcome", {}),
+        ],
+    },
+    "traffic_flow_db": {
+        "url_parameters": [
+            ('vendorId', {}),
+            ('status', {}),
+            ('createdAt', {}),
+            ('callback_key', {'unique': True, 'sparse': True}),
+            ('cint_hashed_pid', {}),
+            ([('createdAt', -1), ('status', 1)], {}),
+            ([('vendorId', 1), ('status', 1), ('createdAt', -1)], {'name': 'url_params_vendor_status_date'}),
+        ],
+        "cpx_callback_logs": [
+            ('timestamp', {}),
+            ('transaction_id', {}),
+            ('status', {}),
+            ([('timestamp', -1)], {}),
+        ],
+    },
+    "ai_governance": {
+        # ai_governance/governance_checks.py (db.ai_governance())
+        "gemini_daily_usage": [
+            ([("date", 1)], {"unique": True}),   # USAGE_COLLECTION default (env AI_USAGE_COLLECTION may differ)
+        ],
+        "email_classification_guard": [
+            ([("email_id", 1)], {"unique": True, "name": "unique_email_classification"}),
+        ],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _default_name(keys):
+    """MongoDB's default index name: field_direction joined by underscores."""
+    return "_".join("%s_%s" % (f, d) for f, d in _norm_keys(keys))
+
+
+def _norm_keys(keys):
+    if isinstance(keys, str):
+        return [(keys, 1)]
+    return [tuple(k) for k in keys]
+
+
+def _spec_name(keys, opts):
+    return opts.get("name") or _default_name(keys)
+
+
+def _by_name(db_name):
+    """Shared database handle from backend/db.py."""
+    try:
+        from db import by_name
+    except ImportError:
+        from backend.db import by_name
+    return by_name(db_name)
 
 
 def create_index_safe(collection, keys, **kwargs):
     """
-    Safely create an index, logging any errors.
-    
+    Safely create one index, logging any error instead of raising.
+
     Args:
         collection: MongoDB collection
         keys: Index keys (field or list of tuples)
@@ -26,581 +802,136 @@ def create_index_safe(collection, keys, **kwargs):
     """
     try:
         index_name = collection.create_index(keys, background=True, **kwargs)
-        logger.info(f"✅ Index created: {collection.name}.{index_name}")
+        logger.info("Index created: %s.%s", collection.name, index_name)
         return index_name
     except OperationFailure as e:
         if "already exists" in str(e):
-            logger.debug(f"Index already exists on {collection.name}")
+            logger.debug("Index already exists on %s", collection.name)
         else:
-            logger.warning(f"Could not create index on {collection.name}: {e}")
+            logger.warning("Could not create index on %s: %s", collection.name, e)
     except Exception as e:
-        logger.warning(f"Index creation failed for {collection.name}: {e}")
+        logger.warning("Index creation failed for %s: %s", collection.name, e)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Registry driver
+# ---------------------------------------------------------------------------
+def _new_stats():
+    return {"created": 0, "existing": 0, "conflicts": [], "failed": [], "missing": []}
+
+
+def ensure_indexes(db_names=None, client=None, build=True):
+    """
+    Bring every registry index into existence, one database at a time.
+
+    Args:
+        db_names: iterable of database names; default is the whole registry.
+        client: optional pymongo client; default uses backend/db.py handles.
+        build: False makes this a read-only comparison (nothing is created).
+
+    Returns:
+        {db_name: {"created": int, "existing": int, "conflicts": [str],
+                   "failed": [str], "missing": [str]}}
+        "missing" is only filled when build is False.
+    """
+    names = list(db_names) if db_names else list(INDEXES)
+    summary = {}
+    for db_name in names:
+        stats = _new_stats()
+        summary[db_name] = stats
+        if db_name not in INDEXES:
+            stats["failed"].append("unknown database %r (not in INDEXES)" % db_name)
+            continue
+        try:
+            handle = client[db_name] if client is not None else _by_name(db_name)
+        except Exception as e:
+            stats["failed"].append("no database handle: %s" % e)
+            logger.warning("index registry: skipping %s, no handle: %s", db_name, e)
+            continue
+
+        for coll_name, specs in INDEXES[db_name].items():
+            coll = handle[coll_name]
+            try:
+                info = coll.index_information()
+            except PyMongoError as e:
+                stats["failed"].append("%s: index_information: %s" % (coll_name, e))
+                continue
+
+            for keys, opts in specs:
+                opts = dict(opts)
+                name = _spec_name(keys, opts)
+                want = _norm_keys(keys)
+
+                if name in info:
+                    # text/hashed indexes report internal keys (_fts/_ftsx), so compare by name only.
+                    special = any(d in ("text", "hashed") for _, d in want)
+                    if special or [tuple(k) for k in info[name].get("key", [])] == want:
+                        stats["existing"] += 1
+                    else:
+                        stats["conflicts"].append("%s.%s: name taken by different keys" % (coll_name, name))
+                    continue
+
+                same_keys = [n for n, spec in info.items()
+                             if [tuple(k) for k in spec.get("key", [])] == want]
+                if same_keys:
+                    stats["conflicts"].append("%s.%s: same keys already indexed as %s"
+                                              % (coll_name, name, same_keys[0]))
+                    continue
+
+                if not build:
+                    stats["missing"].append("%s.%s" % (coll_name, name))
+                    continue
+
+                opts.setdefault("background", True)
+                try:
+                    coll.create_index(keys if isinstance(keys, str) else want, **opts)
+                    stats["created"] += 1
+                except OperationFailure as e:
+                    detail = "%s.%s: %s" % (coll_name, name, e)
+                    if e.code in _CONFLICT_CODES:
+                        stats["conflicts"].append(detail)
+                    else:
+                        stats["failed"].append(detail)
+                except PyMongoError as e:
+                    stats["failed"].append("%s.%s: %s" % (coll_name, name, e))
+
+        logger.info(
+            "index registry %s: created=%d existing=%d conflicts=%d failed=%d missing=%d",
+            db_name, stats["created"], stats["existing"], len(stats["conflicts"]),
+            len(stats["failed"]), len(stats["missing"]))
+        for line in stats["conflicts"] + stats["failed"]:
+            logger.warning("index registry %s: %s", db_name, line)
+    return summary
 
 
 def setup_indexes(db_manager=None):
     """
-    Create all required indexes across the application databases.
-    
+    Backward-compatible entry point: build every registry index.
+
     Args:
-        db_manager: Optional DatabaseManager instance
+        db_manager: Optional DatabaseManager instance (its .client is used).
     """
-    try:
-        from database import get_db_manager
-        if db_manager is None:
-            db_manager = get_db_manager()
-    except ImportError:
-        from .database import get_db_manager
-        if db_manager is None:
-            db_manager = get_db_manager()
-    
-    client = db_manager.client
-    
-    print("🔧 Setting up database indexes...")
-    
-    # ============== EMAIL AUTOMATION DATABASE ==============
-    email_db = client["email_automation"]
-    
-    # Users collection
-    users = email_db["users"]
-    create_index_safe(users, "username", unique=True)
-    create_index_safe(users, "email", sparse=True)
-    create_index_safe(users, "createdAt")
-    
-    # Contacts collection
-    contacts = email_db["contacts"]
-    create_index_safe(contacts, "email", unique=True)
-    create_index_safe(contacts, "listId")
-    create_index_safe(contacts, [("firstName", ASCENDING), ("lastName", ASCENDING)])
-    create_index_safe(contacts, "tags")
-    create_index_safe(contacts, "createdAt")
-    create_index_safe(contacts, [
-        ("email", TEXT),
-        ("firstName", TEXT),
-        ("lastName", TEXT),
-        ("company", TEXT)
-    ], name="contacts_text_search")
-    
-    # RFQ review queue (sales/rfq_review_queue.py) -- one proposal per
-    # source email, ever. Unique so a race between two near-simultaneous
-    # stage() calls for the same email (retry, worker restart mid-batch,
-    # scheduler overlap) can't slip a duplicate past the app-level check.
-    rfq_review_queue = email_db["rfq_review_queue"]
-    create_index_safe(rfq_review_queue, "source_email_id", unique=True)
-    create_index_safe(rfq_review_queue, "status")
-
-    # Lists collection
-    lists = email_db["lists"]
-    create_index_safe(lists, "name")
-    create_index_safe(lists, "createdAt")
-    
-    # Templates collection
-    templates = email_db["templates"]
-    create_index_safe(templates, "name")
-    create_index_safe(templates, "createdAt")
-    
-    # Projects collection
-    projects = email_db["projects"]
-    create_index_safe(projects, "name")
-    create_index_safe(projects, "status")
-    create_index_safe(projects, "createdAt")
-    
-    # Leads collection
-    leads = email_db["leads"]
-    create_index_safe(leads, "email", sparse=True)
-    create_index_safe(leads, "linkedin_url", sparse=True)
-    create_index_safe(leads, "source")
-    create_index_safe(leads, "classification_status")
-    create_index_safe(leads, "seniority")
-    create_index_safe(leads, "country")
-    create_index_safe(leads, "createdAt")
-    create_index_safe(leads, [
-        ("email", TEXT),
-        ("name", TEXT),
-        ("company", TEXT),
-        ("title", TEXT)
-    ], name="leads_text_search")
-    
-    # LinkedIn engagement tracking indexes (Phase 1)
-    create_index_safe(leads, "engagement_score", sparse=True)
-    create_index_safe(leads, "reengagement_eligible", sparse=True)
-    create_index_safe(leads, "last_outreach_date", sparse=True)
-    create_index_safe(leads, "linkedin_connection_status", sparse=True)
-    
-    # Compound index for re-engagement queries (find high-engagement leads ready for outreach)
-    create_index_safe(leads, [
-        ("engagement_score", DESCENDING),
-        ("reengagement_eligible", ASCENDING),
-        ("last_outreach_date", DESCENDING)
-    ], name="leads_reengagement_query")
-    
-    # Web Search Jobs collection
-    web_search_jobs = email_db["web_search_jobs"]
-    create_index_safe(web_search_jobs, "job_id", unique=True)
-    create_index_safe(web_search_jobs, "status")
-    create_index_safe(web_search_jobs, "created_at")
-    create_index_safe(web_search_jobs, [("status", ASCENDING), ("created_at", DESCENDING)])
-    
-    # Panel Vendors collection (Operations)
-    panel_vendors = email_db["panel_vendors"]
-    create_index_safe(panel_vendors, "name")
-    create_index_safe(panel_vendors, "email", sparse=True)
-    create_index_safe(panel_vendors, "status")
-    create_index_safe(panel_vendors, "createdAt")
-    # Panel vendors VID unique constraint (sparse to allow nulls)
-    create_index_safe(panel_vendors, "vid", unique=True, sparse=True)
-    
-    # Clients collection (Operations)
-    clients = email_db["clients"]
-    create_index_safe(clients, "name")
-    create_index_safe(clients, "email", sparse=True)
-    create_index_safe(clients, "status")
-    create_index_safe(clients, "sales_account_id", sparse=True)
-    create_index_safe(clients, "createdAt")
-    
-    # Vendors collection (for CPX callbacks)
-    vendors = email_db["vendors"]
-    create_index_safe(vendors, "name")
-    create_index_safe(vendors, "status")
-    
-    # OpenAI Usage Logs
-    openai_usage = email_db["openai_usage_logs"]
-    create_index_safe(openai_usage, "timestamp")
-    create_index_safe(openai_usage, [("source", ASCENDING), ("timestamp", DESCENDING)])
-    create_index_safe(openai_usage, [("model", ASCENDING), ("timestamp", DESCENDING)])
-    
-    # ============== EMAIL SAFETY INDEXES ==============
-    # Suppression List - unique email for global suppression
-    suppression_list = email_db["suppression_list"]
-    create_index_safe(suppression_list, "email", unique=True)
-    create_index_safe(suppression_list, "reason")
-    create_index_safe(suppression_list, "suppressed_at")
-    
-    # Campaign Sends - idempotency key to prevent duplicate sends
-    campaign_sends = email_db["campaign_sends"]
-    create_index_safe(campaign_sends, "idempotency_key", unique=True, sparse=True)
-    create_index_safe(campaign_sends, "campaign_id")
-    create_index_safe(campaign_sends, "recipient_id")
-    create_index_safe(campaign_sends, "sent_at")
-    create_index_safe(campaign_sends, "status", sparse=True)
-    
-    # Compound index for campaign analytics queries
-    create_index_safe(campaign_sends, [
-        ("campaign_id", ASCENDING),
-        ("status", ASCENDING),
-        ("created_at", DESCENDING)
-    ], name="campaign_sends_analytics")
-    
-    # Email Audit Log - track all email operations
-    email_audit_log = email_db["email_audit_log"]
-    create_index_safe(email_audit_log, [("campaign_id", ASCENDING), ("timestamp", DESCENDING)])
-    create_index_safe(email_audit_log, "timestamp")
-    create_index_safe(email_audit_log, "action")
-    
-    # Audit Log - unified entity audit trail
-    audit_log = email_db["audit_log"]
-    create_index_safe(audit_log, [("entity_type", ASCENDING), ("entity_id", ASCENDING), ("timestamp", DESCENDING)])
-    create_index_safe(audit_log, "timestamp")
-    create_index_safe(audit_log, "user_id", sparse=True)
-    create_index_safe(audit_log, "action")
-    
-    # AI Review Queue - low confidence classifications for human review
-    ai_review_queue = email_db["ai_review_queue"]
-    create_index_safe(ai_review_queue, [("status", ASCENDING), ("queued_at", DESCENDING)])
-    create_index_safe(ai_review_queue, "entity_type")
-    
-    # IMAP Accounts
-    imap_accounts = email_db["imap_accounts"]
-    create_index_safe(imap_accounts, "email", unique=True)
-    create_index_safe(imap_accounts, "is_active")
-    
-    # Email Leads
-    email_leads = email_db["email_leads"]
-    create_index_safe(email_leads, "email_id", unique=True)
-    create_index_safe(email_leads, "segment")
-    create_index_safe(email_leads, "from_email")
-    create_index_safe(email_leads, "received_at")
-    
-    # ============== CAMPAIGN RECIPIENT INDEXES ==============
-    # Campaign Recipients - tracks A/B test variants and engagement
-    campaign_recipients = email_db["campaign_recipients"]
-    create_index_safe(campaign_recipients, "campaign_id")
-    create_index_safe(campaign_recipients, "lead_id")
-    create_index_safe(campaign_recipients, "ab_variant", sparse=True)
-    create_index_safe(campaign_recipients, "engagement_status", sparse=True)
-    create_index_safe(campaign_recipients, [
-        ("campaign_id", ASCENDING),
-        ("ab_variant", ASCENDING)
-    ], name="campaign_recipients_ab_test")
-    create_index_safe(campaign_recipients, [
-        ("campaign_id", ASCENDING),
-        ("engagement_status", ASCENDING)
-    ], name="campaign_recipients_engagement")
-    
-    # ============== LINKEDIN AUTOMATION INDEXES ==============
-    # LinkedIn Connections - connection request tracking
-    linkedin_connections = email_db["linkedin_connections"]
-    create_index_safe(linkedin_connections, "lead_id")
-    create_index_safe(linkedin_connections, "session_id", sparse=True)
-    create_index_safe(linkedin_connections, "status", sparse=True)
-    create_index_safe(linkedin_connections, "sent_at", sparse=True)
-    create_index_safe(linkedin_connections, "accepted_at", sparse=True)
-    create_index_safe(linkedin_connections, [
-        ("lead_id", ASCENDING),
-        ("status", ASCENDING)
-    ], name="linkedin_connections_by_lead_status")
-    create_index_safe(linkedin_connections, [
-        ("session_id", ASCENDING),
-        ("sent_at", DESCENDING)
-    ], name="linkedin_connections_session_timeline")
-    
-    # LinkedIn Sessions - browser session management
-    linkedin_sessions = email_db["linkedin_sessions"]
-    create_index_safe(linkedin_sessions, "session_id", unique=True)
-    create_index_safe(linkedin_sessions, "email", sparse=True)
-    create_index_safe(linkedin_sessions, "status", sparse=True)
-    create_index_safe(linkedin_sessions, "login_date", sparse=True)
-    create_index_safe(linkedin_sessions, "last_active", sparse=True)
-    
-    # LinkedIn Messages - message tracking
-    linkedin_messages = email_db["linkedin_messages"]
-    create_index_safe(linkedin_messages, "lead_id")
-    create_index_safe(linkedin_messages, "connection_id", sparse=True)
-    create_index_safe(linkedin_messages, "sent_at")
-    create_index_safe(linkedin_messages, "read_at", sparse=True)
-    create_index_safe(linkedin_messages, "replied_at", sparse=True)
-    create_index_safe(linkedin_messages, [
-        ("lead_id", ASCENDING),
-        ("sent_at", DESCENDING)
-    ], name="linkedin_messages_by_lead_timeline")
-    
-    # LinkedIn Activity - daily rate limit tracking
-    linkedin_activities = email_db["linkedin_activities"]
-    create_index_safe(linkedin_activities, "session_id")
-    create_index_safe(linkedin_activities, "date")
-    create_index_safe(linkedin_activities, [
-        ("date", ASCENDING),
-        ("session_id", ASCENDING)
-    ], name="linkedin_activities_daily_summary")
-    create_index_safe(linkedin_activities, [
-        ("session_id", DESCENDING),
-        ("date", DESCENDING)
-    ], name="linkedin_activities_session_timeline")
-    
-    # LinkedIn Templates - message templates
-    linkedin_templates = email_db["linkedin_templates"]
-    create_index_safe(linkedin_templates, "name", sparse=True)
-    create_index_safe(linkedin_templates, "created_at", sparse=True)
-    
-    # ============== PERFORMANCE OPTIMIZATION INDEXES ==============
-    # Domain Health - email domain reputation tracking
-    domain_health = email_db["domain_health"]
-    create_index_safe(domain_health, "domain", unique=True)
-    create_index_safe(domain_health, "last_checked", sparse=True)
-    
-    # Gmail Account Usage - usage tracking for rate limiting
-    gmail_account_usage = email_db["gmail_account_usage"]
-    create_index_safe(gmail_account_usage, "account_id", unique=True, sparse=True)
-    create_index_safe(gmail_account_usage, "last_sync", sparse=True)
-    create_index_safe(gmail_account_usage, [
-        ("account_id", ASCENDING),
-        ("last_sync", DESCENDING)
-    ], name="gmail_account_usage_sync_tracking")
-    
-    # ============== FINANCE DATABASE ==============
-    finance_db = client["finance_db"]
-    
-    # Invoices collection
-    invoices = finance_db["invoices"]
-    create_index_safe(invoices, "invoice_number", unique=True, sparse=True)
-    create_index_safe(invoices, "idempotency_key", unique=True, sparse=True)  # P0.14: Invoice idempotency
-    create_index_safe(invoices, "customer_id", sparse=True)
-    create_index_safe(invoices, "customer_name")
-    create_index_safe(invoices, "status")
-    create_index_safe(invoices, "due_date")
-    create_index_safe(invoices, "created_at")
-    create_index_safe(invoices, [("status", ASCENDING), ("due_date", ASCENDING)])
-    
-    # Customers collection
-    customers = finance_db["customers"]
-    create_index_safe(customers, "name")
-    create_index_safe(customers, "email", sparse=True)
-    create_index_safe(customers, "operations_client_id", sparse=True)
-    create_index_safe(customers, "createdAt")
-    
-    # Billing Vendors collection
-    billing_vendors = finance_db["billing_vendors"]
-    create_index_safe(billing_vendors, "name")
-    create_index_safe(billing_vendors, "email", sparse=True)
-    create_index_safe(billing_vendors, "status")
-    create_index_safe(billing_vendors, "createdAt")
-    
-    # ============== TRAFFIC FLOW DATABASE ==============
-    traffic_db = client["traffic_flow_db"]
-    
-    # URL Parameters collection
-    url_params = traffic_db["url_parameters"]
-    create_index_safe(url_params, "vendorId")  # Fixed: snake_case → camelCase
-    create_index_safe(url_params, "status")
-    create_index_safe(url_params, "createdAt")  # Fixed: snake_case → camelCase
-    create_index_safe(url_params, "callback_key", unique=True, sparse=True)  # P0.15: CPX callback idempotency
-    create_index_safe(url_params, "cint_hashed_pid")  # Task: Optimize CINT callback lookups
-    # Compound index for list query optimization (sort by createdAt DESC, filter by status)
-    create_index_safe(url_params, [("createdAt", DESCENDING), ("status", ASCENDING)])
-    
-    # CPX Callback Logs
-    cpx_callback_logs = traffic_db["cpx_callback_logs"]
-    create_index_safe(cpx_callback_logs, "timestamp")
-    create_index_safe(cpx_callback_logs, "transaction_id")
-    create_index_safe(cpx_callback_logs, "status")
-    create_index_safe(cpx_callback_logs, [("timestamp", DESCENDING)])
-    
-    # ============== CPX RESEARCH DATABASE ==============
-    cpx_db = client["cpx_research"]
-    
-    # CPX Surveys collection
-    cpx_surveys = cpx_db["cpx_surveys"]
-    create_index_safe(cpx_surveys, "survey_id", unique=True)
-    create_index_safe(cpx_surveys, "status")
-    create_index_safe(cpx_surveys, "loi")
-    create_index_safe(cpx_surveys, "cpi")
-    create_index_safe(cpx_surveys, "last_updated")
-    create_index_safe(cpx_surveys, [("loi", ASCENDING), ("cpi", DESCENDING)])
-    
-    # CPX Filters collection
-    cpx_filters = cpx_db["cpx_filters"]
-    create_index_safe(cpx_filters, "name")
-    
-    # ============== TORPEDO GMAIL DATABASE ==============
-    # Indexes for email sync performance
-    gmail_db = client["torpedo_gmail"]
-    
-    # Email Metadata collection (AI classification)
-    email_metadata = gmail_db["email_metadata"]
-    create_index_safe(email_metadata, "gmail_message_id", unique=True)
-    create_index_safe(email_metadata, "mailbox_id")
-    create_index_safe(email_metadata, "from_email")
-    create_index_safe(email_metadata, "ai_category", sparse=True)
-    # 2026-09-19: mail_pool_ai.py's own core queries (process_sender_batch's
-    # candidate aggregation, plus GET /rfq/sync-status's processed/pending
-    # counts) filter on ai_analysis {$exists: true/false} with no supporting
-    # index -- confirmed live, a plain count_documents() on this 367k-doc
-    # collection timed out under load. Non-sparse indexes cover $exists on
-    # both sides for a field that's either present-with-value or entirely
-    # absent (this one always is), which is exactly this field's shape.
-    create_index_safe(email_metadata, "ai_analysis")
-    create_index_safe(email_metadata, [("mailbox_id", ASCENDING), ("timestamp", DESCENDING)])
-    create_index_safe(email_metadata, [("ai_category", ASCENDING), ("ai_confidence", DESCENDING)])
-    # For unclassified emails query
-    create_index_safe(email_metadata, [("ai_category", ASCENDING), ("mailbox_id", ASCENDING)])
-    
-    # Parallel Sync Progress collection - critical for sync status updates
-    parallel_sync_progress = gmail_db["parallel_sync_progress"]
-    create_index_safe(parallel_sync_progress, "email", unique=True)
-    create_index_safe(parallel_sync_progress, "status")
-    create_index_safe(parallel_sync_progress, [("status", ASCENDING), ("updated_at", DESCENDING)])
-    
-    # IMAP Accounts collection
-    imap_accounts = gmail_db["imap_accounts"]
-    create_index_safe(imap_accounts, "email", unique=True)
-    create_index_safe(imap_accounts, "is_active")
-    
-    # Email Sync Log
-    email_sync_log = gmail_db["email_sync_log"]
-    create_index_safe(email_sync_log, "account_email")
-    create_index_safe(email_sync_log, "started_at")
-    create_index_safe(email_sync_log, [("account_email", ASCENDING), ("started_at", DESCENDING)])
-    
-    # ============== SETTINGS DATABASE ==============
-    settings_db = client["torpedo_settings"]
-    
-    # App Settings collection (uses _id as key)
-    # No additional indexes needed - _id is already indexed
-    
-    # ============== SALES DATABASE ==============
-    # Sales Accounts (in email_automation for now)
-    sales_accounts = email_db["sales_accounts"]
-    create_index_safe(sales_accounts, "account_name")
-    create_index_safe(sales_accounts, "company")
-    create_index_safe(sales_accounts, "status")
-    create_index_safe(sales_accounts, "createdAt")
-    
-    # ============== COST OPTIMIZATION INDEXES ==============
-    
-    # Search Cache - reduces Google CSE API calls by 70%+
-    search_cache = email_db["search_cache"]
-    create_index_safe(search_cache, "query_hash", unique=True)
-    create_index_safe(search_cache, "created_at")
-    create_index_safe(search_cache, "provider")
-    create_index_safe(search_cache, [
-        ("job_title", ASCENDING),
-        ("industry", ASCENDING),
-        ("location", ASCENDING)
-    ], name="search_cache_components")
-    # TTL index for automatic expiration
-    try:
-        search_cache.create_index("expires_at", expireAfterSeconds=0)
-        logger.info("✅ TTL index created: search_cache.expires_at")
-    except Exception as e:
-        logger.debug(f"TTL index exists or failed: {e}")
-    
-    # Search Cache Metrics
-    cache_metrics = email_db["search_cache_metrics"]
-    create_index_safe(cache_metrics, "date")
-    create_index_safe(cache_metrics, [("date", ASCENDING), ("hour", ASCENDING)])
-    
-    # Deduplication Index - fast lookups to prevent duplicate leads
-    dedup_index = email_db["dedup_index"]
-    create_index_safe(dedup_index, "linkedin_url_hash", unique=True, sparse=True)
-    create_index_safe(dedup_index, "email_hash", sparse=True)
-    create_index_safe(dedup_index, "name_company_hash", sparse=True)
-    create_index_safe(dedup_index, "lead_id")
-    create_index_safe(dedup_index, "created_at")
-    
-    # Deduplication Logs - audit trail of rejected duplicates
-    dedup_logs = email_db["dedup_logs"]
-    create_index_safe(dedup_logs, "rejected_at")
-    create_index_safe(dedup_logs, "reason")
-    create_index_safe(dedup_logs, "source")
-    
-    # ============== HIGH-TRAFFIC COMPOUND INDEXES (Performance Optimization) ==============
-    
-    # Projects - compound indexes for dashboard/operations queries
-    create_index_safe(projects, [("projectStatus", ASCENDING), ("createdAt", DESCENDING)],
-                      name="projects_status_date")
-    create_index_safe(projects, [("user_id", ASCENDING), ("createdAt", DESCENDING)],
-                      name="projects_user_date")
-    
-    # Leads - compound indexes for filtering and search
-    create_index_safe(leads, [("source", ASCENDING), ("createdAt", DESCENDING)],
-                      name="leads_source_date")
-    create_index_safe(leads, [("classification_status", ASCENDING), ("createdAt", DESCENDING)],
-                      name="leads_classification_date")
-    create_index_safe(leads, [("country", ASCENDING), ("seniority", ASCENDING), ("createdAt", DESCENDING)],
-                      name="leads_country_seniority_date")
-    
-    # Finance - compound indexes for dashboard summary queries
-    create_index_safe(invoices, [("status", ASCENDING), ("created_at", DESCENDING)],
-                      name="invoices_status_date")
-    create_index_safe(invoices, [("customer_id", ASCENDING), ("status", ASCENDING)],
-                      name="invoices_customer_status")
-    
-    # Bills - compound index for payables
-    bills = finance_db["bills"]
-    create_index_safe(bills, [("status", ASCENDING), ("due_date", ASCENDING)],
-                      name="bills_status_due")
-    create_index_safe(bills, [("vendor_id", ASCENDING), ("status", ASCENDING)],
-                      name="bills_vendor_status")
-    
-    # Expenses
-    expenses = finance_db["expenses"]
-    create_index_safe(expenses, [("approval_status", ASCENDING), ("created_at", DESCENDING)],
-                      name="expenses_approval_date")
-    
-    # Payments
-    payments_received = finance_db["payments_received"]
-    create_index_safe(payments_received, [("invoice_id", ASCENDING), ("created_at", DESCENDING)],
-                      name="payments_received_invoice_date")
-    payments_made = finance_db["payments_made"]
-    create_index_safe(payments_made, [("bill_id", ASCENDING), ("created_at", DESCENDING)],
-                      name="payments_made_bill_date")
-    
-    # Purchase Orders
-    purchase_orders = finance_db["purchase_orders"]
-    create_index_safe(purchase_orders, [("status", ASCENDING), ("created_at", DESCENDING)],
-                      name="po_status_date")
-    
-    # Sales accounts - compound for dashboard filtering
-    create_index_safe(sales_accounts, [("status", ASCENDING), ("createdAt", DESCENDING)],
-                      name="sales_accounts_status_date")
-    
-    # Panel Vendors - compound for operations filtering
-    create_index_safe(panel_vendors, [("status", ASCENDING), ("createdAt", DESCENDING)],
-                      name="panel_vendors_status_date")
-    
-    # Clients - compound for operations filtering
-    create_index_safe(clients, [("status", ASCENDING), ("createdAt", DESCENDING)],
-                      name="clients_status_date")
-    
-    # Traffic URL parameters - compound for listing queries
-    create_index_safe(url_params, [("vendorId", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)],
-                      name="url_params_vendor_status_date")
-    
-    # Gmail email metadata - compound for inbox queries
-    create_index_safe(email_metadata, [("mailbox_id", ASCENDING), ("ai_category", ASCENDING), ("timestamp", DESCENDING)],
-                      name="email_metadata_mailbox_category_time")
-    
-    # RFQ collection (sales funnel)
-    rfqs = email_db["rfqs"]
-    create_index_safe(rfqs, [("status", ASCENDING), ("created_at", DESCENDING)],
-                      name="rfqs_status_date")
-
-    # ============== CAMPAIGN PLATFORM DATABASE ==============
-    campaign_db = client["campaign_platform"]
-
-    # Panelists collection
-    panelists = campaign_db["panelists"]
-    create_index_safe(panelists, "email", unique=True)
-    create_index_safe(panelists, "country")
-    create_index_safe(panelists, "status")
-    create_index_safe(panelists, "double_opt_in_completed")
-    create_index_safe(panelists, [("status", ASCENDING), ("created_at", DESCENDING)],
-                      name="panelists_status_date")
-    # Rotation sort for the daily invite crons (send_bulk_invitations /
-    # send_bulk_login_invitations) — without this, sorting 189K+ docs by
-    # invite recency runs unindexed on every run.
-    create_index_safe(panelists, [("status", ASCENDING), ("last_invited_at", ASCENDING)],
-                      name="panelists_status_last_invited")
-    create_index_safe(panelists, [("double_opt_in_completed", ASCENDING), ("last_login_invite_sent_at", ASCENDING)],
-                      name="panelists_optin_last_login_invite")
-    # State mirrored from the SFW panel (services/panel_sync_service.py) plus
-    # the click mirror — the funnel stages and stalled segments filter on these.
-    create_index_safe(panelists, "sfw_profile_complete", sparse=True)
-    create_index_safe(panelists, "sfw_last_login", sparse=True)
-    create_index_safe(panelists, "sfw_country", sparse=True)
-    create_index_safe(panelists, "invite_clicked_at", sparse=True)
-    # "Invited at least once" in the funnel, and the people_invited denominator
-    # behind the dashboard's conversion rate.
-    create_index_safe(panelists, "last_invited_at", sparse=True)
-
-    # Panel invitation log - critical for panelists/with-email-status lookup
-    invitation_log = campaign_db["panel_invitation_log"]
-    create_index_safe(invitation_log, "email")
-    create_index_safe(invitation_log, [("email", ASCENDING), ("sent_at", DESCENDING)],
-                      name="invitation_log_email_sent")
-    create_index_safe(invitation_log, "batch_id")
-    create_index_safe(invitation_log, "status")
-    create_index_safe(invitation_log, "type")
-    create_index_safe(invitation_log, "ses_message_id", sparse=True)
-    create_index_safe(invitation_log, "invite_token", unique=True, sparse=True)
-
-    # Panel email suppression
-    suppression = campaign_db["panel_email_suppression"]
-    create_index_safe(suppression, "email", unique=True)
-    create_index_safe(suppression, "reason")
-
-    # Panel rewards
-    rewards = campaign_db["panel_rewards"]
-    create_index_safe(rewards, "panelist_id")
-    create_index_safe(rewards, [("type", ASCENDING), ("status", ASCENDING)],
-                      name="rewards_type_status")
-
-    print("✅ Database indexes setup complete!")
+    client = getattr(db_manager, "client", None) if db_manager is not None else None
+    print("Setting up database indexes...")
+    summary = ensure_indexes(client=client, build=True)
+    failed = sum(len(s["failed"]) + len(s["conflicts"]) for s in summary.values())
+    print("Database indexes setup complete (%d problems, see log)." % failed)
     return True
 
 
 def drop_all_indexes(db_manager=None, confirm=False):
     """
     Drop all non-system indexes. USE WITH CAUTION!
-    
+
     Args:
         db_manager: Optional DatabaseManager instance
         confirm: Must be True to actually drop indexes
     """
     if not confirm:
-        print("⚠️ To drop indexes, call with confirm=True")
+        print("To drop indexes, call with confirm=True")
         return False
-    
+
     try:
         from database import get_db_manager
         if db_manager is None:
@@ -609,24 +940,23 @@ def drop_all_indexes(db_manager=None, confirm=False):
         from .database import get_db_manager
         if db_manager is None:
             db_manager = get_db_manager()
-    
+
     client = db_manager.client
-    
+
     databases = ["email_automation", "finance_db", "traffic_flow_db", "cpx_research", "torpedo_settings"]
-    
+
     for db_name in databases:
         db = client[db_name]
         for collection_name in db.list_collection_names():
             try:
                 db[collection_name].drop_indexes()
-                print(f"Dropped indexes on {db_name}.{collection_name}")
+                print("Dropped indexes on %s.%s" % (db_name, collection_name))
             except Exception as e:
-                print(f"Error dropping indexes on {db_name}.{collection_name}: {e}")
-    
-    print("✅ All indexes dropped")
+                print("Error dropping indexes on %s.%s: %s" % (db_name, collection_name, e))
+
+    print("All indexes dropped")
     return True
 
 
 if __name__ == "__main__":
-    # Run index setup when executed directly
     setup_indexes()

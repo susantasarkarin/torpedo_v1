@@ -18,6 +18,7 @@ from pydantic import BaseModel, EmailStr, Field
 # mounted (TOR-05/TOR-11). It imported fine under pytest, where backend/ IS a
 # package, which is exactly why nothing noticed.
 from campaigns.automation import CampaignAutomation
+from db import legacy
 
 logger = logging.getLogger(__name__)
 
@@ -377,12 +378,8 @@ async def get_dormant_leads(
     - Not already in a re-engagement campaign
     """
     try:
-        from pymongo import MongoClient
-        import os
         
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         # Build query for dormant leads
         query = {
@@ -444,12 +441,8 @@ async def create_reengagement_campaign(
     - Sender rotation recommendations
     """
     try:
-        from pymongo import MongoClient
-        import os
         
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         # Fetch lead data
         from bson import ObjectId
@@ -521,13 +514,9 @@ async def enroll_lead_in_reengagement(
     Useful for ad-hoc re-engagement of high-value leads.
     """
     try:
-        from pymongo import MongoClient
         from bson import ObjectId
-        import os
         
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         # Verify lead exists
         lead = db["campaign_recipients"].find_one({"_id": ObjectId(lead_id)})
@@ -580,13 +569,9 @@ async def get_reengagement_timeline(
     - Strategy effectiveness
     """
     try:
-        from pymongo import MongoClient
         from bson import ObjectId
-        import os
         
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         # Verify campaign exists
         campaign = db["campaigns"].find_one({"_id": ObjectId(campaign_id)})
@@ -656,9 +641,7 @@ async def get_campaign_timeseries(
     Useful for charting campaign performance over time.
     """
     try:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         from bson import ObjectId
         
@@ -750,9 +733,7 @@ async def get_campaign_funnel(campaign_id: str):
     Includes counts and conversion rates at each stage.
     """
     try:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         from bson import ObjectId
         
@@ -830,9 +811,7 @@ async def get_campaign_by_segment(
     Returns engagement metrics for each segment.
     """
     try:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         from bson import ObjectId
         
@@ -942,9 +921,7 @@ async def get_engagement_heatmap(campaign_id: str):
     Useful for optimizing send times.
     """
     try:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['email_automation']
+        db = legacy()
         
         from bson import ObjectId
         

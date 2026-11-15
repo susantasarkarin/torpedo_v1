@@ -3,7 +3,7 @@
 extract (Qwen via the gateway, code-checked) -> client defaults -> missing
 critical fields -> price each CAWI line from the live Cint rate card.
 
-Pure apart from the injected `run` (qwen_gateway.run). Nothing is sent from
+Pure apart from the injected `run` (platform_core.ladder.run). Nothing is sent from
 here: a missing-info reply and every quote are Review Queue drafts until the
 owner approves the client-facing copy and switches the module live.
 """

@@ -37,7 +37,7 @@ def backup_age_hours(d="/var/www/campaign_platform/backups") -> float:
 
 
 def zoho_fields(z):
-    import seed_invoices_csv as seed
+    from scripts.oneoff import seed_invoices_csv as seed
     total, bal = float(z["total"] or 0), float(z["balance"] or 0)
     return {"status": z["status"], "balance_due": round(bal, 2), "amount_paid": round(max(total - bal, 0), 2),
             "payment_status": seed.payment_status(total, bal), "po_reference": z["po_reference"] or None,
@@ -51,7 +51,7 @@ def main():
     a = ap.parse_args()
     if a.apply and backup_age_hours() > 3:
         sys.exit("refusing to apply: newest mongodump is older than 3 h")
-    import seed_invoices_csv as seed
+    from scripts.oneoff import seed_invoices_csv as seed
     from database import get_database
     fin = get_database("finance_db")
     zoho, _fmt = seed.normalise(seed.read_rows(a.csv))

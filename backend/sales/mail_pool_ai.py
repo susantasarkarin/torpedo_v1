@@ -197,15 +197,12 @@ _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company 
 
 def _local_ai():
     """
-    The AI transport for this module: the local Qwen model
-    (sales/mail_pool_local_ai.py), never Bedrock and never an external
-    inference API (standing rule -- the SLM stays on this VM). See
-    mail_pool_local_ai.py's docstring for the full 2026-09-19 history: a
-    DigitalOcean detour was tried and reverted after the real blocker
-    (llama-server's systemd unit had a 768M memory cap sized for the old
-    0.5B model) was found and fixed, and the model was upgraded to 1.5B.
+    The AI transport for this module: sales/mail_pool_llm.py, a thin
+    bedrock_client-shaped shim over platform_core.ladder (Haiku, then Sonnet).
+    The local Qwen model that previously sat behind this shape was retired on
+    2026-11-15.
     """
-    from sales import mail_pool_local_ai as bc
+    from sales import mail_pool_llm as bc
     return bc
 
 

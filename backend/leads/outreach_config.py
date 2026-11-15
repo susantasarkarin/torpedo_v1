@@ -159,7 +159,7 @@ def bucket_for_icp(slug: str) -> Optional[str]:
 # after escalation, it goes to the review folder instead of a bucket.
 CONFIDENCE_THRESHOLD = _env_float("BUCKET_CONFIDENCE_THRESHOLD", 0.7)
 
-# Roles, never model IDs — only bedrock_client.py may name a model.
+# Roles, never model IDs — the AI ladder (platform_core/ladder.py) picks the model.
 CLASSIFIER_ROLE_FIRST_PASS = "cheap"
 CLASSIFIER_ROLE_ESCALATION = "smart"
 

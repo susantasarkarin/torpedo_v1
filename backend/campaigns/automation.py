@@ -21,6 +21,7 @@ from bson import ObjectId
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import get_client
+from db import legacy
 
 from campaigns.models import (
     CampaignManager,
@@ -45,9 +46,9 @@ class CampaignAutomation:
         Args:
             mongo_uri: MongoDB connection string
         """
-        mongo_uri = mongo_uri or os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+        # mongo_uri is kept for call-site compatibility; the connection comes from the shared pool.
         self.client = get_client()
-        self.db = self.client['email_automation']
+        self.db = legacy()
         self.campaign_manager = CampaignManager(self.db)
     
     def create_outreach_campaign(

@@ -2,11 +2,11 @@
 OPENAI EMAIL CLASSIFIER
 ========================
 
-Two-tier OpenAI-based email classification.
+Two-tier LLM email classification (Anthropic API via ai_governance).
 
 Classification Tiers:
-- Tier 1: GPT-4o-mini (cheap, fast) for initial classification
-- Tier 2: GPT-4o (better quality) if confidence < 0.7
+- Tier 1: fast model (haiku) for initial classification
+- Tier 2: smart model (sonnet) if confidence < 0.7
 - On Failure: Mark as "Human Intervention Needed"
 
 Features:
@@ -327,7 +327,7 @@ def classify_email_rule_based(
 
 class OpenAIEmailClassifier:
     """
-    OpenAI-based email classifier with two-tier approach and Gemini fallback.
+    LLM-based email classifier with two-tier approach (fast, then smart model).
     """
     
     def __init__(
@@ -392,7 +392,7 @@ class OpenAIEmailClassifier:
         force_tier2: bool = False
     ) -> Dict[str, Any]:
         """
-        Classify a single email using two-tier OpenAI approach.
+        Classify a single email using the two-tier LLM approach.
         
         CRITICAL: System emails are short-circuited BEFORE any LLM call.
         This guarantees zero wasted LLM calls on bounce/OOO/auto-reply.
@@ -660,8 +660,7 @@ class OpenAIEmailClassifier:
             model=PREMIUM_MODEL,
             max_output_tokens=500,
             response_format={"type": "json_object"},
-            allow_premium_model=True,
-            provider="openai"
+            allow_premium_model=True
         )
         
         if not result["success"]:
@@ -1023,7 +1022,7 @@ class OpenAIEmailClassifier:
 
 # ============== BACKGROUND WORKER ==============
 
-class OpenAIClassificationWorker:
+class LLMClassificationWorker:
     """
     Background worker for continuous email classification.
     Processes historic emails in batches and classifies new emails as they arrive.
@@ -1059,16 +1058,16 @@ class OpenAIClassificationWorker:
         self._running = True
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="OpenAIClassificationWorker",
+            name="LLMClassificationWorker",
             daemon=True
         )
         self._thread.start()
-        logger.info("OpenAI Classification Worker started")
-    
+        logger.info("LLM Classification Worker started")
+
     def stop(self):
         """Stop background classification"""
         self._running = False
-        logger.info("OpenAI Classification Worker stopped")
+        logger.info("LLM Classification Worker stopped")
     
     def _run_loop(self):
         """Main worker loop"""
@@ -1122,7 +1121,7 @@ def classify_single_email(email_id: str, db: MongoClient = None) -> Dict[str, An
 def start_background_classification(
     batch_size: int = 500,
     poll_interval: int = 60
-) -> OpenAIClassificationWorker:
+) -> LLMClassificationWorker:
     """
     Start background classification worker.
     
@@ -1133,7 +1132,7 @@ def start_background_classification(
     Returns:
         Worker instance
     """
-    worker = OpenAIClassificationWorker(
+    worker = LLMClassificationWorker(
         batch_size=batch_size,
         poll_interval=poll_interval
     )

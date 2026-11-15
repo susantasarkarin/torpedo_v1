@@ -210,12 +210,10 @@ def classify_all_emails(
     
     # Check Gemini/OpenAI availability
     try:
-        from leads.openai_wrapper import get_openai_api_key
-        has_openai = bool(get_openai_api_key())
-        # Gemini availability checked via ai_governance module
-        if not has_openai:
-            logger.warning("OpenAI not configured - web search features unavailable")
-        logger.info(f"AI Status: OpenAI={has_openai}, Gemini=via ai_governance")
+        has_claude = bool(os.getenv("ANTHROPIC_API_KEY"))
+        if not has_claude:
+            logger.warning("ANTHROPIC_API_KEY not set - AI classification will fall through the ladder")
+        logger.info(f"AI Status: anthropic_key={has_claude}")
     except Exception as e:
         logger.warning(f"Could not check AI status: {e}")
     

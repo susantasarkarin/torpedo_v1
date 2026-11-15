@@ -101,10 +101,8 @@ class BaseAgent(ABC):
         self.phase = phase
         self.logger = logging.getLogger(f"agent.{name}")
         
-        # MongoDB connection
-        self.mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        self._client: Optional[MongoClient] = None
-        
+        # MongoDB handles come from db.py (shared pool; nothing held here)
+
         # Execution state
         self._status = AgentStatus.PENDING
         self._started_at: Optional[datetime] = None
@@ -118,21 +116,22 @@ class BaseAgent(ABC):
         self.retry_delay = 1.0  # seconds
         
     @property
-    def client(self) -> MongoClient:
-        """Lazy MongoDB client initialization"""
-        if self._client is None:
-            self._client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=5000)
-        return self._client
-    
+    def client(self):
+        """The shared process-wide pooled client (db.get_client)."""
+        from db import get_client
+        return get_client()
+
     @property
     def db(self):
         """Get email_automation database"""
-        return self.client['email_automation']
-    
+        from db import legacy
+        return legacy()
+
     @property
     def gmail_db(self):
         """Get torpedo_gmail database"""
-        return self.client['torpedo_gmail']
+        from db import mail
+        return mail()
     
     @property
     def status(self) -> AgentStatus:
@@ -277,10 +276,8 @@ class BaseAgent(ABC):
         }
     
     def cleanup(self):
-        """Cleanup resources"""
-        if self._client:
-            self._client.close()
-            self._client = None
+        """Cleanup resources (the shared Mongo pool must never be closed here)."""
+        return None
 
 
 class AgentRegistry:

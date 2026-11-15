@@ -25,7 +25,7 @@ def _gmail():
     global _service
     if _service is None:
         from app.services.gmail_workspace_service import GmailWorkspaceService
-        svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/", db_name="torpedo_gmail")
+        svc = GmailWorkspaceService(db_name="torpedo_gmail")
         if not svc.load_service_account():
             raise RuntimeError("Gmail service account is not configured in Torpedo")
         _service = svc._get_service(PANEL_GMAIL_SENDER)

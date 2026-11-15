@@ -27,14 +27,13 @@ Usage:
     python -m backend.outreach_engine.migration --execute
 """
 
-import os
 import sys
 import logging
 import argparse
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
-from pymongo import MongoClient
 from bson import ObjectId
+from db import get_client, legacy
 
 # Setup logging
 logging.basicConfig(
@@ -42,10 +41,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-
 
 class MigrationEngine:
     """
@@ -71,17 +66,15 @@ class MigrationEngine:
         "send_queue": "outreach_send_queue",
     }
     
-    def __init__(self, mongo_uri: str = None, dry_run: bool = True):
+    def __init__(self, dry_run: bool = True):
         """
         Initialize migration engine.
-        
+
         Args:
-            mongo_uri: MongoDB connection string
             dry_run: If True, don't actually modify data
         """
-        self.mongo_uri = mongo_uri or MONGO_URI
-        self.client = MongoClient(self.mongo_uri)
-        self.db = self.client["email_automation"]
+        self.client = get_client()
+        self.db = legacy()
         self.dry_run = dry_run
         
         # Migration stats

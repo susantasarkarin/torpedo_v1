@@ -537,7 +537,7 @@ _SUMMARY_SYSTEM = ("You summarise the recent email conversation between a market
 
 
 def run_summary_pass(client, limit: int = 5) -> Dict[str, int]:
-    from leads.local_slm_client import LocalSLMError, chat_json
+    from platform_core import ladder
     from sales.reply_triage import strip_quoted
     em = client["torpedo_gmail"]["email_metadata"]
     stats = {"attempted": 0, "written": 0, "unavailable": 0}
@@ -562,11 +562,15 @@ def run_summary_pass(client, limit: int = 5) -> Dict[str, int]:
         stats["attempted"] += 1
         try:
             # 160 tokens cut the JSON off mid-string (live, 2026-09-28).
-            out = chat_json(system=_SUMMARY_SYSTEM, user=convo, max_tokens=320, json_schema=_SUMMARY_SCHEMA,
-                            priority="bulk")
-        except LocalSLMError as e:
+            out, _tier, _att = ladder.escalate_json(
+                task="mail_summary", system=_SUMMARY_SYSTEM, user=convo, schema=_SUMMARY_SCHEMA,
+                check=lambda d: [], max_tokens=320)
+        except Exception as e:
+            logger.warning("mail pool summary: ladder error: %s", e)
+            out = None
+        if out is None:
             stats["unavailable"] += 1
-            logger.warning("mail pool summary: local model unavailable: %s", e)
+            logger.warning("mail pool summary: no cloud tier answered")
             if stats["unavailable"] >= 2:
                 break
             continue
@@ -603,9 +607,8 @@ def run_full(client, ctx=None) -> Dict[str, Any]:
 def run_scheduled_cycle() -> Dict[str, Any]:
     """APScheduler entry point (after segregation): new messages, the contacts
     they touch, conversions, triage, and a few model summaries/verdicts."""
-    from pymongo import MongoClient
-    client = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                         serverSelectionTimeoutMS=5000)
+    from db import get_client
+    client = get_client()
     ctx = mc.build_context(client)
     now = datetime.utcnow()
     msgs = run_message_pass(client, ctx, limit=5000)

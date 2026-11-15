@@ -18,11 +18,10 @@ class CompanyCache:
     
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation"):
         """Initialize cache with MongoDB connection"""
-        if mongo_uri is None:
-            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        
-        self.client = MongoClient(mongo_uri)
-        self.db = self.client[database_name]
+        # mongo_uri is ignored: all handles come from the shared pool (db.py)
+        from db import by_name, get_client
+        self.client = get_client()
+        self.db = by_name(database_name)
         self.cache_collection = self.db["company_cache"]
         
         # Ensure indexes

@@ -12,8 +12,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, HTTPException, Query, Response
-from fastapi.responses import RedirectResponse
 from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -28,10 +26,7 @@ def _get_pooled_client():
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Email Tracking"])
-
 # ── MongoDB ──
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -48,63 +43,6 @@ TRANSPARENT_PIXEL = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB"
     "Nl7BcQAAAABJRU5ErkJggg=="
 )
-
-
-# ══════════════════════════════════════════════
-#  OPEN TRACKING
-# ══════════════════════════════════════════════
-
-@router.get("/track/open/{lead_id}/{send_id}")
-async def track_open(lead_id: str, send_id: str):
-    """
-    Records an email open event and returns a 1x1 transparent PNG.
-    Injected into email HTML before sending.
-    """
-    try:
-        events_col.insert_one({
-            "lead_id": lead_id,
-            "send_id": send_id,
-            "event_type": "opened",
-            "timestamp": datetime.utcnow(),
-            "metadata": {},
-        })
-    except Exception as e:
-        logger.error(f"Failed to record open event: {e}")
-
-    return Response(
-        content=TRANSPARENT_PIXEL,
-        media_type="image/png",
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-    )
-
-
-# ══════════════════════════════════════════════
-#  CLICK TRACKING
-# ══════════════════════════════════════════════
-
-@router.get("/track/click/{lead_id}/{send_id}")
-async def track_click(lead_id: str, send_id: str, url: str = Query(...)):
-    """
-    Records a click event and 302-redirects to the original URL.
-    """
-    decoded_url = unquote(url)
-
-    # Basic URL validation
-    if not decoded_url.startswith(("http://", "https://")):
-        raise HTTPException(400, "Invalid redirect URL")
-
-    try:
-        events_col.insert_one({
-            "lead_id": lead_id,
-            "send_id": send_id,
-            "event_type": "clicked",
-            "timestamp": datetime.utcnow(),
-            "metadata": {"clicked_url": decoded_url},
-        })
-    except Exception as e:
-        logger.error(f"Failed to record click event: {e}")
-
-    return RedirectResponse(url=decoded_url, status_code=302)
 
 
 # ══════════════════════════════════════════════

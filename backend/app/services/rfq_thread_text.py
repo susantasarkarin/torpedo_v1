@@ -155,10 +155,8 @@ def attachment_texts(client, msg: Dict[str, Any]) -> List[Dict[str, str]]:
     if not mailbox or not msg.get("gmail_message_id"):
         return []
     try:
-        import os
         from app.services.gmail_workspace_service import GmailWorkspaceService
-        svc = GmailWorkspaceService(mongo_uri=os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
-                                    db_name="torpedo_gmail")
+        svc = GmailWorkspaceService(db_name="torpedo_gmail")
         gm = svc._get_service(mailbox).users().messages()
         full = gm.get(userId="me", id=msg["gmail_message_id"], format="full").execute()
         for p in _parts(full.get("payload") or {}):

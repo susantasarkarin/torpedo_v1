@@ -13,8 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
-from .openai_rotator import get_rotator
-from .gemini_enrichment import (
+from .enrichment_ai import (
     classify_lead,
     enrich_lead,
     extract_contact_info,
@@ -30,20 +29,16 @@ class EmailProcessor:
 
     def __init__(self, mongo_uri: str = None):
         """Initialize processor with MongoDB connection."""
-        if mongo_uri is None:
-            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-
-        self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
-        self.email_db = self.client["email_automation"]
+        # mongo_uri is ignored: all handles come from the shared pool (db.py)
+        from db import get_client, legacy
+        self.client = get_client()
+        self.email_db = legacy()
 
         # Collections
         self.mail_pool = self.email_db["mail_pool"]          # legacy IMAP collection
         self.classified_gmail = self.email_db["classified_gmail"]
         self.leads_raw = self.email_db["leads_raw"]
         self.vendor_leads = self.email_db["vendor_leads"]
-        
-        # Get Gemini rotator
-        self.rotator = get_rotator()
         
         # Ensure indexes
         self._ensure_indexes()
@@ -82,23 +77,20 @@ class EmailProcessor:
         segment_result = segment_email(
             subject=subject,
             body=body,
-            sender_email=sender_email,
-            rotator=self.rotator
+            sender_email=sender_email
         )
         
         # Step 2: Extract contact info if not spam
         contacts_info = {}
         if segment_result["segment"] != "SPAM":
             contacts_info = extract_contact_info(
-                email_body=body,
-                rotator=self.rotator
+                email_body=body
             )
         
         # Step 3: Summarize email
         summary = summarize_email(
             email_body=body,
-            subject=subject,
-            rotator=self.rotator
+            subject=subject
         )
         
         # Build classified email document
@@ -260,10 +252,10 @@ class EmailProcessor:
         
         # Perform full classification and enrichment
         if lead_data["email"]:
-            classification = classify_lead(lead_data, self.rotator)
+            classification = classify_lead(lead_data)
             lead_data["gemini_classification"] = classification
             
-            enrichment = enrich_lead(lead_data, self.rotator)
+            enrichment = enrich_lead(lead_data)
             lead_data["gemini_enrichment"] = enrichment
         
         # Insert into leads_raw
@@ -414,8 +406,8 @@ class EmailProcessor:
         Replaces the legacy process_batch() which read from the dead
         email_automation.mail_pool collection.
         """
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        gmail_db = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
+        from db import mail as _mail
+        gmail_db = _mail()
         mail_col = gmail_db["email_metadata"]
 
         cutoff = datetime.now() - timedelta(hours=since_hours)
@@ -561,7 +553,7 @@ class EmailProcessor:
         return None
 
 
-
+if __name__ == "__main__":
     # Test the email processor
     print("=== Email Processor Test ===\n")
     

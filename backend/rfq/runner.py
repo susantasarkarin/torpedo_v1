@@ -4,12 +4,10 @@ rfq.flow.process -> email_automation.rfq_decisions.
 Shadow (default): decisions only. Live (owner switches config rfq.mode): the
 result is also stamped on the opportunity (metadata.rfq.flow) and the
 missing-info draft / priced lines go to the Review Queue. Nothing is mailed
-here in either mode. Skips entirely until the extraction model has its own
-endpoint (QWEN_ENDPOINT_<MODEL>), so the 7B task never lands on the 1.5B.
+here in either mode. Extraction runs through platform_core.ladder.run
+(rules -> Haiku -> Sonnet).
 """
 import logging
-import os
-import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -23,11 +21,6 @@ logger = logging.getLogger(__name__)
 def _gd():
     from database import get_database
     return get_database
-
-
-def model_hosted(qcfg: Dict[str, Any]) -> bool:
-    model = qcfg["tasks"]["rfq_extraction"]["model"]
-    return bool(os.getenv("QWEN_ENDPOINT_" + re.sub(r"[^A-Z0-9]+", "_", model.upper()).strip("_")))
 
 
 def _text(md, opp) -> str:
@@ -80,7 +73,7 @@ def run_batch(now: Optional[datetime] = None, run=None, rows=None) -> Dict[str, 
     from platform_core import config_store, ladder
     from pricing import rate_card
     gd = _gd()
-    cfg, qcfg = config_store.get("rfq"), config_store.get("qwen")
+    cfg = config_store.get("rfq")
     stats: Dict[str, Any] = {"mode": cfg["mode"], "decided": 0}
     if cfg["mode"] == "off":
         return stats

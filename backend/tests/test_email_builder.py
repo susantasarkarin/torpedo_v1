@@ -83,8 +83,7 @@ def test_names_drop_titles_initials_and_nicknames():
 
 
 def _ai(answer):
-    from leads import local_slm_client
-    return patch.object(local_slm_client, "chat_json", return_value=answer)
+    return patch("platform_core.ladder.escalate_json", return_value=(answer, "haiku", []))
 
 
 def test_ai_ok_and_guarded_correction():
@@ -104,8 +103,8 @@ def test_ai_ok_and_guarded_correction():
 
 
 def test_model_outage_is_not_a_verdict():
-    from leads import local_slm_client
-    with patch.object(local_slm_client, "chat_json", side_effect=local_slm_client.LocalSLMUnavailable("down")):
+    with patch("platform_core.ladder.escalate_json",
+               return_value=(None, None, [{"status": "failed", "problems": ["down"]}])):
         out = eb.ai_check({"name": "K K"}, "h.com", {"form": "{first}", "examples": []}, "k@h.com", "k", "k", set())
     assert out["verdict"] == "unavailable"
 

@@ -255,8 +255,14 @@ GOOD_BODY = ("Hi Asha, running BIM delivery across a construction portfolio "
 def _gen(monkeypatch, payload):
     mod = _load(monkeypatch)
     from unittest.mock import patch
-    from leads import bedrock_client
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    import json
+    from platform_core import ladder
+    try:
+        answer = (json.loads(payload), "haiku", [])
+    except ValueError:
+        # The ladder rejects unparseable output and answers None, never the raw text.
+        answer = (None, None, [{"status": "rejected", "problems": ["not a JSON object"]}])
+    with patch.object(ladder, "escalate_json", return_value=answer):
         return mod._generate_personalised_email(
             lead=LEAD, campaign_ctx={"value_proposition": "BIM outsourcing"},
             business_label="BIMwave", sender_name="Susanta", step_number=1)
@@ -333,13 +339,13 @@ def test_ai_generation_timeout_falls_back(monkeypatch):
     from unittest.mock import patch
 
     mod = _load(monkeypatch, OUTREACH_AI_TIMEOUT_SECONDS="0.2")
-    from leads import bedrock_client
+    from platform_core import ladder
 
-    def _slow_converse(*args, **kwargs):
+    def _slow_escalate(*args, **kwargs):
         time.sleep(2)
-        return '{"subject": "Hi Asha", "body": "' + GOOD_BODY + '"}'
+        return ({"subject": "Hi Asha", "body": GOOD_BODY}, "haiku", [])
 
-    with patch.object(bedrock_client, "converse", side_effect=_slow_converse):
+    with patch.object(ladder, "escalate_json", side_effect=_slow_escalate):
         result = mod._generate_personalised_email(
             lead=LEAD, campaign_ctx={"value_proposition": "BIM outsourcing"},
             business_label="BIMwave", sender_name="Susanta", step_number=1)

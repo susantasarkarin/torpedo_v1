@@ -94,7 +94,6 @@ router = APIRouter(prefix="/leads", tags=["Leads"], dependencies=_leads_deps)
 
 # ============== MONGODB CONNECTION FOR JOBS ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
@@ -198,10 +197,10 @@ class JobStatus:
 def get_global_search_control() -> dict:
     """Get global search control settings (pause all jobs, circuit breaker state)"""
     try:
-        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        settings_db = settings_client['torpedo_settings']
+        from db import settings as _settings
+        settings_db = _settings()
         app_settings = settings_db['app_settings']
-        control = app_settings.find_one({"_id": "search_control"})
+        control =app_settings.find_one({"_id": "search_control"})
         if control:
             return {
                 "paused": control.get("paused", False),
@@ -228,8 +227,8 @@ def get_global_search_control() -> dict:
 def set_global_search_control(updates: dict):
     """Update global search control settings"""
     try:
-        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        settings_db = settings_client['torpedo_settings']
+        from db import settings as _settings
+        settings_db = _settings()
         app_settings = settings_db['app_settings']
         app_settings.update_one(
             {"_id": "search_control"},
@@ -540,7 +539,7 @@ def generate_job_queries(icp_id: Optional[str], config: dict) -> List[str]:
     If the job is tagged with an ICP (icp_id -- already used to tag imported
     leads, previously unused for query generation), prefer AI-generated
     queries via leads/icp_query_ai.generate_icp_queries() -- the same
-    Qwen-via-bedrock_client path leads/scheduler.py's LeadScheduler already
+    platform_core.ladder path leads/scheduler.py's LeadScheduler already
     uses in production. Qwen naturally varies title synonyms and boolean-OR
     groups the template below never tries, and doesn't blindly cross every
     designation with every seniority and every industry the way a cartesian
@@ -2107,12 +2106,9 @@ async def get_pipeline_stats():
       6. Enriched        – replied leads promoted to the main leads CRM collection
     """
     try:
-        from pymongo import MongoClient as _MC
-        import os as _os
-        _uri = _os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        _client = _MC(_uri, serverSelectionTimeoutMS=5000)
-        _email_db = _client['email_automation']
-        _torpedo_db = _client[_os.getenv('MONGO_DB_NAME', 'torpedo')]
+        from db import legacy as _legacy, outreach as _outreach
+        _email_db = _legacy()
+        _torpedo_db = _outreach()
 
         raw_col = _email_db['leads_raw']
         sends_col = _torpedo_db['outreach_sends_v2']
@@ -3937,7 +3933,7 @@ async def get_workbooks():
     """
     try:
         # Use existing companies as workbooks or create a workbooks collection
-        workbooks_collection = db.get_collection("ai_workbooks")
+        workbooks_collection = _jobs_db["ai_workbooks"]
         
         workbooks = list(workbooks_collection.find(
             {},
@@ -3961,7 +3957,7 @@ async def create_workbook(request: dict = Body(...)):
     Create a new workbook.
     """
     try:
-        workbooks_collection = db.get_collection("ai_workbooks")
+        workbooks_collection = _jobs_db["ai_workbooks"]
         
         workbook = {
             "name": request.get("name", "Untitled workbook"),
@@ -5032,7 +5028,7 @@ async def retry_failed_leads(limit: int = Query(10000, ge=1, le=50000)):
     background classification run.
     """
     try:
-        result = leads_raw_collection.update_many(
+        result = _jobs_db["leads_raw"].update_many(
             {"classification_status": "Failed"},
             {
                 "$set": {
@@ -5106,13 +5102,13 @@ async def clean_enriched_names():
 
         # Also clean leads_raw names
         raw_updated = 0
-        for doc in leads_raw_collection.find(
+        for doc in _jobs_db["leads_raw"].find(
             {"name": {"$regex": r"\s*\|", "$options": "i"}},
             {"_id": 1, "name": 1}
         ):
             name = doc.get("name", "") or ""
             if " | " in name:
-                leads_raw_collection.update_one(
+                _jobs_db["leads_raw"].update_one(
                     {"_id": doc["_id"]},
                     {"$set": {"name": name.split(" | ")[0].strip()}}
                 )

@@ -16,7 +16,6 @@ import os
 import logging
 from datetime import datetime, date
 from typing import Optional, Tuple
-from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 
 logger = logging.getLogger(__name__)
@@ -47,18 +46,13 @@ class DeepSeekViolation(GovernanceViolation):
 
 # ============== MONGODB CONNECTION ==============
 
-_mongo_client: Optional[MongoClient] = None
 _governance_collection = None
 _classification_guard_collection = None
 
-
-def _get_mongo_client() -> MongoClient:
-    """Get singleton MongoDB client"""
-    global _mongo_client
-    if _mongo_client is None:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        _mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-    return _mongo_client
+try:  # backend dir on sys.path (uvicorn main:app)
+    from db import ai_governance as _ai_governance_db, settings as _settings_db
+except ImportError:  # imported as backend.* from the repo root
+    from backend.db import ai_governance as _ai_governance_db, settings as _settings_db  # type: ignore
 
 
 # The counter collection. Named `gemini_daily_usage` historically; it has NEVER
@@ -73,10 +67,9 @@ def _get_governance_collection():
     """The cross-provider daily AI usage counter."""
     global _governance_collection
     if _governance_collection is None:
-        client = _get_mongo_client()
         # Intentionally separate from campaign_platform: governance collections store
         # cross-pipeline limits/locks and should remain isolated from business data.
-        db = client['ai_governance']
+        db = _ai_governance_db()
         _governance_collection = db[USAGE_COLLECTION]
         # Create index for fast daily lookups
         _governance_collection.create_index([("date", 1)], unique=True)
@@ -87,9 +80,8 @@ def _get_classification_guard_collection():
     """Get email classification guard collection (enforces one-classification-per-email)"""
     global _classification_guard_collection
     if _classification_guard_collection is None:
-        client = _get_mongo_client()
         # Intentionally separate from campaign_platform business collections.
-        db = client['ai_governance']
+        db = _ai_governance_db()
         _classification_guard_collection = db['email_classification_guard']
         # CRITICAL: Unique constraint on email_id - prevents duplicate classification
         _classification_guard_collection.create_index(
@@ -104,12 +96,11 @@ def _get_classification_guard_collection():
 #
 # This is a cap on ALL model calls, whichever provider serves them. It has
 # never been Gemini-specific: every call through ai_gateway increments it, and
-# production currently runs Qwen3-32B on AWS Bedrock — there is no Gemini in
-# the path at all. The name was inherited and actively misled, most recently
-# when a backfill stopped with "GEMINI DAILY LIMIT REACHED" on a Bedrock-only
-# deployment.
+# the path is the Anthropic API via platform_core.ladder. The name was inherited
+# and actively misled, most recently when a backfill stopped with
+# "GEMINI DAILY LIMIT REACHED" on an Anthropic-only deployment.
 #
-# It is a SELF-IMPOSED safeguard, not a provider quota. Bedrock is
+# It is a SELF-IMPOSED safeguard, not a provider quota. Anthropic is
 # pay-as-you-go; this exists so a runaway loop cannot bill an unbounded amount
 # overnight — which it has already earned twice.
 #
@@ -165,10 +156,10 @@ def check_gemini_daily_limit() -> bool:
     if remaining <= 0:
         logger.error(
             "AI DAILY LIMIT REACHED: %d/%d calls today across ALL providers "
-            "(currently %s on Bedrock). This is a self-imposed cap, not a "
+            "(fast model: %s). This is a self-imposed cap, not a "
             "provider quota — raise it with AI_DAILY_LIMIT.",
             current_count, _configured_daily_limit(),
-            os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0"))
+            os.getenv("LLM_MODEL_FAST", "ladder default"))
         return False
     
     return True
@@ -367,8 +358,7 @@ def validate_no_deepseek() -> bool:
     
     # Check database settings
     try:
-        client = _get_mongo_client()
-        settings = client['torpedo_settings']['app_settings'].find_one()
+        settings = _settings_db()['app_settings'].find_one()
         if settings:
             if settings.get('deepseek_api_key'):
                 raise DeepSeekViolation(
@@ -397,7 +387,7 @@ def get_governance_status() -> dict:
     return {
         "date": date.today().isoformat(),
         "ai": {
-            "provider": "openai",
+            "provider": "anthropic",
             "daily_limit": _configured_daily_limit(),
             "current_usage": current_usage,
             "remaining": remaining,

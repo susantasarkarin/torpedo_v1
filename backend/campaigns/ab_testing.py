@@ -664,11 +664,9 @@ class ABTestingService:
 
 def example_usage():
     """Example demonstrating A/B testing service usage."""
-    from pymongo import MongoClient
-    
-    # Connect to database
-    client = MongoClient("mongodb://localhost:27017/")
-    db = client.campaign_platform
+    from db import panel
+
+    db = panel()
     
     # Initialize service
     service = ABTestingService(db)

@@ -19,12 +19,7 @@ from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
-from pymongo import MongoClient
-
-def _get_pooled_client():
-    """The process-wide pooled MongoClient (backend/database.py)."""
-    from database import get_client
-    return get_client()
+from db import panel
 
 
 try:
@@ -51,12 +46,10 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12): this module built its own
 # MongoClient at import time. 101 modules did, each with a pool of
 # up to 100 connections on a 2 GB box shared with mongod.
-_client = _get_pooled_client()
-_db = _client["campaign_platform"]
+_db = panel()
 panelists_collection = _db["panelists"]
 
 AWS_SES_REGION = os.getenv("AWS_SES_REGION", "us-east-1")

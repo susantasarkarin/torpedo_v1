@@ -183,7 +183,7 @@ async def detailed_health():
     """
     Detailed health check including database connections and cache status.
     """
-    from pymongo import MongoClient
+    from db import get_client
     import time
     
     health = {
@@ -194,8 +194,7 @@ async def detailed_health():
     
     # MongoDB connection check
     try:
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+        client = get_client()
         start = time.time()
         client.admin.command('ping')
         ping_ms = (time.time() - start) * 1000
@@ -203,7 +202,6 @@ async def detailed_health():
             "status": "healthy",
             "ping_ms": round(ping_ms, 2)
         }
-        client.close()
     except Exception as e:
         health["status"] = "degraded"
         health["checks"]["mongodb"] = {

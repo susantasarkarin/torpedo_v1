@@ -21,8 +21,8 @@ _CTX = {"ctx": None, "at": 0.0}
 
 
 def _client():
-    from database import get_database
-    return get_database
+    from db import by_name
+    return by_name
 
 
 def settings(gd) -> Dict[str, Any]:
@@ -33,10 +33,9 @@ def settings(gd) -> Dict[str, Any]:
 def _context():
     """mail_categorizer's client/vendor context; rebuilt at most hourly (it aggregates)."""
     if _CTX["ctx"] is None or time.time() - _CTX["at"] > 3600:
-        from pymongo import MongoClient
-        import os
+        from db import get_client
         from app.services.mail_categorizer import build_context
-        _CTX["ctx"] = build_context(MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017/")))
+        _CTX["ctx"] = build_context(get_client())
         _CTX["at"] = time.time()
     return _CTX["ctx"]
 

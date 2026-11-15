@@ -41,8 +41,7 @@ router = APIRouter(
     tags=["gmail-workspace"]
 )
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+# MongoDB connection is owned by db.py (GmailWorkspaceService uses it)
 SERVICE_ACCOUNT_FILE = os.getenv("GMAIL_SERVICE_ACCOUNT_FILE", "")
 
 # Initialize service
@@ -55,7 +54,6 @@ def get_gmail_service() -> GmailWorkspaceService:
     
     if gmail_service is None:
         gmail_service = GmailWorkspaceService(
-            mongo_uri=MONGO_URI,
             service_account_file=SERVICE_ACCOUNT_FILE if SERVICE_ACCOUNT_FILE else None
         )
         # Try to load from DB if not configured from file

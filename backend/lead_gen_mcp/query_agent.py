@@ -1,5 +1,5 @@
 """
-Qwen query agent (via AWS Bedrock Mantle — see qwen_client.py).
+LLM query agent (Claude Haiku, see llm_client.py).
 
 On each cycle, the agent reads:
   - ICP definition (titles, industries, geos, size band)
@@ -28,7 +28,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
-from .qwen_client import call_qwen
+from .llm_client import call_llm
 from .schemas import ICPDefinition, QueryProposal
 from . import state as st
 
@@ -125,7 +125,7 @@ async def propose_queries(
     )
 
     try:
-        raw = call_qwen(system=_SYSTEM, user=user_prompt, max_tokens=MAX_TOKENS)
+        raw = call_llm(system=_SYSTEM, user=user_prompt, max_tokens=MAX_TOKENS)
         logger.debug("QueryAgent raw response: %s", raw[:500])
     except Exception as exc:
         logger.error("QueryAgent LLM call failed: %s", exc)

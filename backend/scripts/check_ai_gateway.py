@@ -36,12 +36,7 @@ import os
 import sys
 
 # Known, accepted violations. NEVER add to this list — only remove.
-BASELINE = {
-    "email_classification/reply_intent.py",
-    "email_classification/reply_sentiment.py",
-    "email_crm_pipeline/email_classifier.py",
-    "email_crm_pipeline/email_drafter.py",
-}
+BASELINE = set()
 
 # Directories exempt by nature: dead code kept for history, and one-off
 # operator scripts that run outside the app and exit.

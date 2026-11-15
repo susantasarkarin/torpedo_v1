@@ -11,23 +11,21 @@ from typing import Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Query
-from pymongo import MongoClient, DESCENDING
+from pymongo import DESCENDING
+
+from db import legacy, outreach
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/health", tags=["health"])
 
-MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
-
 
 def _get_db():
-    client = MongoClient(MONGO_URI)
-    return client["email_automation"]
+    return legacy()
 
 
 def _get_torpedo_db():
     """Return the torpedo DB where outreach collections (campaigns, mailboxes, sends) live."""
-    client = MongoClient(MONGO_URI)
-    return client["torpedo"]
+    return outreach()
 
 
 @router.get("/overview")

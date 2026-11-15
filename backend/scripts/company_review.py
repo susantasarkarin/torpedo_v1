@@ -186,7 +186,7 @@ def review(limit=None, out=None, with_ai=True):
         import random
         random.seed(7)
         accs = random.sample(accs, min(limit, len(accs)))
-    counts, spend0 = Counter(), ladder.spent_this_month(__import__("platform_core.qwen_gateway", fromlist=["x"])._gov_db())
+    counts, spend0 = Counter(), ladder.spent_this_month(ladder._gov_db())
     with open(out, "w", encoding="utf-8") as fh:
         for n, acc in enumerate(accs, 1):
             d = account_domain(acc, crm)
@@ -223,7 +223,7 @@ def review(limit=None, out=None, with_ai=True):
             fh.write(json.dumps(rec, default=str) + "\n")
             if n % 200 == 0:
                 print(f"{n}/{len(accs)}", flush=True)
-    spent = ladder.spent_this_month(__import__("platform_core.qwen_gateway", fromlist=["x"])._gov_db()) - spend0
+    spent = ladder.spent_this_month(ladder._gov_db()) - spend0
     print(json.dumps({"accounts": len(accs), "by_method_kind": dict(counts.most_common()), "usd": round(spent, 4),
                       "secs": round(time.time() - t0), "report": out}, indent=1))
 

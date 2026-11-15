@@ -64,7 +64,6 @@ router = APIRouter(
 )
 
 # MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # Shared pooled client (TOR-12). This module built its own MongoClient at
 # import time with socketTimeoutMS=8000; the shared pool uses 20000, which is
 # more forgiving, not less. Everything else (serverSelection/connect timeouts)

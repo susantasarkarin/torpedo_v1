@@ -2,7 +2,7 @@
 Is this PERSON in the right campaign -- and if they were in the wrong one
 before, move them and mail them again (owner, 2026-10-21: "get the industry of
 all the companies using google search, then check if the icp is correct using
-qwen. if everything is aligned and correct then only start sending mails. if
+the local model. if everything is aligned and correct then only start sending mails. if
 in the past there were errors then you need to put the contact in the correct
 bucket and resend it").
 
@@ -59,7 +59,7 @@ def _tdb(client=None):
     if client is None:
         from database import get_client
         client = get_client()
-    return client[os.getenv("MONGO_DB_NAME") or "torpedo"]
+    return client["torpedo"]  # == db.outreach()
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ def known_dead(client) -> set:
     suppression list's bounces. The resends of 2026-10-22 went to 199 such
     addresses (48% of the day's sends) because only the first was checked."""
     from app.services.email_structure import bounced_addresses
-    tdb = client[os.getenv("MONGO_DB_NAME") or "torpedo"]
+    tdb = client["torpedo"]  # == db.outreach()
     dead = {d["email"].strip().lower() for d in tdb["outreach_bounce_suppression"].find({}, {"email": 1})
             if d.get("email")}
     dead |= {e.strip().lower() for e in tdb["outreach_sends_v2"].distinct("email", {"status": "bounced"}) if e}

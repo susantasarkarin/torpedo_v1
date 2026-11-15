@@ -12,7 +12,6 @@ from pymongo import MongoClient
 
 load_dotenv()
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 
 
 async def initialize_clay_features():
@@ -33,8 +32,8 @@ async def initialize_clay_features():
         
         # 2. Verify collections exist
         print("\n✅ Verifying Clay collections...")
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        db = client['campaign_platform']
+        from db import panel
+        db = panel()
         
         required_collections = [
             'sources',
