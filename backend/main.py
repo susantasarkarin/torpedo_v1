@@ -1468,6 +1468,10 @@ except Exception as e:
         f"loaded application. Original error: {e}"
     ) from e
 
+# --- Ops: Project -> Survey -> Supplier layer ---
+from routers import ops_surveys as ops_surveys_router
+app.include_router(ops_surveys_router.router)
+
 # --- Marketing: websites, blog posts, media library ---
 from routers import marketing_site as marketing_site_router
 app.include_router(marketing_site_router.router)
