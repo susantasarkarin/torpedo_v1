@@ -1,0 +1,378 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  listSurveys,
+  setSurveyStatus,
+  duplicateSurvey,
+  downloadTrafficReport,
+  getSurveyChangeLog,
+  saveBlob,
+} from "../../../services/opsProjectsService";
+import { notify as notifyToast } from "../../../utils/notify";
+import SurveyModal from "./SurveyModal";
+import ChangeLogDrawer from "./ChangeLogDrawer";
+import {
+  Metric,
+  StatusBadge,
+  StatusChangeModal,
+  Pagination,
+  SortHeader,
+  RowMenu,
+  StateMessage,
+  Breadcrumbs,
+  WindowToggle,
+  fmtInt,
+  fmtPct,
+  fmtLoi,
+  NOT_CONFIRMED_TIP,
+} from "./opsShared";
+import "./opsProjects.css";
+
+const TABS = [
+  { key: "all", label: "All" },
+  { key: "live", label: "Live" },
+  { key: "paused", label: "Paused" },
+  { key: "completed", label: "Completed" },
+  { key: "draft", label: "Draft" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "auto_paused", label: "Auto-paused" },
+  { key: "scheduled", label: "Scheduled" },
+];
+
+// auto_paused is set by the system, so it is not offered in the manual status dialog.
+const SURVEY_STATUS_OPTIONS = [
+  { value: "live", label: "Live" },
+  { value: "paused", label: "Paused" },
+  { value: "completed", label: "Completed" },
+  { value: "draft", label: "Draft" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "scheduled", label: "Scheduled" },
+];
+
+const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0, draft: 0, cancelled: 0, auto_paused: 0, scheduled: 0 };
+
+// Metric columns. `key` matches the API field and the unverifiedMetrics list.
+const METRIC_COLUMNS = [
+  { key: "entrants", label: "Entrants", fmt: fmtInt },
+  { key: "defenderTerms", label: "Defender terms", fmt: fmtInt },
+  { key: "terms", label: "Terms", fmt: fmtInt },
+  { key: "oqs", label: "OQs", fmt: fmtInt },
+  { key: "sqTerms", label: "SQ terms", fmt: fmtInt },
+  { key: "abandons", label: "Abandons", fmt: fmtInt },
+  { key: "inFlights", label: "In-flights", fmt: fmtInt },
+  { key: "completes", label: "Completes", fmt: fmtInt },
+  { key: "completesWindow", label: "Completes", fmt: fmtInt, windowed: true },
+  { key: "ir", label: "IR", fmt: fmtPct },
+  { key: "conversion", label: "Conversion", fmt: fmtPct },
+  { key: "loi", label: "LOI", fmt: fmtLoi },
+];
+
+export default function OpsProjectSurveys() {
+  const { projectId } = useParams();
+
+  const [tab, setTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("surveyName");
+  const [order, setOrder] = useState("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [windowKey, setWindowKey] = useState("p24h");
+
+  const [project, setProject] = useState(null);
+  const [data, setData] = useState({ items: [], total: 0, counts: EMPTY_COUNTS });
+  const [unverified, setUnverified] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [modal, setModal] = useState(null); // { mode: "create" } | { mode: "edit", survey }
+  const [statusTarget, setStatusTarget] = useState(null);
+  const [logTarget, setLogTarget] = useState(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQ(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    setError(null);
+    listSurveys(projectId, {
+      status: tab === "all" ? undefined : tab,
+      q: q || undefined,
+      sort,
+      order,
+      page,
+      pageSize,
+      window: windowKey,
+    })
+      .then((res) => {
+        if (ignore) return;
+        setProject(res.project || null);
+        setData({
+          items: res.items || [],
+          total: res.total ?? (res.items || []).length,
+          counts: { ...EMPTY_COUNTS, ...(res.counts || {}) },
+        });
+        setUnverified(res.meta?.unverifiedMetrics || []);
+      })
+      .catch((e) => {
+        if (!ignore) setError(e.message || "Could not load surveys.");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [projectId, tab, q, sort, order, page, pageSize, windowKey, reloadKey]);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  const onSort = (key) => {
+    if (key === sort) setOrder((o) => (o === "asc" ? "desc" : "asc"));
+    else {
+      setSort(key);
+      setOrder("asc");
+    }
+    setPage(1);
+  };
+
+  const changeTab = (key) => {
+    setTab(key);
+    setPage(1);
+  };
+
+  const onDuplicate = async (survey) => {
+    try {
+      const copy = await duplicateSurvey(survey.id);
+      notifyToast("Survey duplicated. Review the copy and save.", "success");
+      reload();
+      setModal({ mode: "edit", survey: copy });
+    } catch (e) {
+      notifyToast(e.message || "Could not duplicate the survey.", "error");
+    }
+  };
+
+  const onDownload = async (survey) => {
+    try {
+      const { blob, filename } = await downloadTrafficReport(survey.id, { format: "csv", includeAnswers: true });
+      saveBlob(blob, filename);
+    } catch (e) {
+      notifyToast(e.message || "Could not download the traffic report.", "error");
+    }
+  };
+
+  const changeStatus = async (status) => {
+    try {
+      await setSurveyStatus(statusTarget.id, status);
+      notifyToast("Survey status updated.", "success");
+      setStatusTarget(null);
+      reload();
+    } catch (e) {
+      notifyToast(e.message || "Could not change status.", "error");
+    }
+  };
+
+  const onSaved = () => {
+    notifyToast(modal?.mode === "edit" ? "Survey saved." : "Survey created.", "success");
+    setModal(null);
+    reload();
+  };
+
+  const hasFilter = Boolean(q) || tab !== "all";
+  const isWindowed = (col) => Boolean(col.windowed);
+  const windowLabel = windowKey === "p14d" ? "P14D" : "P24H";
+
+  return (
+    <div className="ops-page">
+      <Breadcrumbs
+        LinkComponent={Link}
+        items={[{ label: "Projects", to: "/admin/operations/ops-projects" }, { label: "Surveys" }]}
+      />
+
+      <header className="ops-page__header">
+        <div className="ops-page__heading">
+          <h1 className="ops-page__title">{project?.projectName || "Project"}</h1>
+          <dl className="ops-meta">
+            <div><dt>Number</dt><dd>{project?.projectNumber || "—"}</dd></div>
+            <div><dt>Manager</dt><dd>{project?.managerName || "Unassigned"}</dd></div>
+            <div><dt>Status</dt><dd>{project?.status ? <StatusBadge status={project.status} /> : "—"}</dd></div>
+          </dl>
+        </div>
+        <button type="button" className="ops-btn ops-btn--primary" onClick={() => setModal({ mode: "create" })}>
+          + New Survey
+        </button>
+      </header>
+
+      <div className="ops-toolbar">
+        <div className="ops-search">
+          <label htmlFor="ops-sv-search" className="ops-visually-hidden">Search surveys</label>
+          <input
+            id="ops-sv-search"
+            type="search"
+            className="ops-input"
+            placeholder="Search by survey name or number"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <WindowToggle
+          value={windowKey}
+          onChange={(v) => {
+            setWindowKey(v);
+            setPage(1);
+          }}
+        />
+      </div>
+
+      <div className="ops-tabs ops-tabs--wrap" role="tablist" aria-label="Filter surveys by status">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`ops-tab ${tab === t.key ? "is-active" : ""}`}
+            onClick={() => changeTab(t.key)}
+          >
+            {t.label}
+            <span className="ops-tab__count">{(data.counts[t.key] ?? 0).toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+
+      {unverified.length > 0 && (
+        <p className="ops-notice" role="note">
+          Some metrics are not yet verified and show “—”: {unverified.join(", ")}.
+        </p>
+      )}
+
+      <div className="ops-card">
+        {loading && data.items.length === 0 && <StateMessage kind="loading" title="Loading surveys…" />}
+
+        {error && <StateMessage kind="error" title="Could not load surveys" message={error} onRetry={reload} />}
+
+        {!error && !loading && data.items.length === 0 && (
+          <StateMessage
+            kind="empty"
+            title={hasFilter ? "No surveys match these filters" : "No surveys in this project yet"}
+            message={hasFilter ? "Try another status or clear the search." : "Create the first survey to start collecting sources."}
+          />
+        )}
+
+        {!error && data.items.length > 0 && (
+          <>
+            <div className="ops-table-wrap" aria-busy={loading}>
+              <table className="ops-table ops-table--wide">
+                <caption className="ops-visually-hidden">Surveys in {project?.projectName || "this project"}, {data.total} total</caption>
+                <thead>
+                  <tr>
+                    <SortHeader label="Survey" sortKey="surveyName" sort={sort} order={order} onSort={onSort} />
+                    <SortHeader label="No." sortKey="surveyNo" sort={sort} order={order} onSort={onSort} />
+                    <SortHeader label="Status" sortKey="status" sort={sort} order={order} onSort={onSort} />
+                    {METRIC_COLUMNS.map((col) => {
+                      const label = isWindowed(col) ? `${col.label} (${windowLabel})` : col.label;
+                      const isUnverified = unverified.includes(col.key);
+                      return (
+                        <SortHeader
+                          key={col.key}
+                          label={label}
+                          sortKey={col.key}
+                          sort={sort}
+                          order={order}
+                          onSort={onSort}
+                          align="right"
+                          title={isUnverified ? NOT_CONFIRMED_TIP : undefined}
+                        />
+                      );
+                    })}
+                    <th scope="col" className="ops-th ops-th--center"><span className="ops-visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((s) => (
+                    <tr key={s.id}>
+                      <td className="ops-td">
+                        <Link className="ops-link" to={`/admin/operations/ops-projects/${projectId}/surveys/${s.id}`}>
+                          {s.surveyName}
+                        </Link>
+                      </td>
+                      <td className="ops-td">{s.surveyNo ?? "—"}</td>
+                      <td className="ops-td"><StatusBadge status={s.status} /></td>
+                      {METRIC_COLUMNS.map((col) => (
+                        <td key={col.key} className="ops-td ops-td--num">
+                          <Metric
+                            value={s[col.key]}
+                            format={col.fmt}
+                          />
+                        </td>
+                      ))}
+                      <td className="ops-td ops-td--center">
+                        <RowMenu
+                          label={s.surveyName}
+                          items={[
+                            { label: "Edit", onSelect: () => setModal({ mode: "edit", survey: s }) },
+                            { label: "Duplicate", onSelect: () => onDuplicate(s) },
+                            { label: "Download traffic report", onSelect: () => onDownload(s) },
+                            { label: "Change status", onSelect: () => setStatusTarget(s) },
+                            { label: "Change log", onSelect: () => setLogTarget(s) },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={data.total}
+              onPage={setPage}
+              onPageSize={(n) => {
+                setPageSize(n);
+                setPage(1);
+              }}
+            />
+          </>
+        )}
+      </div>
+
+      {modal && (
+        <SurveyModal
+          projectId={projectId}
+          survey={modal.mode === "edit" ? modal.survey : null}
+          onClose={() => {
+            setModal(null);
+            reload();
+          }}
+          onSaved={onSaved}
+        />
+      )}
+
+      {statusTarget && (
+        <StatusChangeModal
+          entityLabel={statusTarget.surveyName}
+          current={statusTarget.status}
+          options={SURVEY_STATUS_OPTIONS}
+          onClose={() => setStatusTarget(null)}
+          onSubmit={changeStatus}
+        />
+      )}
+
+      {logTarget && (
+        <ChangeLogDrawer
+          title={logTarget.surveyName}
+          loader={() => getSurveyChangeLog(logTarget.id)}
+          onClose={() => setLogTarget(null)}
+        />
+      )}
+    </div>
+  );
+}

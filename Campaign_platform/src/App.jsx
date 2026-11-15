@@ -85,6 +85,9 @@ const YieldManagement = lazy(() => import("./pages/operations/YieldManagement"))
 const TrafficManagement = lazy(() => import("./pages/operations/TrafficManagement"))
 const CPXCallbackLogs = lazy(() => import("./pages/operations/CPXCallbackLogs"))
 const AccountsPage = lazy(() => import("./pages/operations/AccountsPage"))
+const OpsProjectsList = lazy(() => import("./pages/operations/opsProjects/OpsProjectsList"))
+const OpsProjectSurveys = lazy(() => import("./pages/operations/opsProjects/OpsProjectSurveys"))
+const OpsSurveySources = lazy(() => import("./pages/operations/opsProjects/OpsSurveySources"))
 
 // Finance Pages
 const FinanceCustomersImport = lazy(() => import("./pages/finance/CustomersImport"))
@@ -375,6 +378,9 @@ function App() {
         <Route path="operations/projects" element={<LazyPage><ProjectsPage /></LazyPage>} />
         <Route path="operations/projects/:projectId" element={<LazyPage><ProjectDetail /></LazyPage>} />
         <Route path="operations/projects/:projectId/qualifications" element={<LazyPage><ProjectQualifications /></LazyPage>} />
+        <Route path="operations/ops-projects" element={<LazyPage><OpsProjectsList /></LazyPage>} />
+        <Route path="operations/ops-projects/:projectId" element={<LazyPage><OpsProjectSurveys /></LazyPage>} />
+        <Route path="operations/ops-projects/:projectId/surveys/:surveyId" element={<LazyPage><OpsSurveySources /></LazyPage>} />
         <Route path="operations/survey-pool" element={<LazyPage><SurveyPool /></LazyPage>} />
         <Route path="operations/potential-clients" element={<LazyPage><PotentialClients /></LazyPage>} />
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />
