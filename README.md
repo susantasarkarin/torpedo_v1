@@ -12,6 +12,10 @@ every mounted router, Celery task, scheduled job and environment variable.
 Update it when you add or move a router. This README is the orientation; that
 file is the reference.
 
+AI calls go through one path, `backend/platform_core/ladder.py`: rules, then
+Haiku, then Sonnet, then the human review queue (RUNBOOK §0). Database access goes
+through `backend/db.py` (RUNBOOK, "Mongo access").
+
 ## Layout
 
 ```
@@ -22,12 +26,14 @@ backend/                FastAPI application (one uvicorn process serves everythi
   leads/                Lead generation: ICP -> search -> enrich -> classify
   sales/                Mail-pool AI desk, outreach pipeline
   services/             Panel acquisition, drips, funnel, health
-  campaigns/ outreach/ outreach_engine/
-                        Three superseded outreach generations; current path is
+  campaigns/ outreach_engine/
+                        Two superseded outreach generations; current path is
                         leads/outreach_mailer.py + sales/outreach_pipeline.py
   tasks/                Celery tasks (schedule lives in celery_app.py)
   tests/                pytest; `-m smoke` needs a running server
-  deprecated/           Kept for history, mounted by nothing
+  db.py                 Single Mongo entry point (crm(), finance(), mail(), ...)
+  indexes.py            Index registry for all databases
+  scripts/oneoff/       One-time data scripts (not scheduled, not mounted)
 
 Campaign_platform/      The React SPA (Vite). This is the frontend.
 qre_frontend/           Respondent survey UI (served at /survey/)

@@ -1,6 +1,6 @@
-# Lead Pipeline Runbook (AWS Bedrock, ap-south-1)
+# Lead Pipeline Runbook (Anthropic API)
 
-Order of operations: **enable models → set env → backfill → classify → preview → send.**
+Order of operations: **set env → backfill → classify → preview → send.**
 
 All commands run from the repo root with `PYTHONPATH=backend`:
 
@@ -10,40 +10,31 @@ export PYTHONPATH=backend          # PowerShell: $env:PYTHONPATH='backend'
 
 ---
 
-## 0. Enable Bedrock model access (one-time)
+## 0. AI access (one-time)
 
-1. AWS console → **Bedrock** → region **ap-south-1 (Mumbai)** → **Model access → Manage model access**.
-2. Enable **Qwen3-32B** and **DeepSeek-V3.x**, submit, wait for "Access granted".
-3. Verify the exact model ID strings and access:
+AI runs on the Anthropic Messages API only. Get a key at
+https://platform.claude.com/ and put it in `backend/.env` as `ANTHROPIC_API_KEY`.
+Nothing else needs enabling: there is no model-access step.
 
-```bash
-python -c "import sys; sys.path.insert(0,'backend'); \
-from leads.bedrock_client import validate_model_access; print(validate_model_access())"
-```
-
-This calls `list_foundation_models` and **fails fast** with the missing model
-named and the IDs actually visible in the region. Every pipeline entry point
-that talks to Bedrock should pass this before doing anything else. If the
-default IDs (`qwen.qwen3-32b-v1:0`, `deepseek.v3-v1:0`) don't match what the
-console shows, correct the env vars below — do not edit code.
+Every AI call follows the ladder: **rules → Haiku (`claude-haiku-5-5`) →
+Sonnet (`claude-sonnet-5-5`) → review queue.** A rule answer short-circuits the
+model. Haiku escalates to Sonnet only when a check fails. A call that still
+fails lands in `/admin/review-queue`; nothing is guessed. Model ids are
+hardcoded in `backend/platform_core/ladder.py`, which reads no env var for them.
+`LLM_MODEL_FAST` / `LLM_MODEL_SMART` override only the generic `claude_gateway`
+and `lead_gen_mcp` paths.
 
 ## 1. Environment
 
 | Variable | Default | Notes |
 |---|---|---|
-| `AWS_REGION` | `ap-south-1` | Mumbai |
-| `BEDROCK_MODEL_CHEAP` | `qwen.qwen3-32b-v1:0` | queries, extraction, enrichment, first-pass classification |
-| `BEDROCK_MODEL_SMART` | `deepseek.v3-v1:0` | emails, borderline-lead escalation (non-thinking mode, always) |
-| `BEDROCK_MAX_RETRIES` | `3` | throttling backoff attempts |
+| `ANTHROPIC_API_KEY` | — | required for any AI step |
+| `LLM_MODEL_FAST` | `claude-haiku-5-5` | optional override, generic/lead_gen_mcp paths only |
+| `LLM_MODEL_SMART` | `claude-sonnet-5-5` | optional override, generic paths only |
+| `AI_DAILY_LIMIT` | `50000` | hard daily AI request cap |
+| `DISABLE_AI_CALLS` | `false` | emergency stop for every AI call |
 | `MONGO_URI` | `mongodb://localhost:27017/` | |
-| `GOOGLE_API_KEY`, `GOOGLE_CSE_ID` | — | Google CSE; 100 free queries/day |
-
-Batch mode only:
-
-| Variable | Notes |
-|---|---|
-| `BEDROCK_BATCH_S3_BUCKET` | bucket for job input/output JSONL |
-| `BEDROCK_BATCH_ROLE_ARN` | IAM role Bedrock assumes (S3 read/write on that bucket) |
+| `GOOGLE_API_KEY`, `GOOGLE_CSE_ID` | — | Google CSE (search, not AI); 100 free queries/day |
 
 Sending only:
 
@@ -57,8 +48,9 @@ Sending only:
 Tunables: `BUCKET_CONFIDENCE_THRESHOLD` (0.7), `BUCKET_CLASSIFY_DAILY_CAP` (500),
 `OUTREACH_MIN_ICP_SCORE` (4), `OUTREACH_SEND_DAILY_CAP` (200), `OUTREACH_SEND_HOURLY_CAP` (25).
 
-Credentials come from the standard AWS chain (env / profile / instance role) —
-never from code or config files.
+SES sending (`OUTREACH_TRANSPORT=ses`) uses the standard AWS chain (env / profile /
+instance role). AI calls use `ANTHROPIC_API_KEY` only. Credentials never live in
+code or config files.
 
 **Blocking prerequisite:** write the service pitch copy in
 `backend/leads/outreach_config.py` → `BUCKETS[*]["pitch"]`. All three are
@@ -74,17 +66,11 @@ configs, not authored.
 python -m leads.backfill_enrich --dry-run --limit 100   # always first
 python -m leads.backfill_enrich --no-enrich             # free: name-split + re-score only
 python -m leads.backfill_enrich                         # on-demand (default)
-python -m leads.backfill_enrich --batch                 # Bedrock batch inference, 50% cheaper
 ```
 
 - Resumable via `backend/leads/.backfill_checkpoint.json`; `--reset` starts over.
-- `--dry-run --batch` writes the JSONL to `.backfill_batch_preview.jsonl` and
-  submits nothing — **inspect this and run a tiny live job (`--batch --limit 2`)
-  before a big one**: the native batch request body for Qwen is unverified
-  against the live service.
-- Google CSE budget: 100 free queries/day ≈ 68 days for ~6,800 leads. Batch
-  mode halves the *Bedrock* cost, not the CSE cost — the search is the
-  bottleneck either way. A 429 pauses CSE for 24h automatically.
+- Google CSE budget: 100 free queries/day ≈ 68 days for ~6,800 leads. The
+  search is the bottleneck. A 429 pauses CSE for 24h automatically.
 
 ## 3. Classify into buckets
 
@@ -93,9 +79,9 @@ python -m leads.bucket_classifier --dry-run --limit 50
 python -m leads.bucket_classifier
 ```
 
-Flow per lead: keyword exclusion (free) → Qwen first pass → if confidence < 0.7,
-one DeepSeek escalation → still < 0.7 goes to REVIEW, not a bucket. Confident
-REJECTs never pay for DeepSeek. Capped at `BUCKET_CLASSIFY_DAILY_CAP`/run.
+Flow per lead: keyword exclusion (free) → rules → Haiku → if confidence < 0.7,
+Sonnet escalation → still < 0.7 goes to REVIEW, not a bucket. Confident
+REJECTs never reach Sonnet. Capped at `BUCKET_CLASSIFY_DAILY_CAP`/run.
 
 ```javascript
 // what needs human eyes
@@ -112,7 +98,7 @@ python -m leads.outreach_mailer --bucket BIM --limit 10
 python -m leads.outreach_mailer --send
 ```
 
-Emails are written by DeepSeek (`role="smart"`) and validated (length, CTA,
+Emails are drafted by Sonnet (ladder smart tier) and validated (length, CTA,
 correct name, no placeholders, no invented claims about the recipient's
 company; max 2 regenerations). Sending refuses if pitch copy, sender email,
 or unsubscribe URL is missing (the postal address is optional). Caps, randomized 45–180s spacing,
@@ -139,15 +125,16 @@ bounces (mailbox full) are deliberately **not** — those leads stay live.
 
 ---
 
-## 5. Mail Pool AI (Bedrock mail-desk)
+## 5. Mail Pool AI
 
 The Gmail mail pool (`torpedo_gmail.email_metadata`) is processed by a
 two-stage pipeline. **Stage 1** is the free rule classifier
-(`agents/mail_segregation_agent.py`); **Stage 2** is the Bedrock mail-desk
-(`sales/mail_pool_ai.py`) — but only for mail worth paying for.
+(`agents/mail_segregation_agent.py`); **Stage 2** is the AI mail desk
+(`sales/mail_pool_ai.py`) — but only for mail worth paying for. Both stages
+follow the ladder (rules → Haiku → Sonnet → review queue).
 
-**Roles:** per-email/sender analysis runs on `role="cheap"` (Qwen); follow-up
-reply drafts and RFQ line-item parsing run on `role="smart"` (DeepSeek).
+**Roles:** per-email/sender analysis runs on the Haiku tier; follow-up reply
+drafts and RFQ line-item parsing run on the Sonnet tier.
 
 ### Env
 
@@ -157,16 +144,15 @@ reply drafts and RFQ line-item parsing run on `role="smart"` (DeepSeek).
 | `MAIL_AI_PREFILTER_MIN_CONFIDENCE` | `0.5` | min rule confidence to skip noise |
 | `MAIL_AI_MAX_PER_RUN` | `200` | per-beat cap on emails processed |
 | `MAIL_AI_PREFILTER_AUDIT_SAMPLE` | `20` | nightly re-check sample size |
-| `MAIL_AI_ANALYSIS_ROLE` | `cheap` | role for analysis calls |
-| `MAIL_AI_WRITER_ROLE` | `smart` | role for drafts + RFQ items |
+| `MAIL_AI_ANALYSIS_ROLE` | `cheap` | ladder tier for analysis calls (`cheap` = Haiku) |
+| `MAIL_AI_WRITER_ROLE` | `smart` | ladder tier for drafts + RFQ items (`smart` = Sonnet) |
 
-Uses the same `BEDROCK_*` / `AWS_REGION` model access as §0–1. No extra AWS
-setup beyond enabling the two models in ap-south-1.
+Uses `ANTHROPIC_API_KEY` only (see §0).
 
 ### Cost control (the prefilter)
 
 Rules run first. Only segments `Internal / Client / Vendor / GST-IT-Govt /
-Others` reach Bedrock. `Bank / Promotion / Transactional` at confidence ≥ 0.5
+Others` reach the ladder's Haiku tier. `Bank / Promotion / Transactional` at confidence ≥ 0.5
 are marked `ai_analysis = {skipped: true, reason: "rule_prefilter"}` and never
 cost a model call. The nightly `audit_prefiltered_mail` task re-checks 20
 random skipped emails with the cheap model and records any disagreements to
@@ -194,8 +180,8 @@ deploy.
 ### Ops
 
 - `GET /api/mail/ai-stats` — processed / prefiltered / pending counts, rule↔AI
-  disagreement rate (7d), and Bedrock token usage by model (7d).
-- On Bedrock throttling/outage the run stops and leaves emails **unmarked**
+  disagreement rate (7d), and token usage by model (7d).
+- On API throttling/outage the run stops and leaves emails **unmarked**
   (no partial `ai_analysis`, no burned attempt); the next beat retries.
 - Mail-sourced leads run through `bucket_classifier` + outreach qualification.
   **Inbound senders are never cold-outreach targets** — anyone who has emailed
@@ -244,11 +230,17 @@ poll on `:8000/docs` → `npm run build` → nginx reload.
 - Manual fallback (workflow down): run the same steps over SSH — snapshot
   `git diff` first, always.
 
+## Mongo access
+
+All code gets its database handles from `backend/db.py`: `crm()`, `finance()`,
+`mail()`, `outreach()`, `panel()`, `settings()`, `legacy()`. Nothing builds its own
+`MongoClient`. Index definitions live in one registry, `backend/indexes.py`; add
+new indexes there, not inline in a module.
+
 ## Tests
 
 ```bash
-python -m pytest backend/tests/test_bedrock_client.py \
-                 backend/tests/test_icp_query_generation.py \
+python -m pytest backend/tests/test_icp_query_generation.py \
                  backend/tests/test_icp_query_ai.py \
                  backend/tests/test_backfill_enrich.py \
                  backend/tests/test_bucket_classifier.py \
@@ -264,18 +256,14 @@ on collection; pre-existing issue.)
 
 ## Troubleshooting
 
-- **`ModelAccessError` at startup** — model not enabled in ap-south-1, or the
-  ID string differs from the default. The error lists what IS visible; fix the
-  env var.
+- **AI steps fail with "No Anthropic API key configured"** — set
+  `ANTHROPIC_API_KEY` in `backend/.env` (or in Settings) and restart the worker.
 - **"qualified leads: 0"** — expected until enrichment populates emails; run
   `funnel_report()` (see `leads/outreach_qualification.py`) to see which gate
   everything dies at. As of the last audit all 6,886 leads fail at `no_email`.
-- **Everything in REVIEW** — both model passes failing; check credentials and
-  the `bedrock call` INFO lines (model, latency, token counts are logged on
-  every call).
-- **Batch job `Failed`** — almost certainly the native request schema; check
-  the job's failure message in the Bedrock console, and inspect
-  `.backfill_batch_preview.jsonl` from a dry run.
+- **Everything in REVIEW** — Haiku and Sonnet both failing a check; check the
+  API key, `DISABLE_AI_CALLS`, and the per-call INFO lines (model, latency,
+  token counts are logged on every call).
 - **CSE silent** — 24h cooldown: `db.scheduler_state.findOne({_id: "google_cse_state"})`.
 - **Suppression: RESOLVED 2026-09-01.** There were three lists in three
   databases (`email_automation.suppression_list`,
@@ -384,7 +372,7 @@ Every new module starts in **shadow**. It records decisions in its own collectio
 | module | config section | decisions collection | job |
 |---|---|---|---|
 | inbound mail pipeline | `torpedo_settings.config {_id: mail_pipeline}.mode` | `mail_decisions` | every 5 min |
-| RFQ extract/price | `rfq.mode` | `rfq_decisions` | every 10 min (skips until `QWEN_ENDPOINT_QWEN2_5_7B_INSTRUCT` is set) |
+| RFQ extract/price | `rfq.mode` | `rfq_decisions` | every 10 min |
 | Operations | `ops.mode` | `ops_decisions` | daily 18:00 |
 | Vendors | `vendors.mode` | `vendor_decisions` | every 15 min |
 | Re-engagement | `reengagement.mode` | `reengagement_decisions` | nightly 02:00 |
