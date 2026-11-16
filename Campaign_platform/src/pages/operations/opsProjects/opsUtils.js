@@ -1,6 +1,9 @@
 // Shared constants and formatters for the Operations > Projects (Research Desk) pages.
 // Kept apart from opsShared.jsx, which exports components only (react-refresh rule).
 
+import { getSurveyTestLink, OpsApiError } from "../../../services/opsProjectsService";
+import { notify } from "../../../utils/notify";
+
 export const NOT_CONFIRMED_TIP = "definition not yet confirmed";
 
 // Only these roles see buy price / expense. Read from the role the login stored.
@@ -29,6 +32,31 @@ export const fmtDateTime = (v) => {
   if (!v) return "—";
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString();
+};
+
+// Splits a 422's per-field errors. Fields that match a form input (formKeys, after
+// keyMap renames the API name) go under that input; the rest become one summary line.
+export const splitFieldErrors = (fieldErrors = {}, formKeys = [], keyMap = {}) => {
+  const inline = {};
+  const other = [];
+  Object.entries(fieldErrors || {}).forEach(([field, msg]) => {
+    const key = keyMap[field] ?? field;
+    if (formKeys.includes(key)) inline[key] = msg;
+    else other.push(`${field}: ${msg}`);
+  });
+  return { inline, other: other.join("; ") };
+};
+
+// Fetches the survey's test link and opens it in a new tab. Records no traffic.
+export const TEST_LINK_TIP = "Opens the survey link in a new tab. No traffic is recorded.";
+export const openSurveyTestLink = async (surveyId) => {
+  try {
+    const res = await getSurveyTestLink(surveyId);
+    if (!res?.url) throw new OpsApiError("No survey URL set");
+    window.open(res.url, "_blank", "noopener,noreferrer");
+  } catch (e) {
+    notify(e.message || "Could not open the survey link.", "error");
+  }
 };
 
 // Change-log values can be strings, numbers, booleans, objects or null.

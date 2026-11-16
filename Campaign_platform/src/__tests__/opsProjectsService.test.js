@@ -106,6 +106,37 @@ describe("opsProjectsService", () => {
     expect(JSON.parse(init.body)).toEqual({ status: "in_progress", note: "Picked up" });
   });
 
+  it("turns a 422 validation array into a readable message and per-field errors", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: [
+            { loc: ["body", "surveyUrl"], msg: "field required" },
+            { loc: ["body", "ir"], msg: "must be ≤ 100" },
+          ],
+        },
+        422
+      )
+    );
+
+    const err = await createProject({ projectName: "A" }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(OpsApiError);
+    expect(err.status).toBe(422);
+    expect(err.message).toBe("surveyUrl: field required; ir: must be ≤ 100");
+    expect(err.fieldErrors).toEqual({ surveyUrl: "field required", ir: "must be ≤ 100" });
+    expect(Array.isArray(err.detail)).toBe(true);
+  });
+
+  it("keeps a string detail as the message with no field errors", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "No survey URL set" }, 404));
+
+    const err = await createProject({}).catch((e) => e);
+
+    expect(err.message).toBe("No survey URL set");
+    expect(err.fieldErrors).toEqual({});
+  });
+
   it("reports a network failure as an OpsApiError with status 0", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
 

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { createProject, updateProject, listUsers, OpsApiError } from "../../../services/opsProjectsService";
+import { createProject, updateProject, listManagers, OpsApiError } from "../../../services/opsProjectsService";
 import { ModalShell, TimezoneSelect } from "./opsShared";
+import { splitFieldErrors } from "./opsUtils";
+
+// API field name -> form key, and the form keys that have an input here.
+const FIELD_MAP = { fieldworkDatetime: "outOfFieldAt" };
+const FORM_FIELDS = ["projectName", "projectNumber", "managerId", "outOfFieldAt", "timezone"];
 
 // Manager is stored by username (backend looks managers up by username).
 const emptyForm = (project) => ({
@@ -26,9 +31,9 @@ export default function ProjectModal({ project, onClose, onSaved }) {
 
   useEffect(() => {
     let cancelled = false;
-    listUsers()
+    listManagers()
       .then((list) => !cancelled && setUsers(list))
-      .catch((e) => !cancelled && setUsersError(e.message || "Could not load users."));
+      .catch((e) => !cancelled && setUsersError(e.message || "Could not load managers."));
     return () => {
       cancelled = true;
     };
@@ -91,7 +96,9 @@ export default function ProjectModal({ project, onClose, onSaved }) {
       if (err instanceof OpsApiError && err.status === 409) {
         setErrors((er) => ({ ...er, projectNumber: "This project number is already in use." }));
       } else if (err instanceof OpsApiError && err.status === 422) {
-        setFormError(err.message || "Please check the highlighted fields.");
+        const { inline, other } = splitFieldErrors(err.fieldErrors, FORM_FIELDS, FIELD_MAP);
+        setErrors((er) => ({ ...er, ...inline }));
+        setFormError(other || (Object.keys(inline).length ? null : err.message) || "Please check the highlighted fields.");
       } else {
         setFormError(err.message || "Could not save the project.");
       }
@@ -101,10 +108,9 @@ export default function ProjectModal({ project, onClose, onSaved }) {
     }
   };
 
-  const managerOptions = users.map((u) => ({
-    value: u.username || "",
-    label: u.name || u.username || u.email || "User",
-  })).filter((o) => o.value);
+  const managerOptions = users
+    .map((u) => ({ value: u.username || "", label: u.name || u.username || "" }))
+    .filter((o) => o.value);
   // Keep the current manager selectable even if they are missing from the user list.
   if (form.managerId && !managerOptions.some((o) => o.value === form.managerId)) {
     managerOptions.unshift({ value: form.managerId, label: project?.managerName || form.managerId });

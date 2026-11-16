@@ -330,3 +330,23 @@ def test_trend_buckets_by_ist_day(env):
 
     assert c.get(f"/api/ops/surveys/{sid}/trend?days=0").status_code == 422
     assert c.get(f"/api/ops/surveys/{sid}/trend?days=91").status_code == 422
+
+
+def test_report_totals_and_suppliers_split_inflight_and_abandons(env, monkeypatch):
+    monkeypatch.setenv("OPS_INFLIGHT_MINUTES", "60")
+    c, db, traffic = env["client"], env["db"], env["traffic"]
+    _seed_vendor(db, "v1", "Panel One")
+    pid = _project(c)
+    s = _survey(c, pid)
+    now = datetime.utcnow()
+    _row(traffic, s["surveyNo"], "v1", "INCOMPLETE", "a", created=now - timedelta(minutes=5))
+    _row(traffic, s["surveyNo"], "v1", "SECURITY_TERMINATED", "b", created=now - timedelta(hours=3))
+    rep = c.get(f"/api/ops/projects/{pid}/report").json()
+    assert rep["meta"]["inflightMinutes"] == 60
+    assert rep["totals"]["inFlights"] == 1
+    assert rep["totals"]["abandons"] == 0
+    assert rep["totals"]["defenderTerms"] == 1
+    sup = rep["suppliers"][0]
+    assert (sup["inFlights"], sup["abandons"], sup["defenderTerms"]) == (1, 0, 1)
+    assert rep["surveys"][0]["defenderTerms"] == 1
+    assert rep["surveys"][0]["sqTerms"] is None

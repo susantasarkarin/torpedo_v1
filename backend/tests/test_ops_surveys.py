@@ -5,6 +5,7 @@ Runs against the in-memory fake (tests/_fakemongo.py). No network, no real DB.
 from datetime import datetime, timedelta
 
 import pytest
+from bson import ObjectId
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -241,3 +242,116 @@ def test_project_list_counts_and_sort(env):
     assert body["total"] == 2
     assert body["counts"]["all"] == 2 and body["counts"]["live"] == 2
     assert {i["projectNumber"] for i in body["items"]} == {"P-1", "P-2"}
+
+
+# ============================================================ metric definitions
+
+def _raw_row(traffic, no, vendor, status, created):
+    traffic.insert_one({"params": {"api": "false", "pid": no}, "vendorId": vendor, "status": status,
+                        "createdAt": created, "respondentId": f"r{len(traffic.docs)}"})
+
+
+def test_inflight_vs_abandon_split_by_age(env, monkeypatch):
+    monkeypatch.setenv("OPS_INFLIGHT_MINUTES", "60")
+    c, traffic = env["client"], env["traffic"]
+    pid = _project(c)
+    s = _survey(c, pid)
+    now = datetime.utcnow()
+    _raw_row(traffic, s["surveyNo"], "v1", "INCOMPLETE", now - timedelta(minutes=10))  # in-flight
+    _raw_row(traffic, s["surveyNo"], "v1", "INCOMPLETE", now - timedelta(hours=3))     # abandon
+    body = c.get(f"/api/ops/projects/{pid}/surveys").json()
+    row = body["items"][0]
+    assert (row["inFlights"], row["abandons"]) == (1, 1)
+    assert body["meta"]["inflightMinutes"] == 60
+    assert "inFlights" not in body["meta"]["unverifiedMetrics"]
+    assert "abandons" not in body["meta"]["unverifiedMetrics"]
+
+    monkeypatch.setenv("OPS_INFLIGHT_MINUTES", "300")  # the 3h-old row is now in-flight
+    row = c.get(f"/api/ops/projects/{pid}/surveys").json()["items"][0]
+    assert (row["inFlights"], row["abandons"]) == (2, 0)
+
+
+def test_defender_and_sq_terms_count_only_their_statuses(env):
+    c, traffic = env["client"], env["traffic"]
+    pid = _project(c)
+    s = _survey(c, pid)
+    old = datetime.utcnow() - timedelta(hours=2)
+    for status in ("SECURITY_TERMINATED", "TERMINATED", "OVERQUOTA", "COMPLETE", "NOT_ROUTED"):
+        _raw_row(traffic, s["surveyNo"], "v1", status, old)
+    row = c.get(f"/api/ops/projects/{pid}/surveys").json()["items"][0]
+    assert row["defenderTerms"] == 1          # SECURITY_TERMINATED only
+    assert row["terms"] == 2                  # TERMINATED + SECURITY_TERMINATED (all Terminate)
+    assert row["oqs"] == 1
+    assert row["sqTerms"] is None             # no stored status can define it
+    assert row["abandons"] == 1               # NOT_ROUTED is non-final, not a termination
+    body = c.get(f"/api/ops/projects/{pid}/surveys").json()
+    assert body["meta"]["unverifiedMetrics"] == ["sqTerms"]
+
+
+def test_managers_lists_active_users_without_email(env):
+    c, db = env["client"], env["db"]
+    db["users"].insert_one({"username": "m1", "name": "Alice", "email": "alice@example.com",
+                            "roles": ["admin"], "status": "active", "password_hash": "x"})
+    db["users"].insert_one({"username": "m2", "name": "Bob", "email": "bob@example.com",
+                            "roles": [], "status": "inactive"})
+    r = c.get("/api/ops/managers")
+    assert r.status_code == 200
+    assert r.json() == {"items": [{"username": "m1", "name": "Alice"}]}
+    assert "example.com" not in r.text
+
+
+def test_manager_change_refreshes_manager_name(env):
+    c, db = env["client"], env["db"]
+    pid = _project(c)
+    assert c.get(f"/api/ops/projects/{pid}").json()["project"]["managerName"] == "manager1"
+    db["users"].insert_one({"username": "m2", "name": "Bob Ray", "status": "active"})
+    r = c.put(f"/api/ops/projects/{pid}", json={"managerId": "m2"})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["managerId"] == "m2"
+    assert r.json()["project"]["managerName"] == "Bob Ray"
+    r = c.put(f"/api/ops/projects/{pid}", json={"managerId": "ghost"})
+    assert r.status_code == 422
+    assert r.json()["detail"] == "managerId is not a known user"
+
+
+def test_search_supplier_hits_carry_survey_and_parent(env):
+    c, db, traffic = env["client"], env["db"], env["traffic"]
+    _seed_vendor(db, "v1", "Acme Panel")
+    pid = _project(c)
+    s = _survey(c, pid)
+    r = c.post(f"/api/ops/surveys/{s['id']}/suppliers", json={"vendorIds": ["v1"]})
+    assert r.status_code == 200, r.text
+    db["survey_suppliers"].insert_one({"surveyId": str(ObjectId()), "vendorId": "v9",
+                                       "vendorName": "Acme Orphan", "removed": False})
+    hits = c.get("/api/ops/search", params={"q": "Acme"}).json()["suppliers"]
+    linked = next(h for h in hits if h["vendorId"] == "v1")
+    assert linked["surveyId"] == s["id"]
+    assert linked["surveyNo"] == s["surveyNo"]
+    assert linked["parentProjectId"] == pid
+    assert linked["vendorName"] == "Acme Panel"
+    orphan = next(h for h in hits if h["vendorId"] == "v9")
+    assert orphan["parentProjectId"] is None
+    assert orphan["surveyNo"] is None
+    sr = c.get("/api/ops/search", params={"q": s["surveyNo"]}).json()["surveys"]
+    assert sr[0]["parentProjectId"] == pid
+
+
+def test_test_link_returns_stored_url_only(env):
+    c, db, traffic = env["client"], env["db"], env["traffic"]
+    pid = _project(c)
+    s = _survey(c, pid, surveyUrl="https://example.com/survey?x=1&y=2")
+    r = c.get(f"/api/ops/surveys/{s['id']}/test-link")
+    assert r.status_code == 200
+    assert r.json() == {"url": "https://example.com/survey?x=1&y=2"}
+    assert traffic.docs == []  # records no traffic
+
+    db["projects"].update_one({"_id": ObjectId(s["id"])}, {"$set": {"liveLink": "javascript:alert(1)"}})
+    r = c.get(f"/api/ops/surveys/{s['id']}/test-link")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "No survey URL set"
+
+
+def test_validation_message_is_one_readable_line():
+    msg = ops._validation_message([{"loc": ("body", "managerId"), "msg": "Field required"},
+                                   {"loc": ("body",), "msg": "bad body"}])
+    assert msg == "managerId: Field required; request: bad body"

@@ -12,7 +12,7 @@ import {
 import { notify as notifyToast, confirmAction } from "../../../utils/notify";
 import AddSupplierModal from "./AddSupplierModal";
 import { Metric, StatusBadge, Breadcrumbs, WindowToggle, StateMessage } from "./opsShared";
-import { canSeePricing, fmtInt, fmtPct, fmtLoi, fmtMoney } from "./opsUtils";
+import { canSeePricing, fmtInt, fmtPct, fmtLoi, fmtMoney, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
 import "./opsProjects.css";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
@@ -183,6 +183,7 @@ export default function OpsSurveySources() {
   const [windowKey, setWindowKey] = useState("p24h");
   const [data, setData] = useState({ project: null, survey: null, items: [] });
   const [unverified, setUnverified] = useState([]);
+  const [inflightMinutes, setInflightMinutes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -203,6 +204,7 @@ export default function OpsSurveySources() {
         if (ignore) return;
         setData({ project: res.project || null, survey: res.survey || null, items: res.items || [] });
         setUnverified(res.meta?.unverifiedMetrics || []);
+        setInflightMinutes(res.meta?.inflightMinutes ?? null);
       })
       .catch((e) => {
         if (!ignore) setError(e.message || "Could not load sources.");
@@ -284,6 +286,9 @@ export default function OpsSurveySources() {
           </dl>
         </div>
         <div className="ops-header-actions">
+          <button type="button" className="ops-btn ops-btn--ghost" onClick={() => openSurveyTestLink(surveyId)} title={TEST_LINK_TIP}>
+            Test Survey
+          </button>
           <button type="button" className="ops-btn ops-btn--ghost" onClick={onReport} disabled={reporting}>
             {reporting ? "Preparing…" : "Download traffic report"}
           </button>
@@ -349,6 +354,11 @@ export default function OpsSurveySources() {
               </tbody>
             </table>
           </div>
+        )}
+        {!error && items.length > 0 && inflightMinutes != null && (
+          <p className="ops-subtle">
+            In-Flights = started in the last {inflightMinutes} min without a final status; Abandons = older than that.
+          </p>
         )}
       </div>
 

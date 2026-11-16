@@ -1,8 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { addSurveySuppliers, lookupVendors, unwrapList, OpsApiError } from "../../../services/opsProjectsService";
 import { ModalShell } from "./opsShared";
+import { splitFieldErrors } from "./opsUtils";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
+// API field -> form key for the errors shown under inputs here.
+const FIELD_MAP = { vendorIds: "vendors" };
+const FORM_FIELDS = ["vendors", "buyPrice"];
 
 // /vendors/lookup rows are { vid, vendorName, vendorType }.
 const vendorId = (v) => String(v.vid ?? v.id ?? v._id ?? "");
@@ -83,7 +87,13 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
       const created = await addSurveySuppliers(surveyId, body);
       onAdded(created);
     } catch (err) {
-      setFormError(err instanceof OpsApiError ? err.message : "Could not add the suppliers.");
+      if (err instanceof OpsApiError && err.status === 422) {
+        const { inline, other } = splitFieldErrors(err.fieldErrors, FORM_FIELDS, FIELD_MAP);
+        setErrors((er) => ({ ...er, ...inline }));
+        setFormError(other || (Object.keys(inline).length ? null : err.message));
+      } else {
+        setFormError(err instanceof OpsApiError ? err.message : "Could not add the suppliers.");
+      }
     } finally {
       busy.current = false;
       setSaving(false);

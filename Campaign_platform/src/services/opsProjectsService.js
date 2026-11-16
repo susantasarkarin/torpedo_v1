@@ -8,13 +8,38 @@ import { authFetch } from "../utils/api";
 const BASE = "/api/ops";
 
 export class OpsApiError extends Error {
-  constructor(message, status = 0, detail = null) {
+  constructor(message, status = 0, detail = null, fieldErrors = {}) {
     super(message);
     this.name = "OpsApiError";
     this.status = status;
     this.detail = detail;
+    // Per-field messages from a 422 ({ fieldName: message }). Empty for other errors.
+    this.fieldErrors = fieldErrors;
   }
 }
+
+// FastAPI/Pydantic 422 detail: [{ loc: ["body", "field"], msg }]. The field is the
+// last string element of loc (a list index such as 0 is skipped).
+const fieldNameFromLoc = (loc) => {
+  const parts = Array.isArray(loc) ? loc : [loc];
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    if (typeof parts[i] === "string") return parts[i];
+  }
+  return String(parts[parts.length - 1] ?? "");
+};
+
+// Returns { message, fieldErrors } for an array detail; first message wins per field.
+const parseValidationDetail = (detail) => {
+  const fieldErrors = {};
+  const parts = [];
+  detail.forEach((item) => {
+    const field = fieldNameFromLoc(item?.loc);
+    const msg = typeof item?.msg === "string" ? item.msg : "is invalid";
+    if (field && fieldErrors[field] === undefined) fieldErrors[field] = msg;
+    parts.push(field ? `${field}: ${msg}` : msg);
+  });
+  return { message: parts.join("; "), fieldErrors };
+};
 
 const toQuery = (params = {}) => {
   const qs = new URLSearchParams();
@@ -35,9 +60,12 @@ const readError = async (res) => {
     // Non-JSON error body: fall through to the generic message.
   }
   let message = `Request failed (${res.status})`;
+  let fieldErrors = {};
   if (typeof detail === "string") message = detail;
-  else if (detail && typeof detail.message === "string") message = detail.message;
-  return new OpsApiError(message, res.status, detail);
+  else if (Array.isArray(detail) && detail.length > 0) {
+    ({ message, fieldErrors } = parseValidationDetail(detail));
+  } else if (detail && typeof detail.message === "string") message = detail.message;
+  return new OpsApiError(message, res.status, detail, fieldErrors);
 };
 
 const request = async (path, { method = "GET", body, params } = {}) => {
@@ -90,6 +118,8 @@ export const listSurveys = (projectId, params) =>
 export const createSurvey = (projectId, body) =>
   request(`/projects/${projectId}/surveys`, { method: "POST", body }).then(pick("survey"));
 export const getSurvey = (id) => request(`/surveys/${id}`).then(pick("survey"));
+// Returns { url }. 404 ("No survey URL set") arrives as an OpsApiError. Records no traffic.
+export const getSurveyTestLink = (id) => request(`/surveys/${id}/test-link`);
 export const updateSurvey = (id, body) =>
   request(`/surveys/${id}`, { method: "PUT", body }).then(pick("survey"));
 export const setSurveyStatus = (id, status) =>
@@ -115,13 +145,8 @@ export const deleteSurveySupplier = (sid) =>
 export const lookupVendors = (q) => request("/vendors/lookup", { params: { q } });
 export const globalSearch = (q) => request("/search", { params: { q } });
 
-// Users for the manager dropdown: same endpoint UserManagement.jsx uses.
-export const listUsers = async () => {
-  const res = await authFetch(buildApiUrl("/admin/users/"));
-  if (!res.ok) throw await readError(res);
-  const data = await res.json();
-  return Array.isArray(data) ? data : data.users || [];
-};
+// Manager dropdown: { items: [{ username, name }] }, open to any logged-in user.
+export const listManagers = () => request("/managers").then((res) => unwrapList(res, "items"));
 
 // ---------- Traffic report (blob download) ----------
 

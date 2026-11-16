@@ -15,6 +15,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 import statistics
 from collections import defaultdict
@@ -54,7 +55,10 @@ PROJECT_STATUSES = ("live", "paused", "completed")
 SURVEY_STATUSES = ("live", "paused", "completed", "draft", "cancelled", "auto_paused", "scheduled")
 SUPPLIER_STATUSES = ("live", "paused", "completed")
 DEAD_VENDOR_STATUSES = ("deleted", "inactive", "archived")
-UNVERIFIED_METRICS = ["defenderTerms", "sqTerms", "abandons", "inFlights", "conversion"]
+# Metrics with no stored status that can define them. Only sqTerms remains:
+# the screener writes NOT_ROUTED (routers/traffic.py), which normalises to
+# "Incomplete" (not a Terminate), so it cannot be a subset of terms.
+UNVERIFIED_METRICS = ["sqTerms"]
 WINDOWS = {"p24h": timedelta(hours=24), "p14d": timedelta(days=14)}
 
 # Pure reuse of the traffic_service definitions (no collections bound).
@@ -106,7 +110,19 @@ def _iso(v: Any) -> Any:
 
 
 def _bad(msg: str):
+    """422 with a plain-string detail. Pydantic body errors keep FastAPI's list-shaped
+    detail (no global handler change); the UI flattens those client-side, and
+    _validation_message() gives the same one-line form for anything server-side."""
     raise HTTPException(status_code=422, detail=msg)
+
+
+def _validation_message(errors: List[Dict[str, Any]]) -> str:
+    """Pydantic error list -> 'field: reason; field: reason'."""
+    parts = []
+    for e in errors:
+        loc = [str(x) for x in e.get("loc", ()) if x not in ("body", "query", "path")]
+        parts.append(f"{'.'.join(loc) or 'request'}: {e.get('msg', 'invalid')}")
+    return "; ".join(parts)
 
 
 def _not_found(msg: str):
@@ -362,8 +378,35 @@ def _traffic_find(pids, vendor_ids=None, projection=None, pii: bool = False) -> 
     return list(_traffic_col().find(q, projection))
 
 
+def _inflight_minutes() -> int:
+    """OPS_INFLIGHT_MINUTES (default 60). A non-final row created more recently
+    than this is in-flight; an older one is an abandon. Read per call."""
+    try:
+        return max(1, int(os.getenv("OPS_INFLIGHT_MINUTES", "60")))
+    except ValueError:
+        return 60
+
+
+def _is_defender_term(raw: Any) -> bool:
+    """Client security/fraud terminate. Stored as SECURITY_TERMINATED by
+    /surveyterminate?type=security (routers/traffic.py, outcome "security").
+    SECURITY_TERM (bot check) carries no params.pid, so it only counts if it
+    ever gets one. Always a subset of terms (SECURITY_* normalises to Terminate)."""
+    return "SECURITY" in str(raw or "").upper()
+
+
 def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str, Any]:
+    """Counts for one set of traffic rows.
+
+    terms         = every row TrafficService normalises to Terminate.
+    defenderTerms = subset of terms with a SECURITY status (client security terminate).
+    sqTerms       = always None: no stored status is a subset of terms for our screener.
+    inFlights     = non-final rows (normaliser "Incomplete") created within OPS_INFLIGHT_MINUTES.
+    abandons      = non-final rows created earlier than that, or with no parseable createdAt.
+    """
+    live_after = _now() - timedelta(minutes=_inflight_minutes())
     entrants = terms = oqs = completes = in_window = 0
+    defender = inflight = abandons = 0
     loi: List[float] = []
     for r in records:
         entrants += 1
@@ -380,20 +423,29 @@ def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str,
                     loi.append(secs / 60.0)
         elif norm == "Terminate":
             terms += 1
+            if _is_defender_term(r.get("status")):
+                defender += 1
         elif norm == "Quota Full":
             oqs += 1
+        else:  # "Incomplete": the normaliser's default, i.e. every non-final status
+            created = _TS._safe_parse_datetime(r.get("createdAt"))
+            if created is not None and created >= live_after:
+                inflight += 1
+            else:
+                abandons += 1
     return {
         "entrants": entrants,
         "terms": terms,
+        "defenderTerms": defender,
+        "sqTerms": None,
         "oqs": oqs,
         "completes": completes,
         "completesWindow": in_window,
         "ir": round(completes / (completes + terms) * 100, 1) if (completes + terms) else 0.0,
         "conversion": round(completes / entrants * 100, 1) if entrants else 0.0,
         "loi": round(statistics.median(loi), 1) if loi else None,
-        # No existing definition in traffic_service: returned as null (see meta).
-        "abandons": None,
-        "inFlights": None,
+        "abandons": abandons,
+        "inFlights": inflight,
     }
 
 
@@ -418,10 +470,10 @@ def _survey_row(survey: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
         "surveyNo": survey.get("surveyNo"),
         "status": _survey_status(survey.get("projectStatus")),
         "entrants": m["entrants"],
-        "defenderTerms": None,
+        "defenderTerms": m["defenderTerms"],
         "terms": m["terms"],
         "oqs": m["oqs"],
-        "sqTerms": None,
+        "sqTerms": m["sqTerms"],
         "abandons": m["abandons"],
         "inFlights": m["inFlights"],
         "completes": m["completes"],
@@ -731,9 +783,15 @@ def update_project(project_id: str, request: Request, body: ProjectUpdate,
     data = body.model_dump(exclude_unset=True)
     if "projectName" in data:
         changes["projectName"] = _check_name(data["projectName"], "projectName")
-    if "managerId" in data:
-        changes["managerId"] = _check_name(data["managerId"], "managerId")
-    if "managerName" in data:
+    if "managerId" in data and data["managerId"] != doc.get("managerId"):
+        # Changing the manager re-resolves the display name from users (same lookup as create).
+        mid = _check_name(data["managerId"], "managerId")
+        mdoc = _col(COL_USERS).find_one({"username": mid})
+        if not mdoc:
+            _bad("managerId is not a known user")
+        changes["managerId"] = mid
+        changes["managerName"] = mdoc.get("name") or mdoc.get("username") or mid
+    elif "managerName" in data:
         changes["managerName"] = _check_name(data["managerName"], "managerName")
     if "fieldworkDatetime" in data and data["fieldworkDatetime"] is not None:
         changes["fieldworkDatetime"] = _check_dt(data["fieldworkDatetime"], "fieldworkDatetime")
@@ -810,7 +868,8 @@ def list_project_surveys(
             and (not needle or needle in str(r["surveyName"] or "").lower()
                  or needle in str(r["surveyNo"] or "").lower())]
     if sort not in {"surveyName", "surveyNo", "status", "entrants", "terms", "oqs", "completes",
-                    "completesWindow", "ir", "conversion", "loi", "abandons", "inFlights"}:
+                    "completesWindow", "ir", "conversion", "loi", "abandons", "inFlights",
+                    "defenderTerms"}:
         _bad("unknown sort field")
     rows = _sort_rows(rows, sort, order)
     return {
@@ -818,7 +877,8 @@ def list_project_surveys(
         "items": _page(rows, page, pageSize),
         "total": len(rows),
         "counts": counts,
-        "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS},
+        "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS,
+                 "inflightMinutes": _inflight_minutes()},
     }
 
 
@@ -981,8 +1041,9 @@ def _supplier_rows(survey: Dict[str, Any], sups: List[Dict[str, Any]], cutoff: d
     for s in sups:
         m = _agg(by_vid.get(str(s["vendorId"]), []), cutoff)
         view = _supplier_view(s)
-        rows.append({**view, **{k: m[k] for k in ("entrants", "terms", "oqs", "abandons", "inFlights",
-                                                  "completes", "completesWindow", "ir", "conversion", "loi")},
+        rows.append({**view, **{k: m[k] for k in ("entrants", "terms", "defenderTerms", "oqs", "abandons",
+                                                  "inFlights", "completes", "completesWindow", "ir",
+                                                  "conversion", "loi")},
                      **_expense(m["completes"], s.get("buyPrice"))})
     return rows
 
@@ -1006,12 +1067,26 @@ def list_suppliers(survey_id: str, user: str = Depends(verify_session), window: 
         "survey": {"id": str(survey["_id"]), "surveyName": survey.get("projectName"),
                    "surveyNo": survey.get("surveyNo"), "status": _survey_status(survey.get("projectStatus"))},
         "items": rows,
-        "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS},
+        "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS,
+                 "inflightMinutes": _inflight_minutes()},
     }
 
 
 def _is_active_vendor(v: Dict[str, Any]) -> bool:
     return not v.get("is_deleted") and str(v.get("status") or "").lower() not in DEAD_VENDOR_STATUSES
+
+
+@router.get("/managers")
+def list_managers(user: str = Depends(verify_session)):
+    """Active users who can be a project manager. Only username and display name
+    leave this endpoint: no email, roles or other user fields."""
+    out = []
+    for u in _col(COL_USERS).find({"status": "active"}):
+        username = str(u.get("username") or "").strip()
+        if username:
+            out.append({"username": username, "name": u.get("name") or username})
+    out.sort(key=lambda m: m["name"].lower())
+    return {"items": out}
 
 
 @router.get("/vendors/lookup")
@@ -1166,7 +1241,7 @@ def _respondent_row(r: Dict[str, Any], include_answers: bool, pii: bool) -> Dict
     return row
 
 
-_SUPPLIER_COLS = ["vendorId", "vendorName", "entrants", "terms", "oqs", "abandons", "inFlights",
+_SUPPLIER_COLS = ["vendorId", "vendorName", "entrants", "terms", "defenderTerms", "oqs", "abandons", "inFlights",
                   "completes", "completesWindow", "ir", "conversion", "loi", "buyPrice", "currency",
                   "expense", "expenseBasis", "status"]
 _RESPONDENT_BASE = ["respondentId", "surveyNo", "vendor", "status", "createdAt", "completedAt"]
@@ -1220,7 +1295,8 @@ def traffic_report(
     if format == "json":
         return {"survey": {"id": str(survey["_id"]), "surveyNo": survey.get("surveyNo")},
                 "suppliers": section_a, "respondents": respondents,
-                "respondentColumns": resp_cols, "pii": pii}
+                "respondentColumns": resp_cols, "pii": pii,
+                "meta": {"inflightMinutes": _inflight_minutes()}}
 
     def _stream():
         buf = io.StringIO()
@@ -1263,14 +1339,35 @@ def search(q: str = Query(..., min_length=1, max_length=100), user: str = Depend
         {"is_deleted": {"$ne": True}, "$or": [{"projectName": rx}, {"surveyNo": rx}]}))[:10]
     sups = list(_col(COL_SUPPLIERS).find(
         {"removed": {"$ne": True}, "$or": [{"vendorName": rx}, {"vendorId": rx}]}))[:10]
+    # Supplier hits need their survey's number and parent too: resolve both in one read each.
+    sup_sids = {str(s.get("surveyId")) for s in sups if ObjectId.is_valid(str(s.get("surveyId")))}
+    sup_surveys = {str(d["_id"]): d for d in _col(COL_PROJECTS).find(
+        {"_id": {"$in": [ObjectId(x) for x in sup_sids]}})} if sup_sids else {}
+    all_sids = {str(s["_id"]) for s in surveys} | sup_sids
     link_of = {ln["surveyId"]: ln["parentProjectId"] for ln in
-               _col(COL_LINKS).find({"surveyId": {"$in": [str(s["_id"]) for s in surveys]}})}
+               _col(COL_LINKS).find({"surveyId": {"$in": list(all_sids)}})} if all_sids else {}
     return {
         "projects": [{"id": str(p["_id"]), "projectName": p.get("projectName"),
                       "projectNumber": p.get("projectNumber"), "status": p.get("status")} for p in projects],
         "surveys": [{"id": str(s["_id"]), "surveyName": s.get("projectName"), "surveyNo": s.get("surveyNo"),
                      "status": _survey_status(s.get("projectStatus")),
                      "parentProjectId": link_of.get(str(s["_id"]))} for s in surveys],
-        "suppliers": [{"id": str(s["_id"]), "surveyId": s.get("surveyId"), "vendorId": s.get("vendorId"),
-                       "vendorName": s.get("vendorName"), "status": s.get("status")} for s in sups],
+        "suppliers": [{"id": str(s["_id"]), "surveyId": s.get("surveyId"),
+                       "surveyNo": (sup_surveys.get(str(s.get("surveyId"))) or {}).get("surveyNo"),
+                       "parentProjectId": link_of.get(str(s.get("surveyId"))),
+                       "vendorId": s.get("vendorId"), "vendorName": s.get("vendorName"),
+                       "status": s.get("status")} for s in sups],
     }
+
+
+@router.get("/surveys/{survey_id}/test-link")
+def survey_test_link(survey_id: str, user: str = Depends(verify_session)):
+    """The survey's stored liveLink, unchanged, if it is a valid http(s) URL.
+    Read-only: writes nothing and records no traffic."""
+    doc = _get_survey(survey_id)
+    raw = doc.get("liveLink")
+    if isinstance(raw, str):
+        p = urlparse(raw)
+        if p.scheme in ("http", "https") and p.netloc:
+            return {"url": raw}
+    _not_found("No survey URL set")

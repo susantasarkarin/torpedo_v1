@@ -146,6 +146,7 @@ export function RowMenu({ label, items }) {
                 role="menuitem"
                 className="ops-menu__item"
                 disabled={item.disabled}
+                title={item.title}
                 onClick={() => {
                   setOpen(false);
                   item.onSelect();

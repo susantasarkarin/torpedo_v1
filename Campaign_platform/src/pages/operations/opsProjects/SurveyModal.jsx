@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { createSurvey, updateSurvey, OpsApiError } from "../../../services/opsProjectsService";
 import { ModalShell, TimezoneSelect } from "./opsShared";
+import { splitFieldErrors } from "./opsUtils";
+
+// API field name -> form key; form keys that have an input under their own error line.
+const FIELD_MAP = { targetN: "target", countryCode: "country", languageCode: "language" };
+const FORM_FIELDS = ["surveyName", "surveyUrl", "target", "loi", "ir", "country", "language"];
 
 const DEVICE_OPTIONS = [
   { value: "desktop", label: "Desktop" },
@@ -117,7 +122,13 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
       const saved = isEdit ? await updateSurvey(survey.id, body) : await createSurvey(projectId, body);
       onSaved(saved);
     } catch (err) {
-      setFormError(err instanceof OpsApiError ? err.message : "Could not save the survey.");
+      if (err instanceof OpsApiError && err.status === 422) {
+        const { inline, other } = splitFieldErrors(err.fieldErrors, FORM_FIELDS, FIELD_MAP);
+        setErrors((er) => ({ ...er, ...inline }));
+        setFormError(other || (Object.keys(inline).length ? null : err.message));
+      } else {
+        setFormError(err instanceof OpsApiError ? err.message : "Could not save the survey.");
+      }
     } finally {
       busy.current = false;
       setSaving(false);

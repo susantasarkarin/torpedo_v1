@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   listProjects,
   getProject,
-  getSurvey,
   setProjectFavorite,
   setProjectStatus,
   getProjectChangeLog,
@@ -46,9 +45,8 @@ const sourcesHref = (projectId, surveyId) =>
   projectId && surveyId ? `/admin/operations/ops-projects/${projectId}/surveys/${surveyId}` : null;
 const NO_PAGE_TIP = "Open the parent survey to see its sources";
 
-// One dropdown row. A link when href is set; a button calling onActivate when only
-// that is possible; otherwise a disabled row with the tooltip.
-function SearchRow({ href, title, sub, tip, onPick, onActivate }) {
+// One dropdown row. A link when href is set; otherwise a disabled row with the tooltip.
+function SearchRow({ href, title, sub, tip, onPick }) {
   return (
     <li className="ops-search-results__item">
       {href ? (
@@ -57,7 +55,7 @@ function SearchRow({ href, title, sub, tip, onPick, onActivate }) {
           {sub && <span className="ops-search-results__sub">{sub}</span>}
         </Link>
       ) : (
-        <button type="button" disabled={!onActivate} title={tip} onClick={onActivate}>
+        <button type="button" disabled title={tip}>
           {title}
           {sub && <span className="ops-search-results__sub">{sub}</span>}
         </button>
@@ -67,7 +65,6 @@ function SearchRow({ href, title, sub, tip, onPick, onActivate }) {
 }
 
 export default function OpsProjectsList() {
-  const navigate = useNavigate();
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
@@ -222,21 +219,6 @@ export default function OpsProjectsList() {
     }
   };
 
-  // A supplier hit carries no parent project id; resolve it through its survey.
-  const openSupplierSource = async (src) => {
-    try {
-      const survey = await getSurvey(src.surveyId);
-      if (!survey?.parentProjectId) {
-        notifyToast("This survey is not linked to a project yet.", "warning");
-        return;
-      }
-      setResultsOpen(false);
-      navigate(sourcesHref(survey.parentProjectId, survey.id));
-    } catch (e) {
-      notifyToast(e.message || "Could not open that source.", "error");
-    }
-  };
-
   const changeStatus = async (status) => {
     try {
       await setProjectStatus(statusTarget.id, status);
@@ -343,7 +325,6 @@ export default function OpsProjectsList() {
                         title={src.vendorName || src.id || "Source"}
                         sub={src.status}
                         onPick={() => setResultsOpen(false)}
-                        onActivate={href || !src.surveyId ? undefined : () => openSupplierSource(src)}
                       />
                     );
                   })}

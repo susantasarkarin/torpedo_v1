@@ -25,7 +25,7 @@ import {
   Breadcrumbs,
   WindowToggle,
 } from "./opsShared";
-import { fmtInt, fmtPct, fmtLoi, NOT_CONFIRMED_TIP } from "./opsUtils";
+import { fmtInt, fmtPct, fmtLoi, NOT_CONFIRMED_TIP, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
 import "./opsProjects.css";
 
 const TABS = [
@@ -52,15 +52,15 @@ const SURVEY_STATUS_OPTIONS = [
 const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0, draft: 0, cancelled: 0, auto_paused: 0, scheduled: 0 };
 
 // Metric columns. `key` matches the API field and the unverifiedMetrics list.
-// `sortable: false` marks columns the backend does not accept as a sort key.
+// `gated` columns are sortable only while the response does not list them as unverified.
 const METRIC_COLUMNS = [
   { key: "entrants", label: "Entrants", fmt: fmtInt },
-  { key: "defenderTerms", label: "Defender terms", fmt: fmtInt, sortable: false },
+  { key: "defenderTerms", label: "Defender terms", fmt: fmtInt, gated: true },
   { key: "terms", label: "Terms", fmt: fmtInt },
   { key: "oqs", label: "OQs", fmt: fmtInt },
-  { key: "sqTerms", label: "SQ terms", fmt: fmtInt, sortable: false },
-  { key: "abandons", label: "Abandons", fmt: fmtInt },
-  { key: "inFlights", label: "In-flights", fmt: fmtInt },
+  { key: "sqTerms", label: "SQ terms", fmt: fmtInt, gated: true },
+  { key: "abandons", label: "Abandons", fmt: fmtInt, gated: true },
+  { key: "inFlights", label: "In-flights", fmt: fmtInt, gated: true },
   { key: "completes", label: "Completes", fmt: fmtInt },
   { key: "completesWindow", label: "Completes", fmt: fmtInt, windowed: true },
   { key: "ir", label: "IR", fmt: fmtPct },
@@ -83,6 +83,7 @@ export default function OpsProjectSurveys() {
   const [project, setProject] = useState(null);
   const [data, setData] = useState({ items: [], total: 0, counts: EMPTY_COUNTS });
   const [unverified, setUnverified] = useState([]);
+  const [inflightMinutes, setInflightMinutes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -123,6 +124,7 @@ export default function OpsProjectSurveys() {
           counts: { ...EMPTY_COUNTS, ...(res.counts || {}) },
         });
         setUnverified(res.meta?.unverifiedMetrics || []);
+        setInflightMinutes(res.meta?.inflightMinutes ?? null);
       })
       .catch((e) => {
         if (!ignore) setError(e.message || "Could not load surveys.");
@@ -200,6 +202,8 @@ export default function OpsProjectSurveys() {
 
   const hasFilter = Boolean(q) || tab !== "all";
   const isWindowed = (col) => Boolean(col.windowed);
+  // A gated column is sortable only when the response does not mark it unverified.
+  const isSortable = (col) => !(col.gated && unverified.includes(col.key));
   const windowLabel = windowKey === "p14d" ? "P14D" : "P24H";
 
   return (
@@ -302,7 +306,7 @@ export default function OpsProjectSurveys() {
                     {METRIC_COLUMNS.map((col) => {
                       const label = isWindowed(col) ? `${col.label} (${windowLabel})` : col.label;
                       const isUnverified = unverified.includes(col.key);
-                      if (col.sortable === false) {
+                      if (!isSortable(col)) {
                         return (
                           <th
                             key={col.key}
@@ -353,6 +357,7 @@ export default function OpsProjectSurveys() {
                           label={s.surveyName}
                           items={[
                             { label: "Edit", onSelect: () => onEdit(s) },
+                            { label: "Test Survey", title: TEST_LINK_TIP, onSelect: () => openSurveyTestLink(s.id) },
                             { label: "Duplicate", onSelect: () => onDuplicate(s) },
                             { label: "Download traffic report", onSelect: () => onDownload(s) },
                             { label: "Change status", onSelect: () => setStatusTarget(s) },
@@ -365,6 +370,11 @@ export default function OpsProjectSurveys() {
                 </tbody>
               </table>
             </div>
+            {inflightMinutes != null && (
+              <p className="ops-subtle">
+                In-Flights = started in the last {inflightMinutes} min without a final status; Abandons = older than that.
+              </p>
+            )}
             <Pagination
               page={page}
               pageSize={pageSize}
