@@ -130,6 +130,29 @@ def _require_admin(username: str, what: str) -> None:
         raise HTTPException(status_code=403, detail=f"{what} requires admin")
 
 
+def _is_finance(username: str) -> bool:
+    doc = _col(COL_USERS).find_one({"username": username}) or {}
+    return "finance" in (doc.get("roles") or [])
+
+
+def _can_see_pricing(username: str) -> bool:
+    """Pricing (buyPrice, currency, expense) is visible/editable to admin and finance.
+    PII is NOT covered by this: it stays admin-only (_is_admin)."""
+    return _is_admin(username) or _is_finance(username)
+
+
+def _require_pricing(username: str, what: str) -> None:
+    if not _can_see_pricing(username):
+        raise HTTPException(status_code=403, detail=f"{what} requires admin or finance")
+
+
+_PRICING_KEYS = ("buyPrice", "currency", "expense", "expenseBasis", "expenseByCurrency")
+
+
+def _strip_pricing(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [{k: v for k, v in r.items() if k not in _PRICING_KEYS} for r in rows]
+
+
 def _log(*, user: str, action: str, project_id: Optional[str] = None,
          survey_id: Optional[str] = None, field: Optional[str] = None,
          old: Any = None, new: Any = None, extra: Optional[Dict[str, Any]] = None) -> None:
@@ -975,6 +998,8 @@ def list_suppliers(survey_id: str, user: str = Depends(verify_session), window: 
     link = _link_for_survey(survey_id)
     project = _get_project(link["parentProjectId"]) if link else None
     rows = _supplier_rows(survey, _active_suppliers(survey_id), cutoff)
+    if not _can_see_pricing(user):
+        rows = _strip_pricing(rows)
     return {
         "project": _project_view(project, user) if project else None,
         "survey": {"id": str(survey["_id"]), "surveyName": survey.get("projectName"),
@@ -1019,8 +1044,9 @@ def add_suppliers(survey_id: str, request: Request, body: SupplierAdd, user: str
     if len(set(vids)) != len(vids):
         _bad("vendorIds contains duplicates")
     price = None
+    if body.buyPrice is not None or body.currency is not None:
+        _require_pricing(user, "Setting a supplier price")
     if body.buyPrice is not None:
-        _require_admin(user, "Setting a supplier price")
         price = _check_price(body.buyPrice)
     currency = _check_currency(body.currency or "INR")
 
@@ -1069,9 +1095,10 @@ def update_supplier(sid: str, request: Request, body: SupplierUpdate, user: str 
         new_price = _check_price(data["buyPrice"]) if data["buyPrice"] is not None else None
         old_price = Decimal(str(doc["buyPrice"])) if doc.get("buyPrice") not in (None, "") else None
         if new_price != old_price:
-            _require_admin(user, "Changing a supplier price")
+            _require_pricing(user, "Changing a supplier price")
             changes["buyPrice"] = str(new_price) if new_price is not None else None
     if data.get("currency") is not None:
+        _require_pricing(user, "Changing a supplier currency")
         changes["currency"] = _check_currency(data["currency"])
     if data.get("status") is not None:
         if data["status"] not in SUPPLIER_STATUSES:
@@ -1167,6 +1194,8 @@ def traffic_report(
     pii = _is_admin(user)
 
     section_a = _supplier_rows(survey, sups, cutoff)
+    if not _can_see_pricing(user):
+        section_a = _strip_pricing(section_a)
     recs = _traffic_find([survey.get("surveyNo")],
                          vendor_ids=[s["vendorId"] for s in sups] if supplierId else None,
                          projection=None)

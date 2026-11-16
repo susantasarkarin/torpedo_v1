@@ -4,8 +4,9 @@ import { ModalShell } from "./opsShared";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
 
-const vendorId = (v) => String(v.id ?? v._id ?? "");
-const vendorName = (v) => v.name || v.vendorName || v.companyName || `Vendor ${vendorId(v)}`;
+// /vendors/lookup rows are { vid, vendorName, vendorType }.
+const vendorId = (v) => String(v.vid ?? v.id ?? v._id ?? "");
+const vendorName = (v) => v.vendorName || v.name || `Vendor ${vendorId(v)}`;
 
 // Searchable multi-select of existing vendors. Creates one independent supplier row per vendor.
 export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice, onClose, onAdded }) {
@@ -69,9 +70,10 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
     setFormError(null);
     if (!validate()) return;
 
-    const body = { vendorIds: selected.map((v) => v.id ?? v._id) };
+    // buyPrice goes out as a string (the backend field is a string); the service converts.
+    const body = { vendorIds: selected.map(vendorId) };
     if (canPrice) {
-      body.buyPrice = buyPrice === "" ? null : Number(buyPrice);
+      body.buyPrice = buyPrice.trim() === "" ? null : buyPrice.trim();
       body.currency = currency;
     }
 

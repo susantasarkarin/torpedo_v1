@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   listSurveys,
+  getSurvey,
   setSurveyStatus,
   duplicateSurvey,
   downloadTrafficReport,
@@ -11,6 +12,8 @@ import {
 import { notify as notifyToast } from "../../../utils/notify";
 import SurveyModal from "./SurveyModal";
 import ChangeLogDrawer from "./ChangeLogDrawer";
+import DataCleaningModal from "./DataCleaningModal";
+import ReconciliationModal from "./ReconciliationModal";
 import {
   Metric,
   StatusBadge,
@@ -21,11 +24,8 @@ import {
   StateMessage,
   Breadcrumbs,
   WindowToggle,
-  fmtInt,
-  fmtPct,
-  fmtLoi,
-  NOT_CONFIRMED_TIP,
 } from "./opsShared";
+import { fmtInt, fmtPct, fmtLoi, NOT_CONFIRMED_TIP } from "./opsUtils";
 import "./opsProjects.css";
 
 const TABS = [
@@ -52,12 +52,13 @@ const SURVEY_STATUS_OPTIONS = [
 const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0, draft: 0, cancelled: 0, auto_paused: 0, scheduled: 0 };
 
 // Metric columns. `key` matches the API field and the unverifiedMetrics list.
+// `sortable: false` marks columns the backend does not accept as a sort key.
 const METRIC_COLUMNS = [
   { key: "entrants", label: "Entrants", fmt: fmtInt },
-  { key: "defenderTerms", label: "Defender terms", fmt: fmtInt },
+  { key: "defenderTerms", label: "Defender terms", fmt: fmtInt, sortable: false },
   { key: "terms", label: "Terms", fmt: fmtInt },
   { key: "oqs", label: "OQs", fmt: fmtInt },
-  { key: "sqTerms", label: "SQ terms", fmt: fmtInt },
+  { key: "sqTerms", label: "SQ terms", fmt: fmtInt, sortable: false },
   { key: "abandons", label: "Abandons", fmt: fmtInt },
   { key: "inFlights", label: "In-flights", fmt: fmtInt },
   { key: "completes", label: "Completes", fmt: fmtInt },
@@ -89,6 +90,8 @@ export default function OpsProjectSurveys() {
   const [modal, setModal] = useState(null); // { mode: "create" } | { mode: "edit", survey }
   const [statusTarget, setStatusTarget] = useState(null);
   const [logTarget, setLogTarget] = useState(null);
+  const [cleaningOpen, setCleaningOpen] = useState(false);
+  const [reconOpen, setReconOpen] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -159,6 +162,16 @@ export default function OpsProjectSurveys() {
     }
   };
 
+  // List rows are a summary; the edit form needs the full survey.
+  const onEdit = async (survey) => {
+    try {
+      const full = await getSurvey(survey.id);
+      setModal({ mode: "edit", survey: full });
+    } catch (e) {
+      notifyToast(e.message || "Could not open the survey.", "error");
+    }
+  };
+
   const onDownload = async (survey) => {
     try {
       const { blob, filename } = await downloadTrafficReport(survey.id, { format: "csv", includeAnswers: true });
@@ -192,7 +205,6 @@ export default function OpsProjectSurveys() {
   return (
     <div className="ops-page">
       <Breadcrumbs
-        LinkComponent={Link}
         items={[{ label: "Projects", to: "/admin/operations/ops-projects" }, { label: "Surveys" }]}
       />
 
@@ -205,9 +217,20 @@ export default function OpsProjectSurveys() {
             <div><dt>Status</dt><dd>{project?.status ? <StatusBadge status={project.status} /> : "—"}</dd></div>
           </dl>
         </div>
-        <button type="button" className="ops-btn ops-btn--primary" onClick={() => setModal({ mode: "create" })}>
-          + New Survey
-        </button>
+        <div className="ops-header-actions">
+          <Link className="ops-btn ops-btn--ghost" to={`/admin/operations/ops-projects/${projectId}/report`}>
+            Report
+          </Link>
+          <button type="button" className="ops-btn ops-btn--ghost" onClick={() => setReconOpen(true)}>
+            Reconciliation
+          </button>
+          <button type="button" className="ops-btn ops-btn--ghost" onClick={() => setCleaningOpen(true)}>
+            Request Data Cleaning
+          </button>
+          <button type="button" className="ops-btn ops-btn--primary" onClick={() => setModal({ mode: "create" })}>
+            + New Survey
+          </button>
+        </div>
       </header>
 
       <div className="ops-toolbar">
@@ -279,6 +302,18 @@ export default function OpsProjectSurveys() {
                     {METRIC_COLUMNS.map((col) => {
                       const label = isWindowed(col) ? `${col.label} (${windowLabel})` : col.label;
                       const isUnverified = unverified.includes(col.key);
+                      if (col.sortable === false) {
+                        return (
+                          <th
+                            key={col.key}
+                            scope="col"
+                            className="ops-th ops-th--right"
+                            title={isUnverified ? NOT_CONFIRMED_TIP : undefined}
+                          >
+                            {label}
+                          </th>
+                        );
+                      }
                       return (
                         <SortHeader
                           key={col.key}
@@ -317,7 +352,7 @@ export default function OpsProjectSurveys() {
                         <RowMenu
                           label={s.surveyName}
                           items={[
-                            { label: "Edit", onSelect: () => setModal({ mode: "edit", survey: s }) },
+                            { label: "Edit", onSelect: () => onEdit(s) },
                             { label: "Duplicate", onSelect: () => onDuplicate(s) },
                             { label: "Download traffic report", onSelect: () => onDownload(s) },
                             { label: "Change status", onSelect: () => setStatusTarget(s) },
@@ -371,6 +406,20 @@ export default function OpsProjectSurveys() {
           title={logTarget.surveyName}
           loader={() => getSurveyChangeLog(logTarget.id)}
           onClose={() => setLogTarget(null)}
+        />
+      )}
+
+      {cleaningOpen && (
+        <DataCleaningModal
+          projectId={projectId}
+          onClose={() => setCleaningOpen(false)}
+        />
+      )}
+
+      {reconOpen && (
+        <ReconciliationModal
+          projectId={projectId}
+          onClose={() => setReconOpen(false)}
         />
       )}
     </div>

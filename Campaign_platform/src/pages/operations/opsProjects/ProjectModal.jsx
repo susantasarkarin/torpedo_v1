@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createProject, updateProject, listUsers, OpsApiError } from "../../../services/opsProjectsService";
 import { ModalShell, TimezoneSelect } from "./opsShared";
 
+// Manager is stored by username (backend looks managers up by username).
 const emptyForm = (project) => ({
   projectName: project?.projectName || "",
   projectNumber: project?.projectNumber || "",
@@ -11,6 +12,8 @@ const emptyForm = (project) => ({
 });
 
 // Create or edit a project. Cancel discards the form; nothing is saved until Save.
+// Create needs manager, fieldwork date and timezone (backend requires them). Edit
+// cannot change the project number (backend ignores it) and cannot clear the manager.
 export default function ProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project?.id);
   const [form, setForm] = useState(() => emptyForm(project));
@@ -39,11 +42,22 @@ export default function ProjectModal({ project, onClose, onSaved }) {
 
   const validate = () => {
     const next = {};
-    if (!form.projectName.trim()) next.projectName = "Project name is required.";
-    if (!form.projectNumber.trim()) next.projectNumber = "Project number is required.";
+    const name = form.projectName.trim();
+    const number = form.projectNumber.trim();
+    if (!name) next.projectName = "Project name is required.";
+    else if (name.length > 200) next.projectName = "Project name must be 200 characters or fewer.";
+    if (!isEdit) {
+      if (!number) next.projectNumber = "Project number is required.";
+      else if (number.length > 32) next.projectNumber = "Project number must be 32 characters or fewer.";
+    }
+    if (!form.managerId) next.managerId = "Choose a manager.";
+    if (!isEdit && !form.outOfFieldAt) next.outOfFieldAt = "Fieldwork date and time is required.";
+    if (!isEdit && !form.timezone) next.timezone = "Timezone is required.";
     setErrors(next);
     return Object.keys(next).length === 0;
   };
+
+  const managerName = users.find((u) => u.username === form.managerId)?.name || project?.managerName || form.managerId;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -51,13 +65,22 @@ export default function ProjectModal({ project, onClose, onSaved }) {
     setFormError(null);
     if (!validate()) return;
 
-    const body = {
-      projectName: form.projectName.trim(),
-      projectNumber: form.projectNumber.trim(),
-      managerId: form.managerId || null,
-      fieldworkDatetime: form.outOfFieldAt || null,
-      timezone: form.timezone || null,
-    };
+    // Optional fields are left out when empty: the backend treats null as invalid on update.
+    const body = isEdit
+      ? {
+          projectName: form.projectName.trim(),
+          managerId: form.managerId,
+          managerName,
+          ...(form.outOfFieldAt ? { fieldworkDatetime: form.outOfFieldAt } : {}),
+          ...(form.timezone ? { timezone: form.timezone } : {}),
+        }
+      : {
+          projectName: form.projectName.trim(),
+          projectNumber: form.projectNumber.trim(),
+          managerId: form.managerId,
+          fieldworkDatetime: form.outOfFieldAt,
+          timezone: form.timezone,
+        };
 
     busy.current = true;
     setSaving(true);
@@ -79,13 +102,15 @@ export default function ProjectModal({ project, onClose, onSaved }) {
   };
 
   const managerOptions = users.map((u) => ({
-    value: String(u.id),
-    label: u.name || u.username || u.email || `User ${u.id}`,
-  }));
+    value: u.username || "",
+    label: u.name || u.username || u.email || "User",
+  })).filter((o) => o.value);
   // Keep the current manager selectable even if they are missing from the user list.
   if (form.managerId && !managerOptions.some((o) => o.value === form.managerId)) {
-    managerOptions.unshift({ value: form.managerId, label: project?.managerName || `User ${form.managerId}` });
+    managerOptions.unshift({ value: form.managerId, label: project?.managerName || form.managerId });
   }
+
+  const invalid = (key) => Boolean(errors[key]);
 
   return (
     <ModalShell
@@ -109,52 +134,69 @@ export default function ProjectModal({ project, onClose, onSaved }) {
           <label htmlFor="op-name">Project name <span aria-hidden="true">*</span></label>
           <input
             id="op-name"
-            className={`ops-input ${errors.projectName ? "ops-input--error" : ""}`}
+            className={`ops-input ${invalid("projectName") ? "ops-input--error" : ""}`}
             value={form.projectName}
             onChange={set("projectName")}
-            required
             aria-required="true"
-            aria-invalid={Boolean(errors.projectName)}
-            aria-describedby={errors.projectName ? "op-name-err" : undefined}
+            aria-invalid={invalid("projectName")}
+            aria-describedby={invalid("projectName") ? "op-name-err" : undefined}
             autoFocus
           />
-          {errors.projectName && <span id="op-name-err" className="ops-field__error">{errors.projectName}</span>}
+          {invalid("projectName") && <span id="op-name-err" className="ops-field__error">{errors.projectName}</span>}
         </div>
 
         <div className="ops-field">
-          <label htmlFor="op-number">Project number <span aria-hidden="true">*</span></label>
+          <label htmlFor="op-number">Project number {!isEdit && <span aria-hidden="true">*</span>}</label>
           <input
             id="op-number"
-            className={`ops-input ${errors.projectNumber ? "ops-input--error" : ""}`}
+            className={`ops-input ${invalid("projectNumber") ? "ops-input--error" : ""}`}
             value={form.projectNumber}
             onChange={set("projectNumber")}
-            required
-            aria-required="true"
-            aria-invalid={Boolean(errors.projectNumber)}
-            aria-describedby={errors.projectNumber ? "op-number-err" : undefined}
+            readOnly={isEdit}
+            aria-required={!isEdit}
+            aria-invalid={invalid("projectNumber")}
+            aria-describedby={invalid("projectNumber") ? "op-number-err" : isEdit ? "op-number-hint" : undefined}
           />
-          {errors.projectNumber && <span id="op-number-err" className="ops-field__error">{errors.projectNumber}</span>}
+          {isEdit && <span id="op-number-hint" className="ops-field__hint">The project number cannot be changed.</span>}
+          {invalid("projectNumber") && <span id="op-number-err" className="ops-field__error">{errors.projectNumber}</span>}
         </div>
 
         <div className="ops-field">
-          <label htmlFor="op-manager">Manager</label>
-          <select id="op-manager" className="ops-input" value={form.managerId} onChange={set("managerId")}>
-            <option value="">Unassigned</option>
+          <label htmlFor="op-manager">Manager <span aria-hidden="true">*</span></label>
+          <select
+            id="op-manager"
+            className={`ops-input ${invalid("managerId") ? "ops-input--error" : ""}`}
+            value={form.managerId}
+            onChange={set("managerId")}
+            aria-required="true"
+            aria-invalid={invalid("managerId")}
+          >
+            <option value="">Choose a manager</option>
             {managerOptions.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          {invalid("managerId") && <span className="ops-field__error">{errors.managerId}</span>}
           {usersError && <span className="ops-field__hint">Could not load users: {usersError}</span>}
         </div>
 
         <div className="ops-field-row">
           <div className="ops-field">
-            <label htmlFor="op-oof">Out-of-field date and time</label>
-            <input id="op-oof" type="datetime-local" className="ops-input" value={form.outOfFieldAt} onChange={set("outOfFieldAt")} />
+            <label htmlFor="op-oof">Fieldwork date and time {!isEdit && <span aria-hidden="true">*</span>}</label>
+            <input
+              id="op-oof"
+              type="datetime-local"
+              className={`ops-input ${invalid("outOfFieldAt") ? "ops-input--error" : ""}`}
+              value={form.outOfFieldAt}
+              onChange={set("outOfFieldAt")}
+              aria-invalid={invalid("outOfFieldAt")}
+            />
+            {invalid("outOfFieldAt") && <span className="ops-field__error">{errors.outOfFieldAt}</span>}
           </div>
           <div className="ops-field">
-            <label htmlFor="op-tz">Timezone</label>
-            <TimezoneSelect id="op-tz" value={form.timezone} onChange={set("timezone")} />
+            <label htmlFor="op-tz">Timezone {!isEdit && <span aria-hidden="true">*</span>}</label>
+            <TimezoneSelect id="op-tz" value={form.timezone} onChange={set("timezone")} error={errors.timezone} />
+            {invalid("timezone") && <span className="ops-field__error">{errors.timezone}</span>}
           </div>
         </div>
       </form>

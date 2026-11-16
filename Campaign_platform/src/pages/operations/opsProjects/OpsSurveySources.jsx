@@ -1,41 +1,32 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   listSurveySuppliers,
   updateSurveySupplier,
   deleteSurveySupplier,
   downloadTrafficReport,
+  getSurveyTrend,
   saveBlob,
   OpsApiError,
 } from "../../../services/opsProjectsService";
 import { notify as notifyToast, confirmAction } from "../../../utils/notify";
 import AddSupplierModal from "./AddSupplierModal";
-import {
-  Metric,
-  StatusBadge,
-  Breadcrumbs,
-  WindowToggle,
-  StateMessage,
-  canSeePricing,
-  fmtInt,
-  fmtPct,
-  fmtLoi,
-  fmtMoney,
-} from "./opsShared";
+import { Metric, StatusBadge, Breadcrumbs, WindowToggle, StateMessage } from "./opsShared";
+import { canSeePricing, fmtInt, fmtPct, fmtLoi, fmtMoney } from "./opsUtils";
 import "./opsProjects.css";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
+const TREND_DAYS = [7, 14, 30];
 
-// Sources share the survey status vocabulary.
+// Supplier (survey source) statuses the backend accepts: live, paused, completed.
 const SOURCE_STATUS_OPTIONS = [
   { value: "live", label: "Live" },
   { value: "paused", label: "Paused" },
   { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
 ];
 
 // One supplier row. It owns its own edit state, so rows save independently.
-function SupplierRow({ row, canPrice, onChange, onRemove }) {
+function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved }) {
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceDraft, setPriceDraft] = useState({ buyPrice: "", currency: "USD" });
   const [busy, setBusy] = useState(false);
@@ -70,7 +61,10 @@ function SupplierRow({ row, canPrice, onChange, onRemove }) {
       return;
     }
     const ok = await save({ buyPrice: n, currency: priceDraft.currency }, "Buy price saved.");
-    if (ok) setEditingPrice(false);
+    if (ok) {
+      setEditingPrice(false);
+      onPriceSaved(); // expense depends on price, so the list is re-read
+    }
   };
 
   const remove = async () => {
@@ -194,6 +188,11 @@ export default function OpsSurveySources() {
   const [reloadKey, setReloadKey] = useState(0);
   const [adding, setAdding] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [trendDays, setTrendDays] = useState(14);
+  const [trend, setTrend] = useState(null);
+  const [trendLoading, setTrendLoading] = useState(true);
+  const [trendError, setTrendError] = useState(null);
+  const [trendReloadKey, setTrendReloadKey] = useState(0);
 
   useEffect(() => {
     let ignore = false;
@@ -216,8 +215,30 @@ export default function OpsSurveySources() {
     };
   }, [surveyId, windowKey, reloadKey]);
 
+  useEffect(() => {
+    let ignore = false;
+    setTrendLoading(true);
+    setTrendError(null);
+    getSurveyTrend(surveyId, trendDays)
+      .then((res) => {
+        if (!ignore) setTrend(res || {});
+      })
+      .catch((e) => {
+        if (!ignore) setTrendError(e instanceof OpsApiError ? e.message : "Could not load the trend.");
+      })
+      .finally(() => {
+        if (!ignore) setTrendLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [surveyId, trendDays, trendReloadKey]);
+
   const windowLabel = windowKey === "p14d" ? "P14D" : "P24H";
   const { project, survey, items } = data;
+  const trendDates = Array.isArray(trend?.days) ? trend.days : [];
+  const trendSeries = Array.isArray(trend?.series) ? trend.series : [];
+  const trendTotal = Array.isArray(trend?.total?.completes) ? trend.total.completes : [];
 
   const updateRow = (next) =>
     setData((d) => ({ ...d, items: d.items.map((r) => (r.id === next.id ? next : r)) }));
@@ -245,7 +266,6 @@ export default function OpsSurveySources() {
   return (
     <div className="ops-page">
       <Breadcrumbs
-        LinkComponent={Link}
         items={[
           { label: "Projects", to: "/admin/operations/ops-projects" },
           { label: "Surveys", to: `/admin/operations/ops-projects/${projectId}` },
@@ -323,6 +343,7 @@ export default function OpsSurveySources() {
                     canPrice={canPrice}
                     onChange={updateRow}
                     onRemove={removeRow}
+                    onPriceSaved={() => setReloadKey((k) => k + 1)}
                   />
                 ))}
               </tbody>
@@ -330,6 +351,61 @@ export default function OpsSurveySources() {
           </div>
         )}
       </div>
+
+      <section className="ops-section" aria-labelledby="ops-trend-title">
+        <div className="ops-section__head">
+          <h2 id="ops-trend-title" className="ops-section__title">Completes trend</h2>
+          <label className="ops-pagination__size">
+            Days
+            <select value={trendDays} onChange={(e) => setTrendDays(Number(e.target.value))}>
+              {TREND_DAYS.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {trendLoading && !trend && <StateMessage kind="loading" title="Loading trend…" />}
+        {trendError && (
+          <StateMessage kind="error" title="Could not load the trend" message={trendError} onRetry={() => setTrendReloadKey((k) => k + 1)} />
+        )}
+        {!trendError && trend && trendDates.length === 0 && (
+          <StateMessage kind="empty" title="No trend data for this period" message="Completes appear here once traffic arrives." />
+        )}
+        {!trendError && trendDates.length > 0 && (
+          <div className="ops-card" aria-busy={trendLoading}>
+            <div className="ops-table-wrap">
+              <table className="ops-table ops-trend-table">
+                <caption className="ops-visually-hidden">Completes per day for the last {trendDays} days, by supplier, with total</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className="ops-th">Date</th>
+                    {trendSeries.map((s, j) => (
+                      <th key={s.vendorId || j} scope="col" className="ops-th ops-th--right">{s.vendorName || s.vendorId || "—"}</th>
+                    ))}
+                    <th scope="col" className="ops-th ops-th--right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trendDates.map((day, i) => (
+                    <tr key={`${day}-${i}`}>
+                      <th scope="row" className="ops-td">{String(day)}</th>
+                      {trendSeries.map((s, j) => (
+                        <td key={s.vendorId || j} className="ops-td ops-td--num">
+                          <Metric value={Array.isArray(s.completes) ? s.completes[i] : null} format={fmtInt} />
+                        </td>
+                      ))}
+                      <td className="ops-td ops-td--num">
+                        <Metric value={trendTotal[i]} format={fmtInt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
 
       {adding && (
         <AddSupplierModal

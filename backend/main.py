@@ -1471,6 +1471,8 @@ except Exception as e:
 # --- Ops: Project -> Survey -> Supplier layer ---
 from routers import ops_surveys as ops_surveys_router
 app.include_router(ops_surveys_router.router)
+from routers import ops_research as ops_research_router
+app.include_router(ops_research_router.router)
 
 # --- Marketing: websites, blog posts, media library ---
 from routers import marketing_site as marketing_site_router

@@ -57,16 +57,30 @@ const request = async (path, { method = "GET", body, params } = {}) => {
   return res.json();
 };
 
+// Single-entity endpoints wrap the entity ({project}, {survey}, ...). The
+// wrappers below return the entity itself so callers never unwrap.
+const pick = (key) => (res) => res?.[key] ?? null;
+
+// Supplier buy price is a string on the wire (backend `buyPrice: str`).
+// null/empty clears it; numbers are converted.
+const priceString = (v) => (v === undefined ? undefined : v === null || v === "" ? null : String(v));
+const supplierBody = (body) => {
+  if (!body || body.buyPrice === undefined) return body;
+  return { ...body, buyPrice: priceString(body.buyPrice) };
+};
+
 // ---------- Projects ----------
 
 export const listProjects = (params) => request("/projects", { params });
-export const createProject = (body) => request("/projects", { method: "POST", body });
-export const getProject = (id) => request(`/projects/${id}`);
-export const updateProject = (id, body) => request(`/projects/${id}`, { method: "PUT", body });
+export const createProject = (body) => request("/projects", { method: "POST", body }).then(pick("project"));
+export const getProject = (id) => request(`/projects/${id}`).then(pick("project"));
+export const updateProject = (id, body) =>
+  request(`/projects/${id}`, { method: "PUT", body }).then(pick("project"));
+// Returns { isFavorite } (the server flips the flag; the body is not read).
 export const setProjectFavorite = (id, isFavorite) =>
   request(`/projects/${id}/favorite`, { method: "POST", body: { isFavorite } });
 export const setProjectStatus = (id, status) =>
-  request(`/projects/${id}/status`, { method: "POST", body: { status } });
+  request(`/projects/${id}/status`, { method: "POST", body: { status } }).then(pick("project"));
 export const getProjectChangeLog = (id) => request(`/projects/${id}/change-log`);
 
 // ---------- Surveys ----------
@@ -74,22 +88,25 @@ export const getProjectChangeLog = (id) => request(`/projects/${id}/change-log`)
 export const listSurveys = (projectId, params) =>
   request(`/projects/${projectId}/surveys`, { params });
 export const createSurvey = (projectId, body) =>
-  request(`/projects/${projectId}/surveys`, { method: "POST", body });
-export const getSurvey = (id) => request(`/surveys/${id}`);
-export const updateSurvey = (id, body) => request(`/surveys/${id}`, { method: "PUT", body });
+  request(`/projects/${projectId}/surveys`, { method: "POST", body }).then(pick("survey"));
+export const getSurvey = (id) => request(`/surveys/${id}`).then(pick("survey"));
+export const updateSurvey = (id, body) =>
+  request(`/surveys/${id}`, { method: "PUT", body }).then(pick("survey"));
 export const setSurveyStatus = (id, status) =>
-  request(`/surveys/${id}/status`, { method: "POST", body: { status } });
-export const duplicateSurvey = (id) => request(`/surveys/${id}/duplicate`, { method: "POST" });
+  request(`/surveys/${id}/status`, { method: "POST", body: { status } }).then(pick("survey"));
+export const duplicateSurvey = (id) =>
+  request(`/surveys/${id}/duplicate`, { method: "POST" }).then(pick("survey"));
 export const getSurveyChangeLog = (id) => request(`/surveys/${id}/change-log`);
 
 // ---------- Survey sources (suppliers) ----------
 
 export const listSurveySuppliers = (surveyId, params) =>
   request(`/surveys/${surveyId}/suppliers`, { params });
+// Returns { items: [...] }, one supplier row per vendor.
 export const addSurveySuppliers = (surveyId, body) =>
-  request(`/surveys/${surveyId}/suppliers`, { method: "POST", body });
+  request(`/surveys/${surveyId}/suppliers`, { method: "POST", body: supplierBody(body) });
 export const updateSurveySupplier = (sid, body) =>
-  request(`/survey-suppliers/${sid}`, { method: "PUT", body });
+  request(`/survey-suppliers/${sid}`, { method: "PUT", body: supplierBody(body) }).then(pick("item"));
 export const deleteSurveySupplier = (sid) =>
   request(`/survey-suppliers/${sid}`, { method: "DELETE" });
 
@@ -138,6 +155,39 @@ export const saveBlob = (blob, filename) => {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 };
+
+// Every survey in a project, paged 50 at a time. Used by the modal pickers.
+export const listAllProjectSurveys = async (projectId) => {
+  const items = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const res = await listSurveys(projectId, { page, pageSize: 50, sort: "surveyName", order: "asc" });
+    const batch = unwrapList(res, "items");
+    items.push(...batch);
+    if (batch.length < 50 || items.length >= Number(res?.total ?? 0)) break;
+  }
+  return items;
+};
+
+// ---------- Data cleaning requests ----------
+
+export const listCleaningRequests = (projectId) => request(`/projects/${projectId}/cleaning-requests`);
+export const createCleaningRequest = (projectId, body) =>
+  request(`/projects/${projectId}/cleaning-requests`, { method: "POST", body }).then(pick("request"));
+export const updateCleaningRequestStatus = (rid, body) =>
+  request(`/cleaning-requests/${rid}/status`, { method: "POST", body }).then(pick("request"));
+
+// ---------- Reconciliations (comparison only; respondent statuses are not changed) ----------
+
+export const listReconciliations = (projectId) => request(`/projects/${projectId}/reconciliations`);
+export const createReconciliation = (projectId, body) =>
+  request(`/projects/${projectId}/reconciliations`, { method: "POST", body }).then(pick("reconciliation"));
+export const getReconciliation = (rid) => request(`/reconciliations/${rid}`).then(pick("reconciliation"));
+
+// ---------- Project report and survey trend ----------
+
+export const getProjectReport = (projectId) => request(`/projects/${projectId}/report`);
+export const getSurveyTrend = (surveyId, days = 14) =>
+  request(`/surveys/${surveyId}/trend`, { params: { days } });
 
 // ---------- Response helpers ----------
 

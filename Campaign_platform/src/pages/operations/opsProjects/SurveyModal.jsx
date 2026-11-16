@@ -54,22 +54,37 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
     }));
   };
 
+  // Mirrors the backend. On create every field below is required; on edit
+  // (partial update) a field is only checked when it has a value.
   const validate = () => {
     const next = {};
+    const required = !isEdit;
+    const url = form.surveyUrl.trim();
     if (!form.surveyName.trim()) next.surveyName = "Survey name is required.";
-    if (form.surveyUrl.trim() && !isHttpUrl(form.surveyUrl.trim())) {
-      next.surveyUrl = "Enter a full http:// or https:// URL.";
-    }
+    if (!url && required) next.surveyUrl = "Survey URL is required.";
+    else if (url && !isHttpUrl(url)) next.surveyUrl = "Enter a full http:// or https:// URL.";
     const target = Number(form.target);
     if (form.target === "" || !Number.isInteger(target) || target <= 0) {
       next.target = "Target must be a whole number greater than 0.";
     }
-    if (form.loi !== "" && (Number.isNaN(Number(form.loi)) || Number(form.loi) < 0)) {
-      next.loi = "LOI must be 0 or more minutes.";
+    if (form.loi === "") {
+      if (required) next.loi = "LOI is required.";
+    } else if (Number.isNaN(Number(form.loi)) || Number(form.loi) <= 0) {
+      next.loi = "LOI must be more than 0 minutes.";
     }
-    if (form.ir !== "") {
+    if (form.ir === "") {
+      if (required) next.ir = "IR is required.";
+    } else {
       const ir = Number(form.ir);
       if (Number.isNaN(ir) || ir < 0 || ir > 100) next.ir = "IR must be between 0 and 100.";
+    }
+    const country = form.country.trim();
+    if (!country && required) next.country = "Country is required.";
+    else if (country && !/^[A-Za-z]{2}$/.test(country)) next.country = "Country must be a 2-letter code, for example IN.";
+    const language = form.language.trim();
+    if (!language && required) next.language = "Language is required.";
+    else if (language && !/^[A-Za-z]{2}(-[A-Za-z0-9]{2,8})?$/.test(language)) {
+      next.language = "Language must look like en or en-IN.";
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -81,6 +96,7 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
     setFormError(null);
     if (!validate()) return;
 
+    // Empty optional values are sent as null; the backend skips nulls on update.
     const body = {
       surveyName: form.surveyName.trim(),
       surveyUrl: form.surveyUrl.trim() || null,
@@ -89,7 +105,7 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
       ir: form.ir === "" ? null : Number(form.ir),
       outOfFieldAt: form.outOfFieldAt || null,
       timezone: form.timezone || null,
-      countryCode: form.country.trim() || null,
+      countryCode: form.country.trim().toUpperCase() || null,
       languageCode: form.language.trim() || null,
       devices: { desktop: form.devices.includes("desktop"), mobile: form.devices.includes("mobile"), tablet: form.devices.includes("tablet") },
       piiEnabled: form.pii,
@@ -139,7 +155,7 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
         </div>
 
         <div className="ops-field">
-          <label htmlFor="sv-url">Survey URL</label>
+          <label htmlFor="sv-url">Survey URL {!isEdit && <span aria-hidden="true">*</span>}</label>
           <input id="sv-url" type="url" className={`ops-input ${invalid("surveyUrl") ? "ops-input--error" : ""}`} value={form.surveyUrl}
             onChange={set("surveyUrl")} placeholder="https://" aria-invalid={invalid("surveyUrl")}
             aria-describedby={invalid("surveyUrl") ? errId("surveyUrl") : undefined} />
@@ -155,14 +171,14 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
             {invalid("target") && <span id={errId("target")} className="ops-field__error">{errors.target}</span>}
           </div>
           <div className="ops-field">
-            <label htmlFor="sv-loi">LOI (minutes)</label>
-            <input id="sv-loi" type="number" min="0" step="0.1" inputMode="decimal" className={`ops-input ${invalid("loi") ? "ops-input--error" : ""}`}
+            <label htmlFor="sv-loi">LOI (minutes) {!isEdit && <span aria-hidden="true">*</span>}</label>
+            <input id="sv-loi" type="number" min="0.1" step="0.1" inputMode="decimal" className={`ops-input ${invalid("loi") ? "ops-input--error" : ""}`}
               value={form.loi} onChange={set("loi")} aria-invalid={invalid("loi")}
               aria-describedby={invalid("loi") ? errId("loi") : undefined} />
             {invalid("loi") && <span id={errId("loi")} className="ops-field__error">{errors.loi}</span>}
           </div>
           <div className="ops-field">
-            <label htmlFor="sv-ir">IR (%)</label>
+            <label htmlFor="sv-ir">IR (%) {!isEdit && <span aria-hidden="true">*</span>}</label>
             <input id="sv-ir" type="number" min="0" max="100" step="0.1" inputMode="decimal" className={`ops-input ${invalid("ir") ? "ops-input--error" : ""}`}
               value={form.ir} onChange={set("ir")} aria-invalid={invalid("ir")}
               aria-describedby={invalid("ir") ? errId("ir") : undefined} />
@@ -183,12 +199,16 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
 
         <div className="ops-field-row">
           <div className="ops-field">
-            <label htmlFor="sv-country">Country</label>
-            <input id="sv-country" className="ops-input" value={form.country} onChange={set("country")} />
+            <label htmlFor="sv-country">Country (2-letter code) {!isEdit && <span aria-hidden="true">*</span>}</label>
+            <input id="sv-country" className={`ops-input ${invalid("country") ? "ops-input--error" : ""}`} value={form.country}
+              onChange={set("country")} placeholder="IN" maxLength={2} aria-invalid={invalid("country")} />
+            {invalid("country") && <span className="ops-field__error">{errors.country}</span>}
           </div>
           <div className="ops-field">
-            <label htmlFor="sv-language">Language</label>
-            <input id="sv-language" className="ops-input" value={form.language} onChange={set("language")} />
+            <label htmlFor="sv-language">Language {!isEdit && <span aria-hidden="true">*</span>}</label>
+            <input id="sv-language" className={`ops-input ${invalid("language") ? "ops-input--error" : ""}`} value={form.language}
+              onChange={set("language")} placeholder="en or en-IN" aria-invalid={invalid("language")} />
+            {invalid("language") && <span className="ops-field__error">{errors.language}</span>}
           </div>
         </div>
 

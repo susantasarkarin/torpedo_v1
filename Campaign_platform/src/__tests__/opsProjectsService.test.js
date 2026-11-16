@@ -4,6 +4,9 @@ import {
   createProject,
   setProjectFavorite,
   downloadTrafficReport,
+  createCleaningRequest,
+  getSurveyTrend,
+  updateCleaningRequestStatus,
   OpsApiError,
 } from "../services/opsProjectsService";
 
@@ -70,6 +73,37 @@ describe("opsProjectsService", () => {
     expect(filename).toBe("traffic-S1.csv");
     expect(blob.size).toBeGreaterThan(0);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/ops/surveys/S1/traffic-report?format=csv");
+  });
+
+  it("posts a cleaning request with its survey ids and notes", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: "r1", status: "submitted" }));
+
+    await createCleaningRequest("P1", { surveyIds: ["S1", "S2"], notes: "Drop speeders" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ops/projects/P1/cleaning-requests");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ surveyIds: ["S1", "S2"], notes: "Drop speeders" });
+  });
+
+  it("sends the survey trend window as the days query parameter", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ days: [], series: [], total: { entrants: [], completes: [] } }));
+
+    await getSurveyTrend("S9", 30);
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/ops/surveys/S9/trend?");
+    expect(url).toContain("days=30");
+  });
+
+  it("posts a cleaning status change with its note", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: "r1", status: "in_progress" }));
+
+    await updateCleaningRequestStatus("r1", { status: "in_progress", note: "Picked up" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ops/cleaning-requests/r1/status");
+    expect(JSON.parse(init.body)).toEqual({ status: "in_progress", note: "Picked up" });
   });
 
   it("reports a network failure as an OpsApiError with status 0", async () => {

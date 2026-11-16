@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   listProjects,
+  getProject,
+  getSurvey,
   setProjectFavorite,
   setProjectStatus,
   getProjectChangeLog,
+  globalSearch,
+  unwrapList,
 } from "../../../services/opsProjectsService";
 import { notify as notifyToast } from "../../../utils/notify";
 import ProjectModal from "./ProjectModal";
@@ -17,9 +21,8 @@ import {
   SortHeader,
   RowMenu,
   StateMessage,
-  fmtPct,
-  fmtLoi,
 } from "./opsShared";
+import { fmtPct, fmtLoi } from "./opsUtils";
 import "./opsProjects.css";
 
 const TABS = [
@@ -37,7 +40,34 @@ const PROJECT_STATUS_OPTIONS = [
 
 const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0 };
 
+const projectHref = (p) => `/admin/operations/ops-projects/${p.id}`;
+// A survey opens its sources page only when its parent project is known.
+const sourcesHref = (projectId, surveyId) =>
+  projectId && surveyId ? `/admin/operations/ops-projects/${projectId}/surveys/${surveyId}` : null;
+const NO_PAGE_TIP = "Open the parent survey to see its sources";
+
+// One dropdown row. A link when href is set; a button calling onActivate when only
+// that is possible; otherwise a disabled row with the tooltip.
+function SearchRow({ href, title, sub, tip, onPick, onActivate }) {
+  return (
+    <li className="ops-search-results__item">
+      {href ? (
+        <Link to={href} onClick={onPick}>
+          {title}
+          {sub && <span className="ops-search-results__sub">{sub}</span>}
+        </Link>
+      ) : (
+        <button type="button" disabled={!onActivate} title={tip} onClick={onActivate}>
+          {title}
+          {sub && <span className="ops-search-results__sub">{sub}</span>}
+        </button>
+      )}
+    </li>
+  );
+}
+
 export default function OpsProjectsList() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
@@ -56,6 +86,12 @@ export default function OpsProjectsList() {
   const [logTarget, setLogTarget] = useState(null);
   const favoriteBusy = useRef(new Set());
 
+  const [hits, setHits] = useState(null); // { projects, surveys, suppliers } for the current term
+  const [hitsLoading, setHitsLoading] = useState(false);
+  const [hitsError, setHitsError] = useState(null);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const searchWrapRef = useRef(null);
+
   // Debounce the search box; any new term goes back to page 1.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -64,6 +100,47 @@ export default function OpsProjectsList() {
     }, 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Global search for the dropdown. Runs on the same 300ms-debounced term as the list.
+  useEffect(() => {
+    if (q.length < 2) {
+      setHits(null);
+      setHitsError(null);
+      setHitsLoading(false);
+      return undefined;
+    }
+    let ignore = false;
+    setHitsLoading(true);
+    setHitsError(null);
+    globalSearch(q)
+      .then((res) => {
+        if (ignore) return;
+        setHits({
+          projects: unwrapList(res, "projects"),
+          surveys: unwrapList(res, "surveys"),
+          suppliers: unwrapList(res, "suppliers"),
+        });
+      })
+      .catch((e) => {
+        if (!ignore) setHitsError(e.message || "Search failed.");
+      })
+      .finally(() => {
+        if (!ignore) setHitsLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [q]);
+
+  // Close the results dropdown on outside click.
+  useEffect(() => {
+    if (!resultsOpen) return undefined;
+    const onDown = (e) => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) setResultsOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [resultsOpen]);
 
   // Fetch. The ignore flag drops responses that arrive after a newer request.
   useEffect(() => {
@@ -125,12 +202,38 @@ export default function OpsProjectsList() {
       }));
     apply(next);
     try {
-      await setProjectFavorite(project.id, next);
+      // The server flips the flag; apply what it reports, not what was asked for.
+      const res = await setProjectFavorite(project.id, next);
+      if (typeof res?.isFavorite === "boolean") apply(res.isFavorite);
     } catch (e) {
       apply(!next);
       notifyToast(e.message || "Could not update favourite.", "error");
     } finally {
       favoriteBusy.current.delete(project.id);
+    }
+  };
+
+  // List rows lack fieldwork date and timezone, so the edit form loads the full project.
+  const onEdit = async (project) => {
+    try {
+      setModal({ mode: "edit", project: await getProject(project.id) });
+    } catch (e) {
+      notifyToast(e.message || "Could not open the project.", "error");
+    }
+  };
+
+  // A supplier hit carries no parent project id; resolve it through its survey.
+  const openSupplierSource = async (src) => {
+    try {
+      const survey = await getSurvey(src.surveyId);
+      if (!survey?.parentProjectId) {
+        notifyToast("This survey is not linked to a project yet.", "warning");
+        return;
+      }
+      setResultsOpen(false);
+      navigate(sourcesHref(survey.parentProjectId, survey.id));
+    } catch (e) {
+      notifyToast(e.message || "Could not open that source.", "error");
     }
   };
 
@@ -168,16 +271,86 @@ export default function OpsProjectsList() {
       </header>
 
       <div className="ops-toolbar">
-        <div className="ops-search">
-          <label htmlFor="ops-proj-search" className="ops-visually-hidden">Search projects</label>
+        <div className="ops-search ops-search--wrap" ref={searchWrapRef}>
+          <label htmlFor="ops-proj-search" className="ops-visually-hidden">Search projects, surveys and sources</label>
           <input
             id="ops-proj-search"
             type="search"
             className="ops-input"
             placeholder="Search by name or number"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            autoComplete="off"
+            aria-expanded={resultsOpen && search.trim().length >= 2}
+            aria-controls="ops-proj-search-results"
+            onFocus={() => setResultsOpen(true)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setResultsOpen(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setResultsOpen(false);
+            }}
           />
+          {resultsOpen && q.length >= 2 && (
+            <ul id="ops-proj-search-results" className="ops-search-results" aria-label="Search results">
+              {hitsLoading && !hits && <li className="ops-search-results__empty" role="status">Searching…</li>}
+              {hitsError && <li className="ops-search-results__empty" role="alert">{hitsError}</li>}
+              {hits && hits.projects.length + hits.surveys.length + hits.suppliers.length === 0 && (
+                <li className="ops-search-results__empty">No matches for “{q}”.</li>
+              )}
+              {hits && hits.projects.length > 0 && (
+                <>
+                  <li className="ops-search-results__group" role="presentation">Projects</li>
+                  {hits.projects.map((p) => (
+                    <SearchRow
+                      key={`p-${p.id}`}
+                      href={projectHref(p)}
+                      title={p.projectName || p.id}
+                      sub={p.projectNumber}
+                      onPick={() => setResultsOpen(false)}
+                    />
+                  ))}
+                </>
+              )}
+              {hits && hits.surveys.length > 0 && (
+                <>
+                  <li className="ops-search-results__group" role="presentation">Surveys</li>
+                  {hits.surveys.map((s) => {
+                    const href = sourcesHref(s.parentProjectId, s.id);
+                    return (
+                      <SearchRow
+                        key={`s-${s.id}`}
+                        href={href}
+                        tip={NO_PAGE_TIP}
+                        title={s.surveyName || s.id}
+                        sub={s.surveyNo}
+                        onPick={() => setResultsOpen(false)}
+                      />
+                    );
+                  })}
+                </>
+              )}
+              {hits && hits.suppliers.length > 0 && (
+                <>
+                  <li className="ops-search-results__group" role="presentation">Sources</li>
+                  {hits.suppliers.map((src, i) => {
+                    const href = sourcesHref(src.parentProjectId, src.surveyId);
+                    return (
+                      <SearchRow
+                        key={`src-${src.id ?? i}`}
+                        href={href}
+                        tip={NO_PAGE_TIP}
+                        title={src.vendorName || src.id || "Source"}
+                        sub={src.status}
+                        onPick={() => setResultsOpen(false)}
+                        onActivate={href || !src.surveyId ? undefined : () => openSupplierSource(src)}
+                      />
+                    );
+                  })}
+                </>
+              )}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -260,7 +433,7 @@ export default function OpsProjectsList() {
                         <RowMenu
                           label={p.projectName}
                           items={[
-                            { label: "Edit", onSelect: () => setModal({ mode: "edit", project: p }) },
+                            { label: "Edit", onSelect: () => onEdit(p) },
                             { label: "Change status", onSelect: () => setStatusTarget(p) },
                             { label: "Change log", onSelect: () => setLogTarget(p) },
                           ]}

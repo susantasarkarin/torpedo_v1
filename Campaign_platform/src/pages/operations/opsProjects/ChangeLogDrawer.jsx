@@ -1,9 +1,10 @@
 import { useEffect, useId, useState } from "react";
 import { unwrapList } from "../../../services/opsProjectsService";
-import { StateMessage, fmtDateTime } from "./opsShared";
+import { StateMessage } from "./opsShared";
+import { fmtDateTime, fmtChangeValue } from "./opsUtils";
 
 // Side drawer listing the change log for a project or survey.
-// `loader` returns the raw API response; both array and {items} shapes are accepted.
+// `loader` returns the raw API response. Entries are { ts, userId, action, field, old, new, ... }.
 export default function ChangeLogDrawer({ title, loader, onClose }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,13 +57,11 @@ export default function ChangeLogDrawer({ title, loader, onClose }) {
           {!loading && !error && entries.length > 0 && (
             <ol className="ops-changelog">
               {entries.map((entry, i) => {
-                const when = entry.at || entry.timestamp || entry.createdAt;
-                const who = entry.user || entry.by || entry.actor || "System";
-                const summary =
-                  entry.summary ||
-                  entry.description ||
-                  entry.action ||
-                  (entry.field ? `${entry.field}: ${entry.from ?? "—"} → ${entry.to ?? "—"}` : "Change recorded");
+                const when = entry.ts;
+                const who = entry.userId || "System";
+                const summary = entry.field
+                  ? `${entry.action || "Change"}: ${entry.field} ${fmtChangeValue(entry.old)} → ${fmtChangeValue(entry.new)}`
+                  : entry.action || "Change recorded";
                 return (
                   <li key={entry.id || i} className="ops-changelog__item">
                     <time dateTime={when || undefined}>{fmtDateTime(when)}</time>

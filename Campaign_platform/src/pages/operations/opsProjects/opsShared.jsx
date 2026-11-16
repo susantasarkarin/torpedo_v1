@@ -1,40 +1,12 @@
 // Shared presentation pieces for the Operations > Projects (Research Desk) pages.
 // Kept in one file so the list, surveys, sources and modal screens render
-// metrics, statuses, menus and dialogs the same way.
+// metrics, statuses, menus and dialogs the same way. Constants and formatters
+// live in opsUtils.js (this file exports components only).
 
 import { useEffect, useId, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { NOT_CONFIRMED_TIP, STATUS_LABELS } from "./opsUtils";
 import "./opsProjects.css";
-
-export const NOT_CONFIRMED_TIP = "definition not yet confirmed";
-
-// Only these roles see buy price / expense. Read from the role the login stored.
-export const canSeePricing = () => {
-  try {
-    const role = (localStorage.getItem("role") || "").toLowerCase();
-    return role === "admin" || role === "finance";
-  } catch {
-    return false;
-  }
-};
-
-// ---------- Formatters (null means "not yet confirmed", never 0) ----------
-
-export const fmtInt = (v) => (v === null || v === undefined ? null : Number(v).toLocaleString());
-export const fmtPct = (v) => (v === null || v === undefined ? null : `${Number(v).toFixed(1)}%`);
-export const fmtLoi = (v) => (v === null || v === undefined ? null : `${Number(v).toFixed(1)} min`);
-export const fmtMoney = (v, currency) => {
-  if (v === null || v === undefined) return null;
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD" }).format(Number(v));
-  } catch {
-    return `${Number(v).toFixed(2)} ${currency || ""}`.trim();
-  }
-};
-export const fmtDateTime = (v) => {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString();
-};
 
 // Renders a metric. A null value shows an em dash with the agreed tooltip.
 export function Metric({ value, format = (v) => v, className = "" }) {
@@ -48,17 +20,6 @@ export function Metric({ value, format = (v) => v, className = "" }) {
   }
   return <span className={className}>{text}</span>;
 }
-
-export const STATUS_LABELS = {
-  live: "Live",
-  paused: "Paused",
-  completed: "Completed",
-  draft: "Draft",
-  cancelled: "Cancelled",
-  auto_paused: "Auto-paused",
-  scheduled: "Scheduled",
-  all: "All",
-};
 
 export function StatusBadge({ status }) {
   const label = STATUS_LABELS[status] || status || "—";
@@ -330,8 +291,8 @@ export function TimezoneSelect({ id, value, onChange, error }) {
   );
 }
 
-// Breadcrumb trail. Items with `to` are links rendered through `Link`.
-export function Breadcrumbs({ items, LinkComponent }) {
+// Breadcrumb trail. Items with `to` (and not the last item) are router links.
+export function Breadcrumbs({ items }) {
   return (
     <nav aria-label="Breadcrumb" className="ops-crumbs">
       <ol>
@@ -339,7 +300,7 @@ export function Breadcrumbs({ items, LinkComponent }) {
           const last = i === items.length - 1;
           return (
             <li key={`${item.label}-${i}`} aria-current={last ? "page" : undefined}>
-              {item.to && !last ? <LinkComponent to={item.to}>{item.label}</LinkComponent> : item.label}
+              {item.to && !last ? <Link to={item.to}>{item.label}</Link> : item.label}
             </li>
           );
         })}
