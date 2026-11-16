@@ -679,7 +679,8 @@ def backfill_projects(request: Request, user: str = Depends(verify_session)):
     _ensure_indexes()
     linked = {ln["surveyId"] for ln in _col(COL_LINKS).find({})}
     legacy = [s for s in _col(COL_PROJECTS).find({"is_deleted": {"$ne": True}})
-              if str(s["_id"]) not in linked and s.get("surveyNo")]
+              if str(s["_id"]) not in linked and s.get("surveyNo")
+              and str(s.get("projectStatus") or "").lower() != "deleted"]
     created = linked_count = 0
     conflicts: List[str] = []
     for s in legacy:
