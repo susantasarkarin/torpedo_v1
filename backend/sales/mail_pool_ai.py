@@ -3,7 +3,7 @@ MAIL POOL AI PROCESSING
 =======================
 AI layer over the Gmail mail pool (torpedo_gmail.email_metadata). For each
 email (or sender), ONE combined model call — via AWS Bedrock through the
-governed bedrock_client (Converse API) — produces:
+governed platform_core.ladder (Haiku, then Sonnet) — produces:
 
   - summary + key points + sentiment
   - category / priority / action-required classification
@@ -13,7 +13,7 @@ governed bedrock_client (Converse API) — produces:
   - follow-up flag -> AI-drafted reply stored in mail_followup_drafts
 
 Model routing (roles, never model IDs — the concrete models resolve inside
-leads/bedrock_client.py and are swappable by env):
+platform_core/ladder.py and are swappable by config):
   - role="cheap": the per-email / per-sender analysis call (summary, sentiment,
     category, contact + RFQ detection). High volume, cheap, good enough for
     triage.
@@ -198,7 +198,7 @@ _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company 
 def _local_ai():
     """
     The AI transport for this module: sales/mail_pool_llm.py, a thin
-    bedrock_client-shaped shim over platform_core.ladder (Haiku, then Sonnet).
+    shim over platform_core.ladder (Haiku, then Sonnet).
     The local Qwen model that previously sat behind this shape was retired on
     2026-11-15.
     """

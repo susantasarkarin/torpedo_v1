@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 from dotenv import load_dotenv
 
-from db import legacy, finance
+from db import legacy, finance, panel
 
 
 load_dotenv()
@@ -947,11 +947,11 @@ def get_sales_report(report_id: str):
     Get a generated sales report by ID.
     """
     try:
-        from db_pools import get_api_collection
         from bson import ObjectId
-        
+
         # Check dashboards collection
-        dashboards_coll = get_api_collection('sales_dashboards')
+        # stored in campaign_platform (historical); move with the Mongo restructure plan
+        dashboards_coll = panel()['sales_dashboards']
         dashboard = dashboards_coll.find_one({'_id': ObjectId(report_id)})
         
         if dashboard:
@@ -959,7 +959,8 @@ def get_sales_report(report_id: str):
             return dashboard
         
         # Check reports collection
-        reports_coll = get_api_collection('sales_reports')
+        # stored in campaign_platform (historical); move with the Mongo restructure plan
+        reports_coll = panel()['sales_reports']
         report = reports_coll.find_one({'_id': ObjectId(report_id)})
         
         if report:

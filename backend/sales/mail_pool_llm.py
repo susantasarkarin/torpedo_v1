@@ -1,5 +1,5 @@
 """
-Mail-pool LLM shim: the bedrock_client-shaped call interface
+Mail-pool LLM shim: the call interface
 (converse_json_meta / converse_json_object) that sales/mail_pool_ai.py was
 written against, backed by platform_core.ladder (Haiku, then Sonnet; schema
 validated, budget and usage logged by the ladder).

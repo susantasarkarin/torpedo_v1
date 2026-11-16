@@ -9,7 +9,7 @@ import os
 import re
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PATTERN = re.compile(r"chat/completions|bedrock_client|claude_gateway|ai_gateway|anthropic\.Anthropic|import anthropic|boto3\.client\(\"bedrock|import openai|from openai")
+PATTERN = re.compile(r"chat/completions|claude_gateway|ai_gateway|anthropic\.Anthropic|import anthropic|boto3\.client\(\"bedrock|import openai|from openai")
 GATEWAY = "platform_core/ladder.py"
 LEGACY_DIRECT_CALLERS = {  # remove entries as callers move to platform_core.ladder
     "agents/base_agent.py",
@@ -18,29 +18,20 @@ LEGACY_DIRECT_CALLERS = {  # remove entries as callers move to platform_core.lad
     "ai_governance/claude_gateway.py",
     "ai_governance/governance_checks.py",
     "app/services/ai_classification_service.py",
-    "app/services/outreach/reply_handler.py",
     "app/tasks/outreach_tasks.py",
     "email_sync/historical_classifier.py",
     "email_sync/llm_email_classifier.py",
     "leads/ai_classifier.py",
     "leads/ai_email_agents.py",
-    "leads/backfill_enrich.py",
-    "leads/bedrock_client.py",
-    "leads/bucket_classifier.py",
     "leads/email_classifier.py",
     "leads/ingestion.py",
     "leads/ingestion_vm.py",
-    "leads/outreach_config.py",
-    "leads/outreach_mailer.py",
-    "leads/query_generator.py",
     "leads/web_search_enrichment.py",
     "outreach_engine/ai_context_generator.py",
     "routers/cold_outreach_router.py",
     "routers/crm.py",
     "routers/prompt_management.py",
     "routers/settings.py",
-    "sales/mail_pool_ai.py",
-    "sales/mail_pool_llm.py",
     "sales/outreach_pipeline.py",
     "sales/tasks.py",
     "tasks/cint_survey_scoring.py",

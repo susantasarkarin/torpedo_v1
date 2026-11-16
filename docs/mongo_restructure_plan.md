@@ -1,5 +1,20 @@
 # MongoDB Restructure Plan
 
+> **Corrections from the production inventory of 2026-11-16 (read before acting on any phase).**
+> This plan was written from static code analysis. Real production numbers are in `docs/mongo_prod_inventory_2026-11-16.md` and contradict it in these places:
+>
+> - Marketing collections are NOT in `crm_db` on prod. They live in `email_automation` (`review_queue_items` 1,331 docs and written daily, `web_events`, `web_audiences`, `seo_issues`, `seo_audits`). Marketing steps must be rewritten with `email_automation` as the source.
+> - `torpedo_gmail.mail_pool` does not exist. The mail store is `torpedo_gmail.email_metadata` only: 392,803 docs, 3.2 GB, written continuously (the plan assumed about 142k).
+> - `survey_allocation` is NOT retirable as planned: `surveys` 2.75M docs and `survey_metrics` 2.79M docs are written daily. A cross-database move is a full copy, not a rename.
+> - These databases do not exist on prod, so only code references need removing: `internal_db`, `gmail_archive`, `prompt_management`, `cpx_db`, `cint_db`, `leads`, `ai_enrichment`. `linkedin_db` exists but is empty.
+> - Outreach v1 is already empty on prod (`campaigns`, `campaign_sends`, `campaign_recipients`, `sends` all 0 docs), so retiring it is a code-only change.
+> - `email_automation`: 77 of 185 collections are empty, 29 stale, 61 live.
+> - `operations_db` (36 docs) and `marketing_db` (3 docs) are tiny but live.
+> - Still open, owner decision: live sales paths (`sales/outreach_pipeline.py`, `sales/validation.py`, `sales/tasks.py`, `routers/sales_outreach.py`, `app/services/crm_service.py`) use `campaign_platform.leads` (193 orphan docs, last write 2026-04-13) through `db_pools`. Pick `crm_db.leads` (13,238) or `email_automation.leads` (339) before re-pointing them.
+>
+> No data has been moved. Done on 2026-11-16: 32 missing indexes built on prod (list in `/root/backups/index_built_20261116.json` on the VM); finance, traffic and sales-dashboard tasks re-pointed in code to the databases their collections live in.
+
+
 Date: 2026-11-15. Scope: single self-hosted Mongo (no replica set, no multi-document transactions), 8GB VM shared with the v2 repo. Source of truth for counts: static inventory (counts +/-10%, existence of db.collection pairs reliable).
 
 Phase 0 (code only: single factory `db.py`, typo dbs `cpx_db`/`cint_db` fixed, per-call clients removed, one registry `indexes.py` covering crm_db and torpedo) is DONE and is the precondition for everything below. This plan starts at Phase 1.

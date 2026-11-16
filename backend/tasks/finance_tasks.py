@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 from celery_app import celery_app
-from db_pools import get_background_db, get_background_collection
+from db import finance
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def export_customers_csv(self) -> Dict[str, Any]:
     task_id = self.request.id
     
     try:
-        customers_collection = get_background_collection('customers')
+        customers_collection = finance()['customers']
         
         # Update progress
         self.update_state(state='PROGRESS', meta={'stage': 'fetching_customers'})
@@ -62,7 +62,7 @@ def export_customers_csv(self) -> Dict[str, Any]:
         csv_content = output.getvalue()
         
         # Store in GridFS or temp collection
-        exports_collection = get_background_collection('export_files')
+        exports_collection = finance()['export_files']
         result = exports_collection.insert_one({
             'type': 'customers_csv',
             'content': csv_content,
@@ -100,8 +100,8 @@ def export_invoices_csv(
     task_id = self.request.id
     
     try:
-        invoices_collection = get_background_collection('invoices')
-        customers_collection = get_background_collection('customers')
+        invoices_collection = finance()['invoices']
+        customers_collection = finance()['customers']
         
         # Build query
         query = {}
@@ -159,7 +159,7 @@ def export_invoices_csv(
         
         csv_content = output.getvalue()
         
-        exports_collection = get_background_collection('export_files')
+        exports_collection = finance()['export_files']
         result = exports_collection.insert_one({
             'type': 'invoices_csv',
             'content': csv_content,
@@ -196,8 +196,8 @@ def export_bills_csv(
     task_id = self.request.id
     
     try:
-        bills_collection = get_background_collection('bills')
-        vendors_collection = get_background_collection('vendors')
+        bills_collection = finance()['bills']
+        vendors_collection = finance()['vendors']
         
         query = {}
         if start_date:
@@ -251,7 +251,7 @@ def export_bills_csv(
         
         csv_content = output.getvalue()
         
-        exports_collection = get_background_collection('export_files')
+        exports_collection = finance()['export_files']
         result = exports_collection.insert_one({
             'type': 'bills_csv',
             'content': csv_content,
@@ -288,7 +288,7 @@ def import_customers_csv(self, csv_content: str) -> Dict[str, Any]:
     task_id = self.request.id
     
     try:
-        customers_collection = get_background_collection('customers')
+        customers_collection = finance()['customers']
         
         self.update_state(state='PROGRESS', meta={'stage': 'parsing_csv'})
         
@@ -377,8 +377,8 @@ def import_invoices_csv(self, csv_content: str) -> Dict[str, Any]:
     task_id = self.request.id
     
     try:
-        invoices_collection = get_background_collection('invoices')
-        customers_collection = get_background_collection('customers')
+        invoices_collection = finance()['invoices']
+        customers_collection = finance()['customers']
         
         self.update_state(state='PROGRESS', meta={'stage': 'parsing_csv'})
         
@@ -480,11 +480,11 @@ def generate_finance_summary(
     task_id = self.request.id
     
     try:
-        invoices_coll = get_background_collection('invoices')
-        bills_coll = get_background_collection('bills')
-        expenses_coll = get_background_collection('expenses')
-        payments_received_coll = get_background_collection('payments_received')
-        payments_made_coll = get_background_collection('payments_made')
+        invoices_coll = finance()['invoices']
+        bills_coll = finance()['bills']
+        expenses_coll = finance()['expenses']
+        payments_received_coll = finance()['payments_received']
+        payments_made_coll = finance()['payments_made']
         
         # Build date filter
         date_filter = {}
@@ -550,7 +550,7 @@ def generate_finance_summary(
         top_vendors = sorted(vendor_spend.items(), key=lambda x: x[1], reverse=True)[:10]
         
         # Store report
-        reports_collection = get_background_collection('finance_reports')
+        reports_collection = finance()['finance_reports']
         report = {
             'type': 'finance_summary',
             'period': {'start': start_date, 'end': end_date},
@@ -616,8 +616,8 @@ def bulk_delete_customers(self, customer_ids: List[str]) -> Dict[str, Any]:
     try:
         from bson import ObjectId
         
-        customers_coll = get_background_collection('customers')
-        invoices_coll = get_background_collection('invoices')
+        customers_coll = finance()['customers']
+        invoices_coll = finance()['invoices']
         
         deleted = 0
         skipped = 0

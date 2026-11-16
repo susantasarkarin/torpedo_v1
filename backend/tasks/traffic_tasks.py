@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List
 import random
 
 from celery_app import celery_app
-from db_pools import get_background_db, get_background_collection
+from db import traffic as traffic_db
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def batch_assign_surveys(
     try:
         from bson import ObjectId
         
-        db = get_background_db()
+        db = traffic_db()
         traffic_coll = db['url_parameters']
         surveys_coll = db['surveys']
         
@@ -130,7 +130,7 @@ def bulk_delete_traffic(self, traffic_ids: List[str]) -> Dict[str, Any]:
     try:
         from bson import ObjectId
         
-        traffic_coll = get_background_collection('url_parameters')
+        traffic_coll = traffic_db()['url_parameters']
         
         total = len(traffic_ids)
         deleted = 0
@@ -176,7 +176,7 @@ def generate_traffic_stats(
     task_id = self.request.id
     
     try:
-        db = get_background_db()
+        db = traffic_db()
         traffic_coll = db['url_parameters']
         surveys_coll = db['surveys']
         
@@ -248,7 +248,7 @@ def generate_traffic_stats(
         daily_trend = list(traffic_coll.aggregate(daily_pipeline))
         
         # Store report
-        reports_coll = get_background_collection('traffic_reports')
+        reports_coll = traffic_db()['traffic_reports']
         report = {
             'type': 'traffic_stats',
             'date_range': date_range,
@@ -305,7 +305,7 @@ def add_campaign_recipients_batch(
     try:
         from bson import ObjectId
         
-        campaigns_coll = get_background_collection('campaigns')
+        campaigns_coll = traffic_db()['campaigns']
         
         campaign = campaigns_coll.find_one({'_id': ObjectId(campaign_id)})
         if not campaign:
@@ -393,7 +393,7 @@ def import_campaign_recipients_csv(
         import io
         from bson import ObjectId
         
-        campaigns_coll = get_background_collection('campaigns')
+        campaigns_coll = traffic_db()['campaigns']
         
         campaign = campaigns_coll.find_one({'_id': ObjectId(campaign_id)})
         if not campaign:
@@ -452,7 +452,7 @@ def generate_campaign_analytics(
     try:
         from bson import ObjectId
         
-        campaigns_coll = get_background_collection('campaigns')
+        campaigns_coll = traffic_db()['campaigns']
         
         campaign = campaigns_coll.find_one({'_id': ObjectId(campaign_id)})
         if not campaign:
@@ -489,7 +489,7 @@ def generate_campaign_analytics(
         bounce_rate = round((bounced / sent * 100), 2) if sent > 0 else 0
         
         # Store analytics
-        analytics_coll = get_background_collection('campaign_analytics')
+        analytics_coll = traffic_db()['campaign_analytics']
         analytics = {
             'campaign_id': campaign_id,
             'campaign_name': campaign.get('name'),
@@ -557,7 +557,7 @@ def bulk_inbox_operation(
     try:
         from bson import ObjectId
         
-        inbox_coll = get_background_collection('unified_inbox')
+        inbox_coll = traffic_db()['unified_inbox']
         
         total = len(email_ids)
         processed = 0

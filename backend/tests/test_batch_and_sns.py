@@ -1,9 +1,8 @@
 """
-BATCH INFERENCE + SES SNS TESTS
-===============================
+SES SNS TESTS
+=============
 
-Batch: JSONL record construction, config validation, native-response text
-extraction. SNS: bounce/complaint routing into the suppression list, the
+SNS: bounce/complaint routing into the suppression list, the
 transient-bounce rule, envelope unwrapping.
 
 No AWS calls anywhere.
@@ -16,76 +15,14 @@ import os
 import sys
 from unittest.mock import patch
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from leads import ses_notifications as sns
-from leads.bedrock_client import (
-    BedrockError,
-    _extract_native_text,
-    batch_config,
-    build_batch_records,
-)
 from leads.ses_notifications import (
     process_ses_notification,
     process_unsubscribe,
     unwrap_sns_envelope,
 )
-
-
-# ============================================
-# BATCH RECORDS
-# ============================================
-
-def test_batch_records_are_valid_jsonl(monkeypatch):
-    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "test.cheap-v1:0")
-    lines = build_batch_records(
-        [("lead1", "sys", "extract this"), ("lead2", "", "and this")],
-        role="cheap", max_tokens=512, temperature=0.0)
-
-    assert len(lines) == 2
-    first = json.loads(lines[0])
-    assert first["recordId"] == "lead1"
-    assert first["modelInput"]["messages"] == [
-        {"role": "system", "content": "sys"},
-        {"role": "user", "content": "extract this"},
-    ]
-    assert first["modelInput"]["max_tokens"] == 512
-
-    second = json.loads(lines[1])
-    assert second["modelInput"]["messages"][0]["role"] == "user"  # no system
-
-
-def test_record_id_is_capped_at_64_chars():
-    lines = build_batch_records([("x" * 100, "s", "u")], role="cheap")
-    assert len(json.loads(lines[0])["recordId"]) == 64
-
-
-def test_batch_config_requires_bucket_and_role(monkeypatch):
-    monkeypatch.delenv("BEDROCK_BATCH_S3_BUCKET", raising=False)
-    monkeypatch.delenv("BEDROCK_BATCH_ROLE_ARN", raising=False)
-    with pytest.raises(BedrockError) as excinfo:
-        batch_config()
-    assert "BEDROCK_BATCH_S3_BUCKET" in str(excinfo.value)
-
-
-def test_batch_config_reads_env(monkeypatch):
-    monkeypatch.setenv("BEDROCK_BATCH_S3_BUCKET", "my-bucket")
-    monkeypatch.setenv("BEDROCK_BATCH_ROLE_ARN", "arn:aws:iam::1:role/x")
-    cfg = batch_config()
-    assert cfg["bucket"] == "my-bucket"
-    assert cfg["prefix"] == "batch-inference"
-
-
-@pytest.mark.parametrize("output,expected", [
-    ({"choices": [{"message": {"content": '{"a":1}'}}]}, '{"a":1}'),
-    ({"output": {"message": {"content": [{"text": "hello"}]}}}, "hello"),
-    ({"generation": "gen text"}, "gen text"),
-    ({}, ""),
-])
-def test_native_text_extraction_shapes(output, expected):
-    assert _extract_native_text(output) == expected
 
 
 # ============================================

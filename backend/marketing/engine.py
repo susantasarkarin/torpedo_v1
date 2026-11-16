@@ -276,7 +276,6 @@ def decide(c: Dict[str, Any], *, gd: Optional[Callable] = None, qwen: Optional[C
 
 def _qwen_call(t: str, br: Dict[str, Any], code_check: Callable) -> Dict[str, Any]:
     from platform_core import ladder        # Haiku -> Sonnet since 2026-10-26 (owner: the local model is off)
-    mcfg.register_qwen_tasks()
     lane = mcfg.LANES.get(t, "P3")
     return ladder.run(task=QWEN_TASK[lane], system=SYSTEM, body=json.dumps(br, default=str), schema=DECISION_SCHEMA,
                             code_check=code_check, ref={"collection": "email_automation.decisions", "id": _hash(br)},

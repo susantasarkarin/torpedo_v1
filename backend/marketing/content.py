@@ -128,8 +128,6 @@ def draft(item: Dict[str, Any], gd: Callable, *, qwen: Optional[Callable] = None
               "given; never invent numbers, client names or panel sizes. Reply JSON only: {\"title\", \"body\", \"hashtags\": [..]}.")
     if qwen is None:
         from platform_core import ladder    # Haiku -> Sonnet since 2026-10-26 (owner: the local model is off)
-        from marketing import config as mcfg
-        mcfg.register_qwen_tasks()
         qwen = lambda: ladder.run(task="marketing_decision_p3", system=system, body=json.dumps(brief, default=str),
                                         schema={"type": "object", "required": ["body"]}, bu=item["bu"],
                                         ref={"collection": "email_automation.content_items", "id": str(item.get("_id"))})

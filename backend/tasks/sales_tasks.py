@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 from celery_app import celery_app
-from db_pools import get_background_db, get_background_collection
+from db import legacy, panel
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def generate_sales_dashboard(
     task_id = self.request.id
     
     try:
-        db = get_background_db()
+        db = legacy()
         leads_raw = db['leads_raw']
         leads_enriched = db['leads_enriched']
         email_leads = db['email_leads']
@@ -125,7 +125,8 @@ def generate_sales_dashboard(
         }
         
         # Store dashboard data
-        dashboards_coll = get_background_collection('sales_dashboards')
+        # stored in campaign_platform (historical); move with the Mongo restructure plan
+        dashboards_coll = panel()['sales_dashboards']
         dashboard_doc = {
             'date_range': date_range,
             'generated_at': datetime.utcnow(),
@@ -183,8 +184,8 @@ def enrich_contacts_batch(
     try:
         from bson import ObjectId
         
-        accounts_coll = get_background_collection('sales_accounts')
-        leads_coll = get_background_collection('leads_enriched')
+        accounts_coll = legacy()['sales_accounts']
+        leads_coll = legacy()['leads_enriched']
         
         total = len(contact_ids)
         enriched = 0
@@ -268,8 +269,8 @@ def sync_account_contacts(
     try:
         from bson import ObjectId
         
-        accounts_coll = get_background_collection('sales_accounts')
-        leads_coll = get_background_collection('leads_enriched')
+        accounts_coll = legacy()['sales_accounts']
+        leads_coll = legacy()['leads_enriched']
         
         account = accounts_coll.find_one({'_id': ObjectId(account_id)})
         
@@ -348,7 +349,7 @@ def generate_pipeline_report(
     task_id = self.request.id
     
     try:
-        db = get_background_db()
+        db = legacy()
         rfqs = db['rfqs']
         accounts = db['sales_accounts']
         
@@ -404,7 +405,8 @@ def generate_pipeline_report(
             avg_days_to_close = 0
         
         # Store report
-        reports_coll = get_background_collection('sales_reports')
+        # stored in campaign_platform (historical); move with the Mongo restructure plan
+        reports_coll = panel()['sales_reports']
         report = {
             'type': 'pipeline_report',
             'date_range': date_range,

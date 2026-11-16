@@ -5,11 +5,12 @@ BUCKET CLASSIFIER TESTS
 Covers the cheap exclusion filter, the strict JSON contract (including every
 way a model response can violate it), and the confidence gate.
 
-No network calls: the Bedrock transport seam is patched.
+No network calls: platform_core.ladder.escalate_json (the model seam) is stubbed.
 
 Run with: pytest backend/tests/test_bucket_classifier.py -v
 """
 
+import json
 import os
 import sys
 from unittest.mock import patch
@@ -18,7 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from leads import bedrock_client
+from platform_core import ladder
 from leads.bucket_classifier import (
     build_prompt,
     check_exclusion,
@@ -35,34 +36,39 @@ from leads.outreach_config import (
 )
 
 
-def _converse_backed_escalate_json(*, task, system, user, schema, check,
-                                   tiers=None, **_kwargs):
-    """Test seam: the classifier now calls platform_core.ladder.escalate_json.
-    Route each rung to bedrock_client.converse (patched per test) so the
-    scripted cheap/smart answers still drive the ladder's check."""
-    role = "smart" if tiers == ["sonnet"] else "cheap"
-    try:
-        text = bedrock_client.converse(role, system, user)
-        data = bedrock_client.parse_json_strict(text)
-    except Exception as e:  # ladder records the failure as an attempt
-        return None, None, [{"tier": tiers[0] if tiers else None,
-                             "status": "error", "problems": [str(e)]}]
-    problems = check(data)
-    if problems:
-        return None, None, [{"tier": tiers[0] if tiers else None,
-                             "status": "rejected", "problems": problems}]
-    return data, (tiers[0] if tiers else None), [{"status": "ok"}]
+_NO_ANSWER = (None, None, [{"tier": None, "status": "failed", "problems": ["down"]}])
+
+
+def _ladder(first, smart=None):
+    """Stub the model seam, platform_core.ladder.escalate_json.
+
+    `first` answers the first pass (tiers=["haiku"]); `smart` answers the
+    escalation pass (tiers=["sonnet"]) and defaults to `first`. An answer is a
+    dict or JSON text (accepted), None (ladder gave no valid answer) or an
+    Exception (raised). Returns the patch so tests can count calls."""
+    smart = first if smart is None else smart
+
+    def fake(*, task, system, user, schema, check, tiers=None, **_kwargs):
+        answer = smart if tiers == ["sonnet"] else first
+        if isinstance(answer, Exception):
+            raise answer
+        if answer is None:
+            return _NO_ANSWER
+        data = json.loads(answer) if isinstance(answer, str) else answer
+        return data, tiers[0], [{"tier": tiers[0], "status": "ok", "problems": []}]
+
+    return patch.object(ladder, "escalate_json", side_effect=fake)
 
 
 @pytest.fixture(autouse=True)
 def _model_path_only(monkeypatch):
     """These tests cover the model path; the title rules that decide without
-    a model call ("bim", "survey") are tested in test_bucket_classifier_rules.py."""
+    a model call ("bim", "survey") are tested in test_bucket_classifier_rules.py.
+    Default seam answer is 'no answer', so no test can reach a real model."""
     from leads import bucket_classifier
-    from platform_core import ladder
     monkeypatch.setattr(bucket_classifier, "RULE_DECIDES", {})
     monkeypatch.setattr(bucket_classifier, "MODEL_CLASSIFICATION_ENABLED", True)
-    monkeypatch.setattr(ladder, "escalate_json", _converse_backed_escalate_json)
+    monkeypatch.setattr(ladder, "escalate_json", lambda **_kwargs: _NO_ANSWER)
 
 
 # A title that names no role we sell to: a model REJECT on it is not second-guessed
@@ -202,8 +208,8 @@ def test_generic_title_allowed_with_seniority_support():
 
 
 def test_exclusion_runs_before_any_model_call():
-    """A rejected lead must never cost a Bedrock call."""
-    with patch.object(bedrock_client, "converse") as mock_invoke:
+    """A rejected lead must never cost a model call."""
+    with _ladder(None) as mock_invoke:
         result = classify_lead({"_id": "x", "title": "Marketing Intern"})
     mock_invoke.assert_not_called()
     assert result["bucket"] == REJECT_BUCKET
@@ -265,35 +271,19 @@ def test_missing_reason_gets_placeholder():
 def test_high_confidence_assigns_bucket_without_escalating():
     """A confident cheap-model answer must not pay for the smart model."""
     payload = '{"bucket": "BIM", "confidence": 0.95, "reason": "clear match"}'
-    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
+    with _ladder(payload) as mock:
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == "BIM"
     assert result["method"] == "cheap"
     assert mock.call_count == 1
-    assert mock.call_args.kwargs.get("role") == "cheap" or \
-        mock.call_args.args[0] == "cheap"
+    assert mock.call_args.kwargs["tiers"] == ["haiku"]
 
 
-
-@pytest.fixture
-def distinct_role_models(monkeypatch):
-    """Point the two classifier roles at different models.
-
-    Escalation only runs when the smart role is a genuinely different model —
-    under the Qwen-only default both roles are the same and the second pass is
-    skipped (it would re-ask one model the same prompt at temperature 0). The
-    tests below are about the escalation path itself, so they opt in here.
-    """
-    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
-    monkeypatch.setenv("BEDROCK_MODEL_SMART", "qwen.qwen3-235b-v1:0")
-    return None
-
-
-def test_low_confidence_escalates_to_smart_model(distinct_role_models):
+def test_low_confidence_escalates_to_smart_model():
     """Below threshold on cheap -> one retry on smart, which resolves it."""
     cheap = '{"bucket": "BIM", "confidence": 0.55, "reason": "thin"}'
     smart = '{"bucket": "BIM", "confidence": 0.88, "reason": "confirmed"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]) as mock:
+    with _ladder(cheap, smart) as mock:
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert mock.call_count == 2
     assert result["bucket"] == "BIM"
@@ -301,18 +291,18 @@ def test_low_confidence_escalates_to_smart_model(distinct_role_models):
     assert result["confidence"] == 0.88
 
 
-def test_escalation_can_change_the_bucket(distinct_role_models):
+def test_escalation_can_change_the_bucket():
     cheap = '{"bucket": "BIM", "confidence": 0.4, "reason": "unsure"}'
     smart = '{"bucket": "SFW", "confidence": 0.91, "reason": "research buyer"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+    with _ladder(cheap, smart):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == "SFW"
 
 
-def test_escalation_can_reject(distinct_role_models):
+def test_escalation_can_reject():
     cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
     smart = '{"bucket": "REJECT", "confidence": 0.95, "reason": "vendor sales"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+    with _ladder(cheap, smart):
         result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
 
@@ -320,25 +310,24 @@ def test_escalation_can_reject(distinct_role_models):
 def test_reject_on_cheap_pass_does_not_escalate():
     """A confident rejection is final — no need to spend the smart model."""
     payload = '{"bucket": "REJECT", "confidence": 0.9, "reason": "student"}'
-    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
+    with _ladder(payload) as mock:
         result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
     assert mock.call_count == 1
 
 
-def test_escalation_failure_routes_to_review(distinct_role_models):
+def test_escalation_failure_routes_to_review():
     cheap = '{"bucket": "BIM", "confidence": 0.5, "reason": "thin"}'
-    with patch.object(bedrock_client, "converse",
-                      side_effect=[cheap, RuntimeError("throttled out")]):
+    with _ladder(cheap, RuntimeError("throttled out")):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["method"] == "escalation_error"
 
 
-def test_low_confidence_on_both_passes_routes_to_review(distinct_role_models):
+def test_low_confidence_on_both_passes_routes_to_review():
     """Still below threshold after escalation -> review folder, not a bucket."""
     payload = '{"bucket": "BIM", "confidence": 0.55, "reason": "thin"}'
-    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
+    with _ladder(payload) as mock:
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert mock.call_count == 2
     assert result["bucket"] == REVIEW_BUCKET
@@ -348,14 +337,14 @@ def test_low_confidence_on_both_passes_routes_to_review(distinct_role_models):
 
 def test_threshold_boundary_is_inclusive():
     payload = '{"bucket": "BIM", "confidence": 0.7, "reason": "exact"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == "BIM"
 
 
 def test_threshold_is_configurable():
     payload = '{"bucket": "BIM", "confidence": 0.55, "reason": "thin"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(QUALIFIED, threshold=0.5)
     assert result["bucket"] == "BIM"
 
@@ -368,7 +357,7 @@ def test_low_confidence_reject_goes_to_review_not_final():
     lead would silently discard all of them.
     """
     payload = '{"bucket": "REJECT", "confidence": 0.3, "reason": "unclear"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["proposed_bucket"] == REJECT_BUCKET   # kept for the reviewer
@@ -379,7 +368,7 @@ def test_reject_with_zero_confidence_never_discards_a_lead():
     payload = ('{"bucket": "REJECT", "confidence": 0.0, "reason": '
                '"Title and industry do not match any ideal buyer profile."}')
     bim_manager = dict(QUALIFIED, title="BIM Manager", company="Ramboll")
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(bim_manager, threshold=0.7)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["bucket"] != REJECT_BUCKET
@@ -387,24 +376,24 @@ def test_reject_with_zero_confidence_never_discards_a_lead():
 
 def test_reject_exactly_at_threshold_is_accepted():
     payload = '{"bucket": "REJECT", "confidence": 0.7, "reason": "recruiter"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
 
 
-def test_low_confidence_cheap_reject_escalates_when_a_stronger_model_exists(distinct_role_models):
+def test_low_confidence_cheap_reject_escalates_when_a_stronger_model_exists():
     cheap = '{"bucket": "REJECT", "confidence": 0.0, "reason": "no fit found"}'
     smart = '{"bucket": "SFW", "confidence": 0.9, "reason": "research buyer"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]) as mock:
+    with _ladder(cheap, smart) as mock:
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert mock.call_count == 2
     assert result["bucket"] == "SFW"
 
 
-def test_low_confidence_smart_reject_also_goes_to_review(distinct_role_models):
+def test_low_confidence_smart_reject_also_goes_to_review():
     cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
     smart = '{"bucket": "REJECT", "confidence": 0.1, "reason": "no fit found"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+    with _ladder(cheap, smart):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["proposed_bucket"] == REJECT_BUCKET
@@ -413,7 +402,7 @@ def test_low_confidence_smart_reject_also_goes_to_review(distinct_role_models):
 def test_deterministic_exclusions_are_unaffected_by_the_gate():
     """A student is rejected by rule at confidence 1.0, with no model call."""
     student = dict(QUALIFIED, title="Student")
-    with patch.object(bedrock_client, "converse") as mock:
+    with _ladder(None) as mock:
         result = classify_lead(student, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
     assert result["method"] == "exclusion_filter"
@@ -435,16 +424,18 @@ def test_prompt_gives_reject_a_confidence_scale_and_no_numeric_example_to_copy()
 
 
 def test_model_failure_routes_to_review():
-    with patch.object(bedrock_client, "converse", side_effect=RuntimeError("503")):
+    with _ladder(RuntimeError("503")):
         result = classify_lead(QUALIFIED)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["method"] == "error"
 
 
-def test_malformed_output_routes_to_review():
-    with patch.object(bedrock_client, "converse", return_value="I'm not sure"):
+def test_ladder_gave_no_valid_answer_routes_to_review():
+    with _ladder(None):
         result = classify_lead(QUALIFIED)
     assert result["bucket"] == REVIEW_BUCKET
+    assert result["method"] == "error"
+    assert "model call failed" in result["reason"]
 
 
 # ============================================
@@ -493,24 +484,6 @@ def test_every_bucket_has_a_definition():
 
 
 
-def test_escalation_always_runs_on_the_ladder(monkeypatch):
-    """The ladder escalates Haiku -> Sonnet regardless of the BEDROCK_MODEL_*
-    env vars, so a borderline lead always gets a second opinion from the
-    stronger tier."""
-    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
-    monkeypatch.setenv("BEDROCK_MODEL_SMART", "qwen.qwen3-32b-v1:0")
-
-    cheap = '{"bucket": "BIM", "confidence": 0.4, "reason": "thin"}'
-    smart = '{"bucket": "BIM", "confidence": 0.9, "reason": "clear"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]) as mock:
-        result = classify_lead(QUALIFIED, threshold=0.7)
-
-    assert mock.call_count == 2
-    assert result["bucket"] == "BIM"
-    assert result["method"] == "smart_escalation"
-
-
-
 # ---------------------------------------------------------------- fit-signal veto
 
 @pytest.mark.parametrize("title,bucket", [
@@ -529,7 +502,7 @@ def test_confident_model_reject_of_a_fit_title_goes_to_review(title, bucket):
     """
     payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no clear fit"}'
     lead = dict(NO_FIT_SIGNAL, title=title)
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(lead, threshold=0.7)
     assert result["bucket"] == REVIEW_BUCKET
     assert result["method"] == "reject_vetoed_fit_signal"
@@ -537,10 +510,10 @@ def test_confident_model_reject_of_a_fit_title_goes_to_review(title, bucket):
     assert "no clear fit" in result["reason"]      # the model's own reason is preserved
 
 
-def test_veto_also_covers_a_reject_from_the_escalation_model(distinct_role_models):
+def test_veto_also_covers_a_reject_from_the_escalation_model():
     cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
     smart = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
-    with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
+    with _ladder(cheap, smart):
         result = classify_lead(QUALIFIED, threshold=0.7)     # "Head of BIM"
     assert result["bucket"] == REVIEW_BUCKET
     assert result["proposed_bucket"] == REJECT_BUCKET
@@ -549,14 +522,14 @@ def test_veto_also_covers_a_reject_from_the_escalation_model(distinct_role_model
 def test_veto_never_accepts_a_lead_into_a_bucket():
     """The signal only stops a REJECT; it must never promote a lead by itself."""
     payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] not in ("SFW", "COGENTIX_RESEARCH", "BIM")
 
 
 def test_veto_does_not_touch_a_reject_on_a_title_with_no_signal():
     payload = '{"bucket": "REJECT", "confidence": 0.95, "reason": "no fit"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(NO_FIT_SIGNAL, threshold=0.7)
     assert result["bucket"] == REJECT_BUCKET
     assert result["method"] == "cheap"
@@ -564,6 +537,6 @@ def test_veto_does_not_touch_a_reject_on_a_title_with_no_signal():
 
 def test_veto_leaves_a_model_service_line_verdict_alone():
     payload = '{"bucket": "BIM", "confidence": 0.9, "reason": "BIM lead"}'
-    with patch.object(bedrock_client, "converse", return_value=payload):
+    with _ladder(payload):
         result = classify_lead(QUALIFIED, threshold=0.7)
     assert result["bucket"] == "BIM"

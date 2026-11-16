@@ -619,7 +619,7 @@ def persist(lead: Dict[str, Any], result: Dict[str, Any],
         "outreach_bucket_reason": result["reason"][:500],
         "outreach_bucket_method": result["method"],
         "outreach_bucket_at": datetime.utcnow(),
-        # Role, not model ID — the concrete model is bedrock_client's business.
+        # Role, not model ID — the concrete model is platform_core.ladder's business.
         "outreach_bucket_role": (CLASSIFIER_ROLE_ESCALATION
                                  if "escalation" in result["method"]
                                  else CLASSIFIER_ROLE_FIRST_PASS),

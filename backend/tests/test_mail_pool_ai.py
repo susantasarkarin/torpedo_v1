@@ -4,14 +4,14 @@ MAIL POOL AI TESTS
 
 Covers the Bedrock mail-desk migration and the two-stage rules->AI pipeline:
 
-  - prefilter routing: bank/promo/transactional never reach Bedrock
+  - prefilter routing: bank/promo/transactional never reach the AI
   - AI category -> UI segment mapping (incl. domain-authoritative rules)
-  - parse_json_strict against malformed model output
   - the ai_analysis idempotency marker (double-processing is a no-op)
   - the inbound-sender-never-cold-outreach rule
   - the backfill script's dry-run
 
-No network calls: the Bedrock transport seam (_call_converse) is patched.
+No network calls: the AI seam (sales.mail_pool_llm.converse_json_meta, which
+calls platform_core.ladder.escalate_json) is patched.
 
 Run with: pytest backend/tests/test_mail_pool_ai.py -v
 """
@@ -25,26 +25,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sales.mail_pool_ai as m          # noqa: E402
-import leads.bedrock_client as bc       # noqa: E402
 
 
 # ============================================================
-# parse_json_strict against malformed model output
-# ============================================================
-
-def test_parse_json_strict_good_and_bad():
-    assert bc.parse_json_strict('{"a": 1}') == {"a": 1}
-    # markdown fences stripped
-    assert bc.parse_json_strict('```json\n{"a": 1}\n```') == {"a": 1}
-    # prose wrapped around a value -> first balanced object
-    assert bc.parse_json_strict('Here you go: {"a": 1} thanks') == {"a": 1}
-    for bad in ("", "   ", "not json at all", "{unbalanced"):
-        with pytest.raises(bc.JSONParseError):
-            bc.parse_json_strict(bad)
-
-
-# ============================================================
-# Prefilter routing — noise never reaches Bedrock
+# Prefilter routing — noise never reaches the AI
 # ============================================================
 
 def _agent_returning(segment, conf, category=None):
@@ -72,7 +56,7 @@ def test_prefilter_routing(segment, conf, expect):
     assert decision == expect
 
 
-def test_prefilter_skip_never_calls_bedrock():
+def test_prefilter_skip_never_calls_the_model():
     """A prefiltered email must be marked skipped WITHOUT any analysis call."""
     with patch.object(m, "_rule_agent",
                       return_value=_agent_returning("promotion", 0.9, "Promotion")), \

@@ -5,7 +5,7 @@ generate_job_queries() -- Qwen-generated queries for a WebSearch job, ICP-aware
 Covers leads/router.py's generate_job_queries(), added 2026-09-27: a WebSearch
 job tagged with an ICP (icp_id, previously used only to tag imported leads)
 now asks leads/icp_query_ai.generate_icp_queries() -- the same Qwen-via-
-bedrock_client path leads/scheduler.py's LeadScheduler already uses in
+platform_core.ladder path leads/scheduler.py's LeadScheduler already uses in
 production -- for its initial query list, instead of the template's blind
 cartesian product. Falls back to the unchanged template on any failure.
 """

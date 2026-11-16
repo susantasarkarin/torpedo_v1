@@ -29,8 +29,8 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: torpedo-password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: torpedo
     volumes:
       - mongodb_data:/data/db
@@ -52,7 +52,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: torpedo
-      POSTGRES_PASSWORD: torpedo-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: torpedo
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -78,7 +78,7 @@ services:
       - "8000:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongodb:27017/torpedo?authSource=admin
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=INFO
       - ENVIRONMENT=development
@@ -103,7 +103,7 @@ services:
     container_name: torpedo-celery-worker
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongodb:27017/torpedo?authSource=admin
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - LOG_LEVEL=INFO
@@ -126,7 +126,7 @@ services:
     container_name: torpedo-celery-beat
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongodb:27017/torpedo?authSource=admin
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - LOG_LEVEL=INFO

@@ -49,33 +49,10 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 
-# Qwen gateway tasks for the decision lanes (4.4). Registered into the "qwen" config section's defaults
-# below, so a stored override in torpedo_settings.config still wins.
-QWEN_TASKS = {
-    "marketing_decision_p1": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 30, "priority": "P1", "max_tokens": 350,
-                              "max_input_chars": 2500},
-    "marketing_decision_p2": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 45, "priority": "P2", "max_tokens": 350,
-                              "max_input_chars": 2500},
-    "marketing_decision_p3": {"model": "qwen2.5-1.5b-instruct", "timeout_s": 60, "priority": "P3", "max_tokens": 450,
-                              "max_input_chars": 2500},          # 7B for D8/D14 once one is hosted
-}
-
-
 def register_qwen_tasks() -> None:
-    try:
-        from platform_core import config_store
-    except Exception:
-        return
-    base = config_store.SECTIONS.get("qwen")
-    if not base or getattr(base, "_marketing", False):
-        return
-
-    def with_marketing():
-        d = base()
-        d["tasks"] = {**QWEN_TASKS, **d.get("tasks", {})}
-        return d
-    with_marketing._marketing = True
-    config_store.SECTIONS["qwen"] = with_marketing
+    """Retired: the marketing decision tasks (marketing_decision_p1..p3) are registered in
+    platform_core/ladder.py DEFAULTS["task_cfg"]. Kept as a no-op for old callers."""
+    return None
 
 
 def autonomy(cfg: Dict[str, Any], decision: str) -> str:

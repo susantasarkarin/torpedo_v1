@@ -4,7 +4,7 @@ Handles: Customers, Vendors, Items, Invoices, Bills, Purchase Orders, Expenses, 
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Path, Query, UploadFile, File, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pymongo import MongoClient
 from bson import ObjectId
 from datetime import datetime, timedelta
@@ -4167,10 +4167,10 @@ def get_export_file(export_id: str):
     Download a completed export file.
     """
     try:
-        from db_pools import get_api_collection
+        from db import finance
         from bson import ObjectId
 
-        exports_collection = get_api_collection('export_files')
+        exports_collection = finance()['export_files']
         export = exports_collection.find_one({'_id': ObjectId(export_id)})
         
         if not export:

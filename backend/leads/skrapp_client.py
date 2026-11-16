@@ -206,13 +206,16 @@ def company_snapshot(client, domain: str = "", name: str = "",
 
 
 def email_credits_left(client) -> Optional[int]:
-    """Email-finder credits left on the first key (quota - used); None if unknown."""
+    """Email-finder credits left on the first key (quota - used); None if unknown
+    (no key, request failed, or the answer has no credit/email block)."""
     ks = keys(client)
     if not ks:
         return None
     try:
         r = requests.get(ACCOUNT_URL, headers={"X-Access-Key": ks[0]}, timeout=20)
-        c = ((r.json() or {}).get("credit") or {}).get("email") or {}
+        c = ((r.json() or {}).get("credit") or {}).get("email")
+        if not isinstance(c, dict):
+            return None
         return int(c.get("quota") or 0) - int(c.get("used") or 0)
     except Exception:
         return None
