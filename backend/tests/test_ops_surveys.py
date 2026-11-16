@@ -277,15 +277,55 @@ def test_defender_and_sq_terms_count_only_their_statuses(env):
     s = _survey(c, pid)
     old = datetime.utcnow() - timedelta(hours=2)
     for status in ("SECURITY_TERMINATED", "TERMINATED", "OVERQUOTA", "COMPLETE", "NOT_ROUTED"):
-        _raw_row(traffic, s["surveyNo"], "v1", status, old)
+        _raw_row(traffic, s["surveyNo"], "v1", status, old)  # bare NOT_ROUTED: no screener reason
     row = c.get(f"/api/ops/projects/{pid}/surveys").json()["items"][0]
     assert row["defenderTerms"] == 1          # SECURITY_TERMINATED only
     assert row["terms"] == 2                  # TERMINATED + SECURITY_TERMINATED (all Terminate)
     assert row["oqs"] == 1
-    assert row["sqTerms"] is None             # no stored status can define it
-    assert row["abandons"] == 1               # NOT_ROUTED is non-final, not a termination
+    assert row["sqTerms"] == 0                # no screener reason on the NOT_ROUTED row
+    assert row["abandons"] == 1               # non-screener NOT_ROUTED stays non-final
     body = c.get(f"/api/ops/projects/{pid}/surveys").json()
-    assert body["meta"]["unverifiedMetrics"] == ["sqTerms"]
+    assert body["meta"]["unverifiedMetrics"] == []
+    assert body["meta"]["sqTermsNote"].startswith("Screened out by our qualification")
+
+
+def test_sq_terms_counts_only_screener_not_routed(env, monkeypatch):
+    monkeypatch.setenv("OPS_INFLIGHT_MINUTES", "60")
+    c, traffic = env["client"], env["traffic"]
+    pid = _project(c)
+    env["admin"]["on"] = True
+    _seed_vendor(env["db"], "v1", "Vendor One")
+    s = _survey(c, pid)
+    c.post(f"/api/ops/surveys/{s['id']}/suppliers", json={"vendorIds": ["v1"]})
+    no = s["surveyNo"]
+    now = datetime.utcnow()
+    old = now - timedelta(hours=2)
+
+    def add(status, reason=None, created=old):
+        doc = {"params": {"api": "false", "pid": no}, "vendorId": "v1", "status": status,
+               "createdAt": created, "respondentId": f"r{len(traffic.docs)}"}
+        if reason is not None:
+            doc["notRoutedReason"] = reason
+        traffic.insert_one(doc)
+
+    add("NOT_ROUTED", "prescreen_fail")                  # screener -> sqTerms
+    add("not_routed", "country")                         # case-insensitive, screener -> sqTerms
+    add("NOT_ROUTED", "prescreen_fail", created=now)     # recent screener row: still sqTerms, not in-flight
+    add("NOT_ROUTED", "router_link")                     # capacity: not sqTerms, non-final -> abandon
+    add("NOT_ROUTED", None)                              # no reason: not sqTerms, non-final -> abandon
+    add("TERMINATED")                                    # terms only
+
+    row = c.get(f"/api/ops/projects/{pid}/surveys").json()["items"][0]
+    assert row["sqTerms"] == 3
+    assert row["terms"] == 1                             # sqTerms rows never inflate terms
+    assert row["inFlights"] == 0                         # recent screener row not in-flight
+    assert row["abandons"] == 2                          # router_link + bare NOT_ROUTED only
+    assert row["entrants"] == 6
+
+    sup = c.get(f"/api/ops/surveys/{s['id']}/suppliers").json()
+    assert sup["items"][0]["sqTerms"] == 3
+    assert sup["items"][0]["abandons"] == 2
+    assert "sqTerms" not in sup["meta"]["unverifiedMetrics"]
 
 
 def test_managers_lists_active_users_without_email(env):

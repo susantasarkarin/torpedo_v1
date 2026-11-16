@@ -26,6 +26,7 @@ from routers.ops_surveys import (
     _bad,
     _can_see_pricing,
     _col,
+    SQ_TERMS_NOTE,
     _ensure_indexes,
     _get_project,
     _get_survey,
@@ -366,7 +367,7 @@ def project_report(project_id: str, user: str = Depends(verify_session),
     t = _agg(all_records, cutoff)
     totals = {
         "entrants": t["entrants"], "terms": t["terms"], "defenderTerms": t["defenderTerms"],
-        "oqs": t["oqs"], "completes": t["completes"], "abandons": t["abandons"],
+        "oqs": t["oqs"], "sqTerms": t["sqTerms"], "completes": t["completes"], "abandons": t["abandons"],
         "inFlights": t["inFlights"], "ir": t["ir"], "conversion": t["conversion"], "loi": t["loi"],
         "target": sum(r["target"] for r in survey_rows),
     }
@@ -406,7 +407,7 @@ def project_report(project_id: str, user: str = Depends(verify_session),
             "vendorName": names.get(v) or name_hint.get(v),
             "surveys": len(vendor_sids[v]),
             "entrants": m["entrants"], "terms": m["terms"], "defenderTerms": m["defenderTerms"],
-            "oqs": m["oqs"], "abandons": m["abandons"], "inFlights": m["inFlights"],
+            "oqs": m["oqs"], "sqTerms": m["sqTerms"], "abandons": m["abandons"], "inFlights": m["inFlights"],
             "completes": m["completes"], "ir": m["ir"], "conversion": m["conversion"], "loi": m["loi"],
         }
         if pricing:
@@ -426,7 +427,8 @@ def project_report(project_id: str, user: str = Depends(verify_session),
         "surveys": survey_rows,
         "suppliers": suppliers,
         "latestReconciliation": latest_out,
-        "meta": {"window": window or "p24h", "pricing": pricing, "inflightMinutes": _inflight_minutes()},
+        "meta": {"window": window or "p24h", "pricing": pricing, "sqTermsNote": SQ_TERMS_NOTE,
+                 "inflightMinutes": _inflight_minutes()},
     }
     if pricing:
         project_expense: Dict[str, Decimal] = defaultdict(Decimal)

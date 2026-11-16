@@ -51,14 +51,18 @@ const SURVEY_STATUS_OPTIONS = [
 
 const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0, draft: 0, cancelled: 0, auto_paused: 0, scheduled: 0 };
 
+// Mirrors meta.sqTermsNote from the API (routers/ops_surveys.py SQ_TERMS_NOTE).
+const SQ_TERMS_TIP = "Screened out by our qualification before reaching the client survey; counted separately from Terms.";
+
 // Metric columns. `key` matches the API field and the unverifiedMetrics list.
+// `tip` is the header tooltip.
 // `gated` columns are sortable only while the response does not list them as unverified.
 const METRIC_COLUMNS = [
   { key: "entrants", label: "Entrants", fmt: fmtInt },
   { key: "defenderTerms", label: "Defender terms", fmt: fmtInt, gated: true },
   { key: "terms", label: "Terms", fmt: fmtInt },
   { key: "oqs", label: "OQs", fmt: fmtInt },
-  { key: "sqTerms", label: "SQ terms", fmt: fmtInt, gated: true },
+  { key: "sqTerms", label: "SQ terms", fmt: fmtInt, tip: SQ_TERMS_TIP },
   { key: "abandons", label: "Abandons", fmt: fmtInt, gated: true },
   { key: "inFlights", label: "In-flights", fmt: fmtInt, gated: true },
   { key: "completes", label: "Completes", fmt: fmtInt },
@@ -305,14 +309,14 @@ export default function OpsProjectSurveys() {
                     <SortHeader label="Status" sortKey="status" sort={sort} order={order} onSort={onSort} />
                     {METRIC_COLUMNS.map((col) => {
                       const label = isWindowed(col) ? `${col.label} (${windowLabel})` : col.label;
-                      const isUnverified = unverified.includes(col.key);
+                      const tip = unverified.includes(col.key) ? NOT_CONFIRMED_TIP : col.tip;
                       if (!isSortable(col)) {
                         return (
                           <th
                             key={col.key}
                             scope="col"
                             className="ops-th ops-th--right"
-                            title={isUnverified ? NOT_CONFIRMED_TIP : undefined}
+                            title={tip}
                           >
                             {label}
                           </th>
@@ -327,7 +331,7 @@ export default function OpsProjectSurveys() {
                           order={order}
                           onSort={onSort}
                           align="right"
-                          title={isUnverified ? NOT_CONFIRMED_TIP : undefined}
+                          title={tip}
                         />
                       );
                     })}

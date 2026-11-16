@@ -55,15 +55,24 @@ PROJECT_STATUSES = ("live", "paused", "completed")
 SURVEY_STATUSES = ("live", "paused", "completed", "draft", "cancelled", "auto_paused", "scheduled")
 SUPPLIER_STATUSES = ("live", "paused", "completed")
 DEAD_VENDOR_STATUSES = ("deleted", "inactive", "archived")
-# Metrics with no stored status that can define them. Only sqTerms remains:
-# the screener writes NOT_ROUTED (routers/traffic.py), which normalises to
-# "Incomplete" (not a Terminate), so it cannot be a subset of terms.
-UNVERIFIED_METRICS = ["sqTerms"]
+# Metrics whose definition is not yet confirmed. Empty: sqTerms is defined below.
+UNVERIFIED_METRICS: List[str] = []
+SQ_TERMS_NOTE = "Screened out by our qualification before reaching the client survey; counted separately from Terms."
+# notRoutedReason values written with status NOT_ROUTED (routers/traffic.py):
+#   prescreen_fail  -> traffic.py:3455, fails our project qualification (screener)
+#   country         -> traffic.py:3455, fails our country check (screener)
+#   (empty)         -> traffic.py:3560 falls back to prescreen_fail (screener)
+#   router_link     -> traffic.py:3465/3560, no eligible survey in the country (capacity, NOT sqTerms)
+#   panel_first     -> never written as NOT_ROUTED (traffic.py:3557)
+# Only the screener reasons feed sqTerms. Their rows carry params.pid == surveyNo
+# (ADHOC flow, params.api "false"), so they are attributable per survey.
+SCREENER_NOT_ROUTED_REASONS = ("prescreen_fail", "country")
 WINDOWS = {"p24h": timedelta(hours=24), "p14d": timedelta(days=14)}
 
 # Pure reuse of the traffic_service definitions (no collections bound).
 _TS = TrafficService.__new__(TrafficService)
-_TRACK_PROJECTION = {"status": 1, "createdAt": 1, "completedAt": 1, "params.pid": 1, "vendorId": 1}
+_TRACK_PROJECTION = {"status": 1, "createdAt": 1, "completedAt": 1, "params.pid": 1, "vendorId": 1,
+                     "notRoutedReason": 1}
 
 _INDEXES_READY = False
 
@@ -395,21 +404,31 @@ def _is_defender_term(raw: Any) -> bool:
     return "SECURITY" in str(raw or "").upper()
 
 
+def _is_screener_out(r: Dict[str, Any]) -> bool:
+    """NOT_ROUTED caused by OUR screener (see SCREENER_NOT_ROUTED_REASONS)."""
+    return (str(r.get("status") or "").strip().upper() == "NOT_ROUTED"
+            and r.get("notRoutedReason") in SCREENER_NOT_ROUTED_REASONS)
+
+
 def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str, Any]:
     """Counts for one set of traffic rows.
 
     terms         = every row TrafficService normalises to Terminate.
     defenderTerms = subset of terms with a SECURITY status (client security terminate).
-    sqTerms       = always None: no stored status is a subset of terms for our screener.
+    sqTerms       = screener NOT_ROUTED rows (_is_screener_out). Separate from terms;
+                    these rows are never counted as inFlights or abandons.
     inFlights     = non-final rows (normaliser "Incomplete") created within OPS_INFLIGHT_MINUTES.
     abandons      = non-final rows created earlier than that, or with no parseable createdAt.
     """
     live_after = _now() - timedelta(minutes=_inflight_minutes())
-    entrants = terms = oqs = completes = in_window = 0
+    entrants = terms = oqs = completes = in_window = sq_terms = 0
     defender = inflight = abandons = 0
     loi: List[float] = []
     for r in records:
         entrants += 1
+        if _is_screener_out(r):
+            sq_terms += 1
+            continue
         norm = _TS._normalize_status(r.get("status", ""))
         if norm == "Complete":
             completes += 1
@@ -437,7 +456,7 @@ def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str,
         "entrants": entrants,
         "terms": terms,
         "defenderTerms": defender,
-        "sqTerms": None,
+        "sqTerms": sq_terms,
         "oqs": oqs,
         "completes": completes,
         "completesWindow": in_window,
@@ -869,7 +888,7 @@ def list_project_surveys(
                  or needle in str(r["surveyNo"] or "").lower())]
     if sort not in {"surveyName", "surveyNo", "status", "entrants", "terms", "oqs", "completes",
                     "completesWindow", "ir", "conversion", "loi", "abandons", "inFlights",
-                    "defenderTerms"}:
+                    "defenderTerms", "sqTerms"}:
         _bad("unknown sort field")
     rows = _sort_rows(rows, sort, order)
     return {
@@ -878,7 +897,7 @@ def list_project_surveys(
         "total": len(rows),
         "counts": counts,
         "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS,
-                 "inflightMinutes": _inflight_minutes()},
+                 "sqTermsNote": SQ_TERMS_NOTE, "inflightMinutes": _inflight_minutes()},
     }
 
 
@@ -1041,9 +1060,9 @@ def _supplier_rows(survey: Dict[str, Any], sups: List[Dict[str, Any]], cutoff: d
     for s in sups:
         m = _agg(by_vid.get(str(s["vendorId"]), []), cutoff)
         view = _supplier_view(s)
-        rows.append({**view, **{k: m[k] for k in ("entrants", "terms", "defenderTerms", "oqs", "abandons",
-                                                  "inFlights", "completes", "completesWindow", "ir",
-                                                  "conversion", "loi")},
+        rows.append({**view, **{k: m[k] for k in ("entrants", "terms", "defenderTerms", "oqs", "sqTerms",
+                                                  "abandons", "inFlights", "completes", "completesWindow",
+                                                  "ir", "conversion", "loi")},
                      **_expense(m["completes"], s.get("buyPrice"))})
     return rows
 
@@ -1068,7 +1087,7 @@ def list_suppliers(survey_id: str, user: str = Depends(verify_session), window: 
                    "surveyNo": survey.get("surveyNo"), "status": _survey_status(survey.get("projectStatus"))},
         "items": rows,
         "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS,
-                 "inflightMinutes": _inflight_minutes()},
+                 "sqTermsNote": SQ_TERMS_NOTE, "inflightMinutes": _inflight_minutes()},
     }
 
 
@@ -1241,7 +1260,7 @@ def _respondent_row(r: Dict[str, Any], include_answers: bool, pii: bool) -> Dict
     return row
 
 
-_SUPPLIER_COLS = ["vendorId", "vendorName", "entrants", "terms", "defenderTerms", "oqs", "abandons", "inFlights",
+_SUPPLIER_COLS = ["vendorId", "vendorName", "entrants", "terms", "defenderTerms", "oqs", "sqTerms", "abandons", "inFlights",
                   "completes", "completesWindow", "ir", "conversion", "loi", "buyPrice", "currency",
                   "expense", "expenseBasis", "status"]
 _RESPONDENT_BASE = ["respondentId", "surveyNo", "vendor", "status", "createdAt", "completedAt"]
@@ -1296,7 +1315,7 @@ def traffic_report(
         return {"survey": {"id": str(survey["_id"]), "surveyNo": survey.get("surveyNo")},
                 "suppliers": section_a, "respondents": respondents,
                 "respondentColumns": resp_cols, "pii": pii,
-                "meta": {"inflightMinutes": _inflight_minutes()}}
+                "meta": {"sqTermsNote": SQ_TERMS_NOTE, "inflightMinutes": _inflight_minutes()}}
 
     def _stream():
         buf = io.StringIO()

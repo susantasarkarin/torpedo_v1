@@ -349,4 +349,6 @@ def test_report_totals_and_suppliers_split_inflight_and_abandons(env, monkeypatc
     sup = rep["suppliers"][0]
     assert (sup["inFlights"], sup["abandons"], sup["defenderTerms"]) == (1, 0, 1)
     assert rep["surveys"][0]["defenderTerms"] == 1
-    assert rep["surveys"][0]["sqTerms"] is None
+    assert rep["surveys"][0]["sqTerms"] == 0                 # no screener NOT_ROUTED row here
+    assert rep["totals"]["sqTerms"] == 0
+    assert rep["meta"]["sqTermsNote"].startswith("Screened out by our qualification")
