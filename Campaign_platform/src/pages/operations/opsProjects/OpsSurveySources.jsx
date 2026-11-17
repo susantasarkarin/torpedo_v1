@@ -442,6 +442,7 @@ export default function OpsSurveySources() {
       {adding && (
         <AddSupplierModal
           surveyId={surveyId}
+          project={data.project}
           canPrice={canPrice}
           onClose={() => setAdding(false)}
           onAdded={() => {
