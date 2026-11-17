@@ -143,11 +143,11 @@ function ProjectsPage() {
   const getEntryLinkTemplate = (form) => {
     const base = getProjectCallbackBase();
     const vid = form?.vendorId || "{VID}";
-    const cc = "[%CC%]";
-    const panel = "[%PANEL%]";
+    // Format that works in production: cc is the project's country, no panel param.
+    const cc = String(form?.countryCode || "").trim().toUpperCase() || "[%CC%]";
     // pid must be the surveyNo (what /takesurvey resolves by), not the MongoDB _id
     const pid = form?.surveyNo || "{PID}";
-    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&panel=${panel}&pid=${pid}&rid=[%RID%]`;
+    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid=[%RID%]`;
   };
 
   const applyDerivedFields = (nextForm) => {
