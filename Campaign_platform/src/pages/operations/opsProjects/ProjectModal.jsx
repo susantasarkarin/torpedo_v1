@@ -8,6 +8,10 @@ const FIELD_MAP = { fieldworkDatetime: "outOfFieldAt" };
 const FORM_FIELDS = ["projectName", "managerId", "outOfFieldAt"];
 
 // Manager is stored by username (backend looks managers up by username).
+// New projects default to the admin user.
+const DEFAULT_MANAGER_ID = "admin";
+const DEFAULT_MANAGER_LABEL = "Admin";
+
 const getDefaultDate = () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -17,12 +21,12 @@ const getDefaultDate = () => {
 
 const emptyForm = (project) => ({
   projectName: project?.projectName || "",
-  managerId: project?.managerId ? String(project.managerId) : "",
+  managerId: project?.managerId ? String(project.managerId) : DEFAULT_MANAGER_ID,
   outOfFieldAt: project?.fieldworkDatetime ? String(project.fieldworkDatetime).slice(0, 16) : getDefaultDate(),
 });
 
 // Create or edit a project. Cancel discards the form; nothing is saved until Save.
-// Create: project number is auto-allocated by backend, manager auto-selects admin,
+// Create: project number is auto-allocated by backend, manager defaults to Admin,
 // fieldwork date defaults to tomorrow 10:00, timezone uses backend default.
 // Edit: cannot change the project number and cannot clear the manager.
 export default function ProjectModal({ project, onClose, onSaved }) {
@@ -38,15 +42,7 @@ export default function ProjectModal({ project, onClose, onSaved }) {
   useEffect(() => {
     let cancelled = false;
     listManagers()
-      .then((list) => {
-        if (!cancelled) {
-          setUsers(list);
-          // Auto-select the first manager (admin) if creating a new project and no manager selected
-          if (!isEdit && !form.managerId && list.length > 0) {
-            setForm((f) => ({ ...f, managerId: list[0].username }));
-          }
-        }
-      })
+      .then((list) => !cancelled && setUsers(list))
       .catch((e) => !cancelled && setUsersError(e.message || "Could not load managers."));
     return () => {
       cancelled = true;
@@ -114,12 +110,18 @@ export default function ProjectModal({ project, onClose, onSaved }) {
     }
   };
 
+  const labelFor = (username, name) =>
+    username === DEFAULT_MANAGER_ID ? DEFAULT_MANAGER_LABEL : name || username;
   const managerOptions = users
-    .map((u) => ({ value: u.username || "", label: u.name || u.username || "" }))
+    .map((u) => ({ value: u.username || "", label: labelFor(u.username, u.name) }))
     .filter((o) => o.value);
+  // Admin is always selectable, even when the user list is empty.
+  if (!managerOptions.some((o) => o.value === DEFAULT_MANAGER_ID)) {
+    managerOptions.unshift({ value: DEFAULT_MANAGER_ID, label: DEFAULT_MANAGER_LABEL });
+  }
   // Keep the current manager selectable even if they are missing from the user list.
   if (form.managerId && !managerOptions.some((o) => o.value === form.managerId)) {
-    managerOptions.unshift({ value: form.managerId, label: project?.managerName || form.managerId });
+    managerOptions.unshift({ value: form.managerId, label: labelFor(form.managerId, project?.managerName) });
   }
 
   const invalid = (key) => Boolean(errors[key]);
