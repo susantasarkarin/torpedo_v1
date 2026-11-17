@@ -1,18 +1,19 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { addSurveySuppliers, getSurvey, lookupVendors, unwrapList, OpsApiError } from "../../../services/opsProjectsService";
+import { fetchAllClients } from "../../../utils/api";
 import { ModalShell } from "./opsShared";
 import { splitFieldErrors } from "./opsUtils";
 import { createLegacyLink, deleteLegacyLink, entryLinkTemplate, fetchVendorByVid, normalizeUrl } from "./legacyLink";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
-// Three ways to add a supplier to a survey.
-const MODES = [
-  { value: "create", label: "Create new link" },
-  { value: "link", label: "Attach existing link" },
-  { value: "nolink", label: "Add vendor without link yet" },
-];
-// One vendor per row in these modes (radio), many in "nolink" (checkbox).
-const singleVendor = (mode) => mode !== "nolink";
+// API field -> form key for the errors shown under inputs here.
+const FIELD_MAP = { vendorIds: "vendors", links: "vendors" };
+const FORM_FIELDS = ["vendors", "buyPrice"];
+
+// /vendors/lookup rows are { vid, vendorName, vendorType }.
+const vendorId = (v) => String(v.vid ?? v.id ?? v._id ?? "");
+const vendorName = (v) => v.vendorName || v.name || `Vendor ${vendorId(v)}`;
+const clientName = (c) => c.company_name || c.name || "";
 
 const today = () => {
   const d = new Date();
@@ -21,42 +22,32 @@ const today = () => {
 };
 
 // Classic link form, prefilled from the survey and project.
-const linkFormFrom = (survey, project, vendor) => ({
-  projectName: [survey?.surveyName || project?.projectName || "", vendor ? (vendor.vendorName || "") : ""]
-    .filter(Boolean).join(" - "),
+const linkFormFrom = (survey, project) => ({
+  projectName: survey?.surveyName || project?.projectName || "",
   client: project?.clientName || "",
   salesPerson: project?.managerName || "",
   projectLaunchDate: today(),
   totalCompletesRequired: survey?.targetN ?? "",
   loi: survey?.loi ?? "",
   clientIR: survey?.ir ?? "",
-  cpi: "",
   countryCode: survey?.countryCode || "",
   liveLink: survey?.surveyUrl || "",
 });
 
 const positive = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
-// API field -> form key for the errors shown under inputs here.
-const FIELD_MAP = { vendorIds: "vendors", links: "vendors", surveyNo: "surveyNo" };
-const FORM_FIELDS = ["vendors", "surveyNo", "buyPrice"];
 
-// /vendors/lookup rows are { vid, vendorName, vendorType }.
-const vendorId = (v) => String(v.vid ?? v.id ?? v._id ?? "");
-const vendorName = (v) => v.vendorName || v.name || `Vendor ${vendorId(v)}`;
-
-// Vendor search and selection. "link" mode picks one vendor and needs a link number;
-// "nolink" mode picks many vendors and creates them without traffic links.
-// The same vendor may be added again, so existing rows do not block selection.
+// Picks one vendor, shows the classic project form prefilled from the survey, and on
+// save creates the classic traffic link (server issues the link number) and attaches
+// it to the survey.
 export default function AddSupplierModal({ surveyId, project, canPrice, onClose, onAdded }) {
-  const [mode, setMode] = useState("create");
   const [survey, setSurvey] = useState(null);
-  const [linkForm, setLinkForm] = useState(() => linkFormFrom(null, project, null));
+  const [linkForm, setLinkForm] = useState(() => linkFormFrom(null, project));
+  const [clients, setClients] = useState([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
-  const [selected, setSelected] = useState([]);
-  const [surveyNo, setSurveyNo] = useState("");
+  const [selected, setSelected] = useState(null);
   const [buyPrice, setBuyPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [errors, setErrors] = useState({});
@@ -64,6 +55,34 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
   const [formError, setFormError] = useState(null);
   const busy = useRef(false);
   const listId = useId();
+
+  // Full survey (URL, target, LOI, IR, country) to prefill the classic link form.
+  useEffect(() => {
+    let active = true;
+    getSurvey(surveyId)
+      .then((s) => {
+        if (active) {
+          setSurvey(s);
+          setLinkForm(linkFormFrom(s, project));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [surveyId, project]);
+
+  // Active (online) clients only, filled in as pages arrive.
+  useEffect(() => {
+    let active = true;
+    const keep = (list) => list.filter((c) => String(c.status || "").toLowerCase() === "active" && clientName(c));
+    fetchAllClients({ onBatch: (soFar) => active && setClients(keep(soFar)) })
+      .then((all) => active && setClients(keep(all)))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Debounced vendor lookup. Stale responses are dropped via the `active` flag.
   useEffect(() => {
@@ -86,79 +105,41 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
     };
   }, [query]);
 
-  // Full survey (URL, target, LOI, IR, country) to prefill the classic link form.
-  useEffect(() => {
-    let active = true;
-    getSurvey(surveyId)
-      .then((s) => {
-        if (!active) return;
-        setSurvey(s);
-        setLinkForm(linkFormFrom(s, project, null));
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [surveyId, project]);
-
   const setLink = (key) => (e) => {
     const value = e.target.value;
     setLinkForm((f) => ({ ...f, [key]: value }));
     if (errors[key]) setErrors((er) => ({ ...er, [key]: undefined }));
   };
 
-  const selectedIds = new Set(selected.map((v) => vendorId(v)));
-
-  const changeMode = (next) => {
-    setMode(next);
-    setSelected([]);
-    setErrors({});
-    setFormError(null);
-  };
-
-  const toggle = (vendor) => {
-    const id = vendorId(vendor);
-    const isOn = selected.some((v) => vendorId(v) === id);
-    if (singleVendor(mode)) {
-      // One vendor per link row: picking another vendor replaces the choice.
-      setSelected(isOn ? [] : [vendor]);
-      if (mode === "create") {
-        const base = survey?.surveyName || project?.projectName || "";
-        setLinkForm((f) => ({ ...f, projectName: isOn ? base : [base, vendorName(vendor)].filter(Boolean).join(" - ") }));
-      }
-    } else {
-      setSelected((list) => (isOn ? list.filter((v) => vendorId(v) !== id) : [...list, vendor]));
-    }
+  const pick = (vendor) => {
+    const isOn = selected && vendorId(selected) === vendorId(vendor);
+    const next = isOn ? null : vendor;
+    setSelected(next);
+    const base = survey?.surveyName || project?.projectName || "";
+    setLinkForm((f) => ({ ...f, projectName: next ? [base, vendorName(next)].filter(Boolean).join(" - ") : base }));
     if (errors.vendors) setErrors((er) => ({ ...er, vendors: undefined }));
   };
 
+  // Same rules the classic page applies to a live project (CPI excepted).
   const validate = () => {
     const next = {};
-    if (selected.length === 0) next.vendors = singleVendor(mode) ? "Select a vendor." : "Select at least one vendor.";
-    if (mode === "create") {
-      // Same rules the classic page applies to a live project.
-      const f = linkForm;
-      if (!f.projectName.trim()) next.projectName = "Name is required.";
-      if (!f.client.trim()) next.client = "Client is required.";
-      if (!f.salesPerson.trim()) next.salesPerson = "Sales person is required.";
-      if (!f.projectLaunchDate) next.projectLaunchDate = "Launch date is required.";
-      if (!positive(f.totalCompletesRequired)) next.totalCompletesRequired = "Completes required must be more than 0.";
-      if (!positive(f.loi)) next.loi = "LOI must be more than 0.";
-      if (!positive(f.cpi)) next.cpi = "CPI must be more than 0.";
-      const url = normalizeUrl(f.liveLink);
-      if (!url) next.liveLink = "Live link is required.";
-      else {
-        try {
-          const u = new URL(url);
-          if (u.protocol !== "http:" && u.protocol !== "https:") next.liveLink = "Live link must start with http:// or https://.";
-        } catch {
-          next.liveLink = "Enter a valid URL.";
-        }
+    const f = linkForm;
+    if (!selected) next.vendors = "Select a vendor.";
+    if (!f.projectName.trim()) next.projectName = "Name is required.";
+    if (!f.client.trim()) next.client = "Client is required.";
+    if (!f.salesPerson.trim()) next.salesPerson = "Sales person is required.";
+    if (!f.projectLaunchDate) next.projectLaunchDate = "Launch date is required.";
+    if (!positive(f.totalCompletesRequired)) next.totalCompletesRequired = "Completes required must be more than 0.";
+    if (!positive(f.loi)) next.loi = "LOI must be more than 0.";
+    const url = normalizeUrl(f.liveLink);
+    if (!url) next.liveLink = "Live link is required.";
+    else {
+      try {
+        const u = new URL(url);
+        if (u.protocol !== "http:" && u.protocol !== "https:") next.liveLink = "Live link must start with http:// or https://.";
+      } catch {
+        next.liveLink = "Enter a valid URL.";
       }
-    }
-    if (mode === "link") {
-      if (!surveyNo.trim()) next.surveyNo = "Enter the link number.";
-      else if (surveyNo.trim().length > 32) next.surveyNo = "Link number must be 32 characters or fewer.";
     }
     if (canPrice && buyPrice !== "") {
       const n = Number(buyPrice);
@@ -178,25 +159,20 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
     setSaving(true);
     let legacy = null;
     try {
-      // "create": make the classic traffic link first; the server issues its link number.
-      let linkNo = surveyNo.trim();
-      if (mode === "create") {
-        const vid = vendorId(selected[0]);
-        const vendor = (await fetchVendorByVid(vid)) || { vid, vendorName: vendorName(selected[0]) };
-        legacy = await createLegacyLink(linkForm, vendor);
-        linkNo = String(legacy?.surveyNo || "");
-        if (!linkNo) throw new Error("The link was created without a link number.");
-      }
+      // Classic traffic link first; the server issues its link number (surveyNo).
+      const vid = vendorId(selected);
+      const vendor = (await fetchVendorByVid(vid)) || { vid, vendorName: vendorName(selected) };
+      // The classic record's CPI is the buy price (no separate CPI input here).
+      legacy = await createLegacyLink({ ...linkForm, cpi: buyPrice.trim() }, vendor);
+      const linkNo = String(legacy?.surveyNo || "");
+      if (!linkNo) throw new Error("The link was created without a link number.");
 
       // buyPrice goes out as a string (the backend field is a string); the service converts.
-      const body = mode === "nolink"
-        ? { vendorIds: selected.map(vendorId) }
-        : { links: [{ vendorId: vendorId(selected[0]), surveyNo: linkNo }] };
+      const body = { links: [{ vendorId: vid, surveyNo: linkNo }] };
       if (canPrice) {
         body.buyPrice = buyPrice.trim() === "" ? null : buyPrice.trim();
         body.currency = currency;
       }
-
       const created = await addSurveySuppliers(surveyId, body);
       legacy = null; // attached: keep it
       onAdded(created);
@@ -208,7 +184,6 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
         setErrors((er) => ({ ...er, ...inline }));
         setFormError(other || (Object.keys(inline).length ? null : err.message));
       } else {
-        // Backend validation (unknown vendor, link already used, link of another vendor) comes back as text.
         setFormError(err?.message || "Could not add the supplier.");
       }
     } finally {
@@ -234,14 +209,9 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
     </div>
   );
 
-  const count = selected.length;
-  const submitLabel = saving
-    ? "Adding…"
-    : mode === "create"
-      ? "Create link"
-      : mode === "link"
-      ? "Attach link"
-      : count > 0 ? `Add ${count} vendor${count === 1 ? "" : "s"}` : "Add vendors";
+  // Keep the project's client selectable even if it is not in the active list.
+  const clientOptions = clients.map(clientName);
+  if (linkForm.client && !clientOptions.includes(linkForm.client)) clientOptions.unshift(linkForm.client);
 
   return (
     <ModalShell
@@ -254,34 +224,13 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
             Cancel
           </button>
           <button type="submit" form="ops-supplier-form" className="ops-btn ops-btn--primary" disabled={saving}>
-            {submitLabel}
+            {saving ? "Creating…" : "Create link"}
           </button>
         </>
       }
     >
       <form id="ops-supplier-form" className="ops-form" onSubmit={submit} noValidate>
         {formError && <p className="ops-form__error" role="alert">{formError}</p>}
-
-        <div className="ops-segmented" role="group" aria-label="How to add the supplier">
-          {MODES.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              className={`ops-segmented__btn ${mode === m.value ? "is-active" : ""}`}
-              aria-pressed={mode === m.value}
-              onClick={() => changeMode(m.value)}
-              disabled={saving}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {mode === "nolink" && (
-          <p className="ops-notice" role="note">
-            A traffic link must be attached later; no traffic is recorded until then.
-          </p>
-        )}
 
         <div className="ops-field">
           <label htmlFor="sup-search">Search vendors</label>
@@ -301,21 +250,15 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
           />
         </div>
 
-        <div className="ops-vendor-results" id={listId} role="listbox" aria-multiselectable={mode === "nolink"} aria-label="Vendors" aria-busy={searching}>
+        <div className="ops-vendor-results" id={listId} role="listbox" aria-label="Vendors" aria-busy={searching}>
           {searchError && <p className="ops-field__error">{searchError}</p>}
           {!searchError && !searching && results.length === 0 && <p className="ops-field__hint">No vendors found.</p>}
           {results.map((v) => {
-            const id = vendorId(v);
-            const checked = selectedIds.has(id);
+            const checked = Boolean(selected) && vendorId(selected) === vendorId(v);
             return (
-              <div key={id} role="option" aria-selected={checked} className="ops-vendor-option">
+              <div key={vendorId(v)} role="option" aria-selected={checked} className="ops-vendor-option">
                 <label>
-                  <input
-                    type={singleVendor(mode) ? "radio" : "checkbox"}
-                    name="sup-vendor"
-                    checked={checked}
-                    onChange={() => toggle(v)}
-                  />
+                  <input type="radio" name="sup-vendor" checked={checked} onChange={() => pick(v)} />
                   {vendorName(v)}
                 </label>
               </div>
@@ -323,21 +266,19 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
           })}
         </div>
 
-        {count > 0 && (
-          <ul className="ops-chips" aria-label="Selected vendors">
-            {selected.map((v) => (
-              <li key={vendorId(v)} className="ops-chip">
-                {vendorName(v)}
-                <button type="button" className="ops-chip__remove" aria-label={`Remove ${vendorName(v)}`} onClick={() => toggle(v)}>
-                  ×
-                </button>
-              </li>
-            ))}
+        {selected && (
+          <ul className="ops-chips" aria-label="Selected vendor">
+            <li className="ops-chip">
+              {vendorName(selected)}
+              <button type="button" className="ops-chip__remove" aria-label={`Remove ${vendorName(selected)}`} onClick={() => pick(selected)}>
+                ×
+              </button>
+            </li>
           </ul>
         )}
         {errors.vendors && <span className="ops-field__error">{errors.vendors}</span>}
 
-        {mode === "create" && count > 0 && (
+        {selected && (
           <fieldset className="ops-fieldset">
             <legend>Link details (classic project record)</legend>
             <p className="ops-field__hint">
@@ -345,7 +286,22 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
             </p>
             {linkField("projectName", "Name", true)}
             <div className="ops-field-row">
-              {linkField("client", "Client", true)}
+              <div className="ops-field">
+                <label htmlFor="sup-l-client">Client <span aria-hidden="true">*</span></label>
+                <select
+                  id="sup-l-client"
+                  className={`ops-input ${errors.client ? "ops-input--error" : ""}`}
+                  value={linkForm.client}
+                  onChange={setLink("client")}
+                  aria-invalid={Boolean(errors.client)}
+                >
+                  <option value="">Choose a client</option>
+                  {clientOptions.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                {errors.client && <span className="ops-field__error">{errors.client}</span>}
+              </div>
               {linkField("salesPerson", "Sales person", true)}
             </div>
             <div className="ops-field-row ops-field-row--3">
@@ -353,37 +309,16 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
               {linkField("loi", "LOI (minutes)", true, { type: "number", min: "0.1", step: "0.1" })}
               {linkField("clientIR", "Client IR (%)", false, { type: "number", min: "0", max: "100", step: "0.1" })}
             </div>
-            <div className="ops-field-row ops-field-row--3">
-              {linkField("cpi", "CPI", true, { type: "number", min: "0", step: "0.01" })}
+            <div className="ops-field-row">
               {linkField("projectLaunchDate", "Launch date", true, { type: "date" })}
               {linkField("countryCode", "Country", false, { maxLength: 2, placeholder: "IN" })}
             </div>
             {linkField("liveLink", "Live link (client survey URL)", true, { placeholder: "https://" })}
             <div className="ops-field">
-              <label>Entry link</label>
-              <input className="ops-input" readOnly
-                value={entryLinkTemplate(vendorId(selected[0]), "(generated on save)")} />
+              <label htmlFor="sup-l-entry">Entry link</label>
+              <input id="sup-l-entry" className="ops-input" readOnly value={entryLinkTemplate(vendorId(selected), "(generated on save)")} />
             </div>
           </fieldset>
-        )}
-
-        {mode === "link" && (
-          <div className="ops-field">
-            <label htmlFor="sup-link-no">Link number</label>
-            <input
-              id="sup-link-no"
-              className={`ops-input ${errors.surveyNo ? "ops-input--error" : ""}`}
-              value={surveyNo}
-              onChange={(e) => {
-                setSurveyNo(e.target.value);
-                if (errors.surveyNo) setErrors((er) => ({ ...er, surveyNo: undefined }));
-              }}
-              maxLength={32}
-              aria-invalid={Boolean(errors.surveyNo)}
-              autoComplete="off"
-            />
-            {errors.surveyNo && <span className="ops-field__error">{errors.surveyNo}</span>}
-          </div>
         )}
 
         {canPrice && (
