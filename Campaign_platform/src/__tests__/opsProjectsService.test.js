@@ -9,6 +9,9 @@ import {
   updateCleaningRequestStatus,
   addSurveySuppliers,
   attachSupplierLink,
+  setProjectRfq,
+  lookupRfq,
+  listRfqProjects,
   OpsApiError,
 } from "../services/opsProjectsService";
 
@@ -190,6 +193,80 @@ describe("opsProjectsService", () => {
     expect(err).toBeInstanceOf(OpsApiError);
     expect(err.status).toBe(409);
     expect(err.message).toBe("Traffic link 654321 is already attached to a supplier");
+  });
+
+  it("passes the rfq filter through the list query and omits it when empty", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, counts: {} }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, counts: {} }));
+
+    await listProjects({ rfq: "ambiguous", status: undefined, q: undefined });
+    await listProjects({ rfq: "" });
+
+    const withFilter = String(fetchMock.mock.calls[0][0]);
+    expect(withFilter).toContain("rfq=ambiguous");
+    const withoutFilter = String(fetchMock.mock.calls[1][0]);
+    expect(withoutFilter).not.toContain("rfq=");
+  });
+
+  it("PUTs the RFQ id to the project and returns the project", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ project: { id: "p1", rfq: { id: "R1", title: "Acme", stage: "rfq", method: "manual" } } })
+    );
+
+    const project = await setProjectRfq("p1", "R1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ops/projects/p1/rfq");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ rfqId: "R1" });
+    expect(project.rfq.method).toBe("manual");
+  });
+
+  it("sends a null rfqId to unlink and tolerates a missing project in the reply", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}));
+
+    const project = await setProjectRfq("p1", null);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ rfqId: null });
+    expect(project).toBeNull();
+  });
+
+  it("surfaces the backend error when an RFQ link is refused", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "RFQ is already linked to another project" }, 409));
+
+    const err = await setProjectRfq("p1", "R1").catch((e) => e);
+
+    expect(err).toBeInstanceOf(OpsApiError);
+    expect(err.status).toBe(409);
+    expect(err.message).toBe("RFQ is already linked to another project");
+  });
+
+  it("looks up RFQs with q and returns the items array", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [{ id: "R1", title: "Acme", stage: "won" }] }));
+
+    const items = await lookupRfq("acm");
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/ops/rfq/lookup?");
+    expect(url).toContain("q=acm");
+    expect(items).toEqual([{ id: "R1", title: "Acme", stage: "won" }]);
+  });
+
+  it("returns an empty array from lookup when the reply has no items", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}));
+
+    expect(await lookupRfq("zz")).toEqual([]);
+  });
+
+  it("lists the projects linked to one RFQ", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [{ id: "p1" }], total: 1 }));
+
+    const res = await listRfqProjects("R1", { page: 1 });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/ops/rfq/R1/projects?");
+    expect(url).toContain("page=1");
+    expect(res.items[0].id).toBe("p1");
   });
 
   it("reports a network failure as an OpsApiError with status 0", async () => {

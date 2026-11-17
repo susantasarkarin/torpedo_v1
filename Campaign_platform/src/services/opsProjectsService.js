@@ -111,6 +111,16 @@ export const setProjectStatus = (id, status) =>
   request(`/projects/${id}/status`, { method: "POST", body: { status } }).then(pick("project"));
 export const getProjectChangeLog = (id) => request(`/projects/${id}/change-log`);
 
+// ---------- Project to RFQ link ----------
+// The list query takes rfq=matched|unmatched|ambiguous (passed through by listProjects).
+// rfqId null clears the link. Returns the project (method becomes 'manual').
+export const setProjectRfq = (id, rfqId) =>
+  request(`/projects/${id}/rfq`, { method: "PUT", body: { rfqId: rfqId ?? null } }).then(pick("project"));
+// Sales RFQ search for the link modal: { items: [{ id, title, stage }] }, returned as the array.
+export const lookupRfq = (q) => request("/rfq/lookup", { params: { q } }).then((res) => unwrapList(res, "items"));
+// Projects linked to one RFQ, as the backend returns them.
+export const listRfqProjects = (rfqId, params) => request(`/rfq/${rfqId}/projects`, { params });
+
 // ---------- Surveys ----------
 
 export const listSurveys = (projectId, params) =>

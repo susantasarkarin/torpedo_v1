@@ -12,6 +12,8 @@ import {
 import { notify as notifyToast } from "../../../utils/notify";
 import ProjectModal from "./ProjectModal";
 import ChangeLogDrawer from "./ChangeLogDrawer";
+import RFQLinkModal from "./RFQLinkModal";
+import RfqChip from "./RfqChip";
 import {
   Metric,
   StatusBadge,
@@ -21,7 +23,7 @@ import {
   RowMenu,
   StateMessage,
 } from "./opsShared";
-import { fmtPct, fmtLoi } from "./opsUtils";
+import { fmtPct, fmtLoi, RFQ_FILTER_OPTIONS } from "./opsUtils";
 import "./opsProjects.css";
 
 const TABS = [
@@ -81,6 +83,8 @@ export default function OpsProjectsList() {
   const [modal, setModal] = useState(null); // { mode: "create" } | { mode: "edit", project }
   const [statusTarget, setStatusTarget] = useState(null);
   const [logTarget, setLogTarget] = useState(null);
+  const [rfqTarget, setRfqTarget] = useState(null);
+  const [rfqFilter, setRfqFilter] = useState("");
   const favoriteBusy = useRef(new Set());
 
   const [hits, setHits] = useState(null); // { projects, surveys, suppliers } for the current term
@@ -147,6 +151,7 @@ export default function OpsProjectsList() {
     listProjects({
       status: tab === "all" ? undefined : tab,
       q: q || undefined,
+      rfq: rfqFilter || undefined,
       sort,
       order,
       page,
@@ -169,7 +174,7 @@ export default function OpsProjectsList() {
     return () => {
       ignore = true;
     };
-  }, [tab, q, sort, order, page, pageSize, reloadKey]);
+  }, [tab, q, rfqFilter, sort, order, page, pageSize, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -237,8 +242,14 @@ export default function OpsProjectsList() {
     return saved;
   };
 
+  const onRfqSaved = () => {
+    notifyToast("RFQ link updated.", "success");
+    setRfqTarget(null);
+    reload();
+  };
+
   const totalCount = data.counts.all ?? 0;
-  const hasFilter = Boolean(q) || tab !== "all";
+  const hasFilter = Boolean(q) || tab !== "all" || Boolean(rfqFilter);
 
   return (
     <div className="ops-page">
@@ -342,6 +353,22 @@ export default function OpsProjectsList() {
             </ul>
           )}
         </div>
+        <div className="ops-toolbar__filter">
+          <label htmlFor="ops-proj-rfq">RFQ</label>
+          <select
+            id="ops-proj-rfq"
+            className="ops-select"
+            value={rfqFilter}
+            onChange={(e) => {
+              setRfqFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            {RFQ_FILTER_OPTIONS.map((o) => (
+              <option key={o.value || "all"} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="ops-tabs" role="tablist" aria-label="Filter projects by status">
@@ -390,6 +417,7 @@ export default function OpsProjectsList() {
                     <SortHeader label="Conversion" sortKey="conversion" sort={sort} order={order} onSort={onSort} align="right" />
                     <SortHeader label="LOI" sortKey="loi" sort={sort} order={order} onSort={onSort} align="right" />
                     <SortHeader label="Status" sortKey="status" sort={sort} order={order} onSort={onSort} />
+                    <th scope="col" className="ops-th">RFQ</th>
                     <th scope="col" className="ops-th ops-th--center"><span className="ops-visually-hidden">Actions</span></th>
                   </tr>
                 </thead>
@@ -419,12 +447,16 @@ export default function OpsProjectsList() {
                       <td className="ops-td ops-td--num"><Metric value={p.conversion} format={fmtPct} /></td>
                       <td className="ops-td ops-td--num"><Metric value={p.loi} format={fmtLoi} /></td>
                       <td className="ops-td"><StatusBadge status={p.status} /></td>
+                      <td className="ops-td">
+                        <RfqChip project={p} onReview={() => setRfqTarget(p)} />
+                      </td>
                       <td className="ops-td ops-td--center">
                         <RowMenu
                           label={p.projectName}
                           items={[
                             { label: "Edit", onSelect: () => onEdit(p) },
                             { label: "Change status", onSelect: () => setStatusTarget(p) },
+                            { label: "Link RFQ…", onSelect: () => setRfqTarget(p) },
                             { label: "Change log", onSelect: () => setLogTarget(p) },
                           ]}
                         />
@@ -475,6 +507,10 @@ export default function OpsProjectsList() {
           loader={() => getProjectChangeLog(logTarget.id)}
           onClose={() => setLogTarget(null)}
         />
+      )}
+
+      {rfqTarget && (
+        <RFQLinkModal project={rfqTarget} onClose={() => setRfqTarget(null)} onSaved={onRfqSaved} />
       )}
     </div>
   );

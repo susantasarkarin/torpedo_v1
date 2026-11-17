@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   listSurveys,
   getSurvey,
+  getProject,
   setSurveyStatus,
   duplicateSurvey,
   downloadTrafficReport,
@@ -14,6 +15,8 @@ import SurveyModal from "./SurveyModal";
 import ChangeLogDrawer from "./ChangeLogDrawer";
 import DataCleaningModal from "./DataCleaningModal";
 import ReconciliationModal from "./ReconciliationModal";
+import RFQLinkModal from "./RFQLinkModal";
+import RfqChip from "./RfqChip";
 import {
   Metric,
   StatusBadge,
@@ -97,6 +100,23 @@ export default function OpsProjectSurveys() {
   const [logTarget, setLogTarget] = useState(null);
   const [cleaningOpen, setCleaningOpen] = useState(false);
   const [reconOpen, setReconOpen] = useState(false);
+  // Full project (carries the RFQ match). A failed read just hides the chip.
+  const [projectFull, setProjectFull] = useState(null);
+  const [rfqOpen, setRfqOpen] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    getProject(projectId)
+      .then((p) => {
+        if (!ignore) setProjectFull(p);
+      })
+      .catch(() => {
+        if (!ignore) setProjectFull(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -220,7 +240,15 @@ export default function OpsProjectSurveys() {
         <div className="ops-page__heading">
           <h1 className="ops-page__title">{project?.projectName || "Project"}</h1>
           <dl className="ops-meta">
-            <div><dt>Number</dt><dd>{project?.projectNumber || "—"}</dd></div>
+            <div>
+              <dt>Number</dt>
+              <dd className="ops-meta__number">
+                {project?.projectNumber || "—"}
+                {projectFull && (
+                  <RfqChip project={projectFull} onReview={() => setRfqOpen(true)} />
+                )}
+              </dd>
+            </div>
             <div><dt>Manager</dt><dd>{project?.managerName || "Unassigned"}</dd></div>
             <div><dt>Status</dt><dd>{project?.status ? <StatusBadge status={project.status} /> : "—"}</dd></div>
           </dl>
@@ -434,6 +462,22 @@ export default function OpsProjectSurveys() {
         <ReconciliationModal
           projectId={projectId}
           onClose={() => setReconOpen(false)}
+        />
+      )}
+
+      {rfqOpen && projectFull && (
+        <RFQLinkModal
+          project={projectFull}
+          onClose={() => setRfqOpen(false)}
+          onSaved={(updated) => {
+            notifyToast("RFQ link updated.", "success");
+            setRfqOpen(false);
+            if (updated?.id) setProjectFull(updated);
+            else
+              getProject(projectId)
+                .then(setProjectFull)
+                .catch(() => {});
+          }}
         />
       )}
     </div>

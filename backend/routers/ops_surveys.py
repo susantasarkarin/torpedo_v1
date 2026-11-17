@@ -41,6 +41,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.services.traffic_service import TrafficService
 from database import get_email_automation_db, get_traffic_db
+from db import crm as _crm_db  # crm_db.opportunities = RFQs (read-only here, except via the RFQ link)
 from rbac.decorators import require_permission
 from rbac.permissions import Permissions
 from session_state import verify_session
@@ -683,6 +684,8 @@ def _project_rows(projects: List[Dict[str, Any]], username: str, cutoff: datetim
             "ir": m["ir"],
             "conversion": m["conversion"],
             "loi": m["loi"],
+            "rfq": _rfq_view(p),
+            "rfqCandidates": _rfq_candidates(p),
         })
     return rows
 
@@ -700,6 +703,8 @@ def _project_view(doc: Dict[str, Any], username: str) -> Dict[str, Any]:
         "timezone": doc.get("timezone"),
         "status": doc.get("status"),
         "isFavorite": username in (doc.get("favoriteBy") or []),
+        "rfq": _rfq_view(doc),
+        "rfqCandidates": _rfq_candidates(doc),
         "createdAt": _iso(doc.get("createdAt")),
         "updatedAt": _iso(doc.get("updatedAt")),
     }
@@ -752,6 +757,45 @@ def _next_survey_number() -> str:
     return str(SURVEY_NUMBER_BASE + int(doc["seq"]))
 
 
+# ============================================================ RFQ link (crm_db.opportunities)
+
+RFQ_FILTERS = ("matched", "unmatched", "ambiguous")
+RFQ_LOOKUP_LIMIT = 20
+RFQ_CANDIDATE_LIMIT = 5
+
+
+def _opps_col():
+    return _crm_db()["opportunities"]
+
+
+def _opp_by_id(rid: str) -> Optional[Dict[str, Any]]:
+    doc = _opps_col().find_one({"_id": str(rid)})
+    if not doc and ObjectId.is_valid(str(rid)):
+        doc = _opps_col().find_one({"_id": ObjectId(str(rid))})
+    return doc
+
+
+def _rfq_state(doc: Dict[str, Any]) -> str:
+    if doc.get("rfqId"):
+        return "matched"
+    return "ambiguous" if doc.get("rfqCandidates") else "unmatched"
+
+
+def _rfq_view(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    rid = doc.get("rfqId")
+    if not rid:
+        return None
+    return {"id": str(rid), "title": doc.get("rfqTitle"), "stage": doc.get("rfqStage"),
+            "method": (doc.get("rfqMatch") or {}).get("method")}
+
+
+def _rfq_candidates(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Candidates only while unresolved; a matched project reports none."""
+    if doc.get("rfqId"):
+        return []
+    return list(doc.get("rfqCandidates") or [])
+
+
 # ============================================================ request models
 
 class ProjectCreate(BaseModel):
@@ -798,6 +842,10 @@ class SupplierLinkBody(BaseModel):
     surveyNo: str
 
 
+class RfqBody(BaseModel):
+    rfqId: Optional[str] = None
+
+
 # ============================================================ projects
 
 @router.get("/projects")
@@ -809,12 +857,15 @@ def list_projects(
     order: str = "asc",
     page: int = Query(1, ge=1),
     pageSize: int = Query(25, ge=1, le=200),
+    rfq: Optional[str] = None,
 ):
     _ensure_indexes()
     _check_order(order)
     COMPUTED = {"completes", "target", "ir", "conversion", "loi", "surveyCount"}
     if sort not in COMPUTED | {"projectName", "projectNumber", "status", "managerName"}:
         _bad("unknown sort field")
+    if rfq and rfq not in RFQ_FILTERS:
+        _bad("rfq must be matched, unmatched or ambiguous")
     cutoff = _now()  # list does not show window metrics
 
     everything = list(_col(COL_OPS_PROJECTS).find({"is_deleted": {"$ne": True}}))
@@ -825,6 +876,7 @@ def list_projects(
     needle = (q or "").strip().lower()
     matched = [p for p in everything
                if (not status or p.get("status") == status)
+               and (not rfq or _rfq_state(p) == rfq)
                and (not needle or needle in str(p.get("projectName", "")).lower()
                     or needle in str(p.get("projectNumber", "")).lower())]
 
@@ -921,6 +973,54 @@ def update_project(project_id: str, request: Request, body: ProjectUpdate,
                 _log(user=user, action="project.update", project_id=str(doc["_id"]),
                      field=k, old=doc.get(k), new=v)
     return {"project": _project_view(_get_project(project_id), user)}
+
+
+@router.put("/projects/{project_id}/rfq")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
+def set_project_rfq(project_id: str, request: Request, body: RfqBody,
+                    user: str = Depends(verify_session)):
+    """Manual RFQ link. rfqId None clears it; either way the method is 'manual', so the
+    matcher script never overwrites this decision."""
+    _ensure_indexes()
+    doc = _get_project(project_id)
+    rid = (body.rfqId or "").strip() or None
+    opp = None
+    if rid:
+        opp = _opp_by_id(rid)
+        if not opp:
+            _bad("rfqId is not a known RFQ")
+    now = _now()
+    changes = {
+        "rfqId": str(opp["_id"]) if opp else None,
+        "rfqTitle": opp.get("title") if opp else None,
+        "rfqStage": opp.get("stage") if opp else None,
+        "rfqMatch": {"method": "manual", "matchedAt": now, "by": user},
+        "rfqCandidates": [],
+        "updatedAt": now,
+    }
+    _col(COL_OPS_PROJECTS).update_one({"_id": doc["_id"]}, {"$set": changes})
+    _log(user=user, action="project.rfq_match", project_id=str(doc["_id"]), field="rfqId",
+         old=doc.get("rfqId"), new=changes["rfqId"], extra={"method": "manual"})
+    return {"project": _project_view(_get_project(project_id), user)}
+
+
+@router.get("/rfq/lookup")
+def rfq_lookup(q: Optional[str] = None, user: str = Depends(verify_session)):
+    """Title search over crm_db.opportunities for the RFQ picker."""
+    needle = (q or "").strip()
+    flt = {"title": {"$regex": re.escape(needle), "$options": "i"}} if needle else {}
+    # Python-side check keeps results right even where the regex is ignored (fake mongo).
+    hits = [o for o in _opps_col().find(flt).limit(200)
+            if needle.casefold() in str(o.get("title") or "").casefold()]
+    return {"items": [{"id": str(o["_id"]), "title": o.get("title"), "stage": o.get("stage")}
+                      for o in hits[:RFQ_LOOKUP_LIMIT]]}
+
+
+@router.get("/rfq/{rfqId}/projects")
+def rfq_projects(rfqId: str, user: str = Depends(verify_session)):
+    docs = _col(COL_OPS_PROJECTS).find({"rfqId": str(rfqId), "is_deleted": {"$ne": True}})
+    return {"items": [{"id": str(d["_id"]), "projectName": d.get("projectName"),
+                       "projectNumber": d.get("projectNumber")} for d in docs]}
 
 
 @router.post("/projects/{project_id}/favorite")

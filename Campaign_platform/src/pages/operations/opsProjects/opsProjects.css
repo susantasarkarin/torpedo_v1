@@ -1127,3 +1127,150 @@ a:focus-visible {
     transition: none;
   }
 }
+
+/* ---------- RFQ link (list column, header chip, link modal) ---------- */
+.ops-toolbar__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ops-muted);
+}
+
+.ops-select {
+  min-height: 2.25rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--ops-line);
+  border-radius: 8px;
+  background: var(--ops-surface);
+  color: var(--ops-ink);
+  font: inherit;
+}
+
+.ops-select:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+.ops-rfq-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 14rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  background: #eef0f3;
+  color: #374151;
+}
+
+.ops-rfq-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ops-rfq-chip--rfq { background: #e6eefc; color: #1d4ed8; }
+.ops-rfq-chip--proposal { background: #f3e8ff; color: #6b21a8; }
+.ops-rfq-chip--won { background: #e6f6ec; color: #1e7b3a; }
+.ops-rfq-chip--neutral { background: #eef0f3; color: #374151; }
+.ops-rfq-chip--review { background: #fff4e0; color: #9a5b00; border-color: #f5c77a; }
+
+.ops-rfq-chip:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+.ops-meta__number {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ops-rfq-section {
+  margin-bottom: 1rem;
+}
+
+.ops-rfq-section__title {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ops-muted);
+}
+
+.ops-rfq-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ops-rfq-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ops-rfq-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--ops-line);
+  border-radius: 8px;
+  background: var(--ops-surface);
+  color: var(--ops-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-rfq-option:hover:not(:disabled) {
+  background: var(--ops-surface-alt);
+}
+
+.ops-rfq-option.is-selected {
+  border-color: var(--ops-focus);
+  box-shadow: inset 0 0 0 1px var(--ops-focus);
+}
+
+.ops-rfq-option:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+.ops-rfq-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ops-rfq-option__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .ops-toolbar__filter,
+  .ops-select {
+    width: 100%;
+  }
+
+  .ops-rfq-chip {
+    max-width: 100%;
+  }
+}

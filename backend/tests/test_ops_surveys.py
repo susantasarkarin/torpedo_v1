@@ -602,3 +602,113 @@ def test_validation_message_is_one_readable_line():
     msg = ops._validation_message([{"loc": ("body", "managerId"), "msg": "Field required"},
                                    {"loc": ("body",), "msg": "bad body"}])
     assert msg == "managerId: Field required; request: bad body"
+
+
+# ============================================================ RFQ link (ops_projects <-> crm_db.opportunities)
+
+@pytest.fixture
+def rfq_env(env, monkeypatch):
+    crm = FakeDB()
+    monkeypatch.setattr(ops, "_crm_db", lambda: crm)
+    env["crm"] = crm
+    return env
+
+
+def _opp(crm, oid, title, stage="rfq", account_id=None):
+    crm["opportunities"].insert_one({"_id": oid, "title": title, "stage": stage, "account_id": account_id})
+
+
+def test_project_detail_and_list_report_rfq_fields(rfq_env):
+    c = rfq_env["client"]
+    pid = _project(c)
+    detail = c.get(f"/api/ops/projects/{pid}").json()["project"]
+    assert detail["rfq"] is None
+    assert detail["rfqCandidates"] == []
+    row = c.get("/api/ops/projects").json()["items"][0]
+    assert row["rfq"] is None and row["rfqCandidates"] == []
+
+
+def test_rfq_set_then_clear_is_manual_and_logged(rfq_env):
+    c, db, crm = rfq_env["client"], rfq_env["db"], rfq_env["crm"]
+    pid = _project(c)
+    _opp(crm, "o1", "Amazon Pay Study", stage="proposal")
+
+    r = c.put(f"/api/ops/projects/{pid}/rfq", json={"rfqId": "o1"})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["rfq"] == {"id": "o1", "title": "Amazon Pay Study",
+                                          "stage": "proposal", "method": "manual"}
+
+    r = c.put(f"/api/ops/projects/{pid}/rfq", json={"rfqId": None})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["rfq"] is None
+    stored = db["ops_projects"].find_one({"_id": ObjectId(pid)})
+    assert stored["rfqMatch"]["method"] == "manual"  # a cleared link stays manual; matcher leaves it alone
+
+    logs = [d for d in db["ops_change_log"].docs if d["action"] == "project.rfq_match"]
+    assert [d["new"] for d in logs] == ["o1", None]
+
+
+def test_rfq_unknown_id_is_422(rfq_env):
+    c = rfq_env["client"]
+    pid = _project(c)
+    r = c.put(f"/api/ops/projects/{pid}/rfq", json={"rfqId": "missing"})
+    assert r.status_code == 422
+    assert r.json()["detail"] == "rfqId is not a known RFQ"
+
+
+def test_project_list_rfq_filter(rfq_env):
+    c, db = rfq_env["client"], rfq_env["db"]
+    p1 = _project(c, "P-001")
+    p2 = _project(c, "P-002")
+    _project(c, "P-003")
+    db["ops_projects"].update_one({"_id": ObjectId(p1)},
+                                  {"$set": {"rfqId": "o1", "rfqTitle": "T", "rfqStage": "rfq",
+                                            "rfqMatch": {"method": "title-exact"}}})
+    db["ops_projects"].update_one({"_id": ObjectId(p2)},
+                                  {"$set": {"rfqCandidates": [{"id": "a", "title": "A", "stage": "rfq"},
+                                                              {"id": "b", "title": "B", "stage": "won"}]}})
+
+    matched = c.get("/api/ops/projects", params={"rfq": "matched"}).json()
+    assert [i["projectNumber"] for i in matched["items"]] == ["P-001"]
+    assert matched["items"][0]["rfq"]["method"] == "title-exact"
+
+    amb = c.get("/api/ops/projects", params={"rfq": "ambiguous"}).json()
+    assert [i["projectNumber"] for i in amb["items"]] == ["P-002"]
+    assert len(amb["items"][0]["rfqCandidates"]) == 2
+    assert amb["items"][0]["rfq"] is None
+
+    unm = c.get("/api/ops/projects", params={"rfq": "unmatched"}).json()
+    assert [i["projectNumber"] for i in unm["items"]] == ["P-003"]
+
+    assert c.get("/api/ops/projects", params={"rfq": "bogus"}).status_code == 422
+
+
+def test_rfq_lookup_title_search(rfq_env):
+    c, crm = rfq_env["client"], rfq_env["crm"]
+    _opp(crm, "o1", "Amazon Pay Study")
+    _opp(crm, "o2", "amazon pay wave 2")
+    _opp(crm, "o3", "Other Thing")
+
+    items = c.get("/api/ops/rfq/lookup", params={"q": "AMAZON"}).json()["items"]
+    assert sorted(i["id"] for i in items) == ["o1", "o2"]
+    assert set(items[0]) == {"id", "title", "stage"}
+    assert len(c.get("/api/ops/rfq/lookup").json()["items"]) == 3
+    assert c.get("/api/ops/rfq/lookup", params={"q": "nomatch"}).json()["items"] == []
+
+
+def test_rfq_lookup_caps_at_20(rfq_env):
+    crm, c = rfq_env["crm"], rfq_env["client"]
+    for i in range(25):
+        _opp(crm, f"x{i}", f"Study {i}")
+    assert len(c.get("/api/ops/rfq/lookup", params={"q": "study"}).json()["items"]) == 20
+
+
+def test_rfq_reverse_lookup_lists_linked_projects(rfq_env):
+    c, crm = rfq_env["client"], rfq_env["crm"]
+    p1 = _project(c, "P-001")
+    _project(c, "P-002")
+    _opp(crm, "o1", "Amazon Pay Study")
+    c.put(f"/api/ops/projects/{p1}/rfq", json={"rfqId": "o1"})
+    items = c.get("/api/ops/rfq/o1/projects").json()["items"]
+    assert items == [{"id": p1, "projectName": "Project A", "projectNumber": "P-001"}]
+    assert c.get("/api/ops/rfq/o2/projects").json()["items"] == []

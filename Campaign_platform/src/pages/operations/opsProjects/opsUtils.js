@@ -66,6 +66,31 @@ export const fmtChangeValue = (v) => {
   return String(v);
 };
 
+// ---------- RFQ link ----------
+
+// Sales RFQ list. The page reads no URL params, so a chip opens the plain list.
+export const RFQ_PAGE_HREF = "/admin/sales/rfq";
+
+// Filter values for the list's rfq param, in display order.
+export const RFQ_FILTER_OPTIONS = [
+  { value: "", label: "All RFQs" },
+  { value: "matched", label: "Matched" },
+  { value: "unmatched", label: "Unmatched" },
+  { value: "ambiguous", label: "Needs review" },
+];
+
+// Tolerant reads: a missing or malformed rfq field means no match.
+export const rfqOf = (project) => {
+  const rfq = project?.rfq;
+  return rfq && typeof rfq === "object" && rfq.id ? rfq : null;
+};
+export const rfqCandidatesOf = (project) =>
+  Array.isArray(project?.rfqCandidates) ? project.rfqCandidates.filter((c) => c && c.id) : [];
+
+const RFQ_STAGES = { rfq: "RFQ", proposal: "Proposal", won: "Won" };
+export const rfqStageTone = (stage) => (RFQ_STAGES[stage] ? stage : "neutral");
+export const rfqStageLabel = (stage) => RFQ_STAGES[stage] || (stage ? String(stage) : "Unknown stage");
+
 export const STATUS_LABELS = {
   live: "Live",
   paused: "Paused",
