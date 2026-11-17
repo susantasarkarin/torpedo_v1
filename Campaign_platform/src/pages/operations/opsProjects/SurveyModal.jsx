@@ -1,11 +1,15 @@
 import { useRef, useState } from "react";
 import { createSurvey, updateSurvey, OpsApiError } from "../../../services/opsProjectsService";
-import { ModalShell, TimezoneSelect } from "./opsShared";
+import { ModalShell } from "./opsShared";
 import { splitFieldErrors } from "./opsUtils";
 
 // API field name -> form key; form keys that have an input under their own error line.
-const FIELD_MAP = { targetN: "target", countryCode: "country", languageCode: "language" };
-const FORM_FIELDS = ["surveyName", "surveyUrl", "target", "loi", "ir", "country", "language"];
+const FIELD_MAP = { targetN: "target", countryCode: "country" };
+const FORM_FIELDS = ["surveyName", "surveyUrl", "target", "loi", "ir", "country"];
+
+// Timezone and language have no input: new surveys get these (backend requires a language).
+const DEFAULT_TIMEZONE = "Asia/Kolkata";
+const DEFAULT_LANGUAGE = "en";
 
 const DEVICE_OPTIONS = [
   { value: "desktop", label: "Desktop" },
@@ -20,10 +24,11 @@ const emptyForm = (survey) => ({
   loi: survey?.loi ?? "",
   ir: survey?.ir ?? "",
   outOfFieldAt: survey?.outOfFieldAt ? String(survey.outOfFieldAt).slice(0, 16) : "",
-  timezone: survey?.timezone || "",
   country: survey?.countryCode || "",
-  language: survey?.languageCode || "",
-  devices: survey?.devices && typeof survey.devices === "object" ? Object.keys(survey.devices).filter((k) => survey.devices[k]) : [],
+  // New surveys start with every device allowed.
+  devices: survey?.devices && typeof survey.devices === "object"
+    ? Object.keys(survey.devices).filter((k) => survey.devices[k])
+    : DEVICE_OPTIONS.map((d) => d.value),
   pii: Boolean(survey?.piiEnabled),
 });
 
@@ -86,11 +91,6 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
     const country = form.country.trim();
     if (!country && required) next.country = "Country is required.";
     else if (country && !/^[A-Za-z]{2}$/.test(country)) next.country = "Country must be a 2-letter code, for example IN.";
-    const language = form.language.trim();
-    if (!language && required) next.language = "Language is required.";
-    else if (language && !/^[A-Za-z]{2}(-[A-Za-z0-9]{2,8})?$/.test(language)) {
-      next.language = "Language must look like en or en-IN.";
-    }
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -109,9 +109,10 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
       loi: form.loi === "" ? null : Number(form.loi),
       ir: form.ir === "" ? null : Number(form.ir),
       outOfFieldAt: form.outOfFieldAt || null,
-      timezone: form.timezone || null,
+      // Edit sends null so the backend keeps the stored timezone/language.
+      timezone: isEdit ? null : DEFAULT_TIMEZONE,
       countryCode: form.country.trim().toUpperCase() || null,
-      languageCode: form.language.trim() || null,
+      languageCode: isEdit ? null : DEFAULT_LANGUAGE,
       devices: { desktop: form.devices.includes("desktop"), mobile: form.devices.includes("mobile"), tablet: form.devices.includes("tablet") },
       piiEnabled: form.pii,
     };
@@ -203,23 +204,10 @@ export default function SurveyModal({ projectId, survey, onClose, onSaved }) {
             <input id="sv-oof" type="datetime-local" className="ops-input" value={form.outOfFieldAt} onChange={set("outOfFieldAt")} />
           </div>
           <div className="ops-field">
-            <label htmlFor="sv-tz">Timezone</label>
-            <TimezoneSelect id="sv-tz" value={form.timezone} onChange={set("timezone")} />
-          </div>
-        </div>
-
-        <div className="ops-field-row">
-          <div className="ops-field">
             <label htmlFor="sv-country">Country (2-letter code) {!isEdit && <span aria-hidden="true">*</span>}</label>
             <input id="sv-country" className={`ops-input ${invalid("country") ? "ops-input--error" : ""}`} value={form.country}
               onChange={set("country")} placeholder="IN" maxLength={2} aria-invalid={invalid("country")} />
             {invalid("country") && <span className="ops-field__error">{errors.country}</span>}
-          </div>
-          <div className="ops-field">
-            <label htmlFor="sv-language">Language {!isEdit && <span aria-hidden="true">*</span>}</label>
-            <input id="sv-language" className={`ops-input ${invalid("language") ? "ops-input--error" : ""}`} value={form.language}
-              onChange={set("language")} placeholder="en or en-IN" aria-invalid={invalid("language")} />
-            {invalid("language") && <span className="ops-field__error">{errors.language}</span>}
           </div>
         </div>
 
