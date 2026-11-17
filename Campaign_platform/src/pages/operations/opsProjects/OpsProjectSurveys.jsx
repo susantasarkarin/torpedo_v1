@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   listSurveys,
   getSurvey,
@@ -74,6 +74,7 @@ const METRIC_COLUMNS = [
 
 export default function OpsProjectSurveys() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
@@ -213,7 +214,7 @@ export default function OpsProjectSurveys() {
   return (
     <div className="ops-page">
       <Breadcrumbs
-        items={[{ label: "Projects", to: "/admin/operations/ops-projects" }, { label: "Surveys" }]}
+        items={[{ label: "Projects", to: "/admin/operations/projects" }, { label: "Surveys" }]}
       />
 
       <header className="ops-page__header">
@@ -226,7 +227,7 @@ export default function OpsProjectSurveys() {
           </dl>
         </div>
         <div className="ops-header-actions">
-          <Link className="ops-btn ops-btn--ghost" to={`/admin/operations/ops-projects/${projectId}/report`}>
+          <Link className="ops-btn ops-btn--ghost" to={`/admin/operations/projects/research/${projectId}/report`}>
             Report
           </Link>
           <button type="button" className="ops-btn ops-btn--ghost" onClick={() => setReconOpen(true)}>
@@ -342,7 +343,7 @@ export default function OpsProjectSurveys() {
                   {data.items.map((s) => (
                     <tr key={s.id}>
                       <td className="ops-td">
-                        <Link className="ops-link" to={`/admin/operations/ops-projects/${projectId}/surveys/${s.id}`}>
+                        <Link className="ops-link" to={`/admin/operations/projects/research/${projectId}/surveys/${s.id}`}>
                           {s.surveyName}
                         </Link>
                       </td>
@@ -361,6 +362,7 @@ export default function OpsProjectSurveys() {
                           label={s.surveyName}
                           items={[
                             { label: "Edit", onSelect: () => onEdit(s) },
+                            { label: "Full survey settings", title: "Open this survey in the classic project settings page", onSelect: () => navigate(`/admin/operations/projects/${s.id}`) },
                             { label: "Test Survey", title: TEST_LINK_TIP, onSelect: () => openSurveyTestLink(s.id) },
                             { label: "Duplicate", onSelect: () => onDuplicate(s) },
                             { label: "Download traffic report", onSelect: () => onDownload(s) },

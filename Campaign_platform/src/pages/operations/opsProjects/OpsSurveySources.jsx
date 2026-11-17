@@ -269,8 +269,8 @@ export default function OpsSurveySources() {
     <div className="ops-page">
       <Breadcrumbs
         items={[
-          { label: "Projects", to: "/admin/operations/ops-projects" },
-          { label: "Surveys", to: `/admin/operations/ops-projects/${projectId}` },
+          { label: "Projects", to: "/admin/operations/projects" },
+          { label: "Surveys", to: `/admin/operations/projects/research/${projectId}` },
           { label: "Sources" },
         ]}
       />

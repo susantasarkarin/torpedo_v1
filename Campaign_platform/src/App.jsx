@@ -1,5 +1,5 @@
 import { Component, Suspense, lazy as reactLazy } from "react"
-import { Routes, Route, Navigate, useLocation } from "react-router-dom"
+import { Routes, Route, Navigate, useLocation, useParams } from "react-router-dom"
 
 import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
@@ -89,6 +89,20 @@ const OpsProjectsList = lazy(() => import("./pages/operations/opsProjects/OpsPro
 const OpsProjectSurveys = lazy(() => import("./pages/operations/opsProjects/OpsProjectSurveys"))
 const OpsSurveySources = lazy(() => import("./pages/operations/opsProjects/OpsSurveySources"))
 const OpsProjectReport = lazy(() => import("./pages/operations/opsProjects/OpsProjectReport"))
+
+// Old Research Desk addresses (the retired legacy segment) moved under /operations/projects/research/...
+function RedirectOpsProjectSurveys() {
+  const { projectId } = useParams()
+  return <Navigate to={`/admin/operations/projects/research/${projectId}`} replace />
+}
+function RedirectOpsProjectReport() {
+  const { projectId } = useParams()
+  return <Navigate to={`/admin/operations/projects/research/${projectId}/report`} replace />
+}
+function RedirectOpsSurveySources() {
+  const { projectId, surveyId } = useParams()
+  return <Navigate to={`/admin/operations/projects/research/${projectId}/surveys/${surveyId}`} replace />
+}
 
 // Finance Pages
 const FinanceCustomersImport = lazy(() => import("./pages/finance/CustomersImport"))
@@ -376,13 +390,20 @@ function App() {
         <Route path="operations/accounts" element={<LazyPage><AccountsPage /></LazyPage>} />
         <Route path="operations/clients" element={<LazyPage><ClientsPage /></LazyPage>} />
         <Route path="operations/vendors" element={<LazyPage><VendorsPage /></LazyPage>} />
-        <Route path="operations/projects" element={<LazyPage><ProjectsPage /></LazyPage>} />
+        {/* Operations > Projects is the Research Desk list; the flat legacy list lives at /classic.
+            Static segments ("classic", "research") outrank the :projectId param route in RR v6/v7. */}
+        <Route path="operations/projects" element={<LazyPage><OpsProjectsList /></LazyPage>} />
+        <Route path="operations/projects/classic" element={<LazyPage><ProjectsPage /></LazyPage>} />
+        <Route path="operations/projects/research/:projectId" element={<LazyPage><OpsProjectSurveys /></LazyPage>} />
+        <Route path="operations/projects/research/:projectId/report" element={<LazyPage><OpsProjectReport /></LazyPage>} />
+        <Route path="operations/projects/research/:projectId/surveys/:surveyId" element={<LazyPage><OpsSurveySources /></LazyPage>} />
+        {/* legacy flat-project routes, untouched: many links point here */}
         <Route path="operations/projects/:projectId" element={<LazyPage><ProjectDetail /></LazyPage>} />
         <Route path="operations/projects/:projectId/qualifications" element={<LazyPage><ProjectQualifications /></LazyPage>} />
-        <Route path="operations/ops-projects" element={<LazyPage><OpsProjectsList /></LazyPage>} />
-        <Route path="operations/ops-projects/:projectId" element={<LazyPage><OpsProjectSurveys /></LazyPage>} />
-        <Route path="operations/ops-projects/:projectId/report" element={<LazyPage><OpsProjectReport /></LazyPage>} />
-        <Route path="operations/ops-projects/:projectId/surveys/:surveyId" element={<LazyPage><OpsSurveySources /></LazyPage>} />
+        <Route path="operations/ops-projects" element={<Navigate to="/admin/operations/projects" replace />} />
+        <Route path="operations/ops-projects/:projectId" element={<RedirectOpsProjectSurveys />} />
+        <Route path="operations/ops-projects/:projectId/report" element={<RedirectOpsProjectReport />} />
+        <Route path="operations/ops-projects/:projectId/surveys/:surveyId" element={<RedirectOpsSurveySources />} />
         <Route path="operations/survey-pool" element={<LazyPage><SurveyPool /></LazyPage>} />
         <Route path="operations/potential-clients" element={<LazyPage><PotentialClients /></LazyPage>} />
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />

@@ -113,8 +113,8 @@ export default function OpsProjectReport() {
     <div className="ops-page">
       <Breadcrumbs
         items={[
-          { label: "Projects", to: "/admin/operations/ops-projects" },
-          { label: project.projectName || "Project", to: `/admin/operations/ops-projects/${projectId}` },
+          { label: "Projects", to: "/admin/operations/projects" },
+          { label: project.projectName || "Project", to: `/admin/operations/projects/research/${projectId}` },
           { label: "Report" },
         ]}
       />
@@ -173,7 +173,7 @@ export default function OpsProjectReport() {
                       <tr key={s.id || i}>
                         <td className="ops-td">
                           {s.id ? (
-                            <Link className="ops-link" to={`/admin/operations/ops-projects/${projectId}/surveys/${s.id}`}>
+                            <Link className="ops-link" to={`/admin/operations/projects/research/${projectId}/surveys/${s.id}`}>
                               {s.surveyName || s.name || "Survey"}
                             </Link>
                           ) : (

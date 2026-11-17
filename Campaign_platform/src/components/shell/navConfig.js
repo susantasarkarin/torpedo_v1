@@ -113,7 +113,6 @@ export const MODULES = [
           { label: "Clients", icon: "👤", to: "/admin/operations/clients" },
           { label: "Vendors", icon: "🏢", to: "/admin/operations/vendors" },
           { label: "Projects", icon: "📂", to: "/admin/operations/projects" },
-          { label: "Projects (Research Desk)", icon: "🗂", to: "/admin/operations/ops-projects" },
           { label: "Survey Pool", icon: "📋", to: "/admin/operations/survey-pool" },
           { label: "Potential Client", icon: "💼", to: "/admin/operations/potential-clients" },
           { label: "Rate Card", icon: "💵", to: "/admin/operations/rate-card" },

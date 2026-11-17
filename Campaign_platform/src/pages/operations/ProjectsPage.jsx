@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Plus, Search, Pencil, Trash2, Eye, ChevronLeft, ChevronRight,
   FolderOpen, Activity, X
@@ -685,6 +685,7 @@ function ProjectsPage() {
             <FolderOpen size={22} className="pp-title-icon" />
             <h2 className="pp-title cx-page-title">Projects</h2>
           </div>
+          <Link to="/admin/operations/projects" className="pp-act-btn">← Back to Projects</Link>
           <div className="pp-stat-pills">
             <span className="pp-pill">{projects.length} Total</span>
             <span className="pp-pill pp-pill-live">{liveCount} Active</span>

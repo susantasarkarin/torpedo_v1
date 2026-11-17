@@ -39,10 +39,10 @@ const PROJECT_STATUS_OPTIONS = [
 
 const EMPTY_COUNTS = { all: 0, live: 0, paused: 0, completed: 0 };
 
-const projectHref = (p) => `/admin/operations/ops-projects/${p.id}`;
+const projectHref = (p) => `/admin/operations/projects/research/${p.id}`;
 // A survey opens its sources page only when its parent project is known.
 const sourcesHref = (projectId, surveyId) =>
-  projectId && surveyId ? `/admin/operations/ops-projects/${projectId}/surveys/${surveyId}` : null;
+  projectId && surveyId ? `/admin/operations/projects/research/${projectId}/surveys/${surveyId}` : null;
 const NO_PAGE_TIP = "Open the parent survey to see its sources";
 
 // One dropdown row. A link when href is set; otherwise a disabled row with the tooltip.
@@ -247,9 +247,18 @@ export default function OpsProjectsList() {
           <h1 className="ops-page__title">Projects</h1>
           <p className="ops-page__subtitle">Research Desk projects and their surveys</p>
         </div>
-        <button type="button" className="ops-btn ops-btn--primary" onClick={() => setModal({ mode: "create" })}>
-          + New Project
-        </button>
+        <div className="ops-header-actions">
+          <Link
+            className="ops-btn ops-btn--ghost"
+            to="/admin/operations/projects/classic"
+            title="Flat list of all surveys, including older ones without a survey number"
+          >
+            Classic survey list
+          </Link>
+          <button type="button" className="ops-btn ops-btn--primary" onClick={() => setModal({ mode: "create" })}>
+            + New Project
+          </button>
+        </div>
       </header>
 
       <div className="ops-toolbar">
@@ -399,7 +408,7 @@ export default function OpsProjectsList() {
                         </button>
                       </td>
                       <td className="ops-td">
-                        <Link className="ops-link" to={`/admin/operations/ops-projects/${p.id}`}>
+                        <Link className="ops-link" to={projectHref(p)}>
                           {p.projectName}
                         </Link>
                         <div className="ops-subtle">{p.surveyCount ?? 0} surveys</div>
