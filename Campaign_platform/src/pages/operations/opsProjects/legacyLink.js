@@ -40,8 +40,11 @@ export const systemPages = (liveLink) => {
 };
 
 // pid is filled in by the server (it replaces pid= with the new surveyNo on create).
-export const entryLinkTemplate = (vid, surveyNo) =>
-  `${callbackBase()}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=[%CC%]&panel=[%PANEL%]&pid=${surveyNo || "{PID}"}&rid=[%RID%]`;
+// Format that works in production: cc carries the survey's country, no panel param.
+export const entryLinkTemplate = (vid, surveyNo, countryCode) => {
+  const cc = String(countryCode || "").trim().toUpperCase() || "[%CC%]";
+  return `${callbackBase()}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc}&pid=${surveyNo || "{PID}"}&rid=[%RID%]`;
+};
 
 export const normalizeUrl = (value) => {
   const raw = String(value || "").trim();
@@ -86,7 +89,7 @@ export const createLegacyLink = async (form, vendor) => {
     cpi: form.cpi,
     countryCode: form.countryCode.trim().toUpperCase(),
     liveLink,
-    entryLink: entryLinkTemplate(vendor.vid, "new"), // server swaps pid= for the new surveyNo
+    entryLink: entryLinkTemplate(vendor.vid, "new", form.countryCode), // server swaps pid= for the new surveyNo
     ...systemPages(liveLink),
     vendorName: vendor.vendorName || "",
     vendorId: String(vendor.vid || ""),

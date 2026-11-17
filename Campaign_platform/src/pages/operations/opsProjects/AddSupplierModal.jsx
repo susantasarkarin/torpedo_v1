@@ -316,7 +316,7 @@ export default function AddSupplierModal({ surveyId, project, canPrice, onClose,
             {linkField("liveLink", "Live link (client survey URL)", true, { placeholder: "https://" })}
             <div className="ops-field">
               <label htmlFor="sup-l-entry">Entry link</label>
-              <input id="sup-l-entry" className="ops-input" readOnly value={entryLinkTemplate(vendorId(selected), "(generated on save)")} />
+              <input id="sup-l-entry" className="ops-input" readOnly value={entryLinkTemplate(vendorId(selected), "(generated on save)", linkForm.countryCode)} />
             </div>
           </fieldset>
         )}
