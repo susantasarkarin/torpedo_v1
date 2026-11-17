@@ -673,6 +673,92 @@ def _effective_status(row: Dict[str, Any], legacy_doc: Optional[Dict[str, Any]])
     return row.get("status") or "live"
 
 
+# ============================================================ status cascade
+#
+# Rules (owner, 2026-11-17). Traffic is gated ONLY by the legacy link's projectStatus
+# (routers/traffic.py _resolve_live_project_async), so every stop is written there.
+#   UP:   a live (linked) supplier means its survey and its project are live.
+#         The reverse does not hold: making a project/survey live revives nothing.
+#   DOWN: a paused/completed project or survey carries no traffic: its surveys and
+#         live suppliers are stopped. The reverse does not hold: stopping one
+#         supplier (or survey) leaves its parents alone.
+
+# survey/project status -> what its live children become ("paused" or "completed")
+_STOP_AS = {"paused": "paused", "auto_paused": "paused", "draft": "paused", "scheduled": "paused",
+            "completed": "completed", "cancelled": "completed"}
+
+
+def _stop_suppliers(survey_ids: List[str], target: str, user: str, reason: str) -> int:
+    """Pause (live -> paused) or close (live/paused -> completed) the active suppliers of
+    these surveys. Linked rows get the legacy projectStatus written, which is what stops
+    traffic. Returns how many suppliers changed."""
+    sups = [r for rows in _suppliers_by_survey(survey_ids).values() for r in rows]
+    if not sups:
+        return 0
+    legacy = _legacy_docs([r.get("legacyProjectId") for r in sups])
+    changed = 0
+    for r in sups:
+        ldoc = legacy.get(str(r.get("legacyProjectId")))
+        cur = _effective_status(r, ldoc)
+        if cur == target or (target == "paused" and cur != "live"):
+            continue
+        if ldoc is not None:
+            _col(COL_PROJECTS).update_one({"_id": ldoc["_id"]},
+                                          {"$set": {"projectStatus": LEGACY_STATUS_WRITE[target]}})
+        _col(COL_SUPPLIERS).update_one({"_id": r["_id"]}, {"$set": {"status": target, "updatedAt": _now()}})
+        _log(user=user, action="supplier.status_cascade", project_id=_project_of_survey(r["surveyId"]),
+             survey_id=r["surveyId"], field="status", old=cur, new=target,
+             extra={"supplierId": str(r["_id"]), "reason": reason,
+                    "legacyProjectId": str(ldoc["_id"]) if ldoc else None, "legacyWrite": ldoc is not None})
+        changed += 1
+    return changed
+
+
+def _stop_project_children(project_id: str, target: str, user: str) -> None:
+    """Project paused/completed: its live surveys and all its suppliers stop too."""
+    surveys = _surveys_of([project_id]).get(str(project_id), [])
+    for s in surveys:
+        cur = s.get("status") or "draft"
+        if cur == "live" or (target == "completed" and cur in ("paused", "auto_paused", "scheduled", "draft")):
+            _col(COL_OPS_SURVEYS).update_one({"_id": s["_id"]}, {"$set": {"status": target, "updatedAt": _now()}})
+            _log(user=user, action="survey.status_cascade", project_id=str(project_id), survey_id=str(s["_id"]),
+                 field="status", old=cur, new=target, extra={"reason": f"project {target}"})
+    _stop_suppliers([str(s["_id"]) for s in surveys], target, user, f"project {target}")
+
+
+def _raise_parents_live(survey_id: str, user: str, reason: str) -> None:
+    """A supplier went live: its survey and project must be live."""
+    survey = _find_survey(survey_id)
+    if not survey:
+        return
+    if (survey.get("status") or "draft") != "live":
+        _col(COL_OPS_SURVEYS).update_one({"_id": survey["_id"]}, {"$set": {"status": "live", "updatedAt": _now()}})
+        _log(user=user, action="survey.status_cascade", project_id=survey.get("projectId"),
+             survey_id=str(survey["_id"]), field="status", old=survey.get("status") or "draft", new="live",
+             extra={"reason": reason})
+    pid = survey.get("projectId")
+    if pid and ObjectId.is_valid(str(pid)):
+        project = _col(COL_OPS_PROJECTS).find_one({"_id": ObjectId(str(pid)), "is_deleted": {"$ne": True}})
+        if project and project.get("status") != "live":
+            _col(COL_OPS_PROJECTS).update_one({"_id": project["_id"]}, {"$set": {"status": "live", "updatedAt": _now()}})
+            _log(user=user, action="project.status_cascade", project_id=str(pid), field="status",
+                 old=project.get("status"), new="live", extra={"reason": reason})
+
+
+def on_legacy_status_change(legacy_id: str, project_status: Any, user: str) -> None:
+    """Called after the classic screen saves a link. A link set live raises the survey and
+    project of every participation attached to it. Never raises: the classic save stands."""
+    try:
+        if _supplier_status_from_legacy(project_status) != "live":
+            return
+        for r in _col(COL_SUPPLIERS).find({"legacyProjectId": str(legacy_id), "removed": {"$ne": True}}):
+            if r.get("status") != "live":
+                _col(COL_SUPPLIERS).update_one({"_id": r["_id"]}, {"$set": {"status": "live", "updatedAt": _now()}})
+            _raise_parents_live(r["surveyId"], user, "classic link set live")
+    except Exception:  # noqa: BLE001 -- best effort, logged
+        logger.exception("status cascade after classic save failed for %s", legacy_id)
+
+
 def _project_rows(projects: List[Dict[str, Any]], username: str, cutoff: datetime) -> List[Dict[str, Any]]:
     surveys_by_parent = _surveys_of([str(p["_id"]) for p in projects])
     all_sids = [str(s["_id"]) for v in surveys_by_parent.values() for s in v]
@@ -1115,6 +1201,9 @@ def set_project_status(project_id: str, request: Request, body: StatusBody,
                                       {"$set": {"status": body.status, "updatedAt": _now()}})
     _log(user=user, action="project.status", project_id=str(doc["_id"]),
          field="status", old=doc.get("status"), new=body.status)
+    if body.status in ("paused", "completed"):
+        # No traffic for a stopped project: its surveys and suppliers stop too.
+        _stop_project_children(str(doc["_id"]), body.status, user)
     return {"project": _project_view(_get_project(project_id), user)}
 
 
@@ -1217,7 +1306,8 @@ def update_survey(survey_id: str, request: Request, body: Dict[str, Any] = Body(
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def set_survey_status(survey_id: str, request: Request, body: StatusBody,
                       user: str = Depends(verify_session)):
-    """Survey status lives on the survey. Supplier and legacy docs are not touched."""
+    """Live raises the project to live. Any stopped state stops the survey's suppliers
+    (live -> paused, or -> completed for completed/cancelled); see the status cascade."""
     _ensure_indexes()
     if body.status not in SURVEY_STATUSES:
         _bad(f"status must be one of {', '.join(SURVEY_STATUSES)}")
@@ -1227,6 +1317,10 @@ def set_survey_status(survey_id: str, request: Request, body: StatusBody,
                                      {"$set": {"status": body.status, "updatedAt": _now()}})
     _log(user=user, action="survey.status", project_id=doc.get("projectId"), survey_id=survey_id,
          field="status", old=old, new=body.status)
+    if body.status == "live":
+        _raise_parents_live(survey_id, user, "survey set live")
+    elif body.status in _STOP_AS:
+        _stop_suppliers([str(doc["_id"])], _STOP_AS[body.status], user, f"survey {body.status}")
     return {"survey": _survey_detail(_get_survey(survey_id))}
 
 
@@ -1410,6 +1504,8 @@ def _insert_participation(survey: Dict[str, Any], vendor: Dict[str, Any], vid: s
         sup_id = _col(COL_SUPPLIERS).insert_one({**fields, "createdAt": _now(), "createdBy": user}).inserted_id
     _log(user=user, action="supplier.add", project_id=survey.get("projectId"), survey_id=sid_str,
          field="vendorId", new=vid, extra={"supplierId": str(sup_id), "surveyNo": no, "legacyProjectId": lid})
+    if lid and status == "live":
+        _raise_parents_live(sid_str, user, "live supplier added")
     return _supplier_view({**fields, "_id": sup_id}, status)
 
 
@@ -1470,6 +1566,8 @@ def attach_supplier_link(sid: str, request: Request, body: SupplierLinkBody, use
     _log(user=user, action="supplier.link", project_id=_project_of_survey(doc["surveyId"]),
          survey_id=doc["surveyId"], field="surveyNo", old=doc.get("surveyNo"), new=no,
          extra={"supplierId": sid, "legacyProjectId": fields["legacyProjectId"]})
+    if fields["status"] == "live":
+        _raise_parents_live(doc["surveyId"], user, "live link attached")
     return {"item": _supplier_out(_get_supplier(sid))}
 
 
@@ -1517,6 +1615,9 @@ def update_supplier(sid: str, request: Request, body: SupplierUpdate, user: str 
                  field=k, old=old_status if k == "status" else doc.get(k), new=v,
                  extra={"supplierId": sid, "legacyProjectId": doc.get("legacyProjectId") if wrote_legacy else None,
                         "legacyWrite": wrote_legacy})
+    if data.get("status") == "live":
+        # A live supplier means a live survey and project (not the reverse).
+        _raise_parents_live(doc["surveyId"], user, "supplier set live")
     return {"item": _supplier_out(_get_supplier(sid))}
 
 

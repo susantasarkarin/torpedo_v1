@@ -4649,6 +4649,10 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
         result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Project not found")
+        # A classic link set live makes the survey and project it belongs to live.
+        if "projectStatus" in project_data:
+            from routers import ops_surveys as _ops
+            _ops.on_legacy_status_change(project_id, project_data.get("projectStatus"), "classic")
         # Saved from the Qualifications page (qualificationManual) = the team's own;
         # otherwise fill whatever the RFQ email has that is still empty.
         if not project_data.get("qualificationManual"):

@@ -435,10 +435,11 @@ def test_status_write_through_to_legacy_doc(env):
     assert db["projects"].find_one({"_id": legacy_id})["projectName"] == "Legacy L1"  # other fields untouched
     assert c.put(url, json={"status": "draft"}).status_code == 422
 
-    # Survey status is independent: it never reaches the legacy doc or the supplier.
+    # A paused survey carries no traffic: its live supplier is paused at the legacy doc
+    # (owner rule 2026-11-17; previously survey status was independent).
     assert c.post(f"/api/ops/surveys/{sid}/status", json={"status": "paused"}).status_code == 200
-    assert db["projects"].find_one({"_id": legacy_id})["projectStatus"] == "live"
-    assert c.get(f"/api/ops/surveys/{sid}/suppliers").json()["items"][0]["status"] == "live"
+    assert db["projects"].find_one({"_id": legacy_id})["projectStatus"] == "pause"
+    assert c.get(f"/api/ops/surveys/{sid}/suppliers").json()["items"][0]["status"] == "paused"
     assert c.get(f"/api/ops/surveys/{sid}").json()["survey"]["status"] == "paused"
 
 
@@ -808,3 +809,83 @@ def test_user_roles_reads_role_string_and_roles_list(env):
     assert ops._is_finance("fin") is True
     assert ops._can_see_pricing("ops1") is False
     assert ops._user_roles("nobody") == set()
+
+
+# ------------------------------------------------------------ status cascade (owner 2026-11-17)
+
+def _cascade_setup(env, legacy_status="live"):
+    c, db = env["client"], env["db"]
+    _seed_vendor(db, "3374", "Dynata DIY")
+    pid = _project(c)
+    s = _survey(c, pid)
+    _legacy(db, "73732", "3374", status=legacy_status)
+    sup = c.post(f"/api/ops/surveys/{s['id']}/suppliers",
+                 json={"links": [{"vendorId": "3374", "surveyNo": "73732"}]}).json()["items"][0]
+    return c, db, pid, s["id"], sup["id"]
+
+
+def _legacy_status(db, no):
+    return db["projects"].find_one({"surveyNo": no})["projectStatus"]
+
+
+def _status(c, kind, id_):
+    path = {"project": f"/api/ops/projects/{id_}", "survey": f"/api/ops/surveys/{id_}"}[kind]
+    return c.get(path).json()[kind]["status"]
+
+
+def test_live_supplier_makes_survey_and_project_live(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    # adding a live link raised the draft survey to live
+    assert _status(c, "survey", sid) == "live"
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "paused"})
+    assert c.put(f"/api/ops/survey-suppliers/{sup}", json={"status": "live"}).status_code == 200
+    assert _status(c, "project", pid) == "live"
+    assert _status(c, "survey", sid) == "live"
+    assert _legacy_status(db, "73732") == "live"
+
+
+def test_paused_project_stops_traffic_on_its_links(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    assert c.post(f"/api/ops/projects/{pid}/status", json={"status": "paused"}).status_code == 200
+    assert _legacy_status(db, "73732") == "pause"   # what traffic.py checks
+    assert _status(c, "survey", sid) == "paused"
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "completed"})
+    assert _legacy_status(db, "73732") == "close"
+    assert _status(c, "survey", sid) == "completed"
+
+
+def test_live_project_does_not_revive_suppliers(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "paused"})
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "live"})
+    assert _legacy_status(db, "73732") == "pause"
+    assert _status(c, "survey", sid) == "paused"
+
+
+def test_paused_supplier_leaves_project_live(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    c.put(f"/api/ops/survey-suppliers/{sup}", json={"status": "paused"})
+    assert _legacy_status(db, "73732") == "pause"
+    assert _status(c, "project", pid) == "live"
+    assert _status(c, "survey", sid) == "live"
+
+
+def test_survey_status_cascades_down_and_up(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    c.post(f"/api/ops/surveys/{sid}/status", json={"status": "paused"})
+    assert _legacy_status(db, "73732") == "pause"
+    assert _status(c, "project", pid) == "live"     # survey stop does not stop the project
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "paused"})
+    c.post(f"/api/ops/surveys/{sid}/status", json={"status": "live"})
+    assert _status(c, "project", pid) == "live"     # survey live -> project live
+    assert _legacy_status(db, "73732") == "pause"   # but suppliers are not revived
+
+
+def test_classic_link_set_live_raises_parents(env):
+    c, db, pid, sid, sup = _cascade_setup(env)
+    c.post(f"/api/ops/projects/{pid}/status", json={"status": "paused"})
+    legacy_id = str(db["projects"].find_one({"surveyNo": "73732"})["_id"])
+    db["projects"].update_one({"surveyNo": "73732"}, {"$set": {"projectStatus": "live"}})
+    ops.on_legacy_status_change(legacy_id, "live", "classic")
+    assert _status(c, "project", pid) == "live"
+    assert _status(c, "survey", sid) == "live"
