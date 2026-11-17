@@ -186,9 +186,21 @@ def _oid(value: str, what: str) -> ObjectId:
         _not_found(f"{what} not found")
 
 
-def _is_admin(username: str) -> bool:
+def _user_roles(username: str) -> set:
+    """Roles of a user, lower-cased. Users store either a `roles` list or a single
+    `role` string (the prod admin has only role: "admin"), so both are read."""
     doc = _col(COL_USERS).find_one({"username": username}) or {}
-    return "admin" in (doc.get("roles") or [])
+    roles = doc.get("roles") or []
+    if isinstance(roles, str):
+        roles = [roles]
+    out = {str(r).strip().lower() for r in roles if r}
+    if doc.get("role"):
+        out.add(str(doc["role"]).strip().lower())
+    return out
+
+
+def _is_admin(username: str) -> bool:
+    return "admin" in _user_roles(username)
 
 
 def _require_admin(username: str, what: str) -> None:
@@ -197,8 +209,7 @@ def _require_admin(username: str, what: str) -> None:
 
 
 def _is_finance(username: str) -> bool:
-    doc = _col(COL_USERS).find_one({"username": username}) or {}
-    return "finance" in (doc.get("roles") or [])
+    return "finance" in _user_roles(username)
 
 
 def _can_see_pricing(username: str) -> bool:

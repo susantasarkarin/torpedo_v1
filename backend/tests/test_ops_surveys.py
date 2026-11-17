@@ -796,3 +796,15 @@ def test_rfq_reverse_lookup_lists_linked_projects(rfq_env):
     items = c.get("/api/ops/rfq/o1/projects").json()["items"]
     assert items == [{"id": p1, "projectName": "Project A", "projectNumber": "P001"}]
     assert c.get("/api/ops/rfq/o2/projects").json()["items"] == []
+
+
+def test_user_roles_reads_role_string_and_roles_list(env):
+    """Prod admin has only role: "admin" (no roles list); pricing must still allow it."""
+    db = env["db"]
+    db["users"].insert_one({"username": "admin", "role": "admin"})
+    db["users"].insert_one({"username": "fin", "roles": ["Finance"]})
+    db["users"].insert_one({"username": "ops1", "role": "user", "roles": []})
+    assert ops._user_roles("admin") == {"admin"}
+    assert ops._is_finance("fin") is True
+    assert ops._can_see_pricing("ops1") is False
+    assert ops._user_roles("nobody") == set()
