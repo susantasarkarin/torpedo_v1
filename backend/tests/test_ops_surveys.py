@@ -7,11 +7,13 @@ Runs against the in-memory fake (tests/_fakemongo.py). No network, no real DB.
 """
 import copy
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from bson import ObjectId
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pymongo.errors import DuplicateKeyError
 
 import routers.ops_surveys as ops
 from session_state import verify_session
@@ -26,13 +28,14 @@ SURVEY_BODY = {
     "countryCode": "IN",
     "languageCode": "en",
 }
+# No projectNumber: the system allocates it (P001, P002, ...).
 PROJECT_BODY = {
     "projectName": "Project A",
-    "projectNumber": "P-001",
     "managerId": "manager1",
     "fieldworkDatetime": "2026-12-01T10:00:00+05:30",
     "timezone": "Asia/Kolkata",
 }
+IST = ZoneInfo("Asia/Kolkata")
 
 
 class _Counters(FakeCollection):
@@ -68,10 +71,23 @@ def _seed_vendor(db, vid, name, status="active"):
     db["vendors"].insert_one({"vid": vid, "vendorName": name, "vendorType": "panel", "status": status})
 
 
-def _project(client, number="P-001"):
-    r = client.post("/api/ops/projects", json={**PROJECT_BODY, "projectNumber": number})
+class _UniqueProjects(FakeCollection):
+    """Enforces the unique projectNumber index that the real collection has."""
+
+    def insert_one(self, doc):
+        if any(d.get("projectNumber") == doc.get("projectNumber") for d in self.docs):
+            raise DuplicateKeyError("E11000 duplicate key error (projectNumber)")
+        return super().insert_one(doc)
+
+
+def _project(client):
+    r = client.post("/api/ops/projects", json=PROJECT_BODY)
     assert r.status_code == 200, r.text
     return r.json()["project"]["id"]
+
+
+def _number(client, pid):
+    return client.get(f"/api/ops/projects/{pid}").json()["project"]["projectNumber"]
 
 
 def _survey(client, pid, **over):
@@ -110,11 +126,79 @@ def _raw_row(traffic, no, vendor, status, created):
                         "createdAt": created, "respondentId": f"r{len(traffic.docs)}"})
 
 
-def test_duplicate_project_number_409(env):
+def test_project_number_allocated_in_sequence(env):
     c = env["client"]
-    _project(c, "P-DUP")
-    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "projectNumber": "P-DUP"})
-    assert r.status_code == 409
+    a, b = _project(c), _project(c)
+    assert _number(c, a) == "P001"
+    assert _number(c, b) == "P002"
+
+
+def test_first_number_continues_from_existing_max(env):
+    c, db = env["client"], env["db"]
+    for n in ("P223", "P007", "X999", "P-5"):  # only P<digits> counts toward the max
+        db[ops.COL_OPS_PROJECTS].insert_one({"projectName": n, "projectNumber": n, "is_deleted": False})
+    assert _number(c, _project(c)) == "P224"
+
+
+def test_supplied_project_number_is_ignored(env):
+    c = env["client"]
+    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "projectNumber": "P-HACK"})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["projectNumber"] == "P001"
+
+
+def test_number_clash_retries_with_next_number(env):
+    c, db = env["client"], env["db"]
+    db[ops.COL_OPS_PROJECTS] = _UniqueProjects()
+    db[ops.COL_COUNTERS].insert_one({"_id": ops.PROJECT_NUMBER_KEY, "seq": 0})  # counter behind data
+    db[ops.COL_OPS_PROJECTS].insert_one({"projectName": "Old", "projectNumber": "P001", "is_deleted": False})
+    assert _number(c, _project(c)) == "P002"
+
+
+def test_default_manager_and_timezone_applied(env, monkeypatch):
+    monkeypatch.delenv("OPS_DEFAULT_MANAGER_ID", raising=False)
+    monkeypatch.delenv("OPS_DEFAULT_MANAGER_NAME", raising=False)
+    c = env["client"]
+    r = c.post("/api/ops/projects", json={"projectName": "Name only"})
+    assert r.status_code == 200, r.text
+    proj = r.json()["project"]
+    assert proj["managerId"] == "susanta.sarkar"
+    assert proj["managerName"] == "Susanta Sarkar"
+    assert proj["timezone"] == "Asia/Kolkata"
+
+
+def test_default_manager_name_from_env(env, monkeypatch):
+    monkeypatch.setenv("OPS_DEFAULT_MANAGER_ID", "ops.lead")
+    monkeypatch.setenv("OPS_DEFAULT_MANAGER_NAME", "Ops Lead")
+    c = env["client"]
+    proj = c.post("/api/ops/projects", json={"projectName": "Env"}).json()["project"]
+    assert (proj["managerId"], proj["managerName"]) == ("ops.lead", "Ops Lead")
+
+
+def test_other_manager_is_looked_up_in_users(env):
+    c, db = env["client"], env["db"]
+    db[ops.COL_USERS].insert_one({"username": "manager1", "name": "Manager One"})
+    proj = c.post("/api/ops/projects", json={**PROJECT_BODY, "managerId": "manager1"}).json()["project"]
+    assert (proj["managerId"], proj["managerName"]) == ("manager1", "Manager One")
+
+
+def test_fieldwork_defaults_to_now_in_india_time(env):
+    c = env["client"]
+    before = datetime.now(IST).replace(microsecond=0)
+    r = c.post("/api/ops/projects", json={"projectName": "Now"})
+    after = datetime.now(IST)
+    assert r.status_code == 200, r.text
+    stored = datetime.fromisoformat(r.json()["project"]["fieldworkDatetime"])
+    assert before <= stored <= after
+    assert stored.utcoffset() == timedelta(hours=5, minutes=30)
+
+
+def test_supplied_timezone_kept_and_validated(env):
+    c = env["client"]
+    ok = c.post("/api/ops/projects", json={**PROJECT_BODY, "timezone": "Europe/London"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["project"]["timezone"] == "Europe/London"
+    assert c.post("/api/ops/projects", json={**PROJECT_BODY, "timezone": "Mars/Base"}).status_code == 422
 
 
 def test_create_survey_validation_422(env):
@@ -434,17 +518,17 @@ def test_traffic_export_is_audited(env):
 
 def test_project_list_counts_and_sort(env):
     c = env["client"]
-    _project(c, "P-1")
-    _project(c, "P-2")
+    _project(c)
+    _project(c)
     body = c.get("/api/ops/projects?sort=completes&order=desc").json()
     assert body["total"] == 2
     assert body["counts"]["all"] == 2 and body["counts"]["live"] == 2
-    assert {i["projectNumber"] for i in body["items"]} == {"P-1", "P-2"}
+    assert {i["projectNumber"] for i in body["items"]} == {"P001", "P002"}
 
 
 def test_client_name_and_source_on_project(env):
     c = env["client"]
-    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "projectNumber": "P-C", "clientName": "  Hansa  "})
+    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "clientName": "  Hansa  "})
     assert r.status_code == 200, r.text
     proj = r.json()["project"]
     assert proj["clientName"] == "Hansa"
@@ -658,9 +742,9 @@ def test_rfq_unknown_id_is_422(rfq_env):
 
 def test_project_list_rfq_filter(rfq_env):
     c, db = rfq_env["client"], rfq_env["db"]
-    p1 = _project(c, "P-001")
-    p2 = _project(c, "P-002")
-    _project(c, "P-003")
+    p1 = _project(c)
+    p2 = _project(c)
+    _project(c)
     db["ops_projects"].update_one({"_id": ObjectId(p1)},
                                   {"$set": {"rfqId": "o1", "rfqTitle": "T", "rfqStage": "rfq",
                                             "rfqMatch": {"method": "title-exact"}}})
@@ -669,16 +753,16 @@ def test_project_list_rfq_filter(rfq_env):
                                                               {"id": "b", "title": "B", "stage": "won"}]}})
 
     matched = c.get("/api/ops/projects", params={"rfq": "matched"}).json()
-    assert [i["projectNumber"] for i in matched["items"]] == ["P-001"]
+    assert [i["projectNumber"] for i in matched["items"]] == ["P001"]
     assert matched["items"][0]["rfq"]["method"] == "title-exact"
 
     amb = c.get("/api/ops/projects", params={"rfq": "ambiguous"}).json()
-    assert [i["projectNumber"] for i in amb["items"]] == ["P-002"]
+    assert [i["projectNumber"] for i in amb["items"]] == ["P002"]
     assert len(amb["items"][0]["rfqCandidates"]) == 2
     assert amb["items"][0]["rfq"] is None
 
     unm = c.get("/api/ops/projects", params={"rfq": "unmatched"}).json()
-    assert [i["projectNumber"] for i in unm["items"]] == ["P-003"]
+    assert [i["projectNumber"] for i in unm["items"]] == ["P003"]
 
     assert c.get("/api/ops/projects", params={"rfq": "bogus"}).status_code == 422
 
@@ -705,10 +789,10 @@ def test_rfq_lookup_caps_at_20(rfq_env):
 
 def test_rfq_reverse_lookup_lists_linked_projects(rfq_env):
     c, crm = rfq_env["client"], rfq_env["crm"]
-    p1 = _project(c, "P-001")
-    _project(c, "P-002")
+    p1 = _project(c)
+    _project(c)
     _opp(crm, "o1", "Amazon Pay Study")
     c.put(f"/api/ops/projects/{p1}/rfq", json={"rfqId": "o1"})
     items = c.get("/api/ops/rfq/o1/projects").json()["items"]
-    assert items == [{"id": p1, "projectName": "Project A", "projectNumber": "P-001"}]
+    assert items == [{"id": p1, "projectName": "Project A", "projectNumber": "P001"}]
     assert c.get("/api/ops/rfq/o2/projects").json()["items"] == []

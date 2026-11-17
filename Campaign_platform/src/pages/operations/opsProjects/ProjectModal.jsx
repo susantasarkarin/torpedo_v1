@@ -15,8 +15,9 @@ const DEFAULT_MANAGER_LABEL = "Admin";
 const getDefaultDate = () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(10, 0, 0, 0);
-  return tomorrow.toISOString().slice(0, 16);
+  const pad = (n) => String(n).padStart(2, "0");
+  // Local time (datetime-local input), not UTC: toISOString() would shift 10:00 IST to 04:30.
+  return `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T10:00`;
 };
 
 const emptyForm = (project) => ({

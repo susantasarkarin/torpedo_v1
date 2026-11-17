@@ -63,6 +63,10 @@ COL_TRAFFIC = "url_parameters"       # in traffic_flow_db
 
 SURVEY_NUMBER_KEY = "ops_survey_number"
 SURVEY_NUMBER_BASE = 100000          # first surveyNumber = 100000 + 1
+PROJECT_NUMBER_KEY = "ops_project_number"   # counters doc; projectNumber is 'P' + 3+ digits
+PROJECT_NUMBER_RE = re.compile(r"^P(\d+)$")
+PROJECT_NUMBER_ATTEMPTS = 5          # retries on a unique-index clash
+DEFAULT_TIMEZONE = "Asia/Kolkata"
 
 PROJECT_STATUSES = ("live", "paused", "completed")
 SURVEY_STATUSES = ("live", "paused", "completed", "draft", "cancelled", "auto_paused", "scheduled")
@@ -757,6 +761,42 @@ def _next_survey_number() -> str:
     return str(SURVEY_NUMBER_BASE + int(doc["seq"]))
 
 
+def _seed_project_number() -> int:
+    """Highest numeric suffix among existing P<digits> project numbers (0 when none)."""
+    top = 0
+    for p in _col(COL_OPS_PROJECTS).find({}):
+        m = PROJECT_NUMBER_RE.match(str(p.get("projectNumber") or ""))
+        if m:
+            top = max(top, int(m.group(1)))
+    return top
+
+
+def _next_project_number() -> str:
+    """Atomic: counters doc "ops_project_number" is $inc'd. Seeded lazily from the highest
+    existing P<digits> number, so the first allocation is max + 1 (P224 when P223 exists)."""
+    counters = _col(COL_COUNTERS)
+    if counters.find_one({"_id": PROJECT_NUMBER_KEY}) is None:
+        try:
+            counters.insert_one({"_id": PROJECT_NUMBER_KEY, "seq": _seed_project_number()})
+        except DuplicateKeyError:
+            pass  # another request seeded it first
+    doc = counters.find_one_and_update(
+        {"_id": PROJECT_NUMBER_KEY}, {"$inc": {"seq": 1}},
+        upsert=True, return_document=ReturnDocument.AFTER)
+    return f"P{int(doc['seq']):03d}"
+
+
+def _default_manager() -> Tuple[str, str]:
+    """(username, display name) of the manager every new project gets."""
+    return (os.getenv("OPS_DEFAULT_MANAGER_ID") or "susanta.sarkar",
+            os.getenv("OPS_DEFAULT_MANAGER_NAME") or "Susanta Sarkar")
+
+
+def _now_ist_iso() -> str:
+    """Current India time, whole seconds, as an offset-aware ISO string."""
+    return datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).replace(microsecond=0).isoformat()
+
+
 # ============================================================ RFQ link (crm_db.opportunities)
 
 RFQ_FILTERS = ("matched", "unmatched", "ambiguous")
@@ -800,10 +840,11 @@ def _rfq_candidates(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 class ProjectCreate(BaseModel):
     projectName: str
-    projectNumber: str
-    managerId: str
-    fieldworkDatetime: str
-    timezone: str
+    projectNumber: Optional[str] = None      # ignored: the system allocates the number
+    managerId: Optional[str] = None          # default: OPS_DEFAULT_MANAGER_ID
+    managerName: Optional[str] = None        # display fallback for a non-default manager
+    fieldworkDatetime: Optional[str] = None  # default: now (India time)
+    timezone: Optional[str] = None           # default: Asia/Kolkata
     clientName: Optional[str] = None
 
 
@@ -898,34 +939,48 @@ def list_projects(
 @require_permission(Permissions.OPS_PROJECT_CREATE)
 def create_project(request: Request, body: ProjectCreate, user: str = Depends(verify_session)):
     _ensure_indexes()
+    # projectNumber in the body is ignored: the number is allocated below.
     name = _check_name(body.projectName, "projectName")
-    number = _check_name(body.projectNumber, "projectNumber", limit=32)
-    manager = _check_name(body.managerId, "managerId")
-    fieldwork = _check_dt(body.fieldworkDatetime, "fieldworkDatetime")
-    tz = _check_tz(body.timezone)
+    manager_id, manager_name = _create_manager(body)
+    raw_fieldwork = (body.fieldworkDatetime or "").strip()
+    fieldwork = _check_dt(raw_fieldwork, "fieldworkDatetime") if raw_fieldwork else _now_ist_iso()
+    raw_tz = (body.timezone or "").strip()
+    tz = _check_tz(raw_tz) if raw_tz else DEFAULT_TIMEZONE
     client = (body.clientName or "").strip()
     if len(client) > 200:
         _bad("clientName is too long")
 
     col = _col(COL_OPS_PROJECTS)
-    if col.find_one({"projectNumber": number}):
-        raise HTTPException(status_code=409, detail="Project number already exists")
-    manager_doc = _col(COL_USERS).find_one({"username": manager}) or {}
-    doc = {
-        "projectName": name, "projectNumber": number, "managerId": manager,
-        "managerName": manager_doc.get("name") or manager_doc.get("username") or manager,
-        "clientName": client or None, "source": "manual",
-        "fieldworkDatetime": fieldwork, "timezone": tz, "status": "live",
-        "favoriteBy": [], "is_deleted": False,
-        "createdAt": _now(), "updatedAt": _now(), "createdBy": user,
-    }
-    try:
-        inserted = col.insert_one(doc)
-    except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="Project number already exists")
-    pid = str(inserted.inserted_id)
-    _log(user=user, action="project.create", project_id=pid, new=number)
-    return {"project": _project_view({**doc, "_id": inserted.inserted_id}, user)}
+    for _ in range(PROJECT_NUMBER_ATTEMPTS):
+        number = _next_project_number()
+        doc = {
+            "projectName": name, "projectNumber": number, "managerId": manager_id,
+            "managerName": manager_name,
+            "clientName": client or None, "source": "manual",
+            "fieldworkDatetime": fieldwork, "timezone": tz, "status": "live",
+            "favoriteBy": [], "is_deleted": False,
+            "createdAt": _now(), "updatedAt": _now(), "createdBy": user,
+        }
+        try:
+            inserted = col.insert_one(doc)
+        except DuplicateKeyError:
+            continue  # number already taken (counter behind the data): allocate again
+        pid = str(inserted.inserted_id)
+        _log(user=user, action="project.create", project_id=pid, new=number)
+        return {"project": _project_view({**doc, "_id": inserted.inserted_id}, user)}
+    raise HTTPException(status_code=409, detail="Could not allocate a project number, try again")
+
+
+def _create_manager(body: "ProjectCreate") -> Tuple[str, str]:
+    """Default manager unless a different managerId is supplied (only then is users read)."""
+    default_id, default_name = _default_manager()
+    mid = (body.managerId or "").strip()
+    if not mid or mid == default_id:
+        return default_id, default_name
+    mid = _check_name(mid, "managerId")
+    mdoc = _col(COL_USERS).find_one({"username": mid}) or {}
+    name = (mdoc.get("name") or mdoc.get("username") or (body.managerName or "").strip() or mid)
+    return mid, name
 
 
 @router.get("/projects/{project_id}")
