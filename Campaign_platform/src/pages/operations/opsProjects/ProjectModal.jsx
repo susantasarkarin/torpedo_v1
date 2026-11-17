@@ -1,24 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { createProject, updateProject, listManagers, OpsApiError } from "../../../services/opsProjectsService";
-import { ModalShell, TimezoneSelect } from "./opsShared";
+import { ModalShell } from "./opsShared";
 import { splitFieldErrors } from "./opsUtils";
 
 // API field name -> form key, and the form keys that have an input here.
 const FIELD_MAP = { fieldworkDatetime: "outOfFieldAt" };
-const FORM_FIELDS = ["projectName", "projectNumber", "managerId", "outOfFieldAt", "timezone"];
+const FORM_FIELDS = ["projectName", "managerId", "outOfFieldAt"];
 
 // Manager is stored by username (backend looks managers up by username).
+const getDefaultDate = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(10, 0, 0, 0);
+  return tomorrow.toISOString().slice(0, 16);
+};
+
 const emptyForm = (project) => ({
   projectName: project?.projectName || "",
-  projectNumber: project?.projectNumber || "",
   managerId: project?.managerId ? String(project.managerId) : "",
-  outOfFieldAt: project?.fieldworkDatetime ? String(project.fieldworkDatetime).slice(0, 16) : "",
-  timezone: project?.timezone || "",
+  outOfFieldAt: project?.fieldworkDatetime ? String(project.fieldworkDatetime).slice(0, 16) : getDefaultDate(),
 });
 
 // Create or edit a project. Cancel discards the form; nothing is saved until Save.
-// Create needs manager, fieldwork date and timezone (backend requires them). Edit
-// cannot change the project number (backend ignores it) and cannot clear the manager.
+// Create: project number is auto-allocated by backend, manager auto-selects admin,
+// fieldwork date defaults to tomorrow 10:00, timezone uses backend default.
+// Edit: cannot change the project number and cannot clear the manager.
 export default function ProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project?.id);
   const [form, setForm] = useState(() => emptyForm(project));
@@ -32,7 +38,15 @@ export default function ProjectModal({ project, onClose, onSaved }) {
   useEffect(() => {
     let cancelled = false;
     listManagers()
-      .then((list) => !cancelled && setUsers(list))
+      .then((list) => {
+        if (!cancelled) {
+          setUsers(list);
+          // Auto-select the first manager (admin) if creating a new project and no manager selected
+          if (!isEdit && !form.managerId && list.length > 0) {
+            setForm((f) => ({ ...f, managerId: list[0].username }));
+          }
+        }
+      })
       .catch((e) => !cancelled && setUsersError(e.message || "Could not load managers."));
     return () => {
       cancelled = true;
@@ -48,16 +62,10 @@ export default function ProjectModal({ project, onClose, onSaved }) {
   const validate = () => {
     const next = {};
     const name = form.projectName.trim();
-    const number = form.projectNumber.trim();
     if (!name) next.projectName = "Project name is required.";
     else if (name.length > 200) next.projectName = "Project name must be 200 characters or fewer.";
-    if (!isEdit) {
-      if (!number) next.projectNumber = "Project number is required.";
-      else if (number.length > 32) next.projectNumber = "Project number must be 32 characters or fewer.";
-    }
     if (!form.managerId) next.managerId = "Choose a manager.";
     if (!isEdit && !form.outOfFieldAt) next.outOfFieldAt = "Fieldwork date and time is required.";
-    if (!isEdit && !form.timezone) next.timezone = "Timezone is required.";
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -70,21 +78,19 @@ export default function ProjectModal({ project, onClose, onSaved }) {
     setFormError(null);
     if (!validate()) return;
 
-    // Optional fields are left out when empty: the backend treats null as invalid on update.
+    // Create: backend allocates projectNumber and uses default timezone
+    // Edit: optional fields are left out when empty
     const body = isEdit
       ? {
           projectName: form.projectName.trim(),
           managerId: form.managerId,
           managerName,
           ...(form.outOfFieldAt ? { fieldworkDatetime: form.outOfFieldAt } : {}),
-          ...(form.timezone ? { timezone: form.timezone } : {}),
         }
       : {
           projectName: form.projectName.trim(),
-          projectNumber: form.projectNumber.trim(),
           managerId: form.managerId,
           fieldworkDatetime: form.outOfFieldAt,
-          timezone: form.timezone,
         };
 
     busy.current = true;
@@ -151,21 +157,6 @@ export default function ProjectModal({ project, onClose, onSaved }) {
           {invalid("projectName") && <span id="op-name-err" className="ops-field__error">{errors.projectName}</span>}
         </div>
 
-        <div className="ops-field">
-          <label htmlFor="op-number">Project number {!isEdit && <span aria-hidden="true">*</span>}</label>
-          <input
-            id="op-number"
-            className={`ops-input ${invalid("projectNumber") ? "ops-input--error" : ""}`}
-            value={form.projectNumber}
-            onChange={set("projectNumber")}
-            readOnly={isEdit}
-            aria-required={!isEdit}
-            aria-invalid={invalid("projectNumber")}
-            aria-describedby={invalid("projectNumber") ? "op-number-err" : isEdit ? "op-number-hint" : undefined}
-          />
-          {isEdit && <span id="op-number-hint" className="ops-field__hint">The project number cannot be changed.</span>}
-          {invalid("projectNumber") && <span id="op-number-err" className="ops-field__error">{errors.projectNumber}</span>}
-        </div>
 
         <div className="ops-field">
           <label htmlFor="op-manager">Manager <span aria-hidden="true">*</span></label>
@@ -186,24 +177,17 @@ export default function ProjectModal({ project, onClose, onSaved }) {
           {usersError && <span className="ops-field__hint">Could not load users: {usersError}</span>}
         </div>
 
-        <div className="ops-field-row">
-          <div className="ops-field">
-            <label htmlFor="op-oof">Fieldwork date and time {!isEdit && <span aria-hidden="true">*</span>}</label>
-            <input
-              id="op-oof"
-              type="datetime-local"
-              className={`ops-input ${invalid("outOfFieldAt") ? "ops-input--error" : ""}`}
-              value={form.outOfFieldAt}
-              onChange={set("outOfFieldAt")}
-              aria-invalid={invalid("outOfFieldAt")}
-            />
-            {invalid("outOfFieldAt") && <span className="ops-field__error">{errors.outOfFieldAt}</span>}
-          </div>
-          <div className="ops-field">
-            <label htmlFor="op-tz">Timezone {!isEdit && <span aria-hidden="true">*</span>}</label>
-            <TimezoneSelect id="op-tz" value={form.timezone} onChange={set("timezone")} error={errors.timezone} />
-            {invalid("timezone") && <span className="ops-field__error">{errors.timezone}</span>}
-          </div>
+        <div className="ops-field">
+          <label htmlFor="op-oof">Fieldwork date and time {!isEdit && <span aria-hidden="true">*</span>}</label>
+          <input
+            id="op-oof"
+            type="datetime-local"
+            className={`ops-input ${invalid("outOfFieldAt") ? "ops-input--error" : ""}`}
+            value={form.outOfFieldAt}
+            onChange={set("outOfFieldAt")}
+            aria-invalid={invalid("outOfFieldAt")}
+          />
+          {invalid("outOfFieldAt") && <span className="ops-field__error">{errors.outOfFieldAt}</span>}
         </div>
       </form>
     </ModalShell>
