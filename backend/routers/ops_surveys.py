@@ -1,10 +1,17 @@
 """
 Ops: Project -> Survey -> Supplier layer.
 
-Parent "ops_projects" groups existing survey docs (email_automation.projects)
-via "ops_survey_links". A survey IS the existing projects doc; extra survey
-fields are written onto it with the legacy field names. Suppliers are rows in
-"survey_suppliers" that reference email_automation.vendors by vid.
+Schema (email_automation):
+  ops_projects     one row per project (clientName, source are optional extras).
+  ops_surveys      one row per survey: config + status. Owns surveyNumber (6-digit,
+                   from the "counters" collection). Config edits touch only this doc.
+  survey_suppliers one row per supplier participation in a survey. A participation
+                   either points at one legacy email_automation.projects doc (the
+                   traffic link: legacyProjectId + surveyNo = traffic pid) or, with
+                   surveyNo null, is waiting for its link (needsLink).
+  projects         legacy traffic link docs. Read for metrics and for linking. The
+                   only write is the status write-through (projectStatus) on a linked
+                   participation.
 
 Metric definitions are NOT re-implemented here: status normalisation and
 datetime parsing come from TrafficService (app/services/traffic_service.py).
@@ -21,7 +28,7 @@ import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -29,6 +36,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.services.traffic_service import TrafficService
@@ -42,19 +50,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ops", tags=["Ops Surveys"])
 
 # Collections (all in email_automation unless noted)
-COL_PROJECTS = "projects"            # existing: one doc per survey
+COL_PROJECTS = "projects"            # legacy: one doc per SUPPLIER LINK (traffic pid = surveyNo)
 COL_OPS_PROJECTS = "ops_projects"
-COL_LINKS = "ops_survey_links"
+COL_OPS_SURVEYS = "ops_surveys"
 COL_SUPPLIERS = "survey_suppliers"
+COL_COUNTERS = "counters"
 COL_CHANGE_LOG = "ops_change_log"
 COL_VENDORS = "vendors"
 COL_USERS = "users"
 COL_TRAFFIC = "url_parameters"       # in traffic_flow_db
 
+SURVEY_NUMBER_KEY = "ops_survey_number"
+SURVEY_NUMBER_BASE = 100000          # first surveyNumber = 100000 + 1
+
 PROJECT_STATUSES = ("live", "paused", "completed")
 SURVEY_STATUSES = ("live", "paused", "completed", "draft", "cancelled", "auto_paused", "scheduled")
 SUPPLIER_STATUSES = ("live", "paused", "completed")
 DEAD_VENDOR_STATUSES = ("deleted", "inactive", "archived")
+LEGACY_STATUS_WRITE = {"paused": "pause", "completed": "close"}  # supplier status -> legacy projectStatus
 # Metrics whose definition is not yet confirmed. Empty: sqTerms is defined below.
 UNVERIFIED_METRICS: List[str] = []
 SQ_TERMS_NOTE = "Screened out by our qualification before reaching the client survey; counted separately from Terms."
@@ -64,8 +77,8 @@ SQ_TERMS_NOTE = "Screened out by our qualification before reaching the client su
 #   (empty)         -> traffic.py:3560 falls back to prescreen_fail (screener)
 #   router_link     -> traffic.py:3465/3560, no eligible survey in the country (capacity, NOT sqTerms)
 #   panel_first     -> never written as NOT_ROUTED (traffic.py:3557)
-# Only the screener reasons feed sqTerms. Their rows carry params.pid == surveyNo
-# (ADHOC flow, params.api "false"), so they are attributable per survey.
+# Only the screener reasons feed sqTerms. Their rows carry params.pid == supplier surveyNo
+# (ADHOC flow, params.api "false"), so they are attributable per supplier link.
 SCREENER_NOT_ROUTED_REASONS = ("prescreen_fail", "country")
 WINDOWS = {"p24h": timedelta(hours=24), "p14d": timedelta(days=14)}
 
@@ -73,6 +86,12 @@ WINDOWS = {"p24h": timedelta(hours=24), "p14d": timedelta(days=14)}
 _TS = TrafficService.__new__(TrafficService)
 _TRACK_PROJECTION = {"status": 1, "createdAt": 1, "completedAt": 1, "params.pid": 1, "vendorId": 1,
                      "notRoutedReason": 1}
+
+# Additive counts; everything else (ir, conversion, loi) is derived by _finish().
+_ADDITIVE = ("entrants", "terms", "defenderTerms", "sqTerms", "oqs", "completes",
+             "completesWindow", "abandons", "inFlights")
+_SUPPLIER_METRICS = ("entrants", "terms", "defenderTerms", "oqs", "sqTerms", "abandons", "inFlights",
+                     "completes", "completesWindow", "ir", "conversion", "loi")
 
 _INDEXES_READY = False
 
@@ -92,17 +111,30 @@ def _traffic_col():
 
 
 def _ensure_indexes() -> None:
-    """Idempotent, created lazily on first use (never at import)."""
+    """Idempotent, created lazily on first use (never at import).
+
+    Note: a legacy unique index "ux_survey_suppliers_survey_vendor" (surveyId, vendorId) may
+    still exist in a database created by the earlier schema. It blocks the same vendor being
+    in one survey twice and must be dropped by hand; this function does not drop indexes."""
     global _INDEXES_READY
     if _INDEXES_READY:
         return
     try:
         db = _db()
+        try:  # superseded by (surveyId, legacyProjectId): one vendor may hold several links
+            db[COL_SUPPLIERS].drop_index("ux_survey_suppliers_survey_vendor")
+        except Exception:
+            pass  # absent (fresh DB) or fake mongo
         db[COL_OPS_PROJECTS].create_index("projectNumber", unique=True, name="ux_ops_projects_number")
-        db[COL_LINKS].create_index("surveyId", unique=True, name="ux_ops_links_survey")
-        db[COL_LINKS].create_index("parentProjectId", name="ix_ops_links_parent")
-        db[COL_SUPPLIERS].create_index([("surveyId", 1), ("vendorId", 1)], unique=True,
-                                       name="ux_survey_suppliers_survey_vendor")
+        db[COL_OPS_SURVEYS].create_index("surveyNumber", unique=True, name="ux_ops_surveys_number")
+        db[COL_OPS_SURVEYS].create_index([("projectId", 1), ("is_deleted", 1)], name="ix_ops_surveys_project")
+        db[COL_SUPPLIERS].create_index(
+            [("surveyId", 1), ("legacyProjectId", 1)], unique=True,
+            partialFilterExpression={"legacyProjectId": {"$type": "string"}},
+            name="ux_survey_suppliers_survey_legacy")
+        db[COL_SUPPLIERS].create_index("legacyProjectId", name="ix_survey_suppliers_legacy")
+        db[COL_SUPPLIERS].create_index("surveyNo", name="ix_survey_suppliers_surveyno")
+        db[COL_SUPPLIERS].create_index("surveyId", name="ix_survey_suppliers_survey")
         db[COL_CHANGE_LOG].create_index([("projectId", 1), ("ts", -1)], name="ix_log_project")
         db[COL_CHANGE_LOG].create_index([("surveyId", 1), ("ts", -1)], name="ix_log_survey")
         _INDEXES_READY = True
@@ -136,6 +168,10 @@ def _validation_message(errors: List[Dict[str, Any]]) -> str:
 
 def _not_found(msg: str):
     raise HTTPException(status_code=404, detail=msg)
+
+
+def _conflict(msg: str):
+    raise HTTPException(status_code=409, detail=msg)
 
 
 def _oid(value: str, what: str) -> ObjectId:
@@ -273,21 +309,20 @@ def _check_currency(v: Any) -> str:
     return s
 
 
+# survey input key -> required on create. Stored field names are the same as the keys.
 _SURVEY_FIELDS = {
-    # input key: (stored field on the projects doc, required on create)
-    "surveyName": ("projectName", True),
-    "surveyUrl": ("liveLink", True),
-    "targetN": ("totalCompletesRequired", True),
-    "loi": ("loi", True),
-    "ir": ("clientIR", True),
-    "countryCode": ("countryCode", True),
-    "languageCode": ("languageCode", True),
-    "timezone": ("timezone", False),
-    "devices": ("devices", False),
-    "piiEnabled": ("piiEnabled", False),
-    "outOfFieldAt": ("outOfFieldAt", False),
+    "surveyName": True,
+    "surveyUrl": True,
+    "targetN": True,
+    "loi": True,
+    "ir": True,
+    "countryCode": True,
+    "languageCode": True,
+    "timezone": False,
+    "devices": False,
+    "piiEnabled": False,
+    "outOfFieldAt": False,
 }
-_STORED_TO_INPUT = {v[0]: k for k, v in _SURVEY_FIELDS.items()}
 
 
 def _clean_survey_value(key: str, v: Any) -> Any:
@@ -334,11 +369,11 @@ def _clean_survey_value(key: str, v: Any) -> Any:
 
 
 def _clean_survey(data: Dict[str, Any], partial: bool) -> Dict[str, Any]:
-    """Returns stored-field -> value. Raises 422 on any invalid input."""
+    """Returns field -> value. Raises 422 on any invalid input."""
     out: Dict[str, Any] = {}
-    for key, (stored, required) in _SURVEY_FIELDS.items():
+    for key, required in _SURVEY_FIELDS.items():
         if data.get(key) is not None:
-            out[stored] = _clean_survey_value(key, data[key])
+            out[key] = _clean_survey_value(key, data[key])
         elif required and not partial:
             _bad(f"{key} is required")
     return out
@@ -353,11 +388,18 @@ def _window(window: Optional[str]) -> datetime:
 
 
 def _survey_status(raw: Any) -> str:
-    """Legacy projectStatus -> exposed survey status. Unknown/missing -> draft."""
+    """Legacy projectStatus -> normalised status. Unknown/missing -> draft."""
     key = str(raw or "").strip().lower()
     return {"live": "live", "pause": "paused", "paused": "paused",
             "close": "completed", "completed": "completed"}.get(
         key, key if key in SURVEY_STATUSES else "draft")
+
+
+def _supplier_status_from_legacy(raw: Any) -> str:
+    """Legacy projectStatus of a linked traffic doc -> supplier status (live|paused|completed).
+    Legacy states outside those three (draft, cancelled, ...) read as paused."""
+    s = _survey_status(raw)
+    return s if s in SUPPLIER_STATUSES else "paused"
 
 
 # ============================================================ metrics
@@ -372,19 +414,21 @@ def _vid_variants(vids) -> List[Any]:
     return out
 
 
-def _traffic_find(pids, vendor_ids=None, projection=None, pii: bool = False) -> List[Dict[str, Any]]:
-    """Traffic rows for survey numbers, same filter as TrafficService project stats
-    (params.api == "false", params.pid in pids), optionally per vendor."""
+def _traffic_find(pids, projection=None) -> List[Dict[str, Any]]:
+    """Traffic rows for supplier link numbers (params.pid), same filter as
+    TrafficService project stats (params.api == "false")."""
     wanted = [str(p) for p in pids if p not in (None, "")]
     if not wanted:
         return []
     q: Dict[str, Any] = {"params.api": "false", "params.pid": {"$in": wanted}}
-    if vendor_ids is not None:
-        vids = _vid_variants(vendor_ids)
-        if not vids:
-            return []
-        q["vendorId"] = {"$in": vids}
     return list(_traffic_col().find(q, projection))
+
+
+def _group_by_pid(records) -> Dict[str, List[Dict[str, Any]]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for r in records:
+        grouped[str((r.get("params") or {}).get("pid"))].append(r)
+    return grouped
 
 
 def _inflight_minutes() -> int:
@@ -410,8 +454,8 @@ def _is_screener_out(r: Dict[str, Any]) -> bool:
             and r.get("notRoutedReason") in SCREENER_NOT_ROUTED_REASONS)
 
 
-def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str, Any]:
-    """Counts for one set of traffic rows.
+def _count(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Tuple[Dict[str, int], List[float]]:
+    """Additive counts for one set of traffic rows, plus the raw LOI durations (minutes).
 
     terms         = every row TrafficService normalises to Terminate.
     defenderTerms = subset of terms with a SECURITY status (client security terminate).
@@ -419,75 +463,107 @@ def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str,
                     these rows are never counted as inFlights or abandons.
     inFlights     = non-final rows (normaliser "Incomplete") created within OPS_INFLIGHT_MINUTES.
     abandons      = non-final rows created earlier than that, or with no parseable createdAt.
-    """
+    The LOI list is kept raw so that a parent can take the median over all its rows."""
     live_after = _now() - timedelta(minutes=_inflight_minutes())
-    entrants = terms = oqs = completes = in_window = sq_terms = 0
-    defender = inflight = abandons = 0
+    c = {k: 0 for k in _ADDITIVE}
     loi: List[float] = []
     for r in records:
-        entrants += 1
+        c["entrants"] += 1
         if _is_screener_out(r):
-            sq_terms += 1
+            c["sqTerms"] += 1
             continue
         norm = _TS._normalize_status(r.get("status", ""))
         if norm == "Complete":
-            completes += 1
+            c["completes"] += 1
             created = _TS._safe_parse_datetime(r.get("createdAt"))
             done = _TS._safe_parse_datetime(r.get("completedAt"))
             if cutoff is not None and done is not None and done >= cutoff:
-                in_window += 1
+                c["completesWindow"] += 1
             if created and done:
                 secs = (done - created).total_seconds()
                 if secs > 0:
                     loi.append(secs / 60.0)
         elif norm == "Terminate":
-            terms += 1
+            c["terms"] += 1
             if _is_defender_term(r.get("status")):
-                defender += 1
+                c["defenderTerms"] += 1
         elif norm == "Quota Full":
-            oqs += 1
+            c["oqs"] += 1
         else:  # "Incomplete": the normaliser's default, i.e. every non-final status
             created = _TS._safe_parse_datetime(r.get("createdAt"))
             if created is not None and created >= live_after:
-                inflight += 1
+                c["inFlights"] += 1
             else:
-                abandons += 1
-    return {
-        "entrants": entrants,
-        "terms": terms,
-        "defenderTerms": defender,
-        "sqTerms": sq_terms,
-        "oqs": oqs,
-        "completes": completes,
-        "completesWindow": in_window,
-        "ir": round(completes / (completes + terms) * 100, 1) if (completes + terms) else 0.0,
-        "conversion": round(completes / entrants * 100, 1) if entrants else 0.0,
-        "loi": round(statistics.median(loi), 1) if loi else None,
-        "abandons": abandons,
-        "inFlights": inflight,
-    }
+                c["abandons"] += 1
+    return c, loi
 
 
-def _group_by_pid(records) -> Dict[str, List[Dict[str, Any]]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for r in records:
-        grouped[str((r.get("params") or {}).get("pid"))].append(r)
-    return grouped
+def _combine(parts: List[Tuple[Dict[str, int], List[float]]]) -> Tuple[Dict[str, int], List[float]]:
+    total = {k: 0 for k in _ADDITIVE}
+    loi: List[float] = []
+    for c, lw in parts:
+        for k in _ADDITIVE:
+            total[k] += c[k]
+        loi.extend(lw)
+    return total, loi
+
+
+def _finish(c: Dict[str, int], loi: List[float]) -> Dict[str, Any]:
+    """Derived fields from summed counts. LOI is the median of all raw durations."""
+    completes, terms, entrants = c["completes"], c["terms"], c["entrants"]
+    return {**c,
+            "ir": round(completes / (completes + terms) * 100, 1) if (completes + terms) else 0.0,
+            "conversion": round(completes / entrants * 100, 1) if entrants else 0.0,
+            "loi": round(statistics.median(loi), 1) if loi else None}
+
+
+def _agg(records: List[Dict[str, Any]], cutoff: Optional[datetime]) -> Dict[str, Any]:
+    return _finish(*_count(records, cutoff))
+
+
+def _expense(completes: int, buy_price: Any) -> Dict[str, Any]:
+    if buy_price in (None, ""):
+        return {"expense": None, "expenseBasis": None}
+    amount = (Decimal(completes) * Decimal(str(buy_price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {"expense": float(amount), "expenseBasis": "completes*buyPrice"}
+
+
+def _pids(rows: List[Dict[str, Any]]) -> List[str]:
+    """Distinct traffic pids (supplier surveyNo) of supplier rows, order kept. Unlinked rows skipped."""
+    out: List[str] = []
+    for r in rows:
+        no = r.get("surveyNo")
+        if no and str(no) not in out:
+            out.append(str(no))
+    return out
+
+
+def _read_grouped(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """One traffic read for every linked row's pid -> pid -> records."""
+    return _group_by_pid(_traffic_find(_pids(rows), projection=_TRACK_PROJECTION))
 
 
 def _survey_metrics(surveys: List[Dict[str, Any]], cutoff: datetime) -> Dict[str, Dict[str, Any]]:
-    """surveyNo -> metrics. One traffic read for all surveys."""
-    nos = [str(s.get("surveyNo")) for s in surveys if s.get("surveyNo")]
-    grouped = _group_by_pid(_traffic_find(nos, projection=_TRACK_PROJECTION))
-    return {no: _agg(grouped.get(no, []), cutoff) for no in nos}
+    """survey id -> metrics. Sum of the survey's active supplier pids (each pid once).
+    One traffic read for all surveys."""
+    sups = _suppliers_by_survey([str(s["_id"]) for s in surveys])
+    grouped = _read_grouped([r for rows in sups.values() for r in rows])
+    out = {}
+    for s in surveys:
+        sid = str(s["_id"])
+        out[sid] = _finish(*_combine([_count(grouped.get(p, []), cutoff) for p in _pids(sups.get(sid, []))]))
+    return out
 
 
 def _survey_row(survey: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
+    number = survey.get("surveyNumber")
     return {
         "id": str(survey["_id"]),
-        "surveyName": survey.get("projectName"),
-        "surveyNo": survey.get("surveyNo"),
-        "status": _survey_status(survey.get("projectStatus")),
+        "surveyName": survey.get("surveyName"),
+        "surveyNo": number,
+        "surveyNumber": number,
+        "status": survey.get("status") or "draft",
+        "target": int(survey.get("targetN") or 0),
         "entrants": m["entrants"],
         "defenderTerms": m["defenderTerms"],
         "terms": m["terms"],
@@ -503,13 +579,6 @@ def _survey_row(survey: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _expense(completes: int, buy_price: Any) -> Dict[str, Any]:
-    if buy_price in (None, ""):
-        return {"expense": None, "expenseBasis": None}
-    amount = (Decimal(completes) * Decimal(str(buy_price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return {"expense": float(amount), "expenseBasis": "completes*buyPrice"}
-
-
 # ============================================================ lookups
 
 def _get_project(project_id: str) -> Dict[str, Any]:
@@ -519,11 +588,22 @@ def _get_project(project_id: str) -> Dict[str, Any]:
     return doc
 
 
+def _find_survey(survey_id: str) -> Optional[Dict[str, Any]]:
+    if not ObjectId.is_valid(str(survey_id)):
+        return None
+    return _col(COL_OPS_SURVEYS).find_one({"_id": ObjectId(str(survey_id)), "is_deleted": {"$ne": True}})
+
+
 def _get_survey(survey_id: str) -> Dict[str, Any]:
-    doc = _col(COL_PROJECTS).find_one({"_id": _oid(survey_id, "Survey"), "is_deleted": {"$ne": True}})
+    doc = _find_survey(survey_id)
     if not doc:
         _not_found("Survey not found")
     return doc
+
+
+def _project_of_survey(survey_id: str) -> Optional[str]:
+    doc = _find_survey(survey_id)
+    return doc.get("projectId") if doc else None
 
 
 def _get_supplier(sid: str) -> Dict[str, Any]:
@@ -533,47 +613,73 @@ def _get_supplier(sid: str) -> Dict[str, Any]:
     return doc
 
 
-def _link_for_survey(survey_id: str) -> Optional[Dict[str, Any]]:
-    return _col(COL_LINKS).find_one({"surveyId": str(survey_id)})
+def _surveys_of(project_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """parent project id -> live survey docs. One read."""
+    out: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    ids = [str(p) for p in project_ids]
+    if not ids:
+        return out
+    for d in _col(COL_OPS_SURVEYS).find({"projectId": {"$in": ids}, "is_deleted": {"$ne": True}}):
+        out[str(d.get("projectId"))].append(d)
+    return out
 
 
-def _surveys_under(project_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
-    """parent project id -> live survey docs (links resolved, one read each)."""
-    links = list(_col(COL_LINKS).find({"parentProjectId": {"$in": project_ids}}))
-    by_parent: Dict[str, List[str]] = defaultdict(list)
-    for ln in links:
-        by_parent[ln["parentProjectId"]].append(ln["surveyId"])
-    ids = [ObjectId(s) for s in {sid for v in by_parent.values() for sid in v}]
-    docs = {str(d["_id"]): d for d in _col(COL_PROJECTS).find(
-        {"_id": {"$in": ids}, "is_deleted": {"$ne": True}})} if ids else {}
-    return {pid: [docs[s] for s in sids if s in docs] for pid, sids in by_parent.items()}
+def _suppliers_by_survey(survey_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """survey id -> active supplier rows (oldest first). One read."""
+    out: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    ids = [str(s) for s in survey_ids]
+    if not ids:
+        return out
+    for r in _col(COL_SUPPLIERS).find({"surveyId": {"$in": ids}, "removed": {"$ne": True}}):
+        out[str(r.get("surveyId"))].append(r)
+    for sid in out:
+        out[sid].sort(key=lambda r: (r.get("createdAt") or datetime.min, str(r["_id"])))
+    return out
+
+
+def _active_suppliers(survey_id: str) -> List[Dict[str, Any]]:
+    return _suppliers_by_survey([str(survey_id)]).get(str(survey_id), [])
+
+
+def _legacy_docs(ids) -> Dict[str, Dict[str, Any]]:
+    """str legacy id -> live legacy traffic doc. One read."""
+    oids = [ObjectId(i) for i in {str(x) for x in ids if x} if ObjectId.is_valid(i)]
+    if not oids:
+        return {}
+    return {str(d["_id"]): d for d in _col(COL_PROJECTS).find(
+        {"_id": {"$in": oids}, "is_deleted": {"$ne": True}})}
+
+
+def _effective_status(row: Dict[str, Any], legacy_doc: Optional[Dict[str, Any]]) -> str:
+    """Linked and legacy doc live -> derived from projectStatus. Otherwise the stored status."""
+    if legacy_doc is not None:
+        return _supplier_status_from_legacy(legacy_doc.get("projectStatus"))
+    return row.get("status") or "live"
 
 
 def _project_rows(projects: List[Dict[str, Any]], username: str, cutoff: datetime) -> List[Dict[str, Any]]:
-    pids = [str(p["_id"]) for p in projects]
-    surveys_by_parent = _surveys_under(pids) if pids else {}
-    all_surveys = [s for v in surveys_by_parent.values() for s in v]
-    # One traffic read; each surveyNo's records counted exactly once.
-    grouped = _group_by_pid(_traffic_find(
-        [s.get("surveyNo") for s in all_surveys], projection=_TRACK_PROJECTION))
+    surveys_by_parent = _surveys_of([str(p["_id"]) for p in projects])
+    all_sids = [str(s["_id"]) for v in surveys_by_parent.values() for s in v]
+    sups = _suppliers_by_survey(all_sids)
+    grouped = _read_grouped([r for sid in all_sids for r in sups.get(sid, [])])
     rows = []
     for p in projects:
         pid = str(p["_id"])
         surveys = surveys_by_parent.get(pid, [])
-        nos = {str(s.get("surveyNo")) for s in surveys if s.get("surveyNo")}
-        records = [r for no in nos for r in grouped.get(no, [])]
-        m = _agg(records, cutoff)
+        member = [r for s in surveys for r in sups.get(str(s["_id"]), [])]
+        m = _finish(*_combine([_count(grouped.get(no, []), cutoff) for no in _pids(member)]))
         rows.append({
             "id": pid,
             "projectName": p.get("projectName"),
             "projectNumber": p.get("projectNumber"),
+            "clientName": p.get("clientName"),
             "managerId": p.get("managerId"),
             "managerName": p.get("managerName"),
             "status": p.get("status"),
             "isFavorite": username in (p.get("favoriteBy") or []),
             "surveyCount": len(surveys),
             "completes": m["completes"],
-            "target": sum(int(s.get("totalCompletesRequired") or 0) for s in surveys),
+            "target": sum(int(s.get("targetN") or 0) for s in surveys),
             "ir": m["ir"],
             "conversion": m["conversion"],
             "loi": m["loi"],
@@ -586,6 +692,8 @@ def _project_view(doc: Dict[str, Any], username: str) -> Dict[str, Any]:
         "id": str(doc["_id"]),
         "projectName": doc.get("projectName"),
         "projectNumber": doc.get("projectNumber"),
+        "clientName": doc.get("clientName"),
+        "source": doc.get("source"),
         "managerId": doc.get("managerId"),
         "managerName": doc.get("managerName"),
         "fieldworkDatetime": doc.get("fieldworkDatetime"),
@@ -597,18 +705,20 @@ def _project_view(doc: Dict[str, Any], username: str) -> Dict[str, Any]:
     }
 
 
-def _survey_detail(doc: Dict[str, Any], parent_id: Optional[str]) -> Dict[str, Any]:
+def _survey_detail(doc: Dict[str, Any]) -> Dict[str, Any]:
+    number = doc.get("surveyNumber")
     out = {
         "id": str(doc["_id"]),
-        "surveyName": doc.get("projectName"),
-        "surveyNo": doc.get("surveyNo"),
-        "status": _survey_status(doc.get("projectStatus")),
-        "parentProjectId": parent_id,
+        "surveyName": doc.get("surveyName"),
+        "surveyNo": number,            # compatibility: same value as surveyNumber
+        "surveyNumber": number,
+        "status": doc.get("status") or "draft",
+        "parentProjectId": doc.get("projectId"),
         "createdAt": _iso(doc.get("createdAt")),
         "updatedAt": _iso(doc.get("updatedAt")),
     }
-    for key, (stored, _req) in _SURVEY_FIELDS.items():
-        out[key] = doc.get(stored)
+    for key in _SURVEY_FIELDS:
+        out[key] = doc.get(key)
     return out
 
 
@@ -634,6 +744,14 @@ def _check_order(order: str) -> None:
         _bad("order must be asc or desc")
 
 
+def _next_survey_number() -> str:
+    """Atomic: counters doc "ops_survey_number" is $inc'd; first value is 100001."""
+    doc = _col(COL_COUNTERS).find_one_and_update(
+        {"_id": SURVEY_NUMBER_KEY}, {"$inc": {"seq": 1}},
+        upsert=True, return_document=ReturnDocument.AFTER)
+    return str(SURVEY_NUMBER_BASE + int(doc["seq"]))
+
+
 # ============================================================ request models
 
 class ProjectCreate(BaseModel):
@@ -642,10 +760,12 @@ class ProjectCreate(BaseModel):
     managerId: str
     fieldworkDatetime: str
     timezone: str
+    clientName: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
     projectName: Optional[str] = None
+    clientName: Optional[str] = None
     managerId: Optional[str] = None
     managerName: Optional[str] = None
     fieldworkDatetime: Optional[str] = None
@@ -656,8 +776,14 @@ class StatusBody(BaseModel):
     status: str
 
 
+class SupplierLink(BaseModel):
+    vendorId: str
+    surveyNo: str
+
+
 class SupplierAdd(BaseModel):
-    vendorIds: List[str]
+    vendorIds: Optional[List[str]] = None
+    links: Optional[List[SupplierLink]] = None
     buyPrice: Optional[str] = None
     currency: Optional[str] = None
 
@@ -666,6 +792,10 @@ class SupplierUpdate(BaseModel):
     buyPrice: Optional[str] = None
     currency: Optional[str] = None
     status: Optional[str] = None
+
+
+class SupplierLinkBody(BaseModel):
+    surveyNo: str
 
 
 # ============================================================ projects
@@ -721,6 +851,9 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
     manager = _check_name(body.managerId, "managerId")
     fieldwork = _check_dt(body.fieldworkDatetime, "fieldworkDatetime")
     tz = _check_tz(body.timezone)
+    client = (body.clientName or "").strip()
+    if len(client) > 200:
+        _bad("clientName is too long")
 
     col = _col(COL_OPS_PROJECTS)
     if col.find_one({"projectNumber": number}):
@@ -729,6 +862,7 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
     doc = {
         "projectName": name, "projectNumber": number, "managerId": manager,
         "managerName": manager_doc.get("name") or manager_doc.get("username") or manager,
+        "clientName": client or None, "source": "manual",
         "fieldworkDatetime": fieldwork, "timezone": tz, "status": "live",
         "favoriteBy": [], "is_deleted": False,
         "createdAt": _now(), "updatedAt": _now(), "createdBy": user,
@@ -740,49 +874,6 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
     pid = str(inserted.inserted_id)
     _log(user=user, action="project.create", project_id=pid, new=number)
     return {"project": _project_view({**doc, "_id": inserted.inserted_id}, user)}
-
-
-@router.post("/projects/backfill")
-@require_permission(Permissions.OPS_PROJECT_CREATE)
-def backfill_projects(request: Request, user: str = Depends(verify_session)):
-    """Explicit only (never auto-run). One parent per legacy survey with no link.
-    Idempotent: linked surveys are skipped on re-run."""
-    _ensure_indexes()
-    linked = {ln["surveyId"] for ln in _col(COL_LINKS).find({})}
-    legacy = [s for s in _col(COL_PROJECTS).find({"is_deleted": {"$ne": True}})
-              if str(s["_id"]) not in linked and s.get("surveyNo")
-              and str(s.get("projectStatus") or "").lower() != "deleted"]
-    created = linked_count = 0
-    conflicts: List[str] = []
-    for s in legacy:
-        no = str(s["surveyNo"])
-        parent = _col(COL_OPS_PROJECTS).find_one({"projectNumber": no})
-        if parent is None:
-            status = {"live": "live", "paused": "paused", "completed": "completed"}.get(
-                _survey_status(s.get("projectStatus")), "paused")
-            doc = {
-                "projectName": s.get("projectName") or f"Survey {no}",
-                "projectNumber": no, "managerId": "unassigned", "managerName": "Unassigned",
-                "fieldworkDatetime": None, "timezone": s.get("timezone") or "Asia/Kolkata",
-                "status": status, "favoriteBy": [], "is_deleted": False,
-                "createdAt": _now(), "updatedAt": _now(), "createdBy": user,
-                "backfilledFromSurveyId": str(s["_id"]),
-            }
-            parent_id = str(_col(COL_OPS_PROJECTS).insert_one(doc).inserted_id)
-            created += 1
-            _log(user=user, action="project.backfill", project_id=parent_id,
-                 survey_id=str(s["_id"]), new=no)
-        else:
-            parent_id = str(parent["_id"])
-            if parent.get("backfilledFromSurveyId") not in (None, str(s["_id"])):
-                conflicts.append(no)  # number taken by an unrelated project: do not link
-                continue
-        _col(COL_LINKS).insert_one({"surveyId": str(s["_id"]), "parentProjectId": parent_id,
-                                    "createdAt": _now(), "source": "backfill"})
-        linked_count += 1
-        _log(user=user, action="survey.link", project_id=parent_id, survey_id=str(s["_id"]),
-             new=parent_id, extra={"source": "backfill"})
-    return {"parentsCreated": created, "surveysLinked": linked_count, "conflicts": conflicts}
 
 
 @router.get("/projects/{project_id}")
@@ -802,6 +893,11 @@ def update_project(project_id: str, request: Request, body: ProjectUpdate,
     data = body.model_dump(exclude_unset=True)
     if "projectName" in data:
         changes["projectName"] = _check_name(data["projectName"], "projectName")
+    if "clientName" in data:
+        client = (data["clientName"] or "").strip()
+        if len(client) > 200:
+            _bad("clientName is too long")
+        changes["clientName"] = client or None
     if "managerId" in data and data["managerId"] != doc.get("managerId"):
         # Changing the manager re-resolves the display name from users (same lookup as create).
         mid = _check_name(data["managerId"], "managerId")
@@ -872,12 +968,10 @@ def list_project_surveys(
     _check_order(order)
     cutoff = _window(window)
     project = _get_project(project_id)
-    links = list(_col(COL_LINKS).find({"parentProjectId": str(project["_id"])}))
-    ids = [ObjectId(ln["surveyId"]) for ln in links if ObjectId.is_valid(ln["surveyId"])]
-    survey_docs = list(_col(COL_PROJECTS).find({"_id": {"$in": ids}, "is_deleted": {"$ne": True}})) if ids else []
-    parent_of = {ln["surveyId"]: ln["parentProjectId"] for ln in links}
+    pid = str(project["_id"])
+    survey_docs = _surveys_of([pid]).get(pid, [])
     metrics = _survey_metrics(survey_docs, cutoff)
-    rows = [_survey_row(s, metrics.get(str(s.get("surveyNo")), _agg([], cutoff))) for s in survey_docs]
+    rows = [_survey_row(s, metrics[str(s["_id"])]) for s in survey_docs]
 
     counts = {"all": len(rows)}
     for s in SURVEY_STATUSES:
@@ -886,7 +980,7 @@ def list_project_surveys(
     rows = [r for r in rows if (not status or r["status"] == status)
             and (not needle or needle in str(r["surveyName"] or "").lower()
                  or needle in str(r["surveyNo"] or "").lower())]
-    if sort not in {"surveyName", "surveyNo", "status", "entrants", "terms", "oqs", "completes",
+    if sort not in {"surveyName", "surveyNo", "status", "target", "entrants", "terms", "oqs", "completes",
                     "completesWindow", "ir", "conversion", "loi", "abandons", "inFlights",
                     "defenderTerms", "sqTerms"}:
         _bad("unknown sort field")
@@ -908,31 +1002,15 @@ def create_survey(project_id: str, request: Request, body: Dict[str, Any] = Body
     _ensure_indexes()
     project = _get_project(project_id)
     fields = _clean_survey(body, partial=False)
-    no = _generate_survey_no()
-    doc = {**fields, "surveyNo": no, "projectStatus": "draft", "createdAt": _now(),
-           "updatedAt": _now(), "is_deleted": False, "createdBy": user}
+    pid = str(project["_id"])
+    no = _next_survey_number()
+    doc = {**fields, "projectId": pid, "surveyNumber": no, "status": "draft", "source": "manual",
+           "createdAt": _now(), "updatedAt": _now(), "is_deleted": False, "createdBy": user}
     doc.setdefault("devices", {})
-    inserted = _col(COL_PROJECTS).insert_one(doc)
+    inserted = _col(COL_OPS_SURVEYS).insert_one(doc)
     sid = str(inserted.inserted_id)
-    _col(COL_LINKS).insert_one({"surveyId": sid, "parentProjectId": str(project["_id"]),
-                                "createdAt": _now()})
-    _log(user=user, action="survey.create", project_id=str(project["_id"]), survey_id=sid, new=no)
-    return {"survey": _survey_detail({**doc, "_id": inserted.inserted_id},
-                                     str(project["_id"]))}
-
-
-def _generate_survey_no() -> str:
-    """Same logic as main.generate_survey_no (not imported: main is the app module)."""
-    col = _col(COL_PROJECTS)
-    for _ in range(1000):
-        no = str(datetime.utcnow().microsecond % 100000).zfill(5)
-        if not col.find_one({"surveyNo": no}):
-            return no
-    import random
-    while True:
-        no = str(random.randint(0, 99999)).zfill(5)
-        if not col.find_one({"surveyNo": no}):
-            return no
+    _log(user=user, action="survey.create", project_id=pid, survey_id=sid, new=no)
+    return {"survey": _survey_detail({**doc, "_id": inserted.inserted_id})}
 
 
 @router.get("/projects/{project_id}/change-log")
@@ -946,77 +1024,64 @@ def project_change_log(project_id: str, user: str = Depends(verify_session),
 
 @router.get("/surveys/{survey_id}")
 def get_survey(survey_id: str, user: str = Depends(verify_session)):
-    doc = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    return {"survey": _survey_detail(doc, link["parentProjectId"] if link else None)}
+    return {"survey": _survey_detail(_get_survey(survey_id))}
 
 
 @router.put("/surveys/{survey_id}")
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_survey(survey_id: str, request: Request, body: Dict[str, Any] = Body(...),
                   user: str = Depends(verify_session)):
+    """Config edits touch only the ops_surveys doc, never the legacy traffic docs."""
     _ensure_indexes()
     doc = _get_survey(survey_id)
     fields = _clean_survey(body, partial=True)
     changes = {k: v for k, v in fields.items() if doc.get(k) != v}
-    link = _link_for_survey(survey_id)
-    parent_id = link["parentProjectId"] if link else None
     if changes:
         changes["updatedAt"] = _now()
-        _col(COL_PROJECTS).update_one({"_id": doc["_id"]}, {"$set": changes})
-        for stored, v in changes.items():
-            if stored == "updatedAt":
+        _col(COL_OPS_SURVEYS).update_one({"_id": doc["_id"]}, {"$set": changes})
+        for key, v in changes.items():
+            if key == "updatedAt":
                 continue
-            _log(user=user, action="survey.update", project_id=parent_id, survey_id=survey_id,
-                 field=_STORED_TO_INPUT.get(stored, stored), old=doc.get(stored), new=v)
-    return {"survey": _survey_detail(_get_survey(survey_id), parent_id)}
+            _log(user=user, action="survey.update", project_id=doc.get("projectId"), survey_id=survey_id,
+                 field=key, old=doc.get(key), new=v)
+    return {"survey": _survey_detail(_get_survey(survey_id))}
 
 
 @router.post("/surveys/{survey_id}/status")
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def set_survey_status(survey_id: str, request: Request, body: StatusBody,
                       user: str = Depends(verify_session)):
+    """Survey status lives on the survey. Supplier and legacy docs are not touched."""
     _ensure_indexes()
     if body.status not in SURVEY_STATUSES:
         _bad(f"status must be one of {', '.join(SURVEY_STATUSES)}")
     doc = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    parent_id = link["parentProjectId"] if link else None
-    old = _survey_status(doc.get("projectStatus"))
-    # Legacy UI/routing read live|pause|close, so keep those spellings for the
-    # three legacy states; new states are stored as-is (routing only serves 'live').
-    stored = {"paused": "pause", "completed": "close"}.get(body.status, body.status)
-    _col(COL_PROJECTS).update_one({"_id": doc["_id"]},
-                                  {"$set": {"projectStatus": stored, "updatedAt": _now()}})
-    _log(user=user, action="survey.status", project_id=parent_id, survey_id=survey_id,
+    old = doc.get("status") or "draft"
+    _col(COL_OPS_SURVEYS).update_one({"_id": doc["_id"]},
+                                     {"$set": {"status": body.status, "updatedAt": _now()}})
+    _log(user=user, action="survey.status", project_id=doc.get("projectId"), survey_id=survey_id,
          field="status", old=old, new=body.status)
-    return {"survey": _survey_detail(_get_survey(survey_id), parent_id)}
+    return {"survey": _survey_detail(_get_survey(survey_id))}
 
 
 @router.post("/surveys/{survey_id}/duplicate")
 @require_permission(Permissions.OPS_PROJECT_CREATE)
 def duplicate_survey(survey_id: str, request: Request, user: str = Depends(verify_session)):
-    """Copies configuration only: new surveyNo, status draft, no suppliers, no traffic history."""
+    """Copies survey configuration only: new surveyNumber, status draft, NO suppliers."""
     _ensure_indexes()
     src = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    parent_id = link["parentProjectId"] if link else None
-    skip = {"_id", "surveyNo", "createdAt", "updatedAt", "createdBy", "is_deleted", "deleted_at", "merged_into"}
+    skip = {"_id", "surveyNumber", "status", "createdAt", "updatedAt", "createdBy", "is_deleted",
+            "deleted_at", "duplicatedFromSurveyId", "source"}
     new_doc = {k: v for k, v in src.items() if k not in skip}
-    new_no = _generate_survey_no()
-    new_doc.update({"surveyNo": new_no, "projectStatus": "draft", "createdAt": _now(),
-                    "updatedAt": _now(), "is_deleted": False, "createdBy": user,
-                    "duplicatedFromSurveyId": survey_id})
-    entry = new_doc.get("entryLink")
-    if isinstance(entry, str) and "pid=" in entry:
-        new_doc["entryLink"] = re.sub(r"pid=[^&]*", f"pid={new_no}", entry)
-    inserted = _col(COL_PROJECTS).insert_one(new_doc)
+    new_no = _next_survey_number()
+    new_doc.update({"surveyNumber": new_no, "status": "draft", "source": "duplicate",
+                    "createdAt": _now(), "updatedAt": _now(), "is_deleted": False, "createdBy": user,
+                    "duplicatedFromSurveyId": str(survey_id)})
+    inserted = _col(COL_OPS_SURVEYS).insert_one(new_doc)
     new_id = str(inserted.inserted_id)
-    if parent_id:
-        _col(COL_LINKS).insert_one({"surveyId": new_id, "parentProjectId": parent_id, "createdAt": _now()})
-    _log(user=user, action="survey.duplicate", project_id=parent_id, survey_id=new_id,
+    _log(user=user, action="survey.duplicate", project_id=src.get("projectId"), survey_id=new_id,
          field="duplicatedFrom", old=survey_id, new=new_id)
-    return {"survey": _survey_detail({**new_doc, "_id": inserted.inserted_id}, parent_id)}
+    return {"survey": _survey_detail({**new_doc, "_id": inserted.inserted_id})}
 
 
 @router.get("/surveys/{survey_id}/change-log")
@@ -1036,39 +1101,76 @@ def _change_log_page(q: Dict[str, Any], page: int, page_size: int) -> Dict[str, 
 
 # ============================================================ suppliers
 
-def _supplier_view(s: Dict[str, Any]) -> Dict[str, Any]:
+def _supplier_view(s: Dict[str, Any], status: str) -> Dict[str, Any]:
+    no = s.get("surveyNo")
     return {
         "id": str(s["_id"]),
+        "surveyId": s.get("surveyId"),
+        "legacyProjectId": s.get("legacyProjectId"),
+        "surveyNo": no,
+        "needsLink": not no,
         "vendorId": s.get("vendorId"),
         "vendorName": s.get("vendorName"),
         "sourceName": s.get("sourceName"),
         "buyPrice": float(s["buyPrice"]) if s.get("buyPrice") not in (None, "") else None,
         "currency": s.get("currency", "INR"),
-        "status": s.get("status", "live"),
+        "status": status,
     }
 
 
-def _supplier_rows(survey: Dict[str, Any], sups: List[Dict[str, Any]], cutoff: datetime) -> List[Dict[str, Any]]:
+def _supplier_out(row: Dict[str, Any]) -> Dict[str, Any]:
+    legacy = _legacy_docs([row.get("legacyProjectId")])
+    return _supplier_view(row, _effective_status(row, legacy.get(str(row.get("legacyProjectId")))))
+
+
+def _supplier_rows(sups: List[Dict[str, Any]], cutoff: datetime) -> List[Dict[str, Any]]:
+    """Each participation's metrics come from its own pid only. Unlinked: zeros, loi None."""
     if not sups:
         return []
-    recs = _traffic_find([survey.get("surveyNo")], vendor_ids=[s["vendorId"] for s in sups],
-                         projection=_TRACK_PROJECTION)
-    by_vid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for r in recs:
-        by_vid[str(r.get("vendorId"))].append(r)
+    grouped = _read_grouped(sups)
+    legacy = _legacy_docs([s.get("legacyProjectId") for s in sups])
     rows = []
     for s in sups:
-        m = _agg(by_vid.get(str(s["vendorId"]), []), cutoff)
-        view = _supplier_view(s)
-        rows.append({**view, **{k: m[k] for k in ("entrants", "terms", "defenderTerms", "oqs", "sqTerms",
-                                                  "abandons", "inFlights", "completes", "completesWindow",
-                                                  "ir", "conversion", "loi")},
+        no = s.get("surveyNo")
+        m = _agg(grouped.get(str(no), []) if no else [], cutoff)
+        view = _supplier_view(s, _effective_status(s, legacy.get(str(s.get("legacyProjectId")))))
+        rows.append({**view, **{k: m[k] for k in _SUPPLIER_METRICS},
                      **_expense(m["completes"], s.get("buyPrice"))})
     return rows
 
 
-def _active_suppliers(survey_id: str) -> List[Dict[str, Any]]:
-    return list(_col(COL_SUPPLIERS).find({"surveyId": str(survey_id), "removed": {"$ne": True}}))
+def _is_active_vendor(v: Dict[str, Any]) -> bool:
+    return not v.get("is_deleted") and str(v.get("status") or "").lower() not in DEAD_VENDOR_STATUSES
+
+
+def _active_vendor_map(vids: List[str]) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    for vid in set(vids):
+        v = _col(COL_VENDORS).find_one({"vid": vid})
+        if v and _is_active_vendor(v):
+            out[vid] = v
+    return out
+
+
+def _resolve_legacy(vid: str, surveyNo: str, own_sid: Optional[ObjectId] = None) -> Dict[str, Any]:
+    """The legacy traffic doc a participation may link to, or 422/409.
+    Checks in order: doc exists and is live; its vendorId equals vid; not already
+    attached to another non-removed participation (own_sid is excluded)."""
+    cands = [d for d in _col(COL_PROJECTS).find({"surveyNo": {"$in": _vid_variants([surveyNo])},
+                                                 "is_deleted": {"$ne": True}})
+             if str(d.get("projectStatus") or "").strip().lower() != "deleted"]
+    if not cands:
+        _bad(f"No traffic link with surveyNo {surveyNo}")
+    same = [d for d in cands if str(d.get("vendorId") or "").strip() == vid]
+    if not same:
+        _bad(f"Traffic link {surveyNo} belongs to vendor {cands[0].get('vendorId')}, not {vid}")
+    for d in same:
+        q: Dict[str, Any] = {"legacyProjectId": str(d["_id"]), "removed": {"$ne": True}}
+        if own_sid is not None:
+            q["_id"] = {"$ne": own_sid}
+        if not _col(COL_SUPPLIERS).find_one(q):
+            return d
+    _conflict(f"Traffic link {surveyNo} is already attached to a supplier")
 
 
 @router.get("/surveys/{survey_id}/suppliers")
@@ -1076,23 +1178,19 @@ def list_suppliers(survey_id: str, user: str = Depends(verify_session), window: 
     _ensure_indexes()
     cutoff = _window(window)
     survey = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    project = _get_project(link["parentProjectId"]) if link else None
-    rows = _supplier_rows(survey, _active_suppliers(survey_id), cutoff)
+    project = _get_project(survey["projectId"])
+    rows = _supplier_rows(_active_suppliers(survey_id), cutoff)
     if not _can_see_pricing(user):
         rows = _strip_pricing(rows)
     return {
-        "project": _project_view(project, user) if project else None,
-        "survey": {"id": str(survey["_id"]), "surveyName": survey.get("projectName"),
-                   "surveyNo": survey.get("surveyNo"), "status": _survey_status(survey.get("projectStatus"))},
+        "project": _project_view(project, user),
+        "survey": {"id": str(survey["_id"]), "surveyName": survey.get("surveyName"),
+                   "surveyNo": survey.get("surveyNumber"), "surveyNumber": survey.get("surveyNumber"),
+                   "status": survey.get("status") or "draft"},
         "items": rows,
         "meta": {"window": window or "p24h", "unverifiedMetrics": UNVERIFIED_METRICS,
                  "sqTermsNote": SQ_TERMS_NOTE, "inflightMinutes": _inflight_minutes()},
     }
-
-
-def _is_active_vendor(v: Dict[str, Any]) -> bool:
-    return not v.get("is_deleted") and str(v.get("status") or "").lower() not in DEAD_VENDOR_STATUSES
 
 
 @router.get("/managers")
@@ -1126,62 +1224,93 @@ def vendor_lookup(q: Optional[str] = None, limit: int = Query(20, ge=1, le=100),
     return {"items": out}
 
 
+def _insert_participation(survey: Dict[str, Any], vendor: Dict[str, Any], vid: str,
+                          no: Optional[str], legacy: Optional[Dict[str, Any]],
+                          price: Optional[Decimal], currency: str, user: str) -> Dict[str, Any]:
+    sid_str = str(survey["_id"])
+    lid = str(legacy["_id"]) if legacy else None
+    status = _supplier_status_from_legacy(legacy.get("projectStatus")) if legacy else "live"
+    fields = {"surveyId": sid_str, "legacyProjectId": lid, "surveyNo": no, "vendorId": vid,
+              "vendorName": vendor.get("vendorName"), "sourceName": vendor.get("vendorType"),
+              "buyPrice": str(price) if price is not None else None, "currency": currency,
+              "status": status, "removed": False, "updatedAt": _now()}
+    existing = None
+    if lid:
+        existing = _col(COL_SUPPLIERS).find_one({"surveyId": sid_str, "legacyProjectId": lid, "removed": True})
+    if existing:  # previously removed from this survey: reactivate the same row
+        _col(COL_SUPPLIERS).update_one({"_id": existing["_id"]}, {"$set": fields})
+        sup_id = existing["_id"]
+    else:
+        sup_id = _col(COL_SUPPLIERS).insert_one({**fields, "createdAt": _now(), "createdBy": user}).inserted_id
+    _log(user=user, action="supplier.add", project_id=survey.get("projectId"), survey_id=sid_str,
+         field="vendorId", new=vid, extra={"supplierId": str(sup_id), "surveyNo": no, "legacyProjectId": lid})
+    return _supplier_view({**fields, "_id": sup_id}, status)
+
+
 @router.post("/surveys/{survey_id}/suppliers")
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def add_suppliers(survey_id: str, request: Request, body: SupplierAdd, user: str = Depends(verify_session)):
+    """vendorIds -> participations waiting for a link (needsLink). links -> participations
+    attached to an existing traffic doc. Everything is validated before anything is written."""
     _ensure_indexes()
     survey = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    parent_id = link["parentProjectId"] if link else None
-    vids = [str(v).strip() for v in body.vendorIds]
-    if not vids or any(not v for v in vids):
-        _bad("vendorIds must be a non-empty list of vendor ids")
+    vids = [str(v).strip() for v in (body.vendorIds or [])]
+    links = [(str(item.vendorId).strip(), str(item.surveyNo).strip()) for item in (body.links or [])]
+    if not vids and not links:
+        _bad("Add at least one vendorId or link")
+    if any(not v for v in vids):
+        _bad("vendorIds must not contain empty values")
     if len(set(vids)) != len(vids):
         _bad("vendorIds contains duplicates")
-    price = None
+    if any(not v or not n for v, n in links):
+        _bad("each link needs a vendorId and a surveyNo")
+    nos = [n for _, n in links]
+    if len(set(nos)) != len(nos):
+        _bad("surveyNo appears more than once in this request")
     if body.buyPrice is not None or body.currency is not None:
         _require_pricing(user, "Setting a supplier price")
-    if body.buyPrice is not None:
-        price = _check_price(body.buyPrice)
+    price = _check_price(body.buyPrice) if body.buyPrice is not None else None
     currency = _check_currency(body.currency or "INR")
 
-    existing = {str(s["vendorId"]): s for s in _col(COL_SUPPLIERS).find({"surveyId": str(survey_id)})}
-    for vid in vids:
-        if vid in existing and not existing[vid].get("removed"):
-            raise HTTPException(status_code=409, detail=f"Vendor {vid} is already a supplier of this survey")
-
-    vendors = {}
-    unknown = []
-    for vid in vids:
-        v = _col(COL_VENDORS).find_one({"vid": vid})
-        if not v or not _is_active_vendor(v):
-            unknown.append(vid)
-        else:
-            vendors[vid] = v
+    all_vids = vids + [v for v, _ in links]
+    vendors = _active_vendor_map(all_vids)
+    unknown = sorted({v for v in all_vids if v not in vendors})
     if unknown:
         _bad(f"Unknown or inactive vendor(s): {', '.join(unknown)}")
+    resolved = [(vid, no, _resolve_legacy(vid, no)) for vid, no in links]
 
     out = []
+    for vid, no, legacy in resolved:
+        out.append(_insert_participation(survey, vendors[vid], vid, no, legacy, price, currency, user))
     for vid in vids:
-        v = vendors[vid]
-        fields = {"surveyId": str(survey_id), "vendorId": vid,
-                  "vendorName": v.get("vendorName"), "sourceName": v.get("vendorType"),
-                  "buyPrice": str(price) if price is not None else None,
-                  "currency": currency, "status": "live", "removed": False, "updatedAt": _now()}
-        if vid in existing:  # previously removed: reactivate the same row
-            _col(COL_SUPPLIERS).update_one({"_id": existing[vid]["_id"]}, {"$set": fields})
-            sid = existing[vid]["_id"]
-        else:
-            sid = _col(COL_SUPPLIERS).insert_one({**fields, "createdAt": _now(), "createdBy": user}).inserted_id
-        _log(user=user, action="supplier.add", project_id=parent_id, survey_id=str(survey_id),
-             field="vendorId", new=vid, extra={"supplierId": str(sid)})
-        out.append(_supplier_view({**fields, "_id": sid}))
+        out.append(_insert_participation(survey, vendors[vid], vid, None, None, price, currency, user))
     return {"items": out}
+
+
+@router.put("/survey-suppliers/{sid}/link")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
+def attach_supplier_link(sid: str, request: Request, body: SupplierLinkBody, user: str = Depends(verify_session)):
+    """Attach (or re-attach) a traffic link to an existing participation. Same checks as add."""
+    _ensure_indexes()
+    doc = _get_supplier(sid)
+    no = _check_name(body.surveyNo, "surveyNo", limit=32)
+    vid = str(doc.get("vendorId") or "").strip()
+    if not _active_vendor_map([vid]):
+        _bad(f"Unknown or inactive vendor(s): {vid}")
+    legacy = _resolve_legacy(vid, no, own_sid=doc["_id"])
+    fields = {"legacyProjectId": str(legacy["_id"]), "surveyNo": no,
+              "status": _supplier_status_from_legacy(legacy.get("projectStatus")), "updatedAt": _now()}
+    _col(COL_SUPPLIERS).update_one({"_id": doc["_id"]}, {"$set": fields})
+    _log(user=user, action="supplier.link", project_id=_project_of_survey(doc["surveyId"]),
+         survey_id=doc["surveyId"], field="surveyNo", old=doc.get("surveyNo"), new=no,
+         extra={"supplierId": sid, "legacyProjectId": fields["legacyProjectId"]})
+    return {"item": _supplier_out(_get_supplier(sid))}
 
 
 @router.put("/survey-suppliers/{sid}")
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_supplier(sid: str, request: Request, body: SupplierUpdate, user: str = Depends(verify_session)):
+    """Status on a linked row also writes projectStatus to its legacy doc (write-through)."""
     _ensure_indexes()
     doc = _get_supplier(sid)
     data = body.model_dump(exclude_unset=True)
@@ -1195,34 +1324,45 @@ def update_supplier(sid: str, request: Request, body: SupplierUpdate, user: str 
     if data.get("currency") is not None:
         _require_pricing(user, "Changing a supplier currency")
         changes["currency"] = _check_currency(data["currency"])
+
+    legacy_doc = _legacy_docs([doc.get("legacyProjectId")]).get(str(doc.get("legacyProjectId")))
+    old_status = _effective_status(doc, legacy_doc)
     if data.get("status") is not None:
-        if data["status"] not in SUPPLIER_STATUSES:
+        new_status = data["status"]
+        if new_status not in SUPPLIER_STATUSES:
             _bad(f"status must be one of {', '.join(SUPPLIER_STATUSES)}")
-        changes["status"] = data["status"]
+        if legacy_doc is not None:
+            stored = LEGACY_STATUS_WRITE.get(new_status, new_status)
+            if legacy_doc.get("projectStatus") != stored:
+                _col(COL_PROJECTS).update_one({"_id": legacy_doc["_id"]},
+                                              {"$set": {"projectStatus": stored}})
+        changes["status"] = new_status
     changes = {k: v for k, v in changes.items() if doc.get(k) != v}
-    link = _link_for_survey(doc["surveyId"])
-    parent_id = link["parentProjectId"] if link else None
+
     if changes:
         changes["updatedAt"] = _now()
         _col(COL_SUPPLIERS).update_one({"_id": doc["_id"]}, {"$set": changes})
+        project_id = _project_of_survey(doc["surveyId"])
         for k, v in changes.items():
-            if k != "updatedAt":
-                _log(user=user, action="supplier.update", project_id=parent_id,
-                     survey_id=doc["surveyId"], field=k, old=doc.get(k), new=v,
-                     extra={"supplierId": sid})
-    return {"item": _supplier_view(_get_supplier(sid))}
+            if k == "updatedAt":
+                continue
+            wrote_legacy = k == "status" and legacy_doc is not None
+            _log(user=user, action="supplier.update", project_id=project_id, survey_id=doc["surveyId"],
+                 field=k, old=old_status if k == "status" else doc.get(k), new=v,
+                 extra={"supplierId": sid, "legacyProjectId": doc.get("legacyProjectId") if wrote_legacy else None,
+                        "legacyWrite": wrote_legacy})
+    return {"item": _supplier_out(_get_supplier(sid))}
 
 
 @router.delete("/survey-suppliers/{sid}")
 @require_permission(Permissions.OPS_PROJECT_UPDATE)
 def remove_supplier(sid: str, request: Request, user: str = Depends(verify_session)):
-    """Soft remove. The vendor record is never touched."""
+    """Soft remove. The vendor record and the legacy traffic doc are never touched."""
     _ensure_indexes()
     doc = _get_supplier(sid)
     _col(COL_SUPPLIERS).update_one({"_id": doc["_id"]},
                                    {"$set": {"removed": True, "removedAt": _now(), "removedBy": user}})
-    link = _link_for_survey(doc["surveyId"])
-    _log(user=user, action="supplier.remove", project_id=link["parentProjectId"] if link else None,
+    _log(user=user, action="supplier.remove", project_id=_project_of_survey(doc["surveyId"]),
          survey_id=doc["surveyId"], field="vendorId", old=doc.get("vendorId"), extra={"supplierId": sid})
     return {"removed": True}
 
@@ -1242,10 +1382,15 @@ def _flatten(prefix: str, src: Any, row: Dict[str, Any]) -> None:
             row[key] = v
 
 
-def _respondent_row(r: Dict[str, Any], include_answers: bool, pii: bool) -> Dict[str, Any]:
+def _respondent_row(r: Dict[str, Any], include_answers: bool, pii: bool,
+                    sup_of_pid: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    pid = str((r.get("params") or {}).get("pid"))
+    sup = sup_of_pid.get(pid)
     row: Dict[str, Any] = {
         "respondentId": r.get("respondentId"),
-        "surveyNo": (r.get("params") or {}).get("pid"),
+        "supplier": sup.get("vendorName") if sup else None,
+        "supplierSurveyNo": pid if sup else None,
+        "surveyNo": pid,
         "vendor": str(r.get("vendorId")),
         "status": r.get("status"),
         "createdAt": _iso(r.get("createdAt")),
@@ -1260,10 +1405,11 @@ def _respondent_row(r: Dict[str, Any], include_answers: bool, pii: bool) -> Dict
     return row
 
 
-_SUPPLIER_COLS = ["vendorId", "vendorName", "entrants", "terms", "defenderTerms", "oqs", "sqTerms", "abandons", "inFlights",
-                  "completes", "completesWindow", "ir", "conversion", "loi", "buyPrice", "currency",
-                  "expense", "expenseBasis", "status"]
-_RESPONDENT_BASE = ["respondentId", "surveyNo", "vendor", "status", "createdAt", "completedAt"]
+_SUPPLIER_COLS = ["vendorId", "vendorName", "surveyNo", "entrants", "terms", "defenderTerms", "oqs", "sqTerms",
+                  "abandons", "inFlights", "completes", "completesWindow", "ir", "conversion", "loi",
+                  "buyPrice", "currency", "expense", "expenseBasis", "status"]
+_RESPONDENT_BASE = ["respondentId", "supplier", "supplierSurveyNo", "surveyNo", "vendor", "status",
+                    "createdAt", "completedAt"]
 
 
 @router.get("/surveys/{survey_id}/traffic-report")
@@ -1278,8 +1424,7 @@ def traffic_report(
     _ensure_indexes()
     cutoff = _window(window)
     survey = _get_survey(survey_id)
-    link = _link_for_survey(survey_id)
-    parent_id = link["parentProjectId"] if link else None
+    parent_id = survey.get("projectId")
     sups = _active_suppliers(survey_id)
     if supplierId:
         sup = _get_supplier(supplierId)
@@ -1288,13 +1433,12 @@ def traffic_report(
         sups = [sup]
     pii = _is_admin(user)
 
-    section_a = _supplier_rows(survey, sups, cutoff)
+    section_a = _supplier_rows(sups, cutoff)
     if not _can_see_pricing(user):
         section_a = _strip_pricing(section_a)
-    recs = _traffic_find([survey.get("surveyNo")],
-                         vendor_ids=[s["vendorId"] for s in sups] if supplierId else None,
-                         projection=None)
-    respondents = [_respondent_row(r, includeAnswers, pii) for r in recs]
+    sup_of_pid = {str(s["surveyNo"]): s for s in sups if s.get("surveyNo")}
+    recs = _traffic_find(list(sup_of_pid), projection=None)
+    respondents = [_respondent_row(r, includeAnswers, pii, sup_of_pid) for r in recs]
     answer_cols: List[str] = []
     if includeAnswers:
         seen = set()
@@ -1312,7 +1456,7 @@ def traffic_report(
                 "respondentRows": len(respondents)})
 
     if format == "json":
-        return {"survey": {"id": str(survey["_id"]), "surveyNo": survey.get("surveyNo")},
+        return {"survey": {"id": str(survey["_id"]), "surveyNo": survey.get("surveyNumber")},
                 "suppliers": section_a, "respondents": respondents,
                 "respondentColumns": resp_cols, "pii": pii,
                 "meta": {"sqTermsNote": SQ_TERMS_NOTE, "inflightMinutes": _inflight_minutes()}}
@@ -1341,7 +1485,7 @@ def traffic_report(
                 yield flush()
         yield flush()
 
-    filename = f"survey_{survey.get('surveyNo')}_traffic.csv"
+    filename = f"survey_{survey.get('surveyNumber')}_traffic.csv"
     return StreamingResponse(_stream(), media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
@@ -1354,37 +1498,38 @@ def search(q: str = Query(..., min_length=1, max_length=100), user: str = Depend
     rx = {"$regex": re.escape(q.strip()), "$options": "i"}
     projects = list(_col(COL_OPS_PROJECTS).find(
         {"is_deleted": {"$ne": True}, "$or": [{"projectName": rx}, {"projectNumber": rx}]}))[:10]
-    surveys = list(_col(COL_PROJECTS).find(
-        {"is_deleted": {"$ne": True}, "$or": [{"projectName": rx}, {"surveyNo": rx}]}))[:10]
+    surveys = list(_col(COL_OPS_SURVEYS).find(
+        {"is_deleted": {"$ne": True}, "$or": [{"surveyName": rx}, {"surveyNumber": rx}]}))[:10]
     sups = list(_col(COL_SUPPLIERS).find(
-        {"removed": {"$ne": True}, "$or": [{"vendorName": rx}, {"vendorId": rx}]}))[:10]
-    # Supplier hits need their survey's number and parent too: resolve both in one read each.
+        {"removed": {"$ne": True}, "$or": [{"vendorName": rx}, {"surveyNo": rx}]}))[:10]
+    # Supplier hits need their survey's number and project: resolve both in one read each.
     sup_sids = {str(s.get("surveyId")) for s in sups if ObjectId.is_valid(str(s.get("surveyId")))}
-    sup_surveys = {str(d["_id"]): d for d in _col(COL_PROJECTS).find(
+    sup_surveys = {str(d["_id"]): d for d in _col(COL_OPS_SURVEYS).find(
         {"_id": {"$in": [ObjectId(x) for x in sup_sids]}})} if sup_sids else {}
-    all_sids = {str(s["_id"]) for s in surveys} | sup_sids
-    link_of = {ln["surveyId"]: ln["parentProjectId"] for ln in
-               _col(COL_LINKS).find({"surveyId": {"$in": list(all_sids)}})} if all_sids else {}
+    legacy = _legacy_docs([s.get("legacyProjectId") for s in sups])
     return {
         "projects": [{"id": str(p["_id"]), "projectName": p.get("projectName"),
                       "projectNumber": p.get("projectNumber"), "status": p.get("status")} for p in projects],
-        "surveys": [{"id": str(s["_id"]), "surveyName": s.get("projectName"), "surveyNo": s.get("surveyNo"),
-                     "status": _survey_status(s.get("projectStatus")),
-                     "parentProjectId": link_of.get(str(s["_id"]))} for s in surveys],
+        "surveys": [{"id": str(s["_id"]), "surveyName": s.get("surveyName"),
+                     "surveyNo": s.get("surveyNumber"), "surveyNumber": s.get("surveyNumber"),
+                     "status": s.get("status") or "draft", "parentProjectId": s.get("projectId")}
+                    for s in surveys],
         "suppliers": [{"id": str(s["_id"]), "surveyId": s.get("surveyId"),
-                       "surveyNo": (sup_surveys.get(str(s.get("surveyId"))) or {}).get("surveyNo"),
-                       "parentProjectId": link_of.get(str(s.get("surveyId"))),
+                       "surveyNo": s.get("surveyNo"),
+                       "surveyNumber": (sup_surveys.get(str(s.get("surveyId"))) or {}).get("surveyNumber"),
+                       "parentProjectId": (sup_surveys.get(str(s.get("surveyId"))) or {}).get("projectId"),
                        "vendorId": s.get("vendorId"), "vendorName": s.get("vendorName"),
-                       "status": s.get("status")} for s in sups],
+                       "status": _effective_status(s, legacy.get(str(s.get("legacyProjectId"))))}
+                      for s in sups],
     }
 
 
 @router.get("/surveys/{survey_id}/test-link")
 def survey_test_link(survey_id: str, user: str = Depends(verify_session)):
-    """The survey's stored liveLink, unchanged, if it is a valid http(s) URL.
+    """The survey's stored surveyUrl, unchanged, if it is a valid http(s) URL.
     Read-only: writes nothing and records no traffic."""
     doc = _get_survey(survey_id)
-    raw = doc.get("liveLink")
+    raw = doc.get("surveyUrl")
     if isinstance(raw, str):
         p = urlparse(raw)
         if p.scheme in ("http", "https") and p.netloc:

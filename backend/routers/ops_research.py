@@ -3,6 +3,10 @@ Ops research layer: cleaning requests (tracking only), client reconciliations,
 project report and daily trend. Built on routers/ops_surveys.py helpers; metric
 definitions are not duplicated here.
 
+A survey's traffic is the rows of its active supplier participations, each read
+through its own traffic pid (supplier surveyNo). Participations without a link
+contribute nothing.
+
 Reads never modify traffic rows. Every mutation is written to ops_change_log.
 """
 
@@ -18,7 +22,6 @@ from pydantic import BaseModel
 from rbac.decorators import require_permission
 from rbac.permissions import Permissions
 from routers.ops_surveys import (
-    COL_VENDORS,
     _TRACK_PROJECTION,
     _TS,
     _active_suppliers,
@@ -26,24 +29,28 @@ from routers.ops_surveys import (
     _bad,
     _can_see_pricing,
     _col,
-    SQ_TERMS_NOTE,
+    _combine,
+    _count,
     _ensure_indexes,
+    _find_survey,
+    _finish,
     _get_project,
     _get_survey,
     _group_by_pid,
     _inflight_minutes,
     _iso,
-    _link_for_survey,
     _log,
     _not_found,
     _now,
     _oid,
+    _pids,
     _project_view,
     _survey_row,
-    _surveys_under,
+    _suppliers_by_survey,
+    _surveys_of,
     _traffic_find,
-    _vid_variants,
     _window,
+    SQ_TERMS_NOTE,
 )
 from session_state import verify_session
 
@@ -71,6 +78,10 @@ def _rid(r: Dict[str, Any]) -> str:
     return str(r.get("respondentId") or "").strip()
 
 
+def _pid_of(r: Dict[str, Any]) -> str:
+    return str((r.get("params") or {}).get("pid"))
+
+
 def _money(d: Decimal) -> float:
     return float(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
@@ -90,20 +101,10 @@ def _clean_ids(values: Optional[List[Any]], field: str, required: bool) -> List[
 
 
 def _survey_of_project(project_id: str, survey_id: str) -> Dict[str, Any]:
-    link = _link_for_survey(str(survey_id))
-    if not link or str(link.get("parentProjectId")) != str(project_id):
+    survey = _find_survey(str(survey_id))
+    if not survey or str(survey.get("projectId")) != str(project_id):
         _bad(f"survey {survey_id} does not belong to this project")
-    return _get_survey(str(survey_id))
-
-
-def _vendor_names(vids: List[str]) -> Dict[str, Any]:
-    vids = [v for v in vids if v not in (None, "")]
-    if not vids:
-        return {}
-    names: Dict[str, Any] = {}
-    for v in _col(COL_VENDORS).find({"vid": {"$in": _vid_variants(vids)}}):
-        names[str(v.get("vid"))] = v.get("vendorName")
-    return names
+    return survey
 
 
 def _ist_day(value: Any) -> Optional[str]:
@@ -206,10 +207,19 @@ class ReconciliationCreate(BaseModel):
 
 
 def _reconcile(survey: Dict[str, Any], accepted: List[str], rejected: List[str]) -> Dict[str, Any]:
-    """Read-only comparison of the client file against our traffic rows for this survey."""
-    no = survey.get("surveyNo")
-    recs = _traffic_find([no], projection=_RECON_PROJECTION) if no else []
+    """Read-only comparison of the client file against the traffic rows of this survey's
+    supplier participations. bySupplier has one entry per participation."""
+    sups = _active_suppliers(str(survey["_id"]))
+    by_pid = {str(s["surveyNo"]): s for s in sups if s.get("surveyNo")}
+    recs = _traffic_find(list(by_pid), projection=_RECON_PROJECTION)
     acc, rej = set(accepted), set(rejected)
+
+    per: Dict[str, Dict[str, Any]] = {}
+    for s in sups:
+        sid = str(s["_id"])
+        per[sid] = {"supplierId": sid, "vendorId": str(s.get("vendorId")), "vendorName": s.get("vendorName"),
+                    "surveyNo": s.get("surveyNo"), "ourCompletes": 0, "reconciledCompletes": 0, "rejected": 0}
+    sid_of_pid = {pid: str(s["_id"]) for pid, s in by_pid.items()}
 
     by_rid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for r in recs:
@@ -230,18 +240,14 @@ def _reconcile(survey: Dict[str, Any], accepted: List[str], rejected: List[str])
                 not_found += 1
             unmatched.append(aid)
 
-    per: Dict[str, Dict[str, int]] = {}
-    for r in recs:
-        per.setdefault(str(r.get("vendorId")), {"ourCompletes": 0, "reconciledCompletes": 0, "rejected": 0})
     for r in completes:
-        s = per[str(r.get("vendorId"))]
+        s = per[sid_of_pid[_pid_of(r)]]
         s["ourCompletes"] += 1
         if _rid(r) in acc:
             s["reconciledCompletes"] += 1
         if _rid(r) in rej:
             s["rejected"] += 1
-    names = _vendor_names(list(per))
-    by_supplier = [{"vendorId": v, "vendorName": names.get(v), **per[v]} for v in sorted(per)]
+    by_supplier = sorted(per.values(), key=lambda x: (x["vendorId"], str(x["surveyNo"] or "")))
 
     reconciled = sum(1 for r in completes if _rid(r) in acc)
     counts = {
@@ -304,7 +310,7 @@ def create_reconciliation(project_id: str, request: Request, body: Reconciliatio
     result = _reconcile(survey, accepted, rejected)
     unmatched = result["unmatched"]
     doc = {
-        "projectId": pid, "surveyId": str(survey["_id"]), "surveyNo": survey.get("surveyNo"),
+        "projectId": pid, "surveyId": str(survey["_id"]), "surveyNo": survey.get("surveyNumber"),
         "createdBy": user, "createdAt": _now(), "note": note or None,
         "counts": result["counts"], "bySupplier": result["bySupplier"],
         "unmatchedIds": unmatched[:UNMATCHED_CAP],
@@ -343,28 +349,22 @@ def project_report(project_id: str, user: str = Depends(verify_session),
     project = _get_project(project_id)
     pid = str(project["_id"])
     pricing = _can_see_pricing(user)
-    surveys = sorted(_surveys_under([pid]).get(pid, []),
-                     key=lambda s: str(s.get("projectName") or "").lower())
+    surveys = sorted(_surveys_of([pid]).get(pid, []),
+                     key=lambda s: str(s.get("surveyName") or "").lower())
+    sups_by = _suppliers_by_survey([str(s["_id"]) for s in surveys])
+    all_pids = _pids([r for s in surveys for r in sups_by.get(str(s["_id"]), [])])
 
-    # One traffic read; each surveyNo's rows are counted once (distinct surveyNo).
-    nos: List[str] = []
-    for s in surveys:
-        no = str(s.get("surveyNo") or "")
-        if no and no not in nos:
-            nos.append(no)
-    grouped = _group_by_pid(_traffic_find(nos, projection=_TRACK_PROJECTION))
-    sid_of_no = {str(s.get("surveyNo")): str(s["_id"]) for s in surveys if s.get("surveyNo")}
+    # One traffic read; each pid's rows are counted once.
+    grouped = _group_by_pid(_traffic_find(all_pids, projection=_TRACK_PROJECTION))
 
     survey_rows = []
     for s in surveys:
-        no = str(s.get("surveyNo") or "")
-        m = _agg(grouped.get(no, []) if no else [], cutoff)
-        row = _survey_row(s, m)
-        row["target"] = int(s.get("totalCompletesRequired") or 0)
-        survey_rows.append(row)
+        sid = str(s["_id"])
+        m = _finish(*_combine([_count(grouped.get(no, []), cutoff)
+                               for no in _pids(sups_by.get(sid, []))]))
+        survey_rows.append(_survey_row(s, m))
 
-    all_records = [r for no in nos for r in grouped.get(no, [])]
-    t = _agg(all_records, cutoff)
+    t = _finish(*_combine([_count(grouped.get(no, []), cutoff) for no in all_pids]))
     totals = {
         "entrants": t["entrants"], "terms": t["terms"], "defenderTerms": t["defenderTerms"],
         "oqs": t["oqs"], "sqTerms": t["sqTerms"], "completes": t["completes"], "abandons": t["abandons"],
@@ -372,39 +372,30 @@ def project_report(project_id: str, user: str = Depends(verify_session),
         "target": sum(r["target"] for r in survey_rows),
     }
 
-    # Supplier aggregation across the project's surveys.
+    # Supplier aggregation across the project: grouped by vendorId, over every participation.
     by_vendor: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     vendor_sids: Dict[str, Set[str]] = defaultdict(set)
-    for no in nos:
-        for r in grouped.get(no, []):
-            v = str(r.get("vendorId"))
-            by_vendor[v].append(r)
-            vendor_sids[v].add(sid_of_no[no])
-
-    expense: Dict[str, Dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     name_hint: Dict[str, Any] = {}
+    expense: Dict[str, Dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     for s in surveys:
         sid = str(s["_id"])
-        no = str(s.get("surveyNo") or "")
-        survey_recs = grouped.get(no, []) if no else []
-        for sup in _active_suppliers(sid):
+        for sup in sups_by.get(sid, []):
             v = str(sup.get("vendorId"))
             vendor_sids[v].add(sid)
             name_hint.setdefault(v, sup.get("vendorName"))
-            if sup.get("buyPrice") in (None, ""):
-                continue
-            comp = sum(1 for r in survey_recs if str(r.get("vendorId")) == v and _is_complete(r))
-            cur = str(sup.get("currency") or "INR")
-            expense[v][cur] += Decimal(comp) * Decimal(str(sup["buyPrice"]))
+            recs = grouped.get(str(sup.get("surveyNo")), []) if sup.get("surveyNo") else []
+            by_vendor[v].extend(recs)
+            if sup.get("buyPrice") not in (None, ""):
+                comp = sum(1 for r in recs if _is_complete(r))
+                cur = str(sup.get("currency") or "INR")
+                expense[v][cur] += Decimal(comp) * Decimal(str(sup["buyPrice"]))
 
-    vids = sorted(set(by_vendor) | set(vendor_sids))
-    names = _vendor_names(vids)
     suppliers = []
-    for v in vids:
+    for v in sorted(vendor_sids):
         m = _agg(by_vendor.get(v, []), cutoff)
         row = {
             "vendorId": v,
-            "vendorName": names.get(v) or name_hint.get(v),
+            "vendorName": name_hint.get(v),
             "surveys": len(vendor_sids[v]),
             "entrants": m["entrants"], "terms": m["terms"], "defenderTerms": m["defenderTerms"],
             "oqs": m["oqs"], "sqTerms": m["sqTerms"], "abandons": m["abandons"], "inFlights": m["inFlights"],
@@ -444,9 +435,11 @@ def project_report(project_id: str, user: str = Depends(verify_session),
 @router.get("/surveys/{survey_id}/trend")
 def survey_trend(survey_id: str, user: str = Depends(verify_session),
                  days: int = Query(14, ge=1, le=90)):
-    survey = _get_survey(survey_id)
-    no = str(survey.get("surveyNo") or "")
-    recs = _traffic_find([no], projection=_TRACK_PROJECTION) if no else []
+    """Daily entrants/completes per supplier participation (linked rows only)."""
+    _get_survey(survey_id)
+    sups = [s for s in _active_suppliers(survey_id) if s.get("surveyNo")]
+    by_pid = {str(s["surveyNo"]): s for s in sups}
+    recs = _traffic_find(list(by_pid), projection=_TRACK_PROJECTION)
 
     today = datetime.now(IST).date()
     day_keys = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
@@ -455,20 +448,22 @@ def survey_trend(survey_id: str, user: str = Depends(verify_session),
     entrants: Dict[str, List[int]] = {}
     completes: Dict[str, List[int]] = {}
     for r in recs:
-        v = str(r.get("vendorId"))
+        sid = str(by_pid[_pid_of(r)]["_id"])
         d = _ist_day(r.get("createdAt"))
         if d in idx:
-            entrants.setdefault(v, [0] * days)[idx[d]] += 1
+            entrants.setdefault(sid, [0] * days)[idx[d]] += 1
         if _is_complete(r):
             d = _ist_day(r.get("completedAt"))
             if d in idx:
-                completes.setdefault(v, [0] * days)[idx[d]] += 1
+                completes.setdefault(sid, [0] * days)[idx[d]] += 1
 
-    vids = sorted(set(entrants) | set(completes))
-    names = _vendor_names(vids)
-    series = [{"vendorId": v, "vendorName": names.get(v),
-               "entrants": entrants.get(v, [0] * days), "completes": completes.get(v, [0] * days)}
-              for v in vids]
+    series = []
+    for s in sups:
+        sid = str(s["_id"])
+        name = s.get("vendorName")
+        series.append({"supplierId": sid, "vendorId": str(s.get("vendorId")), "vendorName": name,
+                       "surveyNo": s.get("surveyNo"), "label": f"{name} ({s.get('surveyNo')})",
+                       "entrants": entrants.get(sid, [0] * days), "completes": completes.get(sid, [0] * days)})
     total_e = [0] * days
     total_c = [0] * days
     for s in series:

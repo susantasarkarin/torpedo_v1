@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   listSurveySuppliers,
   updateSurveySupplier,
@@ -11,6 +11,7 @@ import {
 } from "../../../services/opsProjectsService";
 import { notify as notifyToast, confirmAction } from "../../../utils/notify";
 import AddSupplierModal from "./AddSupplierModal";
+import AttachLinkModal from "./AttachLinkModal";
 import { Metric, StatusBadge, Breadcrumbs, WindowToggle, StateMessage } from "./opsShared";
 import { canSeePricing, fmtInt, fmtPct, fmtLoi, fmtMoney, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
 import "./opsProjects.css";
@@ -26,7 +27,7 @@ const SOURCE_STATUS_OPTIONS = [
 ];
 
 // One supplier row. It owns its own edit state, so rows save independently.
-function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved }) {
+function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved, onAttach }) {
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceDraft, setPriceDraft] = useState({ buyPrice: "", currency: "USD" });
   const [busy, setBusy] = useState(false);
@@ -91,7 +92,14 @@ function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved }) {
 
   return (
     <tr className={busy ? "is-busy" : ""}>
-      <td className="ops-td">{row.vendorName || "—"}</td>
+      <td className="ops-td">
+        <div>{row.vendorName || "—"}</div>
+        {row.needsLink ? (
+          <span className="ops-badge ops-badge--draft">No link yet</span>
+        ) : (
+          <div className="ops-subtle">link {row.surveyNo}</div>
+        )}
+      </td>
       <td className="ops-td">{row.sourceName || "—"}</td>
       {metric("entrants", fmtInt)}
       {metric("terms", fmtInt)}
@@ -167,6 +175,18 @@ function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved }) {
         </select>
       </td>
       <td className="ops-td ops-td--center">
+        {row.needsLink && (
+          <button type="button" className="ops-btn ops-btn--ghost ops-btn--sm" onClick={() => onAttach(row)} disabled={busy}
+            aria-label={`Attach link to ${row.vendorName}`}>
+            Attach link
+          </button>
+        )}
+        {row.legacyProjectId && (
+          <Link className="ops-btn ops-btn--ghost ops-btn--sm" to={`/admin/operations/projects/${row.legacyProjectId}`}
+            aria-label={`Open link settings for ${row.vendorName}`}>
+            Open link settings
+          </Link>
+        )}
         <button type="button" className="ops-btn ops-btn--danger ops-btn--sm" onClick={remove} disabled={busy}
           aria-label={`Remove ${row.vendorName} from this survey`}>
           Remove
@@ -188,6 +208,7 @@ export default function OpsSurveySources() {
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [linkRow, setLinkRow] = useState(null);
   const [reporting, setReporting] = useState(false);
   const [trendDays, setTrendDays] = useState(14);
   const [trend, setTrend] = useState(null);
@@ -321,7 +342,7 @@ export default function OpsSurveySources() {
               <caption className="ops-visually-hidden">Suppliers for {survey?.surveyName || "this survey"}</caption>
               <thead>
                 <tr>
-                  <th scope="col" className="ops-th">Vendor</th>
+                  <th scope="col" className="ops-th">Source name</th>
                   <th scope="col" className="ops-th">Source</th>
                   {metricHeader("Entrants", "entrants")}
                   {metricHeader("Terms", "terms")}
@@ -349,6 +370,7 @@ export default function OpsSurveySources() {
                     onChange={updateRow}
                     onRemove={removeRow}
                     onPriceSaved={() => setReloadKey((k) => k + 1)}
+                    onAttach={setLinkRow}
                   />
                 ))}
               </tbody>
@@ -420,13 +442,24 @@ export default function OpsSurveySources() {
       {adding && (
         <AddSupplierModal
           surveyId={surveyId}
-          attachedVendorIds={items.map((r) => r.vendorId)}
           canPrice={canPrice}
           onClose={() => setAdding(false)}
           onAdded={() => {
             setAdding(false);
             notifyToast("Suppliers added to the survey.", "success");
             setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {linkRow && (
+        <AttachLinkModal
+          row={linkRow}
+          onClose={() => setLinkRow(null)}
+          onAttached={() => {
+            setLinkRow(null);
+            notifyToast("Link attached.", "success");
+            setReloadKey((k) => k + 1); // metrics come from the link, so the list is re-read
           }}
         />
       )}

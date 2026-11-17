@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   listSurveys,
   getSurvey,
@@ -74,7 +74,6 @@ const METRIC_COLUMNS = [
 
 export default function OpsProjectSurveys() {
   const { projectId } = useParams();
-  const navigate = useNavigate();
 
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
@@ -362,7 +361,6 @@ export default function OpsProjectSurveys() {
                           label={s.surveyName}
                           items={[
                             { label: "Edit", onSelect: () => onEdit(s) },
-                            { label: "Full survey settings", title: "Open this survey in the classic project settings page", onSelect: () => navigate(`/admin/operations/projects/${s.id}`) },
                             { label: "Test Survey", title: TEST_LINK_TIP, onSelect: () => openSurveyTestLink(s.id) },
                             { label: "Duplicate", onSelect: () => onDuplicate(s) },
                             { label: "Download traffic report", onSelect: () => onDownload(s) },

@@ -4,21 +4,30 @@ import { ModalShell } from "./opsShared";
 import { splitFieldErrors } from "./opsUtils";
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
+// Two ways to add a supplier to a survey.
+const MODES = [
+  { value: "link", label: "Attach existing link" },
+  { value: "nolink", label: "Add vendor without link yet" },
+];
 // API field -> form key for the errors shown under inputs here.
-const FIELD_MAP = { vendorIds: "vendors" };
-const FORM_FIELDS = ["vendors", "buyPrice"];
+const FIELD_MAP = { vendorIds: "vendors", links: "vendors", surveyNo: "surveyNo" };
+const FORM_FIELDS = ["vendors", "surveyNo", "buyPrice"];
 
 // /vendors/lookup rows are { vid, vendorName, vendorType }.
 const vendorId = (v) => String(v.vid ?? v.id ?? v._id ?? "");
 const vendorName = (v) => v.vendorName || v.name || `Vendor ${vendorId(v)}`;
 
-// Searchable multi-select of existing vendors. Creates one independent supplier row per vendor.
-export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice, onClose, onAdded }) {
+// Vendor search and selection. "link" mode picks one vendor and needs a link number;
+// "nolink" mode picks many vendors and creates them without traffic links.
+// The same vendor may be added again, so existing rows do not block selection.
+export default function AddSupplierModal({ surveyId, canPrice, onClose, onAdded }) {
+  const [mode, setMode] = useState("link");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [selected, setSelected] = useState([]);
+  const [surveyNo, setSurveyNo] = useState("");
   const [buyPrice, setBuyPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [errors, setErrors] = useState({});
@@ -48,18 +57,34 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
     };
   }, [query]);
 
-  const alreadyAttached = new Set((attachedVendorIds || []).map(String));
   const selectedIds = new Set(selected.map((v) => vendorId(v)));
+
+  const changeMode = (next) => {
+    setMode(next);
+    setSelected([]);
+    setErrors({});
+    setFormError(null);
+  };
 
   const toggle = (vendor) => {
     const id = vendorId(vendor);
-    setSelected((list) => (list.some((v) => vendorId(v) === id) ? list.filter((v) => vendorId(v) !== id) : [...list, vendor]));
+    const isOn = selected.some((v) => vendorId(v) === id);
+    if (mode === "link") {
+      // One vendor per link row: picking another vendor replaces the choice.
+      setSelected(isOn ? [] : [vendor]);
+    } else {
+      setSelected((list) => (isOn ? list.filter((v) => vendorId(v) !== id) : [...list, vendor]));
+    }
     if (errors.vendors) setErrors((er) => ({ ...er, vendors: undefined }));
   };
 
   const validate = () => {
     const next = {};
-    if (selected.length === 0) next.vendors = "Select at least one vendor.";
+    if (selected.length === 0) next.vendors = mode === "link" ? "Select a vendor." : "Select at least one vendor.";
+    if (mode === "link") {
+      if (!surveyNo.trim()) next.surveyNo = "Enter the link number.";
+      else if (surveyNo.trim().length > 32) next.surveyNo = "Link number must be 32 characters or fewer.";
+    }
     if (canPrice && buyPrice !== "") {
       const n = Number(buyPrice);
       if (Number.isNaN(n) || n < 0) next.buyPrice = "Buy price must be 0 or more.";
@@ -75,7 +100,9 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
     if (!validate()) return;
 
     // buyPrice goes out as a string (the backend field is a string); the service converts.
-    const body = { vendorIds: selected.map(vendorId) };
+    const body = mode === "link"
+      ? { links: [{ vendorId: vendorId(selected[0]), surveyNo: surveyNo.trim() }] }
+      : { vendorIds: selected.map(vendorId) };
     if (canPrice) {
       body.buyPrice = buyPrice.trim() === "" ? null : buyPrice.trim();
       body.currency = currency;
@@ -92,13 +119,21 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
         setErrors((er) => ({ ...er, ...inline }));
         setFormError(other || (Object.keys(inline).length ? null : err.message));
       } else {
-        setFormError(err instanceof OpsApiError ? err.message : "Could not add the suppliers.");
+        // Backend validation (unknown vendor, link already used, link of another vendor) comes back as text.
+        setFormError(err instanceof OpsApiError ? err.message : "Could not add the supplier.");
       }
     } finally {
       busy.current = false;
       setSaving(false);
     }
   };
+
+  const count = selected.length;
+  const submitLabel = saving
+    ? "Adding…"
+    : mode === "link"
+      ? "Attach link"
+      : count > 0 ? `Add ${count} vendor${count === 1 ? "" : "s"}` : "Add vendors";
 
   return (
     <ModalShell
@@ -111,13 +146,34 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
             Cancel
           </button>
           <button type="submit" form="ops-supplier-form" className="ops-btn ops-btn--primary" disabled={saving}>
-            {saving ? "Adding…" : selected.length > 0 ? `Add ${selected.length} supplier${selected.length === 1 ? "" : "s"}` : "Add supplier"}
+            {submitLabel}
           </button>
         </>
       }
     >
       <form id="ops-supplier-form" className="ops-form" onSubmit={submit} noValidate>
         {formError && <p className="ops-form__error" role="alert">{formError}</p>}
+
+        <div className="ops-segmented" role="group" aria-label="How to add the supplier">
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              className={`ops-segmented__btn ${mode === m.value ? "is-active" : ""}`}
+              aria-pressed={mode === m.value}
+              onClick={() => changeMode(m.value)}
+              disabled={saving}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "nolink" && (
+          <p className="ops-notice" role="note">
+            A traffic link must be attached later; no traffic is recorded until then.
+          </p>
+        )}
 
         <div className="ops-field">
           <label htmlFor="sup-search">Search vendors</label>
@@ -137,26 +193,29 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
           />
         </div>
 
-        <div className="ops-vendor-results" id={listId} role="listbox" aria-multiselectable="true" aria-label="Vendors" aria-busy={searching}>
+        <div className="ops-vendor-results" id={listId} role="listbox" aria-multiselectable={mode === "nolink"} aria-label="Vendors" aria-busy={searching}>
           {searchError && <p className="ops-field__error">{searchError}</p>}
           {!searchError && !searching && results.length === 0 && <p className="ops-field__hint">No vendors found.</p>}
           {results.map((v) => {
             const id = vendorId(v);
-            const attached = alreadyAttached.has(id);
             const checked = selectedIds.has(id);
             return (
-              <div key={id} role="option" aria-selected={checked} aria-disabled={attached} className={`ops-vendor-option ${attached ? "is-attached" : ""}`}>
+              <div key={id} role="option" aria-selected={checked} className="ops-vendor-option">
                 <label>
-                  <input type="checkbox" checked={checked} disabled={attached} onChange={() => toggle(v)} />
+                  <input
+                    type={mode === "link" ? "radio" : "checkbox"}
+                    name="sup-vendor"
+                    checked={checked}
+                    onChange={() => toggle(v)}
+                  />
                   {vendorName(v)}
                 </label>
-                {attached && <span className="ops-field__hint">Already added</span>}
               </div>
             );
           })}
         </div>
 
-        {selected.length > 0 && (
+        {count > 0 && (
           <ul className="ops-chips" aria-label="Selected vendors">
             {selected.map((v) => (
               <li key={vendorId(v)} className="ops-chip">
@@ -169,6 +228,25 @@ export default function AddSupplierModal({ surveyId, attachedVendorIds, canPrice
           </ul>
         )}
         {errors.vendors && <span className="ops-field__error">{errors.vendors}</span>}
+
+        {mode === "link" && (
+          <div className="ops-field">
+            <label htmlFor="sup-link-no">Link number</label>
+            <input
+              id="sup-link-no"
+              className={`ops-input ${errors.surveyNo ? "ops-input--error" : ""}`}
+              value={surveyNo}
+              onChange={(e) => {
+                setSurveyNo(e.target.value);
+                if (errors.surveyNo) setErrors((er) => ({ ...er, surveyNo: undefined }));
+              }}
+              maxLength={32}
+              aria-invalid={Boolean(errors.surveyNo)}
+              autoComplete="off"
+            />
+            {errors.surveyNo && <span className="ops-field__error">{errors.surveyNo}</span>}
+          </div>
+        )}
 
         {canPrice && (
           <div className="ops-field-row">

@@ -332,7 +332,7 @@ export default function OpsProjectsList() {
                         href={href}
                         tip={NO_PAGE_TIP}
                         title={src.vendorName || src.id || "Source"}
-                        sub={src.status}
+                        sub={[src.surveyNo ? `link ${src.surveyNo}` : "No link yet", src.status].filter(Boolean).join(" · ")}
                         onPick={() => setResultsOpen(false)}
                       />
                     );

@@ -7,6 +7,8 @@ import {
   createCleaningRequest,
   getSurveyTrend,
   updateCleaningRequestStatus,
+  addSurveySuppliers,
+  attachSupplierLink,
   OpsApiError,
 } from "../services/opsProjectsService";
 
@@ -135,6 +137,59 @@ describe("opsProjectsService", () => {
 
     expect(err.message).toBe("No survey URL set");
     expect(err.fieldErrors).toEqual({});
+  });
+
+  it("posts linked participations and converts the buy price to a string", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [{ id: "sup1", surveyNo: "123456" }] }));
+
+    const res = await addSurveySuppliers("S1", {
+      links: [{ vendorId: "V1", surveyNo: "123456" }],
+      buyPrice: 12.5,
+      currency: "USD",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ops/surveys/S1/suppliers");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      links: [{ vendorId: "V1", surveyNo: "123456" }],
+      buyPrice: "12.5",
+      currency: "USD",
+    });
+    expect(res.items[0].surveyNo).toBe("123456");
+  });
+
+  it("posts unlinked vendors as vendorIds without a link", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    await addSurveySuppliers("S1", { vendorIds: ["V1", "V2"] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toEqual({ vendorIds: ["V1", "V2"] });
+    expect("links" in body).toBe(false);
+    expect("buyPrice" in body).toBe(false);
+  });
+
+  it("attaches a link number to a participation with a PUT and returns the row", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ item: { id: "sup1", surveyNo: "654321", needsLink: false } }));
+
+    const row = await attachSupplierLink("sup1", "654321");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ops/survey-suppliers/sup1/link");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ surveyNo: "654321" });
+    expect(row.surveyNo).toBe("654321");
+  });
+
+  it("shows the backend error text when a link cannot be attached", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "Traffic link 654321 is already attached to a supplier" }, 409));
+
+    const err = await attachSupplierLink("sup1", "654321").catch((e) => e);
+
+    expect(err).toBeInstanceOf(OpsApiError);
+    expect(err.status).toBe(409);
+    expect(err.message).toBe("Traffic link 654321 is already attached to a supplier");
   });
 
   it("reports a network failure as an OpsApiError with status 0", async () => {

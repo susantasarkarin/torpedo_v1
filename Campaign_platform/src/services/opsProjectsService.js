@@ -128,13 +128,26 @@ export const duplicateSurvey = (id) =>
   request(`/surveys/${id}/duplicate`, { method: "POST" }).then(pick("survey"));
 export const getSurveyChangeLog = (id) => request(`/surveys/${id}/change-log`);
 
-// ---------- Survey sources (suppliers) ----------
+// ---------- Survey sources (supplier participations) ----------
+// A survey has several supplier participations. Each one is a supplier link with its
+// own link number (surveyNo, the traffic id), or is unlinked (needsLink, surveyNo null).
+// The same vendor may appear more than once in a survey, so rows are keyed by id.
 
 export const listSurveySuppliers = (surveyId, params) =>
   request(`/surveys/${surveyId}/suppliers`, { params });
-// Returns { items: [...] }, one supplier row per vendor.
-export const addSurveySuppliers = (surveyId, body) =>
-  request(`/surveys/${surveyId}/suppliers`, { method: "POST", body: supplierBody(body) });
+// body: { vendorIds?: [vid] (unlinked rows), links?: [{ vendorId, surveyNo }] (linked rows),
+// buyPrice?, currency? }. Returns { items: [...] }, one row per participation created.
+export const addSurveySuppliers = (surveyId, { vendorIds, links, buyPrice, currency } = {}) => {
+  const body = {};
+  if (vendorIds !== undefined) body.vendorIds = vendorIds;
+  if (links !== undefined) body.links = links;
+  if (buyPrice !== undefined) body.buyPrice = buyPrice;
+  if (currency !== undefined) body.currency = currency;
+  return request(`/surveys/${surveyId}/suppliers`, { method: "POST", body: supplierBody(body) });
+};
+// Attaches (or re-attaches) a link number to an existing participation. Returns the row.
+export const attachSupplierLink = (supplierId, surveyNo) =>
+  request(`/survey-suppliers/${supplierId}/link`, { method: "PUT", body: { surveyNo } }).then(pick("item"));
 export const updateSurveySupplier = (sid, body) =>
   request(`/survey-suppliers/${sid}`, { method: "PUT", body: supplierBody(body) }).then(pick("item"));
 export const deleteSurveySupplier = (sid) =>
