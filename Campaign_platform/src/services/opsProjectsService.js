@@ -247,3 +247,6 @@ export const unwrapList = (data, ...keys) => {
   }
   return [];
 };
+
+// Operations dashboard (2026-11-18): days 1-90, source all|project|cpx|cint.
+export const getOpsDashboard = (days = 7, source = "all") => request("/dashboard", { params: { days, source } });

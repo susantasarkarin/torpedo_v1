@@ -1473,6 +1473,8 @@ from routers import ops_surveys as ops_surveys_router
 app.include_router(ops_surveys_router.router)
 from routers import ops_research as ops_research_router
 app.include_router(ops_research_router.router)
+from routers import ops_dashboard as ops_dashboard_router  # Operations dashboard (2026-11-18)
+app.include_router(ops_dashboard_router.router)
 
 # --- Marketing: websites, blog posts, media library ---
 from routers import marketing_site as marketing_site_router
