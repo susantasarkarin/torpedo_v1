@@ -35,6 +35,19 @@ export default function RfqChip({ project, onReview }) {
     );
   }
 
+  // Unmatched: a visible way to link one (owner 2026-11-18), a dash when read-only.
+  if (onReview) {
+    return (
+      <button
+        type="button"
+        className="ops-rfq-chip ops-rfq-chip--review"
+        onClick={onReview}
+        title="No RFQ linked. Search and link the RFQ for this project."
+      >
+        + Link RFQ
+      </button>
+    );
+  }
   return (
     <span className="ops-null" title="No RFQ linked" aria-label="No RFQ linked">
       —

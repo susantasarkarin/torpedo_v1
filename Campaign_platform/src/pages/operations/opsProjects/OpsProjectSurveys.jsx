@@ -12,6 +12,7 @@ import {
 } from "../../../services/opsProjectsService";
 import { notify as notifyToast } from "../../../utils/notify";
 import SurveyModal from "./SurveyModal";
+import ProjectModal from "./ProjectModal";
 import ChangeLogDrawer from "./ChangeLogDrawer";
 import DataCleaningModal from "./DataCleaningModal";
 import ReconciliationModal from "./ReconciliationModal";
@@ -103,6 +104,7 @@ export default function OpsProjectSurveys() {
   // Full project (carries the RFQ match). A failed read just hides the chip.
   const [projectFull, setProjectFull] = useState(null);
   const [rfqOpen, setRfqOpen] = useState(false);
+  const [projectEdit, setProjectEdit] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -254,6 +256,10 @@ export default function OpsProjectSurveys() {
           </dl>
         </div>
         <div className="ops-header-actions">
+          <button type="button" className="ops-btn ops-btn--ghost" disabled={!projectFull}
+            onClick={() => setProjectEdit(true)}>
+            Edit project
+          </button>
           <Link className="ops-btn ops-btn--ghost" to={`/admin/operations/projects/research/${projectId}/report`}>
             Report
           </Link>
@@ -384,7 +390,11 @@ export default function OpsProjectSurveys() {
                           />
                         </td>
                       ))}
-                      <td className="ops-td ops-td--center">
+                      <td className="ops-td ops-td--center ops-td--actions">
+                        <button type="button" className="ops-btn ops-btn--ghost ops-btn--xs" onClick={() => onEdit(s)}
+                          aria-label={`Edit ${s.surveyName}`}>
+                          Edit
+                        </button>
                         <RowMenu
                           label={s.surveyName}
                           items={[
@@ -462,6 +472,19 @@ export default function OpsProjectSurveys() {
         <ReconciliationModal
           projectId={projectId}
           onClose={() => setReconOpen(false)}
+        />
+      )}
+
+      {projectEdit && projectFull && (
+        <ProjectModal
+          project={projectFull}
+          onClose={() => setProjectEdit(false)}
+          onSaved={(saved) => {
+            notifyToast("Project updated.", "success");
+            setProjectEdit(false);
+            if (saved?.id) setProjectFull(saved);
+            setReloadKey((k) => k + 1); // header name/manager/status come from the list response
+          }}
         />
       )}
 

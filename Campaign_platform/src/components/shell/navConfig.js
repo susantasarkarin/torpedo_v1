@@ -118,15 +118,13 @@ export const MODULES = [
           { label: "Rate Card", icon: "💵", to: "/admin/operations/rate-card" },
           { label: "Yield Management", icon: "📈", to: "/admin/operations/yield-management" },
           { label: "QRE", icon: "🔬", to: "/admin/operations/qre" },
-          { label: "Survey Revenue", icon: "💰", to: "/admin/surveys/revenue" },
-          { label: "System Logs", icon: "🧾", to: "/admin/logs" },
         ],
       },
       {
         label: "Traffic",
         items: [
-          { label: "Inbound Traffic", icon: "📥", to: "/admin/operations/traffic" },
-          { label: "Outbound Traffic", icon: "📤", to: "/admin/operations/reports" },
+          // Entries + Callbacks tabs (was Inbound / Outbound Traffic)
+          { label: "Traffic", icon: "🚦", to: "/admin/operations/traffic", also: ["/admin/operations/reports"] },
         ],
       },
     ],

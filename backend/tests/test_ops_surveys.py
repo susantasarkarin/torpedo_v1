@@ -889,3 +889,23 @@ def test_classic_link_set_live_raises_parents(env):
     ops.on_legacy_status_change(legacy_id, "live", "classic")
     assert _status(c, "project", pid) == "live"
     assert _status(c, "survey", sid) == "live"
+
+
+def test_projects_list_sorts_newest_first(env):
+    c, db = env["client"], env["db"]
+    a, b = _project(c), _project(c)
+    db[ops.COL_OPS_PROJECTS].update_one({"_id": ObjectId(a)}, {"$set": {"createdAt": datetime(2026, 1, 1)}})
+    db[ops.COL_OPS_PROJECTS].update_one({"_id": ObjectId(b)}, {"$set": {"createdAt": datetime(2026, 6, 1)}})
+    r = c.get("/api/ops/projects", params={"sort": "createdAt", "order": "desc", "pageSize": 50})
+    assert r.status_code == 200, r.text
+    assert [i["id"] for i in r.json()["items"]] == [b, a]
+
+
+def test_projects_newest_first_breaks_import_ties_by_number(env):
+    c, db = env["client"], env["db"]
+    ids = [_project(c) for _ in range(3)]          # P001, P002, P003
+    same = datetime(2026, 11, 17, 9, 1, 10)         # one import run
+    for i in ids:
+        db[ops.COL_OPS_PROJECTS].update_one({"_id": ObjectId(i)}, {"$set": {"createdAt": same}})
+    r = c.get("/api/ops/projects", params={"sort": "createdAt", "order": "desc"})
+    assert [i["projectNumber"] for i in r.json()["items"]] == ["P003", "P002", "P001"]

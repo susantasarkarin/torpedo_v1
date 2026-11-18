@@ -70,10 +70,11 @@ export default function OpsProjectsList() {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState("projectName");
-  const [order, setOrder] = useState("asc");
+  // Most recent first, 50 per page (owner 2026-11-18: the full list was slow to load).
+  const [sort, setSort] = useState("createdAt");
+  const [order, setOrder] = useState("desc");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(50);
 
   const [data, setData] = useState({ items: [], total: 0, counts: EMPTY_COUNTS });
   const [loading, setLoading] = useState(true);
@@ -450,7 +451,11 @@ export default function OpsProjectsList() {
                       <td className="ops-td">
                         <RfqChip project={p} onReview={() => setRfqTarget(p)} />
                       </td>
-                      <td className="ops-td ops-td--center">
+                      <td className="ops-td ops-td--center ops-td--actions">
+                        <button type="button" className="ops-btn ops-btn--ghost ops-btn--xs" onClick={() => onEdit(p)}
+                          aria-label={`Edit ${p.projectName}`}>
+                          Edit
+                        </button>
                         <RowMenu
                           label={p.projectName}
                           items={[

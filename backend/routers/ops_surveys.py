@@ -1000,7 +1000,8 @@ def list_projects(
     _ensure_indexes()
     _check_order(order)
     COMPUTED = {"completes", "target", "ir", "conversion", "loi", "surveyCount"}
-    if sort not in COMPUTED | {"projectName", "projectNumber", "status", "managerName"}:
+    # createdAt: the list's default, most recent first (owner 2026-11-18)
+    if sort not in COMPUTED | {"projectName", "projectNumber", "status", "managerName", "createdAt"}:
         _bad("unknown sort field")
     if rfq and rfq not in RFQ_FILTERS:
         _bad("rfq must be matched, unmatched or ambiguous")
@@ -1021,6 +1022,15 @@ def list_projects(
     if sort in COMPUTED:
         rows = _sort_rows(_project_rows(matched, user, cutoff), sort, order)
         items = _page(rows, page, pageSize)
+    elif sort == "createdAt":
+        # Imported projects share one createdAt (the import run), so the P-number
+        # breaks ties: P223 sorts as newer than P222.
+        def _created_key(p):
+            m = PROJECT_NUMBER_RE.match(str(p.get("projectNumber") or ""))
+            created = p.get("createdAt")
+            return (created if isinstance(created, datetime) else datetime.min, int(m.group(1)) if m else -1)
+        docs = sorted(matched, key=_created_key, reverse=order.lower() == "desc")
+        items = _project_rows(_page(docs, page, pageSize), user, cutoff)
     else:
         # simple field: sort docs, page, then compute metrics for the page only
         docs = sorted(matched, key=lambda p: (p.get(sort) is None,

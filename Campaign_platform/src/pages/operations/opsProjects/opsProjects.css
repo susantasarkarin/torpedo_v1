@@ -1274,3 +1274,19 @@ a:focus-visible {
     max-width: 100%;
   }
 }
+
+/* Visible row actions: an Edit button beside the ⋯ menu (owner 2026-11-18). */
+.ops-td--actions {
+  white-space: nowrap;
+}
+.ops-td--actions .ops-menu {
+  display: inline-block;
+  vertical-align: middle;
+}
+.ops-btn--xs {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+  min-height: 0;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
