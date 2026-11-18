@@ -8,6 +8,53 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 
+# Display status (list filter / stats cards) -> raw stored statuses.
+_STATUS_FILTER = {
+    "complete": ["complete", "COMPLETE"],
+    "quota": ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full", "overquota", "OVERQUOTA"],
+    "incomplete": ["incomplete", "INCOMPLETE", "CPX_TERMINATED_CINT_FALLBACK",
+                   "CPX_FALLBACK", "fallback", "FALLBACK"],
+    "terminate": ["terminated", "TERMINATED", "screenout", "SCREENOUT", "out", "OUT",
+                  "quality_terminate", "QUALITY_TERM", "TERMINATE", "terminate"],
+}
+
+
+def raw_statuses_for(display_status: Optional[str]) -> List[str]:
+    """Normalized display status (Complete, Incomplete, Quota Full, Terminate) -> raw
+    database statuses. Shared by the traffic list and the CSV export so both filter alike."""
+    s = (display_status or "").lower()
+    if not s:
+        return []
+    if "complete" in s and "incomplete" not in s:
+        return _STATUS_FILTER["complete"]
+    if "quota" in s:
+        return _STATUS_FILTER["quota"]
+    if "incomplete" in s:
+        return _STATUS_FILTER["incomplete"]
+    if "terminate" in s:
+        return _STATUS_FILTER["terminate"]
+    return []
+
+
+def traffic_filter_query(status: Optional[str] = None, search: Optional[str] = None,
+                         survey_id: Optional[str] = None) -> Dict[str, Any]:
+    """Mongo filter for the traffic list and its CSV export."""
+    query: Dict[str, Any] = {}
+    raw = raw_statuses_for(status)
+    if raw:
+        query["status"] = {"$in": raw}
+    if survey_id:
+        query["assignedSurveyId"] = survey_id
+    if search:
+        query["$or"] = [
+            {"vendorId": {"$regex": search, "$options": "i"}},
+            {"respondentId": {"$regex": search, "$options": "i"}},
+            {"countryCode": {"$regex": search, "$options": "i"}},
+            {"assignedSurveyId": {"$regex": search, "$options": "i"}},
+        ]
+    return query
+
+
 class TrafficService:
     """Service to manage traffic records and survey assignments"""
     
@@ -1059,52 +1106,9 @@ class TrafficService:
                 return value  # Already a string, return as-is
             return str(value)
         
-        def _normalize_status_for_filter(normalized_status: str) -> List[str]:
-            """Convert normalized display status back to raw database statuses for filtering"""
-            if not normalized_status:
-                return []
-            
-            status_lower = normalized_status.lower()
-            
-            if "complete" in status_lower and "incomplete" not in status_lower:
-                # Complete - match anything with "complete" but not "incomplete"
-                return ["complete", "COMPLETE"]
-            elif "quota" in status_lower:
-                # Quota Full - match quota-related statuses
-                return ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full", "overquota", "OVERQUOTA"]
-            elif "incomplete" in status_lower:
-                # Incomplete - match incomplete and merged statuses
-                return ["incomplete", "INCOMPLETE", 
-                       "CPX_TERMINATED_CINT_FALLBACK",
-                       "CPX_FALLBACK", "fallback", "FALLBACK"]
-            elif "terminate" in status_lower:
-                # Terminate - match all termination statuses
-                return ["terminated", "TERMINATED", "screenout", "SCREENOUT", "out", "OUT", 
-                       "quality_terminate", "QUALITY_TERM", "TERMINATE", "terminate"]
-            
-            return []
-        
         try:
-            # Build query
-            query = {}
-            
-            if status:
-                # Convert normalized status to raw database status values
-                raw_statuses = _normalize_status_for_filter(status)
-                if raw_statuses:
-                    query["status"] = {"$in": raw_statuses}
-            
-            if survey_id:
-                query["assignedSurveyId"] = survey_id
-            
-            if search:
-                # Search across multiple fields
-                query["$or"] = [
-                    {"vendorId": {"$regex": search, "$options": "i"}},
-                    {"respondentId": {"$regex": search, "$options": "i"}},
-                    {"countryCode": {"$regex": search, "$options": "i"}},
-                    {"assignedSurveyId": {"$regex": search, "$options": "i"}},
-                ]
+            # Build query (shared with the CSV export)
+            query = traffic_filter_query(status, search, survey_id)
             
             # Use separate count + find instead of $facet aggregation for better performance
             # $facet does a full collection scan; find().sort().skip().limit() uses _id index

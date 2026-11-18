@@ -41,6 +41,7 @@ const Marketing = lazy(() => import("./pages/Marketing"))
 const LinkedInAutomationPage = lazy(() => import("./pages/marketing/LinkedInAutomationPage"))
 const Finance = lazy(() => import("./pages/Finance"))
 const Operations = lazy(() => import("./pages/Operations"))
+const OpsDashboard = lazy(() => import("./pages/operations/OpsDashboard"))
 const HR = lazy(() => import("./pages/HR"))
 // Panel module: five sections (Overview, Members, Recruitment, Profiling & Quality, Rewards)
 const PanelAdminOverview = lazy(() => import("./pages/panel-admin/PanelOverview"))
@@ -82,7 +83,7 @@ const SurveyPool = lazy(() => import("./pages/operations/surveyPool/SurveyPool")
 const PotentialClients = lazy(() => import("./pages/operations/PotentialClients"))
 const RateCard = lazy(() => import("./pages/operations/RateCard"))
 const YieldManagement = lazy(() => import("./pages/operations/YieldManagement"))
-// Inbound (entries) + Outbound (callbacks) traffic as one tabbed page
+// Traffic entries (the CPX callback log page was removed from the UI)
 const TrafficPage = lazy(() => import("./pages/operations/TrafficPage"))
 const AccountsPage = lazy(() => import("./pages/operations/AccountsPage"))
 const OpsProjectsList = lazy(() => import("./pages/operations/opsProjects/OpsProjectsList"))
@@ -385,8 +386,10 @@ function App() {
         <Route path="logs" element={<LazyPage><LogsPage /></LazyPage>} />
 
         {/* Operations Routes */}
-        <Route path="operations" element={<LazyPage><Operations /></LazyPage>} />
-        <Route path="operations/dashboard" element={<LazyPage><Operations /></LazyPage>} />
+        {/* Revamped dashboard (2026-11-18); the old tabbed page stays at operations/classic-dashboard */}
+        <Route path="operations" element={<LazyPage><OpsDashboard /></LazyPage>} />
+        <Route path="operations/dashboard" element={<LazyPage><OpsDashboard /></LazyPage>} />
+        <Route path="operations/classic-dashboard" element={<LazyPage><Operations /></LazyPage>} />
         <Route path="operations/accounts" element={<LazyPage><AccountsPage /></LazyPage>} />
         <Route path="operations/clients" element={<LazyPage><ClientsPage /></LazyPage>} />
         <Route path="operations/vendors" element={<LazyPage><VendorsPage /></LazyPage>} />
@@ -409,8 +412,8 @@ function App() {
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />
         <Route path="operations/yield-management" element={<LazyPage><YieldManagement /></LazyPage>} />
         <Route path="operations/traffic" element={<LazyPage><TrafficPage /></LazyPage>} />
-        {/* old Outbound Traffic address: the Callbacks tab */}
-        <Route path="operations/reports" element={<Navigate to="/admin/operations/traffic?tab=callbacks" replace />} />
+        {/* old Outbound Traffic (CPX callback log) address: removed from the UI, goes to Traffic */}
+        <Route path="operations/reports" element={<Navigate to="/admin/operations/traffic" replace />} />
         <Route path="operations/qre" element={<LazyPage><QREPage /></LazyPage>} />
 
         {/* Vendor Routes */}

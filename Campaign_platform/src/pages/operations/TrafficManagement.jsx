@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./TrafficManagement.css"
@@ -16,46 +16,27 @@ const statusColors = {
   "Terminate": { bg: "#ffebee", color: "#c62828" },
 }
 
-// The respondent's callbacks (what was sent back to the vendor), joined by SFWID.
-function CallbackTrail({ sfwid }) {
-  const [state, setState] = useState({ loading: true, logs: [], error: null })
+// YYYY-MM-DD in local time, `offset` days from today.
+const localDay = (offset) => {
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  const pad = (n) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
-  useEffect(() => {
-    let active = true
-    authFetch(buildApiUrl(`/api/cpx-callback-logs?${new URLSearchParams({ sfwid, page_size: 20 })}`), {
-      headers: { "Content-Type": "application/json", Authorization: localStorage.getItem("session_id") || "" },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.detail || "Could not load callbacks")
-        if (active) setState({ loading: false, logs: data.logs || [], error: null })
-      })
-      .catch((e) => active && setState({ loading: false, logs: [], error: e.message }))
-    return () => {
-      active = false
-    }
-  }, [sfwid])
-
+// How the respondent came back from the client survey: every entry stores its own
+// return (final status, time, return URL).
+function ReturnTrail({ record }) {
   return (
     <div className="expanded-section">
-      <h4>↩️ Callback to vendor</h4>
-      {state.loading && <p>Loading…</p>}
-      {state.error && <p className="callback-trail-error">{state.error}</p>}
-      {!state.loading && !state.error && state.logs.length === 0 && (
-        <p>No callback recorded for this respondent yet.</p>
-      )}
-      {state.logs.map((log) => (
-        <div key={log._id} className="detail-grid callback-trail-row">
-          <div><strong>When:</strong> {formatDateTime(log.timestamp)}</div>
-          <div><strong>Status sent:</strong> {log.new_status || "—"}</div>
-          <div><strong>Result:</strong> {log.success ? "✅ Success" : "❌ Failed"}</div>
-          {log.redirect_type && <div><strong>Redirect:</strong> {log.redirect_type}</div>}
-          {log.vendor_redirect_url && (
-            <div className="callback-trail-url"><strong>Vendor URL:</strong> {log.vendor_redirect_url}</div>
-          )}
-          {log.error && <div className="callback-trail-error"><strong>Error:</strong> {log.error}</div>}
-        </div>
-      ))}
+      <h4>↩️ Return</h4>
+      <div className="detail-grid">
+        <div><strong>Final status:</strong> {record.status || "—"}</div>
+        <div><strong>Returned at:</strong> {record.completedAt ? formatDateTime(record.completedAt) : "Not returned"}</div>
+        {record.projectCallbackUrl && (
+          <div className="callback-trail-url"><strong>Client return URL:</strong> {record.projectCallbackUrl}</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -75,6 +56,10 @@ export default function TrafficManagement({ embedded = false }) {
   const [expandedRow, setExpandedRow] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
   const [deleting, setDeleting] = useState(false)
+  // Export date range, default the last 30 days (local dates, YYYY-MM-DD).
+  const [exportFrom, setExportFrom] = useState(() => localDay(-30))
+  const [exportTo, setExportTo] = useState(() => localDay(0))
+  const [exporting, setExporting] = useState(false)
 
   // Fetch traffic records
   const fetchRecords = async () => {
@@ -262,11 +247,15 @@ export default function TrafficManagement({ embedded = false }) {
       return
     }
 
+    setExporting(true)
     try {
+      // Same filter as the list, limited to the chosen dates (the server streams rows).
       const params = new URLSearchParams()
       if (statusFilter) params.append("status", statusFilter)
       if (search) params.append("search", search)
-      params.append("limit", "50000") // Max export limit
+      if (exportFrom) params.append("start_date", exportFrom)
+      if (exportTo) params.append("end_date", exportTo)
+      params.append("limit", "100000")
 
       const res = await authFetch(buildApiUrl(`/api/traffic/export/csv?${params}`), {
         headers: {
@@ -291,103 +280,110 @@ export default function TrafficManagement({ embedded = false }) {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `traffic_export_${new Date().toISOString().split("T")[0]}.csv`
+      a.download = `traffic_${exportFrom}_to_${exportTo}${statusFilter ? `_${statusFilter.replace(" ", "")}` : ""}.csv`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (e) {
       notify("Export failed: " + e.message)
+    } finally {
+      setExporting(false)
     }
   }
 
   return (
     <div className="traffic-management-container">
-      <div className="traffic-header">
-        <div>
-          {!embedded && <h1 className="cx-page-title">🚦 Traffic Management</h1>}
-          <p>Each respondent entering a survey. Open a row to see the callback sent back to the vendor.</p>
-        </div>
-        <div className="header-actions">
-          <button onClick={handleExportCSV} className="export-btn" title="Export all traffic with URLs to CSV">
-            📥 Export CSV
-          </button>
-          <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
-            {loading ? "⏳ Loading…" : "🔄 Refresh"}
-          </button>
-        </div>
-      </div>
+      {!embedded && <h1 className="cx-page-title">🚦 Traffic Management</h1>}
 
-      {/* Stats Cards */}
+      {/* Stats: click a card to filter by that status */}
       <div className="traffic-stats">
-        <div className="stat-card total">
-          <span className="stat-value">{stats.total || 0}</span>
-          <span className="stat-label">Total Records</span>
+        <div
+          className={`stat-card total clickable ${statusFilter === "" ? "is-selected" : ""}`}
+          onClick={() => setStatusFilter("")}
+        >
+          <span className="stat-value">{(stats.total || 0).toLocaleString()}</span>
+          <span className="stat-label">All entries</span>
         </div>
-        {["Terminate", "Incomplete", "Complete", "Quota Full"].map((status) => (
+        {["Complete", "Incomplete", "Terminate", "Quota Full"].map((status) => (
           <div
             key={status}
-            className="stat-card clickable"
+            className={`stat-card clickable ${statusFilter === status ? "is-selected" : ""}`}
             style={{
               backgroundColor: statusColors[status]?.bg || "#f5f3ef",
               borderColor: statusColors[status]?.color || "#5c5c5c",
             }}
-            onClick={() => setStatusFilter(status === statusFilter ? "" : status)}
+            onClick={() => {
+              setStatusFilter(status === statusFilter ? "" : status)
+              setCurrentPage(1)
+            }}
           >
             <span className="stat-value" style={{ color: statusColors[status]?.color || "#333" }}>
-              {stats.by_status?.[status] ?? 0}
+              {(stats.by_status?.[status] ?? 0).toLocaleString()}
             </span>
             <span className="stat-label">{status}</span>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="traffic-filters">
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Search by Vendor ID, Respondent ID, Country..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      {/* One toolbar: filters on the left, export and refresh on the right */}
+      <div className="traffic-toolbar">
+        <input
+          type="search"
+          className="traffic-toolbar__search"
+          placeholder="Search vendor ID, respondent ID, country or survey ID"
+          aria-label="Search traffic"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          aria-label="Status"
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value)
+            setCurrentPage(1)
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="Complete">Complete</option>
+          <option value="Incomplete">Incomplete</option>
+          <option value="Quota Full">Quota Full</option>
+          <option value="Terminate">Terminate</option>
+        </select>
+        <select
+          aria-label="Rows per page"
+          value={recordsPerPage}
+          onChange={(e) => {
+            setRecordsPerPage(Number(e.target.value))
+            setCurrentPage(1)
+          }}
+        >
+          <option value={20}>20 / page</option>
+          <option value={50}>50 / page</option>
+          <option value={100}>100 / page</option>
+        </select>
+        {selectedIds.length > 0 && (
+          <button onClick={handleDeleteSelected} disabled={deleting} className="traffic-btn traffic-btn--danger">
+            {deleting ? "Deleting…" : `Delete ${selectedIds.length}`}
+          </button>
+        )}
+        <div className="traffic-toolbar__spacer" />
+        <div className="traffic-toolbar__export" title="Exports the current status and search filter for these dates">
+          <label>
+            From
+            <input type="date" value={exportFrom} max={exportTo} onChange={(e) => setExportFrom(e.target.value)} />
+          </label>
+          <label>
+            To
+            <input type="date" value={exportTo} min={exportFrom} onChange={(e) => setExportTo(e.target.value)} />
+          </label>
+          <button onClick={handleExportCSV} disabled={exporting} className="traffic-btn traffic-btn--primary">
+            {exporting ? "Exporting…" : "Export CSV"}
+          </button>
         </div>
-        <div className="filter-controls">
-          {selectedIds.length > 0 && (
-            <button
-              onClick={handleDeleteSelected}
-              disabled={deleting}
-              className="delete-selected-btn"
-            >
-              {deleting ? "⏳ Deleting…" : `🗑️ Delete (${selectedIds.length})`}
-            </button>
-          )}
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value)
-              setCurrentPage(1)
-            }}
-          >
-            <option value="">All Statuses</option>
-            <option value="Complete">Complete</option>
-            <option value="Incomplete">Incomplete</option>
-            <option value="Quota Full">Quota Full</option>
-            <option value="Terminate">Terminate</option>
-          </select>
-          <select
-            value={recordsPerPage}
-            onChange={(e) => {
-              setRecordsPerPage(Number(e.target.value))
-              setCurrentPage(1)
-            }}
-          >
-            <option value={10}>10 per page</option>
-            <option value={20}>20 per page</option>
-            <option value={50}>50 per page</option>
-            <option value={100}>100 per page</option>
-          </select>
-        </div>
+        <button onClick={handleRefresh} disabled={loading} className="traffic-btn" aria-label="Refresh">
+          {loading ? "Loading…" : "Refresh"}
+        </button>
       </div>
 
       {error && <div className="traffic-error">❌ {error}</div>}
@@ -524,7 +520,7 @@ export default function TrafficManagement({ embedded = false }) {
                                 <code className="redirect-url">{record.redirectUrl}</code>
                               </div>
                             )}
-                            <CallbackTrail sfwid={record._id} />
+                            <ReturnTrail record={record} />
                             <div className="expanded-section">
                               <h4>🚀 Client URL (Post-Survey Redirect)</h4>
                               {record.outUrl ? (

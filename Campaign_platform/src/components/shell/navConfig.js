@@ -123,7 +123,7 @@ export const MODULES = [
       {
         label: "Traffic",
         items: [
-          // Entries + Callbacks tabs (was Inbound / Outbound Traffic)
+          // Respondent entries (was Inbound Traffic; Outbound/CPX callbacks removed from the UI)
           { label: "Traffic", icon: "🚦", to: "/admin/operations/traffic", also: ["/admin/operations/reports"] },
         ],
       },
