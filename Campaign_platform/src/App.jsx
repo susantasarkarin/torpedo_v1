@@ -82,8 +82,8 @@ const SurveyPool = lazy(() => import("./pages/operations/surveyPool/SurveyPool")
 const PotentialClients = lazy(() => import("./pages/operations/PotentialClients"))
 const RateCard = lazy(() => import("./pages/operations/RateCard"))
 const YieldManagement = lazy(() => import("./pages/operations/YieldManagement"))
-const TrafficManagement = lazy(() => import("./pages/operations/TrafficManagement"))
-const CPXCallbackLogs = lazy(() => import("./pages/operations/CPXCallbackLogs"))
+// Inbound (entries) + Outbound (callbacks) traffic as one tabbed page
+const TrafficPage = lazy(() => import("./pages/operations/TrafficPage"))
 const AccountsPage = lazy(() => import("./pages/operations/AccountsPage"))
 const OpsProjectsList = lazy(() => import("./pages/operations/opsProjects/OpsProjectsList"))
 const OpsProjectSurveys = lazy(() => import("./pages/operations/opsProjects/OpsProjectSurveys"))
@@ -408,8 +408,9 @@ function App() {
         <Route path="operations/potential-clients" element={<LazyPage><PotentialClients /></LazyPage>} />
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />
         <Route path="operations/yield-management" element={<LazyPage><YieldManagement /></LazyPage>} />
-        <Route path="operations/traffic" element={<LazyPage><TrafficManagement /></LazyPage>} />
-        <Route path="operations/reports" element={<LazyPage><CPXCallbackLogs /></LazyPage>} />
+        <Route path="operations/traffic" element={<LazyPage><TrafficPage /></LazyPage>} />
+        {/* old Outbound Traffic address: the Callbacks tab */}
+        <Route path="operations/reports" element={<Navigate to="/admin/operations/traffic?tab=callbacks" replace />} />
         <Route path="operations/qre" element={<LazyPage><QREPage /></LazyPage>} />
 
         {/* Vendor Routes */}

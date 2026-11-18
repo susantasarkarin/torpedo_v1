@@ -2818,6 +2818,8 @@ def get_cpx_callback_logs(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Records per page"),
     success_filter: Optional[str] = Query(None, description="Filter by success status: true/false/all"),
+    sfwid: Optional[str] = Query(None, description="Only callbacks for this traffic record (SFWID)"),
+    q: Optional[str] = Query(None, description="Exact SFWID, respondent ID or RID received"),
 ):
     """
     Get CPX callback logs for monitoring
@@ -2838,7 +2840,18 @@ def get_cpx_callback_logs(
             query["success"] = True
         elif success_filter == "false":
             query["success"] = False
-        
+        # Traffic page: a respondent's entry row shows its callbacks (joined by SFWID).
+        and_terms = []
+        sfwid_val = (sfwid or "").strip()
+        if sfwid_val:
+            and_terms.append({"$or": [{"decoded_sfwid": sfwid_val}, {"traffic_id": sfwid_val}]})
+        q_val = (q or "").strip()
+        if q_val:
+            and_terms.append({"$or": [{"decoded_sfwid": q_val}, {"traffic_id": q_val},
+                                      {"respondent_id": q_val}, {"rid_received": q_val}]})
+        if and_terms:
+            query["$and"] = and_terms
+
         skip = (page - 1) * page_size
 
         # Single aggregation to get counts + paginated results in one round-trip

@@ -16,7 +16,51 @@ const statusColors = {
   "Terminate": { bg: "#ffebee", color: "#c62828" },
 }
 
-export default function TrafficManagement() {
+// The respondent's callbacks (what was sent back to the vendor), joined by SFWID.
+function CallbackTrail({ sfwid }) {
+  const [state, setState] = useState({ loading: true, logs: [], error: null })
+
+  useEffect(() => {
+    let active = true
+    authFetch(buildApiUrl(`/api/cpx-callback-logs?${new URLSearchParams({ sfwid, page_size: 20 })}`), {
+      headers: { "Content-Type": "application/json", Authorization: localStorage.getItem("session_id") || "" },
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.detail || "Could not load callbacks")
+        if (active) setState({ loading: false, logs: data.logs || [], error: null })
+      })
+      .catch((e) => active && setState({ loading: false, logs: [], error: e.message }))
+    return () => {
+      active = false
+    }
+  }, [sfwid])
+
+  return (
+    <div className="expanded-section">
+      <h4>↩️ Callback to vendor</h4>
+      {state.loading && <p>Loading…</p>}
+      {state.error && <p className="callback-trail-error">{state.error}</p>}
+      {!state.loading && !state.error && state.logs.length === 0 && (
+        <p>No callback recorded for this respondent yet.</p>
+      )}
+      {state.logs.map((log) => (
+        <div key={log._id} className="detail-grid callback-trail-row">
+          <div><strong>When:</strong> {formatDateTime(log.timestamp)}</div>
+          <div><strong>Status sent:</strong> {log.new_status || "—"}</div>
+          <div><strong>Result:</strong> {log.success ? "✅ Success" : "❌ Failed"}</div>
+          {log.redirect_type && <div><strong>Redirect:</strong> {log.redirect_type}</div>}
+          {log.vendor_redirect_url && (
+            <div className="callback-trail-url"><strong>Vendor URL:</strong> {log.vendor_redirect_url}</div>
+          )}
+          {log.error && <div className="callback-trail-error"><strong>Error:</strong> {log.error}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function TrafficManagement({ embedded = false }) {
   const navigate = useNavigate()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(false)
@@ -261,8 +305,8 @@ export default function TrafficManagement() {
     <div className="traffic-management-container">
       <div className="traffic-header">
         <div>
-          <h1 className="cx-page-title">🚦 Traffic Management</h1>
-          <p>Monitor and track survey traffic records</p>
+          {!embedded && <h1 className="cx-page-title">🚦 Traffic Management</h1>}
+          <p>Each respondent entering a survey. Open a row to see the callback sent back to the vendor.</p>
         </div>
         <div className="header-actions">
           <button onClick={handleExportCSV} className="export-btn" title="Export all traffic with URLs to CSV">
@@ -480,6 +524,7 @@ export default function TrafficManagement() {
                                 <code className="redirect-url">{record.redirectUrl}</code>
                               </div>
                             )}
+                            <CallbackTrail sfwid={record._id} />
                             <div className="expanded-section">
                               <h4>🚀 Client URL (Post-Survey Redirect)</h4>
                               {record.outUrl ? (

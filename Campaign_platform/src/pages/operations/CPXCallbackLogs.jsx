@@ -8,7 +8,7 @@ import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
 import { authFetch } from "../../utils/api"
 
-export default function CPXCallbackLogs() {
+export default function CPXCallbackLogs({ embedded = false }) {
   const navigate = useNavigate()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
@@ -21,6 +21,17 @@ export default function CPXCallbackLogs() {
   const [successFilter, setSuccessFilter] = useState("all")
   const [expandedRow, setExpandedRow] = useState(null)
   const [clearing, setClearing] = useState(false)
+  // Exact SFWID / respondent ID / RID search, applied 400 ms after typing stops.
+  const [search, setSearch] = useState("")
+  const [query, setQuery] = useState("")
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQuery(search.trim())
+      setCurrentPage(1)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Fetch logs
   const fetchLogs = async () => {
@@ -41,6 +52,9 @@ export default function CPXCallbackLogs() {
 
       if (successFilter !== "all") {
         params.append("success_filter", successFilter)
+      }
+      if (query) {
+        params.append("q", query)
       }
 
       const res = await authFetch(buildApiUrl(`/api/cpx-callback-logs?${params}`), {
@@ -78,7 +92,7 @@ export default function CPXCallbackLogs() {
 
   useEffect(() => {
     fetchLogs()
-  }, [currentPage, logsPerPage, successFilter])
+  }, [currentPage, logsPerPage, successFilter, query])
 
   // Auto-refresh every 10 seconds
   useEffect(() => {
@@ -86,7 +100,7 @@ export default function CPXCallbackLogs() {
       fetchLogs()
     }, 10000)
     return () => clearInterval(interval)
-  }, [currentPage, logsPerPage, successFilter])
+  }, [currentPage, logsPerPage, successFilter, query])
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "N/A"
@@ -141,8 +155,8 @@ export default function CPXCallbackLogs() {
     <div className="cpx-logs-container">
       <div className="cpx-logs-header">
         <div>
-          <h1 className="cx-page-title">📊 CPX Callback Logs</h1>
-          <p>Monitor incoming CPX survey callbacks and redirects</p>
+          {!embedded && <h1 className="cx-page-title">📊 CPX Callback Logs</h1>}
+          <p>Each callback sent back to a vendor after the client survey. Failed = the vendor may not have received it.</p>
         </div>
         <div className="header-actions">
           <button onClick={handleClearLogs} disabled={clearing} className="clear-btn">
@@ -178,6 +192,14 @@ export default function CPXCallbackLogs() {
 
       {/* Filters */}
       <div className="cpx-logs-filters">
+        <input
+          type="search"
+          className="cpx-logs-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="SFWID, respondent ID or RID (exact)"
+          aria-label="Search callbacks by SFWID, respondent ID or RID"
+        />
         <select
           value={successFilter}
           onChange={(e) => {
