@@ -987,11 +987,6 @@ function PanelistManagement({ mode = "all" }) {
                   </table>
                 </div>
 
-                {deleting && (
-              <DeletePanelistDialog panelist={deleting} onClose={() => setDeleting(null)}
-                onDeleted={() => { setDeleting(null); fetchSfwPanelists() }} />
-            )}
-
             {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
                   <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
@@ -1113,6 +1108,11 @@ function PanelistManagement({ mode = "all" }) {
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {deleting && (
+              <DeletePanelistDialog panelist={deleting} onClose={() => setDeleting(null)}
+                onDeleted={() => { setDeleting(null); fetchSfwPanelists() }} />
             )}
 
             {/* Pagination */}
