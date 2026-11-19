@@ -1325,14 +1325,10 @@ def save_profiling_list(request: Request, key: str, variant: str, payload: Dict[
 
 
 @router.get("/overview-alerts")
-def get_overview_alerts(request: Request):
-    """Security-check terminations today and in the last 7 days (Overview alerts)."""
+def get_overview_alerts(request: Request, country: str = ""):
+    """Security-check terminations today / last 7 days and flagged profiles (Overview alerts)."""
     verify_admin_session(request)
-    from datetime import timedelta as _td
-    now = datetime.utcnow()
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    q = lambda since: traffic_collection.count_documents({"createdAt": {"$gte": since}, "status": "SECURITY_TERM"})
-    return {"securityTermsToday": q(today), "securityTermsWeek": q(now - _td(days=7))}
+    return _overview_alerts(country)
 
 
 @router.get("/panel-rewards")
@@ -1370,15 +1366,14 @@ def mark_panel_redemption_sent(request: Request, redemption_id: str):
     return _sfw_write("POST", f"/redemptions/{redemption_id}/sent", {"by": username})
 
 
-@router.get("/member-funnel")
-def get_member_funnel(request: Request, country: str = "", days: int = 0):
-    """Where panel members stand, signup → redeemed, and where they get stuck.
-
-    Torpedo adds what only it knows — each member's survey clicks and their
-    outcomes — and the panel computes the funnel."""
-    verify_admin_session(request)
-    match = {"panelId": {"$type": "string"}, "$and": [{"panelId": {"$ne": ""}}]}  # $type → partial index
-    attempts = {}
+def _panel_attempts() -> Dict[str, Any]:
+    """Every panel member's survey attempts in Torpedo: {panelId: {attempts,
+    statuses: {RAW_STATUS: n}, lastAt}}. The Panel classifies the raw statuses
+    (complete / screened out / quota full / ...) — Torpedo routes panel members
+    who terminate or hit quota-full on to the next survey, so these attempts are
+    the only place every outcome is recorded."""
+    match = {"panelId": {"$type": "string"}, "$and": [{"panelId": {"$ne": ""}}]}  # $type -> partial index
+    attempts: Dict[str, Any] = {}
     try:
         for row in traffic_collection.aggregate([
             {"$match": match},
@@ -1392,14 +1387,57 @@ def get_member_funnel(request: Request, country: str = "", days: int = 0):
             if last and (entry["lastAt"] is None or last.isoformat() + "Z" > entry["lastAt"]):
                 entry["lastAt"] = last.isoformat() + "Z"
     except Exception as e:
-        logger.warning(f"member funnel: survey clicks unavailable: {e}")
+        logger.warning(f"panel attempts unavailable: {e}")
+    return attempts
+
+
+def _overview_alerts(country: str = "") -> Dict[str, Any]:
+    """Alerts strip: security-check terminations across all survey traffic (today,
+    last 7 days — same count the old Overview showed) and profiles waiting for
+    quality review, narrowed to the chosen country when one is set."""
+    from datetime import timedelta as _td
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    base: Dict[str, Any] = {"status": "SECURITY_TERM"}
+    code = _country_code(country) if country else ""
+    if code and code != "Unknown":
+        aliases = _COUNTRY_ALIASES.get(code, [code])
+        base["$or"] = [{"geoIpCountry": {"$in": aliases}}, {"countryCode": {"$in": aliases}}]
+    out: Dict[str, Any] = {
+        "securityTermsToday": traffic_collection.count_documents({**base, "createdAt": {"$gte": today}}),
+        "securityTermsWeek": traffic_collection.count_documents({**base, "createdAt": {"$gte": now - _td(days=7)}}),
+        "flaggedProfiles": None,
+    }
     try:
-        return _sfw_write("POST", "/member-funnel", {"attempts": attempts, "country": country, "days": days})
+        members = _sfw_get("/profiling-flags").get("members", [])
+        if code:
+            members = [m for m in members if _country_code(m.get("country")) == code]
+        out["flaggedProfiles"] = len(members)
+    except Exception as e:
+        logger.warning(f"overview alerts: profiling flags unavailable: {e}")
+    return out
+
+
+@router.get("/member-funnel")
+def get_member_funnel(request: Request, country: str = "", days: int = 0):
+    """The Panel overview: where members stand, signup -> redeemed, where they get
+    stuck, KPIs, countries and data issues (computed by the Panel from Torpedo's
+    survey attempts), plus the alerts strip."""
+    verify_admin_session(request)
+    attempts = _panel_attempts()
+    try:
+        data = _sfw_write("POST", "/member-funnel", {"attempts": attempts, "country": country, "days": days})
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"member funnel error: {e}")
         raise HTTPException(status_code=502, detail=f"Could not load the member funnel from the panel: {e}")
+    try:
+        data["alerts"] = _overview_alerts(country)
+    except Exception as e:
+        logger.warning(f"overview alerts error: {e}")
+        data["alerts"] = None
+    return data
 
 
 @router.get("/profiling/quality")
@@ -1523,6 +1561,8 @@ def get_sfwpanel_panelists(
     country: str = Query(""),
     sort_by: str = Query("createdAt"),
     order: str = Query("desc"),
+    stage: str = Query(""),
+    days: int = Query(0, ge=0, le=3650),
 ):
     """Paginated SFW panelists with survey stats — proxied from panel.surveyfieldwork.com"""
     verify_admin_session(request)
@@ -1532,6 +1572,13 @@ def get_sfwpanel_panelists(
             params["search"] = search
         if country:
             params["country"] = country
+        if stage:
+            # Members stopped at one journey stage (Overview action buttons): the
+            # Panel needs Torpedo's survey attempts to place each member.
+            return _sfw_write("POST", "/member-funnel/members", {
+                "attempts": _panel_attempts(), "stage": stage[:20], "country": country, "days": days,
+                "page": page, "limit": limit, "sortBy": sort_by, "order": order, "search": search,
+            })
         return _sfw_get("/panelists", params=params)
     except Exception as e:
         logger.error(f"sfwpanel panelists error: {e}")

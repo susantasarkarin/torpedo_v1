@@ -4,7 +4,7 @@ import Papa from "papaparse"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import { authFetch } from "../../utils/api"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { countryName } from "../../components/panel-admin/tokens"
 import DeletePanelistDialog from "./DeletePanelistDialog"
 
@@ -15,6 +15,12 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 const COUNTRY_NAMES = {
   US: "United States", IN: "India", GB: "United Kingdom", UK: "United Kingdom", AU: "Australia",
   CA: "Canada", DE: "Germany", FR: "France", SG: "Singapore", AE: "UAE", ES: "Spain", NG: "Nigeria",
+}
+// Member-journey stages (Overview → "Stopped at" links to ?stage=<key>).
+const STAGE_LABELS = {
+  signup: "Signed up", verified: "Email verified", membership: "Membership confirmed",
+  quickDone: "Quick start done", clicked: "Clicked a survey", result: "Got a survey result",
+  completed: "Completed a survey", repeat: "2+ completes",
 }
 // mode: "members" = SurveyFieldwork Panel members only (Members section);
 // "recruitment" = lead lists, imports and invites (Recruitment section).
@@ -28,7 +34,10 @@ function PanelistManagement({ mode = "all" }) {
   const [sfwPages, setSfwPages] = useState(1)
   const [sfwLoading, setSfwLoading] = useState(false)
   const [sfwSearch, setSfwSearch] = useState("")
-  const [sfwCountry, setSfwCountry] = useState("")
+  // ?stage=<key>&country=<ISO> (from the Overview's member journey) pre-filter the list.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlStage = searchParams.get("stage") || ""
+  const [sfwCountry, setSfwCountry] = useState(searchParams.get("country") || "")
   const [sfwSortBy, setSfwSortBy] = useState("createdAt")
   const [sfwOrder, setSfwOrder] = useState("desc")
   // Member to delete (confirmation dialog); a row click opens the member page.
@@ -105,7 +114,7 @@ function PanelistManagement({ mode = "all" }) {
     } else if (activeTab === "panelist-approved") {
       fetchPanelists()
     }
-  }, [activeTab, leadPage, panelistPage, countryFilter, pageSize])
+  }, [activeTab, leadPage, panelistPage, countryFilter, pageSize, urlStage])
 
   // Fetch distinct countries on mount
   useEffect(() => {
@@ -477,8 +486,9 @@ function PanelistManagement({ mode = "all" }) {
     const od = overrides.order ?? sfwOrder
     const ct = overrides.country ?? sfwCountry
     const sr = overrides.search ?? sfwSearch
+    const st = overrides.stage ?? urlStage
     try {
-      const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 100), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}) })
+      const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 100), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}), ...(st ? { stage: st } : {}) })
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
       if (res.ok) {
         const data = await res.json()
@@ -494,6 +504,14 @@ function PanelistManagement({ mode = "all" }) {
     const newOrder = sfwSortBy === field && sfwOrder === "desc" ? "asc" : "desc"
     setSfwSortBy(field); setSfwOrder(newOrder); setSfwPage(1)
     fetchSfwPanelists({ sortBy: field, order: newOrder, page: 1 })
+  }
+
+  const clearStage = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete("stage")
+    setSearchParams(next, { replace: true })
+    setSfwPage(1)
+    fetchSfwPanelists({ page: 1, stage: "" })
   }
 
   // Balances are INR paise; members see points (100 points = ₹10 / £1 / $1).
@@ -1025,7 +1043,7 @@ function PanelistManagement({ mode = "all" }) {
               <select value={sfwCountry} onChange={(e) => { setSfwCountry(e.target.value); setSfwPage(1); fetchSfwPanelists({ page: 1, country: e.target.value }) }}
                 style={{ padding: "0.5rem 0.75rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem" }}>
                 <option value="">All Countries</option>
-                {["US","IN","GB","AU","CA","DE","SG","AE"].map(c => <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>)}
+                {["US","IN","GB","AU","CA","DE","SG","AE", ...(sfwCountry && !["US","IN","GB","AU","CA","DE","SG","AE"].includes(sfwCountry) ? [sfwCountry] : [])].map(c => <option key={c} value={c}>{COUNTRY_NAMES[c] || countryName(c)}</option>)}
               </select>
               <button onClick={() => { setSfwPage(1); fetchSfwPanelists({ page: 1 }) }}
                 style={{ padding: "0.5rem 1rem", background: "#f97316", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.875rem", fontWeight: "600" }}>
@@ -1033,7 +1051,17 @@ function PanelistManagement({ mode = "all" }) {
               </button>
             </div>
 
-            <p style={{ fontSize: "0.875rem", color: "#6f6f6f", marginBottom: "0.75rem" }}>{sfwTotal} panelists {sfwSearch || sfwCountry ? "(filtered)" : ""}</p>
+            {urlStage && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "#fdf4e7", border: "1px solid #f3d9ad", color: "#a15f06", borderRadius: "999px", padding: "0.25rem 0.4rem 0.25rem 0.75rem", fontSize: "0.8rem", fontWeight: 600 }}>
+                  Stopped at: {STAGE_LABELS[urlStage] || urlStage}
+                  <button type="button" onClick={clearStage} aria-label="Remove stage filter"
+                    style={{ border: "none", background: "none", cursor: "pointer", color: "#a15f06", fontSize: "0.95rem", lineHeight: 1, padding: "0 0.2rem" }}>×</button>
+                </span>
+              </div>
+            )}
+
+            <p style={{ fontSize: "0.875rem", color: "#6f6f6f", marginBottom: "0.75rem" }}>{sfwTotal} panelists {sfwSearch || sfwCountry || urlStage ? "(filtered)" : ""}</p>
 
             {/* Table */}
             {sfwLoading ? (
