@@ -1206,9 +1206,24 @@ def get_registrations_by_country(
 # Requires SFW_INTERNAL_KEY env var on the Torpedo backend, and INTERNAL_API_KEY
 # on sfw-api. auth.js on sfw-api checks the X-Internal-Key header.
 
+import threading as _threading
 import requests as _http
+from requests.adapters import HTTPAdapter as _HTTPAdapter
+
+# The Panel VM is ~200 ms away: a fresh HTTPS connection costs three round
+# trips (~0.67 s) before the Panel starts working. Reuse connections
+# (keep-alive), one session per thread since requests.Session isn't
+# guaranteed thread-safe.
+_sfw_local = _threading.local()
 
 
+def _sfw_session() -> "_http.Session":
+    sess = getattr(_sfw_local, "session", None)
+    if sess is None:
+        sess = _http.Session()
+        sess.mount("https://", _HTTPAdapter(pool_connections=4, pool_maxsize=8))
+        _sfw_local.session = sess
+    return sess
 
 
 # panel.surveyfieldwork.com now 301s to the apex, which turns proxied POST/PATCH
@@ -1218,7 +1233,7 @@ _SFW_KEY = os.getenv("SFW_INTERNAL_KEY", "")
 
 
 def _sfw_get(path, params=None):
-    r = _http.get(f"{_SFW_API}{path}", headers={"X-Internal-Key": _SFW_KEY}, params=params, timeout=15)
+    r = _sfw_session().get(f"{_SFW_API}{path}", headers={"X-Internal-Key": _SFW_KEY}, params=params, timeout=15)
     r.raise_for_status()
     return r.json()
 
@@ -1230,7 +1245,7 @@ def _sfw_write(method, path, payload=None):
     a 500, so the admin UI can show "slug already exists" instead of a generic
     failure on a duplicate.
     """
-    r = _http.request(
+    r = _sfw_session().request(
         method,
         f"{_SFW_API}{path}",
         headers={"X-Internal-Key": _SFW_KEY, "Content-Type": "application/json"},
@@ -1418,26 +1433,61 @@ def _overview_alerts(country: str = "") -> Dict[str, Any]:
     return out
 
 
+_OVERVIEW_CACHE: Dict[Any, Any] = {}
+_OVERVIEW_TTL_SECONDS = 60
+_OVERVIEW_LOCK = _threading.Lock()
+
+
+def _overview_cached(key, build):
+    """Last result per filter for a minute: flipping filters back and forth or
+    reloading the page doesn't recompute the whole panel each time."""
+    import time as _time
+    now = _time.monotonic()
+    with _OVERVIEW_LOCK:
+        hit = _OVERVIEW_CACHE.get(key)
+        if hit and now - hit[0] < _OVERVIEW_TTL_SECONDS:
+            return hit[1]
+    value = build()
+    with _OVERVIEW_LOCK:
+        if len(_OVERVIEW_CACHE) > 64:
+            _OVERVIEW_CACHE.clear()
+        _OVERVIEW_CACHE[key] = (now, value)
+    return value
+
+
+def _build_member_funnel(country: str, days: int) -> Dict[str, Any]:
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        # The alerts (flagged profiles) are another round trip to the Panel: fetch them alongside the funnel.
+        alerts_f = pool.submit(_overview_alerts, country)
+        attempts = _panel_attempts()
+        try:
+            data = _sfw_write("POST", "/member-funnel", {"attempts": attempts, "country": country, "days": days})
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"member funnel error: {e}")
+            raise HTTPException(status_code=502, detail=f"Could not load the member funnel from the panel: {e}")
+        try:
+            data["alerts"] = alerts_f.result(timeout=20)
+        except Exception as e:
+            logger.warning(f"overview alerts error: {e}")
+            data["alerts"] = None
+    return data
+
+
 @router.get("/member-funnel")
-def get_member_funnel(request: Request, country: str = "", days: int = 0):
+def get_member_funnel(request: Request, country: str = "", days: int = 0, fresh: int = 0):
     """The Panel overview: where members stand, signup -> redeemed, where they get
     stuck, KPIs, countries and data issues (computed by the Panel from Torpedo's
-    survey attempts), plus the alerts strip."""
+    survey attempts), plus the alerts strip. Cached for a minute per filter;
+    fresh=1 skips the cache."""
     verify_admin_session(request)
-    attempts = _panel_attempts()
-    try:
-        data = _sfw_write("POST", "/member-funnel", {"attempts": attempts, "country": country, "days": days})
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"member funnel error: {e}")
-        raise HTTPException(status_code=502, detail=f"Could not load the member funnel from the panel: {e}")
-    try:
-        data["alerts"] = _overview_alerts(country)
-    except Exception as e:
-        logger.warning(f"overview alerts error: {e}")
-        data["alerts"] = None
-    return data
+    country, days = str(country or "")[:8], max(0, min(int(days or 0), 3650))
+    if fresh:
+        with _OVERVIEW_LOCK:
+            _OVERVIEW_CACHE.pop((country, days), None)
+    return _overview_cached((country, days), lambda: _build_member_funnel(country, days))
 
 
 @router.get("/profiling/quality")

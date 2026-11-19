@@ -72,3 +72,19 @@ def test_members_list_by_stage_goes_through_the_funnel(monkeypatch, calls):
 def test_members_list_without_stage_is_unchanged(monkeypatch, calls):
     out = pa.get_sfwpanel_panelists(request=None, page=1, limit=20, search="", country="", sort_by="createdAt", order="desc", stage="", days=0)
     assert out["path"] == "/panelists" and not calls
+
+
+def test_member_funnel_cached_per_filter_and_fresh_skips_cache(monkeypatch, calls):
+    monkeypatch.setattr(pa, "traffic_collection", FakeTraffic([]))
+    pa._OVERVIEW_CACHE.clear()
+    pa.get_member_funnel(request=None, country="US", days=7)
+    pa.get_member_funnel(request=None, country="US", days=7)
+    assert len([c for c in calls if c[1] == "/member-funnel"]) == 1  # second call served from cache
+    pa.get_member_funnel(request=None, country="GB", days=7)
+    assert len([c for c in calls if c[1] == "/member-funnel"]) == 2  # another filter computes
+    pa.get_member_funnel(request=None, country="US", days=7, fresh=1)
+    assert len([c for c in calls if c[1] == "/member-funnel"]) == 3  # fresh=1 recomputes
+
+
+def test_sfw_calls_reuse_one_session_per_thread():
+    assert pa._sfw_session() is pa._sfw_session()
