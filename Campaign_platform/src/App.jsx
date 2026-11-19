@@ -50,6 +50,7 @@ const PanelAdminRecruitment = lazy(() => import("./pages/panel-admin/PanelSectio
 const PanelAdminQuality = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.QualitySection })))
 const PanelAdminRewards = lazy(() => import("./pages/panel-admin/PanelSections").then((m) => ({ default: m.RewardsSection })))
 const PanelSettings = lazy(() => import("./pages/panel-admin/PanelSettings"))
+const PanelMemberDetail = lazy(() => import("./pages/panel-admin/PanelMemberDetail"))
 
 // Sales Pages
 const Campaign = lazy(() => import("./pages/sales/Campaign"))
@@ -432,6 +433,7 @@ function App() {
         {/* Panel Admin */}
         <Route path="panel-admin" element={<LazyPage><PanelAdminOverview /></LazyPage>} />
         <Route path="panel-admin/members" element={<LazyPage><PanelAdminMembers /></LazyPage>} />
+        <Route path="panel-admin/members/:userId" element={<LazyPage><PanelMemberDetail /></LazyPage>} />
         <Route path="panel-admin/recruitment" element={<LazyPage><PanelAdminRecruitment /></LazyPage>} />
         <Route path="panel-admin/profiling" element={<LazyPage><PanelAdminQuality /></LazyPage>} />
         <Route path="panel-admin/rewards" element={<LazyPage><PanelAdminRewards /></LazyPage>} />

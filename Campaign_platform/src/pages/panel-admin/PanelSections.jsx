@@ -15,7 +15,7 @@ import RewardsPoints from "./RewardsPoints"
 
 export function MembersSection() {
   return (
-    <PageShell title="Members" description="Every SurveyFieldwork Panel member — profile, tier, survey log, points and flags. Click a member for the detail panel.">
+    <PageShell title="Members" description="Every SurveyFieldwork Panel member — profile, tier, survey log, points and flags. Click a member to open their page.">
       <PanelistManagement mode="members" />
     </PageShell>
   )

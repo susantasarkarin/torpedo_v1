@@ -58,7 +58,7 @@ suppression_collection = cp_db["panel_email_suppression"]
 # email is the dedupe key for bulk CSV upserts — without this index every
 # upsert filter collection-scans and large uploads take minutes (HTTP 524)
 try:
-    panelists_collection.create_index("email")
+    panelists_collection.create_index("email", unique=True)
 except Exception as _idx_err:  # pragma: no cover
     logger.warning(f"panelists email index creation failed: {_idx_err}")
 
@@ -1239,7 +1239,8 @@ def _sfw_write(method, path, payload=None):
     )
     if not r.ok:
         try:
-            detail = r.json().get("error") or r.text
+            body = r.json()
+            detail = body.get("error") or body.get("message") or r.text
         except ValueError:
             detail = r.text
         raise HTTPException(status_code=r.status_code, detail=detail)
@@ -1642,6 +1643,25 @@ def get_panelist_survey_log(request: Request, panel_id: str, format: str = "json
     for r in rows:
         summary[r["status"] or "UNKNOWN"] = summary.get(r["status"] or "UNKNOWN", 0) + 1
     return {"panelId": panel_id, "total": len(rows), "byStatus": summary, "attempts": rows}
+
+
+@router.delete("/sfwpanel-panelists/{user_id}")
+async def delete_sfwpanel_panelist(request: Request, user_id: str):
+    """Permanently delete one SFW panel member and all their records (the Panel
+    decides what goes; the member's email must be repeated as confirmation)."""
+    from session_state import verify_session_sync
+    from starlette.concurrency import run_in_threadpool
+    username = verify_session_sync(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    payload = {
+        "confirmEmail": str((body or {}).get("confirmEmail") or "")[:320],
+        "by": f"torpedo:{username}"[:120],
+    }
+    logger.info(f"panel member delete requested: {user_id} by {payload['by']}")
+    return await run_in_threadpool(_sfw_write, "DELETE", f"/panelists/{user_id}", payload)
 
 
 @router.get("/sfwpanel-panelists/{user_id}")

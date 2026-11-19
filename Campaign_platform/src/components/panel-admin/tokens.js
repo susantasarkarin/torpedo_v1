@@ -21,7 +21,15 @@ export const COUNTRY_NAMES = {
   CA: "Canada", DE: "Germany", FR: "France", SG: "Singapore", AE: "UAE", ES: "Spain", NG: "Nigeria",
   XX: "Unknown", "??": "Unknown", Unknown: "Unknown",
 }
-export const countryName = (code) => COUNTRY_NAMES[code] || code || "Unknown"
+const REGION_NAMES = (() => {
+  try { return new Intl.DisplayNames(["en"], { type: "region" }) } catch { return null }
+})()
+// Any ISO code (MG → Madagascar) via the browser's own country names.
+export const countryName = (code) => {
+  if (COUNTRY_NAMES[code]) return COUNTRY_NAMES[code]
+  if (!code) return "Unknown"
+  try { return (/^[A-Z]{2}$/.test(code) && REGION_NAMES && REGION_NAMES.of(code)) || code } catch { return code }
+}
 
 // Tabs whose selection lives in the URL (?tab=...), so a section can be linked to.
 export function useTab(tabs) {

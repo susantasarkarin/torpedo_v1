@@ -4,6 +4,9 @@ import Papa from "papaparse"
 import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import { authFetch } from "../../utils/api"
+import { useNavigate } from "react-router-dom"
+import { countryName } from "../../components/panel-admin/tokens"
+import DeletePanelistDialog from "./DeletePanelistDialog"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -28,10 +31,9 @@ function PanelistManagement({ mode = "all" }) {
   const [sfwCountry, setSfwCountry] = useState("")
   const [sfwSortBy, setSfwSortBy] = useState("createdAt")
   const [sfwOrder, setSfwOrder] = useState("desc")
-  const [sfwDetail, setSfwDetail] = useState(null)
-  const [sfwDetailLoading, setSfwDetailLoading] = useState(false)
-  // Survey log: every survey attempt of the open panelist (from Torpedo traffic records)
-  const [surveyLog, setSurveyLog] = useState(null)
+  // Member to delete (confirmation dialog); a row click opens the member page.
+  const [deleting, setDeleting] = useState(null)
+  const navigate = useNavigate()
 
   // Panelist leads state
   const [panelLeads, setPanelLeads] = useState([])
@@ -488,42 +490,6 @@ function PanelistManagement({ mode = "all" }) {
     finally { setSfwLoading(false) }
   }
 
-  const fetchSfwDetail = async (userId) => {
-    setSfwDetailLoading(true)
-    const sessionId = localStorage.getItem("session_id")
-    try {
-      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists/${userId}`), { headers: { Authorization: sessionId } })
-      if (res.ok) {
-        const detail = await res.json()
-        setSfwDetail(detail)
-        setSurveyLog(null)
-        const pid = detail?.user?.panelistId
-        if (pid) {
-          authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/${encodeURIComponent(pid)}/survey-log?limit=200`), { headers: { Authorization: sessionId } })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((log) => setSurveyLog(log || { total: 0, attempts: [], byStatus: {} }))
-            .catch(() => setSurveyLog({ total: 0, attempts: [], byStatus: {} }))
-        }
-      }
-    } catch (err) { console.error("SFW detail error:", err) }
-    finally { setSfwDetailLoading(false) }
-  }
-
-  const downloadSurveyLog = async (pid) => {
-    const sessionId = localStorage.getItem("session_id")
-    const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/${encodeURIComponent(pid)}/survey-log?format=csv`), { headers: { Authorization: sessionId } })
-    if (!res.ok) return
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `survey-log-${pid}.csv`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  }
-
   const sfwSort = (field) => {
     const newOrder = sfwSortBy === field && sfwOrder === "desc" ? "asc" : "desc"
     setSfwSortBy(field); setSfwOrder(newOrder); setSfwPage(1)
@@ -536,9 +502,7 @@ function PanelistManagement({ mode = "all" }) {
     return `${Math.floor((p || 0) * perPaise).toLocaleString()} pts`
   }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"
-  const fmtTime = (d) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"
-  const CNAMES = { US: "United States", IN: "India", GB: "United Kingdom", AU: "Australia", CA: "Canada", DE: "Germany", SG: "Singapore", AE: "UAE", XX: "Unknown" }
-  const cname = (cc) => CNAMES[cc] || cc || "—"
+  const cname = (cc) => (cc ? countryName(cc) : "—")
 
   return (
     <div>
@@ -1023,7 +987,12 @@ function PanelistManagement({ mode = "all" }) {
                   </table>
                 </div>
 
-                {/* Pagination */}
+                {deleting && (
+              <DeletePanelistDialog panelist={deleting} onClose={() => setDeleting(null)}
+                onDeleted={() => { setDeleting(null); fetchSfwPanelists() }} />
+            )}
+
+            {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
                   <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
                     Total: {panelistTotal} approved panelists | Page {panelistPage} of {totalPanelistPages}
@@ -1094,8 +1063,9 @@ function PanelistManagement({ mode = "all" }) {
                         { label: "Balance ↕", field: "balancePaise" },
                         { label: "Redeemed", field: null },
                         { label: "Last Active ↕", field: "lastActiveAt" },
+                        { label: "", field: null },
                       ].map(({ label, field }) => (
-                        <th key={label} onClick={field ? () => sfwSort(field) : undefined}
+                        <th key={label || "actions"} onClick={field ? () => sfwSort(field) : undefined}
                           style={{ ...thStyle, cursor: field ? "pointer" : "default", whiteSpace: "nowrap", userSelect: "none",
                             color: sfwSortBy === field ? "#f97316" : "#5c5c5c" }}>
                           {label}
@@ -1110,7 +1080,7 @@ function PanelistManagement({ mode = "all" }) {
                       const rate = denom ? Math.round((sv.complete / denom) * 100) + "%" : "—"
                       const redeemed = (p.totalEarnedPaise || 0) - (p.balancePaise || 0)
                       return (
-                        <tr key={p._id} onClick={() => fetchSfwDetail(p._id)}
+                        <tr key={p._id} onClick={() => navigate(`/admin/panel-admin/members/${p._id}`)}
                           style={{ borderBottom: "1px solid #f5f3ef", cursor: "pointer" }}
                           onMouseEnter={(e) => e.currentTarget.style.background = "#fdf4e7"}
                           onMouseLeave={(e) => e.currentTarget.style.background = ""}>
@@ -1130,6 +1100,13 @@ function PanelistManagement({ mode = "all" }) {
                           <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{points(p.balancePaise, p.country)}</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#5c5c5c" }}>{points(redeemed > 0 ? redeemed : 0, p.country)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6f6f6f" }}>{fmtDate(p.lastActiveAt)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right" }}>
+                            <button type="button" title="Delete member" aria-label={`Delete ${p.email}`}
+                              onClick={(e) => { e.stopPropagation(); setDeleting(p) }}
+                              style={{ padding: "0.3rem 0.6rem", border: "1px solid #fecaca", background: "#fff", color: "#dc2626", borderRadius: "6px", cursor: "pointer", fontSize: "0.8rem" }}>
+                              Delete
+                            </button>
+                          </td>
                         </tr>
                       )
                     })}
@@ -1155,153 +1132,6 @@ function PanelistManagement({ mode = "all" }) {
               </div>
             )}
 
-            {/* Detail modal */}
-            {(sfwDetail || sfwDetailLoading) && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-                <div style={{ background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "600px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-                  <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid #f5f3ef", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ fontWeight: "700", color: "#1a1a1a", margin: 0 }}>Panelist Detail</h3>
-                    <button onClick={() => setSfwDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", color: "#6f6f6f" }}>✕</button>
-                  </div>
-                  <div style={{ overflowY: "auto", padding: "1.5rem", flex: 1 }}>
-                    {sfwDetailLoading ? (
-                      <p style={{ textAlign: "center", color: "#5c5c5c" }}>Loading…</p>
-                    ) : sfwDetail && (
-                      <>
-                        <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginBottom: "1.5rem" }}>
-                          <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#f3e8ff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "1.25rem", color: "#7c3aed", flexShrink: 0 }}>
-                            {(sfwDetail.user?.firstName?.[0] || sfwDetail.user?.email?.[0] || "?").toUpperCase()}
-                          </div>
-                          <div>
-                            <p style={{ fontWeight: "700", color: "#1a1a1a", fontSize: "1rem" }}>{[sfwDetail.user?.firstName, sfwDetail.user?.lastName].filter(Boolean).join(" ") || "—"}</p>
-                            <p style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>{sfwDetail.user?.email}</p>
-                            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#f5f3ef", borderRadius: "99px", fontFamily: "monospace" }}>{sfwDetail.user?.panelistId || "no-id"}</span>
-                              {sfwDetail.user?.country && <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#fdf4e7", color: "#d17f08", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
-                              <span style={{ fontSize: "0.875rem", padding: "0.2rem 0.6rem", background: "#fef3c7", color: "#92400e", borderRadius: "99px", textTransform: "capitalize" }}>{sfwDetail.user?.level || "bronze"}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                          {[
-                            { label: "Balance", value: points(sfwDetail.user?.balancePaise, sfwDetail.user?.country) },
-                            { label: "Total Earned", value: points(sfwDetail.user?.totalEarnedPaise, sfwDetail.user?.country) },
-                            { label: "Redeemed", value: points(Math.max(0, (sfwDetail.user?.totalEarnedPaise || 0) - (sfwDetail.user?.balancePaise || 0)), sfwDetail.user?.country) },
-                            { label: "Referrals", value: sfwDetail.user?.confirmedReferralCount || 0 },
-                            { label: "Profile %", value: `${sfwDetail.user?.profileQuestionCompletion || 0}%` },
-                            { label: "Joined", value: fmtDate(sfwDetail.user?.createdAt) },
-                          ].map(({ label, value }) => (
-                            <div key={label} style={{ background: "#faf9f7", borderRadius: "8px", padding: "0.75rem" }}>
-                              <p style={{ fontSize: "0.875rem", color: "#6f6f6f", marginBottom: "0.25rem" }}>{label}</p>
-                              <p style={{ fontWeight: "600", color: "#1a1a1a", fontSize: "0.875rem" }}>{value}</p>
-                            </div>
-                          ))}
-                        </div>
-
-                        <p style={{ fontWeight: "700", color: "#4a4a4a", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Survey Stats</p>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                          {[
-                            { label: "Total", value: sfwDetail.survey_stats?.total || 0, color: "#1a1a1a" },
-                            { label: "Complete", value: sfwDetail.survey_stats?.complete || 0, color: "#15803d" },
-                            { label: "Terminate", value: sfwDetail.survey_stats?.terminate || 0, color: "#dc2626" },
-                            { label: "Quota", value: sfwDetail.survey_stats?.quotafull || 0, color: "#d97706" },
-                          ].map(({ label, value, color }) => (
-                            <div key={label} style={{ background: "#faf9f7", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
-                              <p style={{ fontSize: "1.25rem", fontWeight: "700", color }}>{value}</p>
-                              <p style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>{label}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <p style={{ fontSize: "0.875rem", color: "#6f6f6f", marginBottom: "1.5rem" }}>
-                          Points from surveys: {points(sfwDetail.survey_stats?.points_earned, sfwDetail.user?.country)}
-                        </p>
-
-                        {sfwDetail.recent_surveys?.length > 0 && (
-                          <>
-                            <p style={{ fontWeight: "700", color: "#4a4a4a", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Recent Survey Activity</p>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-                              <thead>
-                                <tr style={{ background: "#faf9f7" }}>
-                                  {["Survey ID", "Status", "Points", "Date"].map(h => (
-                                    <th key={h} style={{ ...thStyle, fontSize: "0.875rem", padding: "0.5rem 0.75rem" }}>{h}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {sfwDetail.recent_surveys.map((s, i) => (
-                                  <tr key={i} style={{ borderBottom: "1px solid #f5f3ef" }}>
-                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.875rem", color: "#5c5c5c", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
-                                    <td style={{ ...tdStyle, padding: "0.5rem 0.75rem" }}>
-                                      <span style={{ padding: "0.15rem 0.5rem", borderRadius: "99px", fontSize: "0.875rem", fontWeight: "600",
-                                        background: s.status === "complete" ? "#dcfce7" : s.status === "terminate" ? "#fee2e2" : "#fef3c7",
-                                        color: s.status === "complete" ? "#166534" : s.status === "terminate" ? "#991b1b" : "#92400e" }}>
-                                        {s.status}
-                                      </span>
-                                    </td>
-                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#1a1a1a" }}>{s.pointsEarned > 0 ? points(s.pointsEarned, sfwDetail.user?.country) : "—"}</td>
-                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#6f6f6f", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </>
-                        )}
-
-                        {sfwDetail.user?.panelistId && (
-                          <div style={{ marginTop: "1.5rem" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                              <p style={{ fontWeight: "700", color: "#4a4a4a", fontSize: "0.875rem" }}>
-                                Survey log {surveyLog ? `· ${surveyLog.total} attempt${surveyLog.total === 1 ? "" : "s"}` : ""}
-                              </p>
-                              <button type="button" onClick={() => downloadSurveyLog(sfwDetail.user.panelistId)}
-                                style={{ padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #d4cec3", background: "#fff", cursor: "pointer", fontSize: "0.8rem" }}>
-                                Download log (CSV)
-                              </button>
-                            </div>
-                            {surveyLog && Object.keys(surveyLog.byStatus || {}).length > 0 && (
-                              <p style={{ fontSize: "0.8rem", color: "#6f6f6f", marginBottom: "0.5rem" }}>
-                                {Object.entries(surveyLog.byStatus).map(([k, v]) => `${k.replace(/_/g, " ").toLowerCase()}: ${v}`).join(" · ")}
-                              </p>
-                            )}
-                            {!surveyLog ? (
-                              <p style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>Loading…</p>
-                            ) : surveyLog.attempts.length === 0 ? (
-                              <p style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>No survey attempts yet.</p>
-                            ) : (
-                              <div style={{ maxHeight: "280px", overflowY: "auto" }}>
-                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
-                                  <thead>
-                                    <tr style={{ background: "#faf9f7", position: "sticky", top: 0 }}>
-                                      {["Date", "Status", "Source", "Survey", "SFWID"].map((h) => (
-                                        <th key={h} style={{ ...thStyle, fontSize: "0.8rem", padding: "0.4rem 0.6rem" }}>{h}</th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {surveyLog.attempts.map((a) => (
-                                      <tr key={a.sfwid} style={{ borderBottom: "1px solid #f5f3ef" }}>
-                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", whiteSpace: "nowrap" }}>{fmtTime(a.date)}</td>
-                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontWeight: 600, color: a.status === "COMPLETE" ? "#15803d" : a.status === "SECURITY_TERM" ? "#b91c1c" : "#5c5c5c" }}>
-                                          {a.status === "SECURITY_TERM" ? "Security Term" : a.status}{a.reason ? ` (${a.reason.replace(/_/g, " ")})` : ""}
-                                        </td>
-                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem" }}>{a.source || "—"}</td>
-                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontFamily: "monospace" }}>{a.survey_id || "—"}</td>
-                                        <td style={{ ...tdStyle, padding: "0.4rem 0.6rem", fontFamily: "monospace", color: "#6f6f6f" }}>{a.sfwid}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
