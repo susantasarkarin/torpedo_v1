@@ -27,6 +27,7 @@ const fixture = (overrides = {}) => ({
   total: 495,
   kpis: {
     members: 495, joinedLast30d: 88, activeLast30d: 123, activeLast30dPct: 24.8, completedLast30d: 31,
+    attemptsLast30d: 1240, completeAttemptsLast30d: 62, attemptConversionLast30d: 5,
   },
   stages: [
     stage("signup", "Signed up", 495, 0, 56, 0, { action: { label: "Check signup source", stage: "signup" } }),
@@ -68,8 +69,6 @@ const renderPage = async (body = fixture()) => {
 }
 
 const stageRow = (key) => document.querySelector(`tr[data-stage="${key}"]`)
-// Role queries are slow on this table in jsdom; the label text sits inside the toggle button.
-const stageButton = (label) => screen.getByText(label, { selector: "button *, button" }).closest("button")
 
 describe("PanelOverview", { timeout: 20000 }, () => {
   beforeEach(() => { authFetch.mockReset() })
@@ -87,24 +86,26 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(screen.getByText("491 stopped along the way + 4 redeemed = 495")).toBeInTheDocument()
   })
 
-  it("opens the biggest roadblock by default, with no rank tags", async () => {
+  it("has plain journey rows: no expand arrows, details or action buttons", async () => {
     await renderPage()
+    expect(document.querySelectorAll("[aria-expanded]")).toHaveLength(0)
+    expect(document.querySelectorAll("tr[data-detail]")).toHaveLength(0)
+    expect(screen.queryByText(/[▸▾]/)).not.toBeInTheDocument()
+    expect(screen.queryByText("Review survey matching")).not.toBeInTheDocument()
     expect(screen.queryByText("#1")).not.toBeInTheDocument()
-    expect(stageButton("Got a survey result")).toHaveAttribute("aria-expanded", "true")
-    expect(document.querySelectorAll("tr[data-detail]")).toHaveLength(1)
-    expect(screen.getByText("Survey attempts by outcome")).toBeInTheDocument()
-    expect(screen.getByText(/not members/)).toBeInTheDocument()
   })
 
-  it("shows exactly four KPI cards with the new fields", async () => {
+  it("shows the five KPI cards, with attempts and conversion", async () => {
     await renderPage()
-    for (const label of ["Total panel members", "New signups in the past 30 days", "Active in the last 30 days", "Completed a survey in the last 30 days"]) {
+    for (const label of ["Total panel members", "New signups in the past 30 days", "Active in the last 30 days", "Survey attempts in the last 30 days", "Completed a survey in the last 30 days"]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
     expect(screen.getByText("88")).toBeInTheDocument()
     expect(screen.getByText("123")).toBeInTheDocument()
     expect(screen.getByText("24.8% of members")).toBeInTheDocument()
     expect(screen.getByText("31")).toBeInTheDocument()
+    expect(screen.getByText("1,240")).toBeInTheDocument()
+    expect(screen.getByText("Conversion 5% (62 of 1,240 attempts completed)")).toBeInTheDocument()
     expect(screen.queryByText("Points owed")).not.toBeInTheDocument()
     expect(screen.queryByText(/this week/)).not.toBeInTheDocument()
   })
@@ -117,23 +118,6 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(stageRow("signup").querySelector('[data-col="dropoff"]').textContent).toBe("11.3%")    // 56 / 495
     expect(stageRow("repeat").querySelector('[data-col="dropoff"]').textContent).toBe("60.0%")    // 6 / 10
     expect(stageRow("redeemed").querySelector('[data-col="dropoff"]').textContent).toBe("—")
-  })
-
-  it("keeps only one expanded row at a time", async () => {
-    await renderPage()
-    fireEvent.click(stageButton("Quick start done"))
-    const details = document.querySelectorAll("tr[data-detail]")
-    expect(details).toHaveLength(1)
-    expect(details[0].getAttribute("data-detail")).toBe("quickDone")
-    expect(stageButton("Got a survey result")).toHaveAttribute("aria-expanded", "false")
-    expect(stageButton("Quick start done")).toHaveAttribute("aria-expanded", "true")
-  })
-
-  it("shows Quick start completed 166 vs skipped 120", async () => {
-    await renderPage()
-    fireEvent.click(stageButton("Quick start done"))
-    const detail = document.querySelector('tr[data-detail="quickDone"]')
-    expect(within(detail).getByText(/Completed 166 · Skipped \(legacy\) 120/)).toBeInTheDocument()
   })
 
   it("gives the Redeemed row no conversion %", async () => {
@@ -155,24 +139,18 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(within(totalRow).getByText("495")).toBeInTheDocument()
   })
 
-  it("hides the data issues button when there are none", async () => {
-    await renderPage()
+  it("has no alerts / data issues bar, even when there are issues and alerts", async () => {
+    await renderPage(fixture({
+      dataIssues: [{ id: "unmapped_outcomes", title: "Unmapped outcomes", detail: "2 statuses", severity: "medium" }],
+      alerts: { securityTermsToday: 2, securityTermsWeek: 5, flaggedProfiles: 9 },
+    }))
     expect(screen.queryByText(/data issue/)).not.toBeInTheDocument()
-  })
-
-  it("expands data issues when present", async () => {
-    await renderPage(fixture({ dataIssues: [{ id: "unmapped_outcomes", title: "Unmapped outcomes", detail: "2 statuses", severity: "medium" }] }))
-    const btn = screen.getByText(/1 data issue/).closest("button")
-    expect(btn).toHaveAttribute("aria-expanded", "false")
-    fireEvent.click(btn)
-    expect(btn).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByText("Unmapped outcomes")).toBeInTheDocument()
-  })
-
-  it("hides zero alerts and re-fetches with filters", async () => {
-    await renderPage()
-    expect(screen.queryByText(/quality review/)).not.toBeInTheDocument()
     expect(screen.queryByText(/security termination/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/quality review/)).not.toBeInTheDocument()
+  })
+
+  it("re-fetches with filters", async () => {
+    await renderPage()
     fireEvent.change(screen.getByLabelText("Members"), { target: { value: "30" } })
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2))
     expect(authFetch.mock.calls[1][0]).toContain("days=30")

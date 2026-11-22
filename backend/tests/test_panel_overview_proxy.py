@@ -35,12 +35,13 @@ def calls(monkeypatch):
 def test_attempts_grouped_per_panelist_with_raw_statuses(monkeypatch):
     t1, t2 = datetime(2026, 11, 18, 10), datetime(2026, 11, 19, 9)
     monkeypatch.setattr(pa, "traffic_collection", FakeTraffic([
-        {"_id": {"p": "SFW1", "s": "TERMINATED"}, "n": 3, "last": t1},
-        {"_id": {"p": "SFW1", "s": "OVERQUOTA"}, "n": 1, "last": t2},
+        {"_id": {"p": "SFW1", "s": "TERMINATED"}, "n": 3, "n30": 2, "last": t1},
+        {"_id": {"p": "SFW1", "s": "OVERQUOTA"}, "n": 1, "n30": 0, "last": t2},
         {"_id": {"p": "SFW2"}, "n": 2, "last": t1},  # no status recorded
     ]))
     out = pa._panel_attempts()
-    assert out["SFW1"] == {"attempts": 4, "statuses": {"TERMINATED": 3, "OVERQUOTA": 1}, "lastAt": t2.isoformat() + "Z"}
+    assert out["SFW1"] == {"attempts": 4, "statuses": {"TERMINATED": 3, "OVERQUOTA": 1}, "lastAt": t2.isoformat() + "Z",
+                           "last30": {"attempts": 2, "statuses": {"TERMINATED": 2}}}
     assert out["SFW2"]["statuses"] == {"UNKNOWN": 2}
 
 

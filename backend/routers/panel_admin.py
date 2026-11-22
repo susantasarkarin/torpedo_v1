@@ -1383,17 +1383,28 @@ def _panel_attempts() -> Dict[str, Any]:
     (complete / screened out / quota full / ...) — Torpedo routes panel members
     who terminate or hit quota-full on to the next survey, so these attempts are
     the only place every outcome is recorded."""
+    from datetime import timedelta as _td
     match = {"panelId": {"$type": "string"}, "$and": [{"panelId": {"$ne": ""}}]}  # $type -> partial index
+    since_30d = datetime.utcnow() - _td(days=30)
     attempts: Dict[str, Any] = {}
     try:
         for row in traffic_collection.aggregate([
             {"$match": match},
-            {"$group": {"_id": {"p": "$panelId", "s": "$status"}, "n": {"$sum": 1}, "last": {"$max": "$createdAt"}}},
+            {"$group": {
+                "_id": {"p": "$panelId", "s": "$status"},
+                "n": {"$sum": 1},
+                # Attempts in the last 30 days (Overview: survey attempts / conversion).
+                "n30": {"$sum": {"$cond": [{"$gte": ["$createdAt", since_30d]}, 1, 0]}},
+                "last": {"$max": "$createdAt"},
+            }},
         ]):
             pid, status = row["_id"]["p"], row["_id"].get("s") or "UNKNOWN"
-            entry = attempts.setdefault(pid, {"attempts": 0, "statuses": {}, "lastAt": None})
+            entry = attempts.setdefault(pid, {"attempts": 0, "statuses": {}, "lastAt": None, "last30": {"attempts": 0, "statuses": {}}})
             entry["attempts"] += row["n"]
             entry["statuses"][status] = entry["statuses"].get(status, 0) + row["n"]
+            if row.get("n30"):
+                entry["last30"]["attempts"] += row["n30"]
+                entry["last30"]["statuses"][status] = entry["last30"]["statuses"].get(status, 0) + row["n30"]
             last = row.get("last")
             if last and (entry["lastAt"] is None or last.isoformat() + "Z" > entry["lastAt"]):
                 entry["lastAt"] = last.isoformat() + "Z"
