@@ -1074,7 +1074,6 @@ function PanelistManagement({ mode = "all" }) {
                   <thead>
                     <tr style={{ background: "#faf9f7", borderBottom: "2px solid #e8e4dc" }}>
                       {[
-                        { label: "Name", field: null },
                         { label: "Email", field: null },
                         { label: "Country", field: null },
                         { label: "Joined ↕", field: "createdAt" },
@@ -1096,14 +1095,12 @@ function PanelistManagement({ mode = "all" }) {
                   <tbody>
                     {sfwPanelists.map((p) => {
                       const sv = p.surveys || {}
-                      const fullName = [p.firstName, p.lastName].filter(Boolean).join(" ")
                       return (
                         <tr key={p._id} onClick={() => navigate(`/admin/panel-admin/members/${p._id}`)}
                           style={{ borderBottom: "1px solid #f5f3ef", cursor: "pointer" }}
                           onMouseEnter={(e) => e.currentTarget.style.background = "#fdf4e7"}
                           onMouseLeave={(e) => e.currentTarget.style.background = ""}>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{fullName || "—"}</td>
-                          <td style={{ ...tdStyle, color: "#5c5c5c" }}>{p.email || "—"}</td>
+                          <td style={{ ...tdStyle, color: "#1a1a1a", fontWeight: "600" }}>{p.email || "—"}</td>
                           <td style={tdStyle}>{cname(p.country)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#5c5c5c" }}>{fmtDate(p.createdAt)}</td>
                           <td style={{ ...tdStyle, textAlign: "center" }}>{p.attempts || 0}</td>
