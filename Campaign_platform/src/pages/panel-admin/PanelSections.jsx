@@ -22,7 +22,8 @@ export function MembersSection() {
 }
 
 const RECRUITMENT_TABS = [
-  { key: "leads", label: "Leads & invites" },
+  { key: "leads", label: "Leads" },
+  { key: "approved", label: "Approved panelists" },
   { key: "suppliers", label: "Traffic suppliers" },
   { key: "traffic", label: "Landing traffic" },
   { key: "email", label: "Invitation email" },
@@ -31,9 +32,13 @@ const RECRUITMENT_TABS = [
 export function RecruitmentSection() {
   const [tab, setTab] = useTab(RECRUITMENT_TABS)
   return (
-    <PageShell title="Recruitment" description="Where new members come from: lead lists and invitations, paid and partner traffic suppliers, and landing-page visits.">
+    <PageShell title="Recruitment" description="Lead lists, invitations, traffic suppliers and landing-page visits.">
       <Tabs tabs={RECRUITMENT_TABS} active={tab} onChange={setTab} />
-      {tab === "leads" && <PanelistManagement mode="recruitment" />}
+      {/* One instance for both lists, so switching Leads ↔ Approved keeps it
+          mounted (no repeat country/status fetches, filters carry over). */}
+      {(tab === "leads" || tab === "approved") && (
+        <PanelistManagement mode="recruitment" view={tab === "approved" ? "panelist-approved" : "panelist-leads"} />
+      )}
       {tab === "suppliers" && <TrafficSuppliers embedded />}
       {tab === "traffic" && <TrafficFunnel embedded />}
       {tab === "email" && <PanelDashboard section="email" />}

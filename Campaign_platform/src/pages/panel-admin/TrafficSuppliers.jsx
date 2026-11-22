@@ -2,6 +2,8 @@ import { useEffect, useState } from "react"
 import { buildApiUrl } from "../../config"
 import { confirmAction } from "../../utils/notify"
 import { authFetch } from "../../utils/api"
+import { colors, card, control, tones } from "../../components/panel-admin/tokens"
+import { SectionHeader, Notice, Badge, CountGrid, Field, Modal, ActionMenu } from "../../components/panel-admin/ui"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -17,15 +19,12 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 const toPaise = (rupees) => Math.round(parseFloat(rupees || 0) * 100)
 const toRupees = (paise) => ((paise || 0) / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })
 
-const card = {
-  background: "#fff",
-  border: "1px solid #e8e4dc",
-  borderRadius: "10px",
-  padding: "1.25rem",
-  marginBottom: "1.25rem",
-}
+const small = { padding: "0.35rem 0.8rem", fontSize: "0.85rem", whiteSpace: "nowrap" }
+const hint = { fontSize: "0.8rem", color: colors.muted, margin: "0.3rem 0 0", lineHeight: 1.5 }
+const input = { ...control, width: "100%" }
+const EMPTY_FORM = { name: "", slug: "", payoutPerConversionPaise: "", postbackUrl: "", postbackEnabled: false, notes: "", countryRates: [] }
 
-function CopyField({ label, value, hint }) {
+function CopyField({ label, value, hint: help }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
@@ -40,32 +39,22 @@ function CopyField({ label, value, hint }) {
   }
 
   return (
-    <div style={{ marginTop: "0.75rem" }}>
-      <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#5c5c5c", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-        {label}
-      </div>
-      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+    <div style={{ marginTop: "0.9rem" }}>
+      <div style={{ fontSize: "0.8rem", fontWeight: 600, color: colors.text }}>{label}</div>
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.3rem" }}>
         <input
           readOnly
+          aria-label={label}
           value={value}
           onFocus={(e) => e.target.select()}
-          style={{
-            flex: 1, padding: "0.5rem 0.65rem", border: "1px solid #e8e4dc", borderRadius: "6px",
-            fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.875rem", background: "#faf9f7", color: "#1a1a1a",
-          }}
+          style={{ ...control, flex: 1, minWidth: 0, fontFamily: "ui-monospace, Menlo, monospace", background: "#faf9f7" }}
         />
-        <button
-          onClick={copy}
-          style={{
-            padding: "0.5rem 0.9rem", borderRadius: "6px", border: "1px solid #d4cec3",
-            background: copied ? "#15803d" : "#fff", color: copied ? "#fff" : "#4a4a4a",
-            fontWeight: 600, fontSize: "0.875rem", cursor: "pointer", whiteSpace: "nowrap",
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
+        <button type="button" className="btn btn-outline" onClick={copy}
+          style={{ ...small, ...(copied ? { background: tones.good.bg, color: tones.good.fg, borderColor: tones.good.border } : {}) }}>
+          {copied ? "Copied ✓" : "Copy"}
         </button>
       </div>
-      {hint && <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.3rem 0 0" }}>{hint}</p>}
+      {help && <p style={hint}>{help}</p>}
     </div>
   )
 }
@@ -80,43 +69,39 @@ function CountryRateEditor({ rows, onChange, fallbackRate }) {
   const add = () => onChange([...rows, { country: "", rate: "" }])
   const remove = (i) => onChange(rows.filter((_, idx) => idx !== i))
 
-  const cell = {
-    padding: "0.45rem 0.6rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem",
-  }
-
   return (
     <div>
-      <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a" }}>Per-country rates</div>
-      <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.2rem 0 0.5rem" }}>
+      <div style={{ fontSize: "0.85rem", fontWeight: 600, color: colors.text }}>Per-country rates</div>
+      <p style={{ ...hint, margin: "0.2rem 0 0.6rem" }}>
         Optional. Any country without a row here is paid at the default rate
         {fallbackRate ? ` (₹${fallbackRate})` : ""}. The rate that applies to a conversion is
         frozen when it converts, so changing a rate later never re-prices what you have already been invoiced for.
       </p>
       {rows.map((r, i) => (
-        <div key={i} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.4rem", alignItems: "center" }}>
+        <div key={i} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.45rem", alignItems: "center", flexWrap: "wrap" }}>
           <input
-            style={{ ...cell, width: "5.5rem", textTransform: "uppercase" }}
+            aria-label="Country code"
+            style={{ ...control, width: "4.5rem", textTransform: "uppercase" }}
             placeholder="IN" maxLength={2} value={r.country}
             onChange={(e) => set(i, { country: e.target.value.toUpperCase().replace(/[^A-Z]/g, "") })}
           />
-          <span style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>₹</span>
+          <span style={{ color: colors.muted, fontSize: "0.875rem" }}>₹</span>
           <input
-            style={{ ...cell, width: "7rem" }} type="number" step="0.01" min="0"
+            aria-label="Rate in rupees"
+            style={{ ...control, width: "6.5rem" }} type="number" step="0.01" min="0"
             placeholder="25.00" value={r.rate}
             onChange={(e) => set(i, { rate: e.target.value })}
           />
-          <span style={{ color: "#5c5c5c", fontSize: "0.875rem" }}>per profile-complete</span>
+          <span style={{ color: colors.muted, fontSize: "0.85rem" }}>per profile-complete</span>
           <button type="button" onClick={() => remove(i)} style={{
-            marginLeft: "auto", border: "none", background: "none", color: "#dc2626",
-            cursor: "pointer", fontSize: "0.875rem", fontWeight: 600,
+            marginLeft: "auto", border: "none", background: "none", color: colors.bad,
+            cursor: "pointer", fontSize: "0.85rem", fontWeight: 600,
           }}>Remove</button>
         </div>
       ))}
-      <button type="button" onClick={add} style={{
-        marginTop: "0.25rem", padding: "0.4rem 0.8rem", border: "1px dashed #d4cec3",
-        borderRadius: "6px", background: "#fff", fontSize: "0.875rem", fontWeight: 600,
-        color: "#4a4a4a", cursor: "pointer",
-      }}>+ Add country rate</button>
+      <button type="button" className="btn btn-outline" onClick={add} style={{ ...small, borderStyle: "dashed" }}>
+        + Add country rate
+      </button>
     </div>
   )
 }
@@ -127,13 +112,10 @@ export default function TrafficSuppliers({ embedded = false }) {
   const [error, setError] = useState("")
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    name: "", slug: "", payoutPerConversionPaise: "", postbackUrl: "", postbackEnabled: false, notes: "",
-    // One vendor commonly supplies several countries at different rates. Empty
-    // by default: a vendor on a single flat rate needs no country rows.
-    countryRates: [],
-  })
-  const [editingRates, setEditingRates] = useState(null)
+  // One vendor commonly supplies several countries at different rates. Empty
+  // by default: a vendor on a single flat rate needs no country rows.
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [editingRates, setEditingRates] = useState(null) // { slug, rows } while editing
 
   const sessionId = localStorage.getItem("session_id") || ""
 
@@ -176,7 +158,7 @@ export default function TrafficSuppliers({ embedded = false }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Could not create supplier")
-      setForm({ name: "", slug: "", payoutPerConversionPaise: "", postbackUrl: "", postbackEnabled: false, notes: "", countryRates: [] })
+      setForm(EMPTY_FORM)
       setShowForm(false)
       fetchSuppliers()
     } catch (err) {
@@ -224,100 +206,93 @@ export default function TrafficSuppliers({ embedded = false }) {
     fetchSuppliers()
   }
 
-  const input = {
-    width: "100%", padding: "0.55rem 0.7rem", border: "1px solid #d4cec3",
-    borderRadius: "6px", fontSize: "0.9rem", marginTop: "0.25rem",
-  }
-  const label = { fontSize: "0.875rem", fontWeight: 600, color: "#4a4a4a" }
+  // Toggle the rate editor for one supplier (a second click closes it).
+  const toggleRates = (s) => setEditingRates(editingRates?.slug === s.slug ? null : {
+    slug: s.slug,
+    rows: (s.countryRates || []).map((r) => ({
+      country: r.country, rate: String((r.payoutPerConversionPaise || 0) / 100),
+    })),
+  })
 
   return (
     <div style={{ padding: embedded ? 0 : "1.5rem", maxWidth: "1000px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
-        <div>
-          {!embedded && <h2 className="cx-page-title" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1a1a1a", margin: 0 }}>Traffic Suppliers</h2>}
-          <p style={{ color: "#5c5c5c", margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
-            Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
-            A signup counts as <strong>payable once the panelist completes their profile</strong> — the point they can be routed to a survey.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          style={{
-            padding: "0.6rem 1.1rem", background: "#7c3aed", color: "#fff", border: "none",
-            borderRadius: "8px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
-          }}
-        >
-          {showForm ? "Cancel" : "+ Add supplier"}
-        </button>
-      </div>
+      <SectionHeader
+        title={embedded ? "Traffic suppliers" : "Traffic Suppliers"}
+        description={<>
+          Where panel signups come from. Each supplier gets a tracked signup link and a private dashboard.
+          A signup counts as <strong>payable once the panelist completes their profile</strong>, the point they can be routed to a survey.
+        </>}
+        actions={
+          <button type="button" className="btn btn-primary" onClick={() => { setError(""); setShowForm(true) }}>
+            + Add supplier
+          </button>
+        }
+      />
 
-      {error && (
-        <div style={{ ...card, borderColor: "#fecaca", background: "#fef2f2", color: "#b91c1c" }}>{error}</div>
-      )}
+      {error && !showForm && <Notice tone="bad" style={{ marginBottom: "1rem" }}>{error}</Notice>}
 
-      {showForm && (
-        <form onSubmit={submit} style={card}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <div>
-              <label style={label}>Name</label>
-              <input style={input} required value={form.name} placeholder="Quora Ads"
+      <Modal
+        open={showForm}
+        title="Add supplier"
+        width={640}
+        busy={saving}
+        onClose={() => setShowForm(false)}
+        footer={<>
+          <button type="button" className="btn btn-outline" onClick={() => setShowForm(false)} disabled={saving}>Cancel</button>
+          <button type="submit" form="add-supplier-form" className="btn btn-primary" disabled={saving}>
+            {saving ? "Creating…" : "Create supplier"}
+          </button>
+        </>}
+      >
+        <form id="add-supplier-form" onSubmit={submit}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 1rem" }}>
+            <Field label="Name" htmlFor="sup-name" required>
+              <input id="sup-name" style={input} required value={form.name} placeholder="Quora Ads"
                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div>
-              <label style={label}>Slug</label>
-              <input style={input} required value={form.slug} placeholder="quora"
-                pattern="[a-z0-9][a-z0-9_-]{1,40}"
+            </Field>
+            <Field label="Slug" htmlFor="sup-slug" required>
+              <input id="sup-slug" style={input} required value={form.slug} placeholder="quora"
+                // "-" escaped: browsers compile `pattern` with the regex v flag,
+                // where an unescaped "-" makes the whole pattern invalid (and ignored).
+                pattern="[a-z0-9][a-z0-9_\-]{1,40}"
                 onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase() })} />
-              <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.25rem 0 0" }}>
-                Appears in the link. Lowercase, no spaces. Cannot be changed later.
-              </p>
-            </div>
-            <div>
-              <label style={label}>Default payout per conversion (₹)</label>
-              <input style={input} type="number" step="0.01" min="0" value={form.payoutPerConversionPaise}
+              <p style={hint}>Appears in the link. Lowercase, no spaces. Cannot be changed later.</p>
+            </Field>
+            <Field label="Default payout per conversion (₹)" htmlFor="sup-payout">
+              <input id="sup-payout" style={input} type="number" step="0.01" min="0" value={form.payoutPerConversionPaise}
                 placeholder="25.00"
                 onChange={(e) => setForm({ ...form, payoutPerConversionPaise: e.target.value })} />
-              <p style={{ fontSize: "0.875rem", color: "#5c5c5c", margin: "0.25rem 0 0" }}>
-                Used for any country without its own rate below.
-              </p>
-            </div>
-            <div>
-              <label style={label}>Postback URL (optional)</label>
-              <input style={input} value={form.postbackUrl}
+              <p style={hint}>Used for any country without its own rate below.</p>
+            </Field>
+            <Field label="Postback URL" hint="(optional)" htmlFor="sup-postback">
+              <input id="sup-postback" style={input} value={form.postbackUrl}
                 placeholder="https://vendor.com/pb?click={CLICK_ID}"
                 onChange={(e) => setForm({ ...form, postbackUrl: e.target.value })} />
-              <label style={{ ...label, display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.4rem", fontWeight: 500 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.45rem", fontSize: "0.85rem", color: colors.text }}>
                 <input type="checkbox" checked={form.postbackEnabled}
                   onChange={(e) => setForm({ ...form, postbackEnabled: e.target.checked })} />
                 Fire a postback when a signup converts
               </label>
-            </div>
+            </Field>
           </div>
 
-          <div style={{ marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid #f5f3ef" }}>
+          <div style={{ marginTop: "0.25rem", paddingTop: "1rem", borderTop: `1px solid ${colors.border}` }}>
             <CountryRateEditor
               rows={form.countryRates}
               fallbackRate={form.payoutPerConversionPaise}
               onChange={(countryRates) => setForm({ ...form, countryRates })}
             />
           </div>
-
-          <button type="submit" disabled={saving}
-            style={{
-              marginTop: "1rem", padding: "0.6rem 1.4rem", background: saving ? "#a78bfa" : "#7c3aed",
-              color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: saving ? "default" : "pointer",
-            }}>
-            {saving ? "Creating…" : "Create supplier"}
-          </button>
+          {error && <Notice tone="bad" style={{ marginTop: "1rem" }}>{error}</Notice>}
         </form>
-      )}
+      </Modal>
 
       {loading ? (
-        <p style={{ color: "#5c5c5c" }}>Loading…</p>
+        <p style={{ color: colors.muted }}>Loading…</p>
       ) : suppliers.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "2.5rem 1.25rem" }}>
-          <p style={{ fontWeight: 700, color: "#1a1a1a", margin: 0 }}>No suppliers yet</p>
-          <p style={{ color: "#5c5c5c", fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
+          <p style={{ fontWeight: 700, color: colors.text, margin: 0 }}>No suppliers yet</p>
+          <p style={{ color: colors.muted, fontSize: "0.9rem", margin: "0.4rem 0 0" }}>
             Add one for each traffic source — Facebook, Google, Quora, or a panel vendor — and send them their tracked signup link.
             Signups that arrive without a link are recorded as organic.
           </p>
@@ -325,106 +300,78 @@ export default function TrafficSuppliers({ embedded = false }) {
       ) : (
         suppliers.map((s) => {
           const convRate = s.signups > 0 ? ((s.converted / s.signups) * 100).toFixed(1) : "0.0"
+          const editing = editingRates?.slug === s.slug
           return (
             <div key={s.slug} style={card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
-                <div>
-                  <span style={{ fontSize: "1.05rem", fontWeight: 800, color: "#1a1a1a" }}>{s.name}</span>
-                  <span style={{
-                    marginLeft: "0.6rem", fontSize: "0.875rem", fontWeight: 700, padding: "0.15rem 0.5rem",
-                    borderRadius: "99px", textTransform: "uppercase",
-                    background: s.status === "active" ? "#dcfce7" : "#fef3c7",
-                    color: s.status === "active" ? "#166534" : "#92400e",
-                  }}>{s.status}</span>
-                  <div style={{ color: "#5c5c5c", fontSize: "0.875rem", marginTop: "0.2rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "1.05rem", fontWeight: 700, color: colors.text }}>{s.name}</span>
+                    <Badge tone={s.status === "active" ? "good" : "warn"}>{s.status}</Badge>
+                  </div>
+                  <div style={{ color: colors.muted, fontSize: "0.85rem", marginTop: "0.2rem" }}>
                     <code>{s.slug}</code>
                     {s.postbackEnabled && " · postback on"}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
-                    onClick={() => setEditingRates(editingRates === s.slug ? null : {
-                      slug: s.slug,
-                      rows: (s.countryRates || []).map((r) => ({
-                        country: r.country, rate: String((r.payoutPerConversionPaise || 0) / 100),
-                      })),
-                    })}
-                    style={{
-                      padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
-                      background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
-                    }}>Rates</button>
-                  <button onClick={() => toggleStatus(s)} style={{
-                    padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
-                    background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
-                  }}>{s.status === "active" ? "Pause" : "Activate"}</button>
-                  <button onClick={() => rotate(s)} style={{
-                    padding: "0.4rem 0.8rem", border: "1px solid #d4cec3", borderRadius: "6px",
-                    background: "#fff", fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
-                  }}>Rotate link</button>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <button type="button" className="btn btn-outline" style={small} aria-expanded={editing} onClick={() => toggleRates(s)}>
+                    {editing ? "Close rates" : "Edit rates"}
+                  </button>
+                  <ActionMenu
+                    label="More"
+                    buttonStyle={small}
+                    items={[
+                      { label: s.status === "active" ? "Pause supplier" : "Activate supplier", onClick: () => toggleStatus(s) },
+                      { label: "Rotate dashboard link…", onClick: () => rotate(s) },
+                    ]}
+                  />
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: "2rem", marginTop: "1rem", flexWrap: "wrap" }}>
-                {[
-                  ["Signups", s.signups.toLocaleString()],
-                  ["Profile complete", s.converted.toLocaleString()],
-                  ["Conversion", `${convRate}%`],
-                  // Summed from the rate frozen on each conversion, so a vendor
-                  // running several countries totals correctly rather than
-                  // count x one rate.
-                  ["Accrued", `₹${toRupees(s.accruedPaise)}`],
-                ].map(([k, v]) => (
-                  <div key={k}>
-                    <div style={{ fontSize: "0.875rem", color: "#5c5c5c", textTransform: "uppercase", letterSpacing: "0.03em" }}>{k}</div>
-                    <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#1a1a1a" }}>{v}</div>
-                  </div>
-                ))}
-              </div>
+              <CountGrid min={120} items={[
+                { label: "Signups", value: s.signups },
+                { label: "Profile complete", value: s.converted, color: colors.good },
+                { label: "Conversion", value: `${convRate}%` },
+                // Summed from the rate frozen on each conversion, so a vendor
+                // running several countries totals correctly rather than
+                // count x one rate.
+                { label: "Accrued", value: `₹${toRupees(s.accruedPaise)}` },
+              ]} />
 
-              {(s.countryRates || []).length > 0 && editingRates?.slug !== s.slug && (
-                <div style={{ marginTop: "0.9rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+              {(s.countryRates || []).length > 0 && !editing && (
+                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.8rem", color: colors.muted }}>Rates:</span>
                   {s.countryRates.map((r) => (
-                    <span key={r.country} style={{
-                      fontSize: "0.875rem", fontWeight: 600, padding: "0.2rem 0.55rem",
-                      borderRadius: "99px", background: "#f5f3ef", color: "#4a4a4a",
-                    }}>{r.country} ₹{toRupees(r.payoutPerConversionPaise)}</span>
+                    <Badge key={r.country}>{r.country} ₹{toRupees(r.payoutPerConversionPaise)}</Badge>
                   ))}
-                  <span style={{
-                    fontSize: "0.875rem", fontWeight: 600, padding: "0.2rem 0.55rem",
-                    borderRadius: "99px", background: "#faf5ff", color: "#6b21a8",
-                  }}>other ₹{toRupees(s.payoutPerConversionPaise)}</span>
+                  <Badge tone="accent">other ₹{toRupees(s.payoutPerConversionPaise)}</Badge>
                 </div>
               )}
 
-              {editingRates?.slug === s.slug && (
-                <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #f5f3ef" }}>
+              {editing && (
+                <div style={{ marginTop: "0.5rem", paddingTop: "1rem", borderTop: `1px solid ${colors.border}` }}>
                   <CountryRateEditor
                     rows={editingRates.rows}
                     fallbackRate={toRupees(s.payoutPerConversionPaise)}
                     onChange={(rows) => setEditingRates({ ...editingRates, rows })}
                   />
                   <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
-                    <button onClick={() => saveRates(s.slug, editingRates.rows)} style={{
-                      padding: "0.45rem 1rem", background: "#7c3aed", color: "#fff", border: "none",
-                      borderRadius: "6px", fontWeight: 700, fontSize: "0.875rem", cursor: "pointer",
-                    }}>Save rates</button>
-                    <button onClick={() => setEditingRates(null)} style={{
-                      padding: "0.45rem 1rem", background: "#fff", border: "1px solid #d4cec3",
-                      borderRadius: "6px", fontWeight: 600, fontSize: "0.875rem", cursor: "pointer",
-                    }}>Cancel</button>
+                    <button type="button" className="btn btn-primary" style={small} onClick={() => saveRates(s.slug, editingRates.rows)}>Save rates</button>
+                    <button type="button" className="btn btn-outline" style={small} onClick={() => setEditingRates(null)}>Cancel</button>
                   </div>
                 </div>
               )}
 
               <CopyField
-                label="Signup link — send this to the supplier"
+                label="Signup link: send this to the supplier"
                 value={s.signupUrl}
                 hint="Replace {CLICK_ID} with the supplier's own click identifier, or leave it for them to substitute."
               />
               <CopyField
                 label="Their dashboard"
                 value={s.dashboardUrl || s.dashboardPath}
-                hint="Private link — anyone holding it can see this supplier's numbers. Rotate it if it leaks."
+                hint="Private link: anyone holding it can see this supplier's numbers. Rotate it if it leaks."
               />
             </div>
           )

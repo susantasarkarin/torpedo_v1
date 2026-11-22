@@ -2,6 +2,9 @@ import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
 import { formatDateTime } from "../../utils/format"
 import { authFetch } from "../../utils/api"
+import { confirmAction } from "../../utils/notify"
+import { colors, control, th as thBase } from "../../components/panel-admin/tokens"
+import { StatTile, Notice } from "../../components/panel-admin/ui"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -20,56 +23,31 @@ function HealthBanner({ health, loading, onRefresh }) {
   const ok = health.healthy
 
   return (
-    <div
-      style={{
-        marginBottom: "1.5rem",
-        padding: "0.9rem 1.1rem",
-        borderRadius: "10px",
-        border: `1px solid ${ok ? "#bbf7d0" : "#fecaca"}`,
-        backgroundColor: ok ? "#f0fdf4" : "#fef2f2",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "space-between",
-        gap: "1rem",
-      }}
-    >
+    <Notice tone={ok ? "good" : "bad"} style={{ marginBottom: "1.25rem", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem" }}>
       <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, fontWeight: 700, color: ok ? "#166534" : "#991b1b", fontSize: "0.9rem" }}>
+        <strong>
           {ok ? "Panel systems healthy" : `${problems.length} panel health issue${problems.length === 1 ? "" : "s"}`}
-        </p>
+        </strong>
         {!ok && (
-          <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", color: "#7f1d1d", fontSize: "0.875rem", lineHeight: 1.6 }}>
+          <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", lineHeight: 1.6 }}>
             {problems.map((p, i) => (
               <li key={i}>{p.replace(/^\[panel-health\]\s*/, "")}</li>
             ))}
           </ul>
         )}
-        <p style={{ margin: "0.4rem 0 0", fontSize: "0.875rem", color: "#6f6f6f" }}>
+        <div style={{ marginTop: "0.3rem", fontSize: "0.8rem", color: colors.muted }}>
           Checked {health.generated_at ? formatDateTime(health.generated_at) : "—"} · runs hourly
-        </p>
+        </div>
       </div>
-      <button
-        onClick={onRefresh}
-        style={{
-          padding: "0.35rem 0.75rem", fontSize: "0.875rem", fontWeight: 600, borderRadius: "6px",
-          border: `1px solid ${ok ? "#6ee7b7" : "#fca5a5"}`, background: "#fff",
-          color: ok ? "#166534" : "#991b1b", cursor: "pointer", whiteSpace: "nowrap",
-        }}
-      >
+      <button type="button" className="btn btn-outline" onClick={onRefresh} style={{ padding: "0.3rem 0.75rem", fontSize: "0.8rem", whiteSpace: "nowrap" }}>
         Refresh
       </button>
-    </div>
+    </Notice>
   )
 }
 
 function StatCard({ label, value, sub, color }) {
-  return (
-    <div style={{ padding: "1.5rem", border: "1px solid #e8e4dc", borderRadius: "12px", backgroundColor: "#faf9f7" }}>
-      <p style={{ fontSize: "0.875rem", color: "#5c5c5c", fontWeight: "600", marginBottom: "0.5rem" }}>{label}</p>
-      <p style={{ fontSize: "2rem", fontWeight: "700", color: color || "#15803d", marginBottom: "0.25rem" }}>{value}</p>
-      {sub && <p style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>{sub}</p>}
-    </div>
-  )
+  return <StatTile label={label} value={value} sub={sub} color={color || colors.text} />
 }
 
 // section="email": only the invitation email activity (Recruitment section).
@@ -159,6 +137,10 @@ function PanelDashboard({ section = "all" }) {
   // Preview first: a dry run reports who WOULD be mailed without sending, so
   // a mis-scoped segment can't turn into a blast.
   const runDrips = async (dryRun) => {
+    // A real run emails every stalled panelist who is due a reminder, so it asks first.
+    if (!dryRun && !(await confirmAction(
+      "Send reminder emails now to every stalled panelist who is due one?\n\nRun \"Preview (dry run)\" first to see how many would go out.",
+    ))) return
     setDripRunning(true)
     setDripMessage("")
     const sessionId = localStorage.getItem("session_id")
@@ -265,21 +247,21 @@ function PanelDashboard({ section = "all" }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "2rem" }}>
           <StatCard
             label="Total Sent"
             value={totalSent.toLocaleString()}
             sub={peopleInvited > 0
               ? `${peopleInvited.toLocaleString()} people · ${(totalSent / peopleInvited).toFixed(1)}x each`
               : "All-time invitations sent"}
-            color="#15803d"
+            color={colors.good}
           />
-          <StatCard label="Confirmed" value={totalConfirmed.toLocaleString()} sub="People with double opt-in" color="#d17f08" />
+          <StatCard label="Confirmed" value={totalConfirmed.toLocaleString()} sub="People with double opt-in" color={colors.accent} />
           <StatCard
             label="Bounced"
             value={totalBounced.toLocaleString()}
             sub={`Failed delivery · ${totalSuppressed.toLocaleString()} suppressed`}
-            color="#dc2626"
+            color={colors.bad}
           />
           {/* Confirmed / people invited. Dividing by total SENDS made this
               number meaningless — the same person is mailed ~7 times, so the
@@ -288,15 +270,14 @@ function PanelDashboard({ section = "all" }) {
             label="Conversion Rate"
             value={`${peopleInvited > 0 ? ((totalConfirmed / peopleInvited) * 100).toFixed(2) : 0}%`}
             sub="Confirmed / people invited"
-            color="#7c3aed"
+            color={colors.text}
           />
         </div>
 
         <div style={{ marginBottom: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
             <h3 style={{ fontSize: "1.125rem", fontWeight: "700", color: "#1a1a1a" }}>Daily Email Activity</h3>
-            <select value={days} onChange={(e) => setDays(parseInt(e.target.value))}
-              style={{ padding: "0.5rem 0.75rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem", backgroundColor: "#fff" }}>
+            <select aria-label="Period" value={days} onChange={(e) => setDays(parseInt(e.target.value))} style={control}>
               <option value={7}>Last 7 days</option>
               <option value={14}>Last 14 days</option>
               <option value={30}>Last 30 days</option>
@@ -381,8 +362,7 @@ function PanelDashboard({ section = "all" }) {
               The <strong>Step conversion</strong> column is the leak indicator.
             </p>
           </div>
-          <button onClick={() => fetchFunnel(true)} disabled={funnelLoading}
-            style={{ padding: "0.5rem 1rem", background: funnelLoading ? "#e8e4dc" : "#7c3aed", color: funnelLoading ? "#8a8a8a" : "#fff", border: "none", borderRadius: "8px", cursor: funnelLoading ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600" }}>
+          <button type="button" className="btn btn-outline" onClick={() => fetchFunnel(true)} disabled={funnelLoading} style={{ whiteSpace: "nowrap" }}>
             {funnelLoading ? "Loading…" : "↻ Recalculate"}
           </button>
         </div>
@@ -398,24 +378,24 @@ function PanelDashboard({ section = "all" }) {
                 <thead>
                   <tr style={{ borderBottom: "2px solid #e8e4dc", background: "#faf9f7" }}>
                     {["Stage", "People", "Step conversion", "Lost at this step", "% of pool"].map((h, i) => (
-                      <th key={h} style={{ padding: "0.75rem 1rem", textAlign: i === 0 ? "left" : "right", fontWeight: "700", color: "#4a4a4a" }}>{h}</th>
+                      <th key={h} style={{ ...thBase, textAlign: i === 0 ? "left" : "right" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {funnel.stages.map((s) => {
+                  {(funnel.stages || []).map((s) => {
                     // Anything under 25% step conversion is flagged: that is a
                     // broken step, not normal attrition.
-                    const weak = s.pct_of_previous !== null && s.pct_of_previous < 25
+                    const weak = s.pct_of_previous != null && s.pct_of_previous < 25
                     return (
                       <tr key={s.key} style={{ borderBottom: "1px solid #f5f3ef" }}>
                         <td style={{ padding: "0.75rem 1rem", fontWeight: "600", color: "#1a1a1a" }}>{s.label}</td>
-                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: "#1a1a1a" }}>{s.count.toLocaleString()}</td>
-                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: s.pct_of_previous === null ? "#8a8a8a" : weak ? "#dc2626" : "#15803d" }}>
-                          {s.pct_of_previous === null ? "—" : `${s.pct_of_previous}%`}
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: "#1a1a1a" }}>{(s.count || 0).toLocaleString()}</td>
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: s.pct_of_previous == null ? "#8a8a8a" : weak ? "#dc2626" : "#15803d" }}>
+                          {s.pct_of_previous == null ? "—" : `${s.pct_of_previous}%`}
                         </td>
                         <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#5c5c5c" }}>
-                          {s.dropped_from_previous === null ? "—" : s.dropped_from_previous.toLocaleString()}
+                          {s.dropped_from_previous == null ? "—" : s.dropped_from_previous.toLocaleString()}
                         </td>
                         <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#5c5c5c" }}>{s.pct_of_pool}%</td>
                       </tr>
@@ -434,13 +414,13 @@ function PanelDashboard({ section = "all" }) {
             </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem", marginBottom: "1.25rem" }}>
-              {Object.entries(funnel.segments).map(([key, seg]) => {
+              {Object.entries(funnel.segments || {}).map(([key, seg]) => {
                 const stageKey = { signed_up_unverified: "verify", opted_in_no_profile: "profile", profile_no_activity: "activate" }[key]
                 const drip = dripStatus?.stages?.[stageKey]
                 return (
                   <div key={key} style={{ border: "1px solid #e8e4dc", borderRadius: "10px", padding: "1.1rem", background: "#fafafa" }}>
                     <p style={{ fontSize: "0.875rem", color: "#5c5c5c", fontWeight: "600", marginBottom: "0.35rem" }}>{seg.label}</p>
-                    <p style={{ fontSize: "1.75rem", fontWeight: "700", color: "#d97706", marginBottom: "0.4rem" }}>{seg.count.toLocaleString()}</p>
+                    <p style={{ fontSize: "1.75rem", fontWeight: "700", color: colors.warn, marginBottom: "0.4rem" }}>{(seg.count || 0).toLocaleString()}</p>
                     <p style={{ fontSize: "0.875rem", color: "#6f6f6f", lineHeight: "1.5", marginBottom: "0.6rem" }}>{seg.description}</p>
                     {drip && (
                       <p style={{ fontSize: "0.875rem", color: "#5c5c5c", borderTop: "1px solid #e8e4dc", paddingTop: "0.5rem" }}>
@@ -453,24 +433,18 @@ function PanelDashboard({ section = "all" }) {
             </div>
 
             <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={() => runDrips(true)} disabled={dripRunning}
-                style={{ padding: "0.5rem 1rem", background: "#fff", color: "#7c3aed", border: "1px solid #7c3aed", borderRadius: "8px", cursor: dripRunning ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600", opacity: dripRunning ? 0.5 : 1 }}>
+              <button type="button" className="btn btn-outline" onClick={() => runDrips(true)} disabled={dripRunning}>
                 Preview (dry run)
               </button>
-              <button onClick={() => runDrips(false)} disabled={dripRunning}
-                style={{ padding: "0.5rem 1rem", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "8px", cursor: dripRunning ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600", opacity: dripRunning ? 0.5 : 1 }}>
-                {dripRunning ? "Working…" : "Send reminders now"}
+              <button type="button" className="btn btn-primary" onClick={() => runDrips(false)} disabled={dripRunning}>
+                {dripRunning ? "Working…" : "Send reminders now…"}
               </button>
-              <span style={{ fontSize: "0.875rem", color: "#6f6f6f" }}>
+              <span style={{ fontSize: "0.85rem", color: colors.muted }}>
                 Runs automatically every day at 11:30 IST.
               </span>
             </div>
 
-            {dripMessage && (
-              <div style={{ marginTop: "0.9rem", padding: "0.75rem", borderRadius: "6px", background: "#f5f3ef", color: "#4a4a4a", fontSize: "0.875rem" }}>
-                {dripMessage}
-              </div>
-            )}
+            {dripMessage && <Notice style={{ marginTop: "0.9rem" }}>{dripMessage}</Notice>}
 
             <p style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#6f6f6f" }}>
               Computed {funnel.generated_at ? formatDateTime(funnel.generated_at) : "—"}
@@ -571,7 +545,7 @@ function PanelDashboard({ section = "all" }) {
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e8e4dc", background: "#faf9f7" }}>
                       {["Country", "Total", "Share", "Today", "This Week"].map((h, i) => (
-                        <th key={h} style={{ padding: "0.75rem 1rem", textAlign: i === 0 ? "left" : "right", fontWeight: "700", color: "#4a4a4a" }}>{h}</th>
+                        <th key={h} style={{ ...thBase, textAlign: i === 0 ? "left" : "right" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>

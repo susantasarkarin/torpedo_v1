@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react"
 import { buildApiUrl } from "../../config"
-import Papa from "papaparse"
-import { notify } from "../../utils/notify"
 import { formatDate } from "../../utils/format"
 import { authFetch } from "../../utils/api"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { countryName } from "../../components/panel-admin/tokens"
+import { countryName, colors, control, th, td } from "../../components/panel-admin/tokens"
+import { ActionMenu, FilterBar, Pager, Modal, Notice, Badge, CountGrid, Field, SectionHeader } from "../../components/panel-admin/ui"
+import RecruitmentSummary from "./RecruitmentSummary"
+import ImportPanelistsDialog from "./ImportPanelistsDialog"
+import { parseApiResponse } from "../../components/panel-admin/apiResponse"
 import DeletePanelistDialog from "./DeletePanelistDialog"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
@@ -22,10 +24,38 @@ const STAGE_LABELS = {
   quickDone: "Quick start done", clicked: "Clicked a survey", result: "Got a survey result",
   completed: "Completed a survey", repeat: "2+ completes",
 }
+// Badge tone + label for the Recruitment tables.
+const EMAIL_STATUS = {
+  sent: { tone: "accent", label: "Sent" },
+  clicked: { tone: "warn", label: "Clicked" },
+  confirmed: { tone: "good", label: "Confirmed" },
+  soft_bounced: { tone: "warn", label: "Soft bounce" },
+  bounced: { tone: "bad", label: "Bounced" },
+  complained: { tone: "bad", label: "Complained" },
+  failed: { tone: "neutral", label: "Failed" },
+}
+const DELIVERABILITY = {
+  bounced: { tone: "bad", label: "⚠ Bounced" },
+  soft_bounced: { tone: "warn", label: "⚠ Soft bounce" },
+  complained: { tone: "bad", label: "⚠ Complained" },
+}
+const LEAD_STATUS_TONE = { COMPLETE: "good", INCOMPLETE: "warn" }
+const PANELIST_STATUS_TONE = { active: "good", pending: "warn" }
+// Heading + one-line explanation for each Recruitment list.
+const VIEW_TEXT = {
+  "panelist-leads": { title: "Leads", description: "Emails captured on landing pages. They get invitations only after they are merged into the panelist list." },
+  "panelist-approved": { title: "Approved panelists", description: "Active panelists in the invite pool, with their latest invitation email status." },
+}
+const cellStrong = { ...td, fontWeight: 600 }
+const emptyText = { color: colors.muted, padding: "1rem 0", margin: 0 }
+
 // mode: "members" = SurveyFieldwork Panel members only (Members section);
 // "recruitment" = lead lists, imports and invites (Recruitment section).
-function PanelistManagement({ mode = "all" }) {
-  const [activeTab, setActiveTab] = useState(mode === "members" ? "sfw-panelists" : "panelist-leads")
+// view: set by the Recruitment section's own tabs ("panelist-leads" |
+// "panelist-approved"); when given, the inner tab bar is hidden.
+function PanelistManagement({ mode = "all", view }) {
+  const [tabState, setActiveTab] = useState(mode === "members" ? "sfw-panelists" : "panelist-leads")
+  const activeTab = view || tabState
 
   // SFW Panel state
   const [sfwPanelists, setSfwPanelists] = useState([])
@@ -50,6 +80,10 @@ function PanelistManagement({ mode = "all" }) {
   const [leadTotal, setLeadTotal] = useState(0)
   const [leadLoading, setLeadLoading] = useState(false)
   const [leadSearch, setLeadSearch] = useState("")
+  const [leadCountry, setLeadCountry] = useState("")
+  const [leadPageSize, setLeadPageSize] = useState(25)
+  const [allLeadsTotal, setAllLeadsTotal] = useState(null) // unfiltered, for the summary
+  const leadReq = useRef(0)
 
   // Approved panelists state
   const [panelists, setPanelists] = useState([])
@@ -57,22 +91,14 @@ function PanelistManagement({ mode = "all" }) {
   const [panelistTotal, setPanelistTotal] = useState(0)
   const [panelistLoading, setPanelistLoading] = useState(false)
   const [panelistSearch, setPanelistSearch] = useState("")
-  const [countryFilter, setCountryFilter] = useState("")
+  const [panelistCountry, setPanelistCountry] = useState("")
+  const [panelistPageSize, setPanelistPageSize] = useState(25)
+  const panelistReq = useRef(0)
   const [availableCountries, setAvailableCountries] = useState([])
   const [leadCountries, setLeadCountries] = useState([])
 
-  // CSV upload state
+  // Import dialog (CSV file or link): ImportPanelistsDialog owns its own state.
   const [showUpload, setShowUpload] = useState(false)
-  const [csvData, setCsvData] = useState(null)
-  const [csvFileName, setCsvFileName] = useState("")
-  const [uploading, setUploading] = useState(false)
-  const [uploadResult, setUploadResult] = useState(null)
-  const [importUrl, setImportUrl] = useState("")
-  const [importFormat, setImportFormat] = useState("auto")
-  const [importRootKey, setImportRootKey] = useState("")
-  const [importingLink, setImportingLink] = useState(false)
-  const [importLinkResult, setImportLinkResult] = useState(null)
-  const fileInputRef = useRef(null)
 
   // Invitation state
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -93,28 +119,27 @@ function PanelistManagement({ mode = "all" }) {
   const [promoting, setPromoting] = useState(false)
   const [promoteResult, setPromoteResult] = useState(null)
 
-  // Records loaded per request. Fetching 100 rows of a 190K-row collection on
-  // every page click was the bulk of the wait, so this is user-controlled and
-  // defaults low; the table always loads one batch at a time from the server.
-  const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500]
-  const [pageSize, setPageSize] = useState(mode === "members" ? 500 : 25)
+  // Records loaded per request for the members list. The Leads and Approved
+  // lists each have their own rows-per-page (leadPageSize / panelistPageSize),
+  // kept low by default: fetching 100 rows of a 190K-row collection on every
+  // page click was the bulk of the wait.
+  const [pageSize] = useState(mode === "members" ? 500 : 25)
 
-  const handlePageSizeChange = (e) => {
-    setPageSize(parseInt(e.target.value))
-    setLeadPage(1)
-    setPanelistPage(1)
-    setSfwPage(1)
-  }
+  // The country filter on the list in view also scopes Send Invitations.
+  const inviteCountry = activeTab === "panelist-approved" ? panelistCountry : leadCountry
+
+  // Each list refetches only on its own filters, so they work independently.
+  useEffect(() => {
+    if (activeTab === "panelist-leads") fetchPanelLeads()
+  }, [activeTab, leadPage, leadSearch, leadCountry, leadPageSize])
 
   useEffect(() => {
-    if (activeTab === "sfw-panelists") {
-      fetchSfwPanelists()
-    } else if (activeTab === "panelist-leads") {
-      fetchPanelLeads()
-    } else if (activeTab === "panelist-approved") {
-      fetchPanelists()
-    }
-  }, [activeTab, leadPage, panelistPage, countryFilter, pageSize, urlStage])
+    if (activeTab === "panelist-approved") fetchPanelists()
+  }, [activeTab, panelistPage, panelistSearch, panelistCountry, panelistPageSize])
+
+  useEffect(() => {
+    if (activeTab === "sfw-panelists") fetchSfwPanelists()
+  }, [activeTab, pageSize, urlStage])
 
   // Fetch distinct countries on mount
   useEffect(() => {
@@ -163,6 +188,12 @@ function PanelistManagement({ mode = "all" }) {
     }
   }
 
+  const confirmPromoteLeads = () => {
+    if (window.confirm("Merge all parsing-page leads into the panelist list now? Merged leads enter the invite rotation on the next run.")) {
+      handlePromoteLeads()
+    }
+  }
+
   const fetchCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
@@ -193,48 +224,53 @@ function PanelistManagement({ mode = "all" }) {
     }
   }
 
+  // Search runs as you type, so responses can arrive out of order: only the
+  // latest request (leadReq / panelistReq) is allowed to update the table.
   const fetchPanelLeads = async () => {
+    const req = ++leadReq.current
     setLeadLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
       const params = new URLSearchParams({
         page: leadPage,
-        page_size: pageSize,
+        page_size: leadPageSize,
       })
       if (leadSearch) params.append("search", leadSearch)
-      if (countryFilter) params.append("country", countryFilter)
+      if (leadCountry) params.append("country", leadCountry)
 
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/?${params}`), {
         headers: { Authorization: sessionId },
       })
-      if (res.ok) {
+      if (res.ok && req === leadReq.current) {
         const data = await res.json()
         setPanelLeads(data.results || [])
         setLeadTotal(data.total || 0)
+        if (!leadSearch && !leadCountry) setAllLeadsTotal(data.total || 0)
       }
     } catch (err) {
       console.error("Failed to fetch panelist leads:", err)
     } finally {
-      setLeadLoading(false)
+      if (req === leadReq.current) setLeadLoading(false)
     }
   }
 
   const fetchPanelists = async () => {
+    const req = ++panelistReq.current
     setPanelistLoading(true)
     const sessionId = localStorage.getItem("session_id")
     try {
       const params = new URLSearchParams({
         page: panelistPage,
-        page_size: pageSize,
+        page_size: panelistPageSize,
       })
       if (panelistSearch) params.append("search", panelistSearch)
-      if (countryFilter) params.append("country", countryFilter)
+      if (panelistCountry) params.append("country", panelistCountry)
       params.append("status", "active")
 
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/with-email-status?${params}`), {
         headers: { Authorization: sessionId },
       })
-      if (res.ok) {
+      if (res.ok && req === panelistReq.current) {
         const data = await res.json()
         setPanelists(data.results || data.panelists || [])
         setPanelistTotal(data.total || 0)
@@ -242,147 +278,12 @@ function PanelistManagement({ mode = "all" }) {
     } catch (err) {
       console.error("Failed to fetch panelists:", err)
     } finally {
-      setPanelistLoading(false)
+      if (req === panelistReq.current) setPanelistLoading(false)
     }
   }
 
-  const handleSearchLeads = (e) => {
-    e.preventDefault()
-    setLeadPage(1)
-    fetchPanelLeads()
-  }
-
-  const handleSearchPanelists = (e) => {
-    e.preventDefault()
-    setPanelistPage(1)
-    fetchPanelists()
-  }
-
-  const parseApiResponse = async (res) => {
-    const contentType = (res.headers.get("content-type") || "").toLowerCase()
-    if (contentType.includes("application/json")) {
-      return await res.json()
-    }
-
-    const text = await res.text()
-    return {
-      detail:
-        res.status === 524 || res.status === 522
-          ? `Server timeout (HTTP ${res.status}) — the backend took too long to respond.`
-          : `Unexpected server response (${res.status}): ${text}`,
-    }
-  }
-
-  // Helper to get email status badge styling
-  const getEmailStatusBadge = (status) => {
-    if (!status) return { bg: "#f5f3ef", text: "#5c5c5c", label: "Not sent" }
-    const statusMap = {
-      sent: { bg: "#fdf4e7", text: "#d17f08", label: "Sent" },
-      bounced: { bg: "#fee2e2", text: "#991b1b", label: "Bounced" },
-      complained: { bg: "#fecaca", text: "#7c2d12", label: "Complained" },
-      confirmed: { bg: "#dcfce7", text: "#166534", label: "Confirmed" },
-      clicked: { bg: "#fde68a", text: "#d17f08", label: "Clicked" },
-      soft_bounced: { bg: "#fef3c7", text: "#92400e", label: "Soft Bounce" },
-      failed: { bg: "#f5f3ef", text: "#5c5c5c", label: "Failed" },
-    }
-    return statusMap[status] || { bg: "#f5f3ef", text: "#5c5c5c", label: status }
-  }
-
-  // CSV Upload handlers
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    setCsvFileName(file.name)
-    setUploadResult(null)
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        setCsvData(results.data)
-      },
-      error: (err) => {
-        console.error("CSV parse error:", err)
-        notify("Failed to parse CSV file. Please check the format.")
-      },
-    })
-  }
-
-  const handleUploadCSV = async () => {
-    if (!csvData || csvData.length === 0) return
-
-    setUploading(true)
-    setUploadResult(null)
-    const sessionId = localStorage.getItem("session_id")
-
-    try {
-      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/upload-csv`), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId,
-        },
-        body: JSON.stringify({ panelists: csvData }),
-      })
-
-      const data = await parseApiResponse(res)
-      if (res.ok) {
-        setUploadResult({ success: true, message: data.message || `Uploaded ${data.inserted || 0} panelists`, data })
-        setCsvData(null)
-        setCsvFileName("")
-        if (fileInputRef.current) fileInputRef.current.value = ""
-        fetchPanelists()
-      } else {
-        setUploadResult({ success: false, message: data.detail || "Upload failed" })
-      }
-    } catch (err) {
-      setUploadResult({ success: false, message: "Network error: " + err.message })
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const handleImportFromLink = async () => {
-    if (!importUrl.trim()) return
-
-    setImportingLink(true)
-    setImportLinkResult(null)
-    const sessionId = localStorage.getItem("session_id")
-
-    try {
-      const payload = {
-        url: importUrl.trim(),
-        format: importFormat,
-      }
-      if (importRootKey.trim()) payload.root_key = importRootKey.trim()
-
-      const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/import-link`), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId,
-        },
-        body: JSON.stringify(payload),
-      })
-
-      const data = await parseApiResponse(res)
-      if (res.ok) {
-        setImportLinkResult({
-          success: true,
-          message: data.message || `Imported ${data.inserted || 0} panelists from link`,
-          data,
-        })
-        fetchPanelists()
-      } else {
-        setImportLinkResult({ success: false, message: data.detail || "Import from link failed" })
-      }
-    } catch (err) {
-      setImportLinkResult({ success: false, message: "Network error: " + err.message })
-    } finally {
-      setImportingLink(false)
-    }
-  }
+  const emailStatusBadge = (status) =>
+    EMAIL_STATUS[status] || { tone: "neutral", label: status || "Not sent" }
 
   // Test email handler
   const handleSendTestEmail = async () => {
@@ -414,7 +315,7 @@ function PanelistManagement({ mode = "all" }) {
     const sessionId = localStorage.getItem("session_id")
     try {
       const params = new URLSearchParams()
-      if (countryFilter) params.append("country", countryFilter)
+      if (inviteCountry) params.append("country", inviteCountry)
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/preview?${params}`), {
         headers: { Authorization: sessionId },
       })
@@ -436,7 +337,7 @@ function PanelistManagement({ mode = "all" }) {
 
     try {
       const body = {}
-      if (countryFilter) body.country = countryFilter
+      if (inviteCountry) body.country = inviteCountry
 
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/send`), {
         method: "POST",
@@ -449,10 +350,7 @@ function PanelistManagement({ mode = "all" }) {
 
       const data = await res.json()
       if (res.ok) {
-        setInviteResult({
-          success: true,
-          message: `Sent: ${data.sent || 0} | Skipped: ${data.skipped || 0} (suppressed/already invited) | Failed: ${data.failed || 0}`,
-        })
+        setInviteResult({ success: true, sent: data.sent || 0, skipped: data.skipped || 0, failed: data.failed || 0 })
       } else {
         setInviteResult({ success: false, message: data.detail || "Failed to send invitations" })
       }
@@ -462,9 +360,6 @@ function PanelistManagement({ mode = "all" }) {
       setInviteLoading(false)
     }
   }
-
-  const totalLeadPages = Math.ceil(leadTotal / pageSize)
-  const totalPanelistPages = Math.ceil(panelistTotal / pageSize)
 
   const tabStyle = (tab) => ({
     padding: "0.75rem 1.5rem",
@@ -525,167 +420,40 @@ function PanelistManagement({ mode = "all" }) {
   return (
     <div>
       <div className="card">
-        {mode !== "members" && <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-          {mode === "all" && (
-            <div>
-              <h2 className="card-title">Panelist Management</h2>
-              <p className="card-description">Manage parsing-page leads, approved panelists, and bulk uploads.</p>
-            </div>
-          )}
-          {mode !== "members" && <div style={{ display: "flex", gap: "0.75rem" }}>
-            <button
-              className="btn btn-primary"
-              onClick={handleSendInvitationsClick}
-              style={{ background: "#15803d", borderColor: "#15803d" }}
-            >
-              Send Invitations
-            </button>
-            <button
-              className="btn btn-outline"
-              onClick={() => { setTestEmailResult(null); setShowTestEmailModal(true) }}
-            >
-              Send Test Email
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowUpload(!showUpload)}
-            >
-              {showUpload ? "Close Upload" : "Upload CSV"}
-            </button>
-          </div>}
-        </div>}
-
-        {/* CSV Upload Section */}
-        {showUpload && (
-          <div className="card" style={{ marginBottom: "1.5rem", backgroundColor: "#faf9f7" }}>
-            <h3 className="card-title">Upload Panelists CSV</h3>
-            <p style={{ fontSize: "0.875rem", color: "#5c5c5c", marginBottom: "1rem" }}>
-              CSV should have columns: first_name, last_name, email, country, language (optional)
-            </p>
-            <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleFileSelect}
-                style={{ fontSize: "0.875rem" }}
+        {mode !== "members" && (
+          <SectionHeader
+            title={view ? VIEW_TEXT[activeTab]?.title : "Panelist Management"}
+            description={view ? VIEW_TEXT[activeTab]?.description : "Manage parsing-page leads, approved panelists, and bulk uploads."}
+            actions={<>
+              {/* One primary action; everything occasional sits in the menu. */}
+              <ActionMenu
+                items={[
+                  { label: "Send test email", onClick: () => { setTestEmailResult(null); setShowTestEmailModal(true) } },
+                  { label: "Import panelists (CSV or link)…", onClick: () => setShowUpload(true) },
+                  { label: promoting ? "Merging leads…" : "Merge leads into panelists now", onClick: confirmPromoteLeads, disabled: promoting },
+                ]}
               />
-              {csvData && (
-                <span style={{ fontSize: "0.875rem", color: "#15803d" }}>
-                  {csvData.length} rows parsed from {csvFileName}
-                </span>
-              )}
-              <button
-                className="btn btn-primary"
-                onClick={handleUploadCSV}
-                disabled={!csvData || uploading}
-                style={{ opacity: !csvData || uploading ? 0.5 : 1 }}
-              >
-                {uploading ? "Uploading…" : "Upload"}
+              <button type="button" className="btn btn-primary" onClick={handleSendInvitationsClick}>
+                Send Invitations
               </button>
-            </div>
-
-            {/* CSV Preview */}
-            {csvData && csvData.length > 0 && (
-              <div style={{ marginTop: "1rem", overflowX: "auto", maxHeight: "200px", overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid #e8e4dc" }}>
-                      {Object.keys(csvData[0]).map((col) => (
-                        <th key={col} style={{ textAlign: "left", padding: "0.5rem", color: "#5c5c5c", whiteSpace: "nowrap" }}>
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {csvData.slice(0, 5).map((row, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #f5f3ef" }}>
-                        {Object.values(row).map((val, j) => (
-                          <td key={j} style={{ padding: "0.5rem", whiteSpace: "nowrap" }}>{val}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {csvData.length > 5 && (
-                  <p style={{ fontSize: "0.875rem", color: "#5c5c5c", marginTop: "0.5rem" }}>
-                    Showing first 5 of {csvData.length} rows
-                  </p>
-                )}
-              </div>
-            )}
-
-            {uploadResult && (
-              <div style={{
-                marginTop: "1rem",
-                padding: "0.75rem",
-                borderRadius: "6px",
-                backgroundColor: uploadResult.success ? "#dcfce7" : "#fee2e2",
-                color: uploadResult.success ? "#166534" : "#991b1b",
-                fontSize: "0.875rem",
-              }}>
-                {uploadResult.message}
-              </div>
-            )}
-
-            <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid #e8e4dc" }}>
-              <h3 className="card-title" style={{ marginBottom: "0.5rem" }}>Import from Link (CSV/JSON)</h3>
-              <p style={{ fontSize: "0.875rem", color: "#5c5c5c", marginBottom: "0.75rem" }}>
-                Paste an API/export URL from sfw_panel or any system. Supported: CSV or JSON array payloads.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 120px 1fr auto", gap: "0.75rem", alignItems: "center" }}>
-                <input
-                  type="text"
-                  value={importUrl}
-                  onChange={(e) => setImportUrl(e.target.value)}
-                  placeholder="https://example.com/panelists.csv"
-                  style={{ padding: "0.625rem 1rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem" }}
-                />
-                <select
-                  value={importFormat}
-                  onChange={(e) => setImportFormat(e.target.value)}
-                  style={{ padding: "0.625rem 0.75rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem", backgroundColor: "#fff" }}
-                >
-                  <option value="auto">Auto</option>
-                  <option value="csv">CSV</option>
-                  <option value="json">JSON</option>
-                </select>
-                <input
-                  type="text"
-                  value={importRootKey}
-                  onChange={(e) => setImportRootKey(e.target.value)}
-                  placeholder="JSON root key (optional)"
-                  style={{ padding: "0.625rem 1rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem" }}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={handleImportFromLink}
-                  disabled={!importUrl.trim() || importingLink}
-                  style={{ opacity: !importUrl.trim() || importingLink ? 0.5 : 1 }}
-                >
-                  {importingLink ? "Importing…" : "Import Link"}
-                </button>
-              </div>
-
-              {importLinkResult && (
-                <div style={{
-                  marginTop: "0.75rem",
-                  padding: "0.75rem",
-                  borderRadius: "6px",
-                  backgroundColor: importLinkResult.success ? "#dcfce7" : "#fee2e2",
-                  color: importLinkResult.success ? "#166534" : "#991b1b",
-                  fontSize: "0.875rem",
-                }}>
-                  {importLinkResult.message}
-                </div>
-              )}
-            </div>
-          </div>
+            </>}
+          />
         )}
 
-        {/* Tabs (the Members section has a single list, so no tab bar there) */}
-        {mode !== "members" && <div style={{ borderBottom: "1px solid #e8e4dc", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        {promoteResult && (
+          <Notice tone={promoteResult.success ? "good" : "bad"} style={{ marginBottom: "1rem" }}>
+            {promoteResult.message}
+          </Notice>
+        )}
+
+        {/* Pending merge card carries "Merge now" (unmerged leads get no invitations). */}
+        {view && (
+          <RecruitmentSummary totalLeads={allLeadsTotal} promotionStatus={promotionStatus} onMerge={confirmPromoteLeads} merging={promoting} />
+        )}
+
+        {/* Tabs (the Members section has a single list, and the Recruitment
+            section picks the list with its own page tabs, so no bar there) */}
+        {mode !== "members" && !view && <div style={{ borderBottom: "1px solid #e8e4dc", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
             {mode !== "members" && (
               <>
@@ -703,170 +471,63 @@ function PanelistManagement({ mode = "all" }) {
               </button>
             )}
           </div>
-          {mode !== "members" && <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#5c5c5c", paddingBottom: "0.5rem" }}>
-            Rows per batch
-            <select
-              value={pageSize}
-              onChange={handlePageSizeChange}
-              style={{ padding: "0.35rem 0.5rem", border: "1px solid #d4cec3", borderRadius: "6px", fontSize: "0.875rem", backgroundColor: "#fff" }}
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </label>}
         </div>}
 
         {/* Panelist Lead Tab */}
         {activeTab === "panelist-leads" && (
           <div>
-            {/* Leads live in the traffic collection; the invite senders only
-                read `panelists`. Until a lead is merged across, it is visible
-                here but receives no mail at all. */}
-            <div style={{
-              marginBottom: "1rem", padding: "0.9rem 1.1rem", borderRadius: "10px",
-              border: "1px solid #fcd34d", backgroundColor: "#fffbeb",
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              gap: "1rem", flexWrap: "wrap",
-            }}>
-              <div style={{ fontSize: "0.875rem", color: "#92400e", lineHeight: "1.5" }}>
-                <strong>These leads are only mailed once merged into the panelist list.</strong>
-                <br />
-                {promotionStatus
-                  ? promotionStatus.not_yet_promoted > 0
-                    ? `${promotionStatus.not_yet_promoted.toLocaleString()} of the ${promotionStatus.sampled.toLocaleString()} most recent leads are not in the panelist list yet, so they are receiving no invitations.`
-                    : `All ${promotionStatus.sampled.toLocaleString()} recent leads are already merged and in the invite rotation.`
-                  : "Checking how many leads are still unmerged…"}
-                <br />
-                <span style={{ color: "#b45309" }}>
-                  Runs automatically each day at 08:20 IST; use the button for an immediate full backfill.
-                </span>
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={handlePromoteLeads}
-                disabled={promoting}
-                style={{ background: "#d97706", borderColor: "#d97706", opacity: promoting ? 0.5 : 1, whiteSpace: "nowrap" }}
-              >
-                {promoting ? "Merging…" : "Merge Leads into Panelists"}
-              </button>
-            </div>
+            <FilterBar
+              search={leadSearch}
+              onSearch={(v) => { setLeadSearch(v); setLeadPage(1) }}
+              placeholder="Search by mail ID, respondent ID, vendor, country…"
+              country={leadCountry}
+              onCountry={(c) => { setLeadCountry(c); setLeadPage(1) }}
+              countries={leadCountries}
+              countryLabel={(c) => COUNTRY_NAMES[c] || c}
+              pageSize={leadPageSize}
+              onPageSize={(n) => { setLeadPageSize(n); setLeadPage(1) }}
+            />
 
-            {promoteResult && (
-              <div style={{
-                marginBottom: "1rem", padding: "0.75rem", borderRadius: "6px",
-                backgroundColor: promoteResult.success ? "#dcfce7" : "#fee2e2",
-                color: promoteResult.success ? "#166534" : "#991b1b",
-                fontSize: "0.875rem",
-              }}>
-                {promoteResult.message}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-              <form onSubmit={handleSearchLeads} style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "250px" }}>
-                <input
-                  type="text"
-                  placeholder="Search by mail ID, respondent ID, vendor, country..."
-                  value={leadSearch}
-                  onChange={(e) => setLeadSearch(e.target.value)}
-                  style={{
-                    flex: 1, padding: "0.625rem 1rem", border: "1px solid #d4cec3",
-                    borderRadius: "6px", fontSize: "0.875rem",
-                  }}
-                />
-                <button type="submit" className="btn btn-primary">Search</button>
-              </form>
-              <select
-                value={countryFilter}
-                onChange={(e) => { setCountryFilter(e.target.value); setLeadPage(1) }}
-                style={{
-                  padding: "0.625rem 1rem", border: "1px solid #d4cec3",
-                  borderRadius: "6px", fontSize: "0.875rem", minWidth: "180px",
-                  backgroundColor: "#fff",
-                }}
-              >
-                <option value="">All Countries</option>
-                {leadCountries.map((c) => (
-                  <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
-                ))}
-              </select>
-            </div>
-
-            {leadLoading ? (
-              <p style={{ color: "#5c5c5c", padding: "1rem 0" }}>Loading panelist leads…</p>
+            {/* Keep the current rows (dimmed) while a new search loads, so the
+                table doesn't flash on every keystroke. */}
+            {leadLoading && panelLeads.length === 0 ? (
+              <p style={emptyText}>Loading panelist leads…</p>
             ) : panelLeads.length === 0 ? (
-              <p style={{ color: "#5c5c5c", padding: "1rem 0" }}>No parsing-page mail IDs found.</p>
+              <p style={emptyText}>No parsing-page mail IDs found.</p>
             ) : (
               <>
-                <div style={{ overflowX: "auto" }}>
+                <div style={{ overflowX: "auto", opacity: leadLoading ? 0.5 : 1, transition: "opacity 0.15s" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
-                      <tr style={{ borderBottom: "2px solid #e8e4dc" }}>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "220px" }}>Email</th>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "120px" }}>Country</th>
-                        <th style={thStyle}>Respondent ID</th>
-                        <th style={thStyle}>Vendor ID</th>
-                        <th style={thStyle}>Status</th>
-                        <th style={thStyle}>Collected</th>
+                      <tr>
+                        <th style={{ ...th, minWidth: "220px" }}>Email</th>
+                        <th style={th}>Country</th>
+                        <th style={th}>Respondent ID</th>
+                        <th style={th}>Vendor ID</th>
+                        <th style={th}>Status</th>
+                        <th style={th}>Collected</th>
                       </tr>
                     </thead>
                     <tbody>
                       {panelLeads.map((lead, index) => (
-                        <tr key={lead._id || lead.id || index} style={{ borderBottom: "1px solid #f5f3ef" }}>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{lead.email || "-"}</td>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>
-                            {lead.countryCode ? (
-                              <span style={{
-                                display: "inline-flex", alignItems: "center", gap: "0.25rem",
-                                background: "#fdf4e7", color: "#d17f08", padding: "0.2rem 0.6rem",
-                                borderRadius: "9999px", fontSize: "0.875rem", fontWeight: "600",
-                              }}>
-                                {lead.countryCode}
-                              </span>
-                            ) : "-"}
+                        <tr key={lead._id || lead.id || index}>
+                          <td style={cellStrong}>{lead.email || "—"}</td>
+                          <td style={td}>
+                            {lead.countryCode ? <Badge tone="accent" title={countryName(lead.countryCode)}>{lead.countryCode}</Badge> : "—"}
                           </td>
-                          <td style={tdStyle}>{lead.respondentId || "-"}</td>
-                          <td style={tdStyle}>{lead.vendorId || "-"}</td>
-                          <td style={tdStyle}>
-                            <span style={{
-                              fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                              backgroundColor: lead.status === "COMPLETE" ? "#dcfce7" : lead.status === "INCOMPLETE" ? "#fef3c7" : "#e8e4dc",
-                              color: lead.status === "COMPLETE" ? "#166534" : lead.status === "INCOMPLETE" ? "#92400e" : "#4a4a4a",
-                            }}>
-                              {lead.status || "-"}
-                            </span>
+                          <td style={td}>{lead.respondentId || "—"}</td>
+                          <td style={td}>{lead.vendorId || "—"}</td>
+                          <td style={td}>
+                            {lead.status ? <Badge tone={LEAD_STATUS_TONE[lead.status] || "neutral"}>{lead.status}</Badge> : "—"}
                           </td>
-                          <td style={tdStyle}>
-                            {lead.createdAt ? formatDate(lead.createdAt) : "-"}
-                          </td>
+                          <td style={{ ...td, whiteSpace: "nowrap" }}>{lead.createdAt ? formatDate(lead.createdAt) : "—"}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
-                  <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
-                    Total: {leadTotal} unique mail IDs | Page {leadPage} of {totalLeadPages}
-                  </span>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      className="btn btn-outline"
-                      disabled={leadPage <= 1}
-                      onClick={() => setLeadPage(leadPage - 1)}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      className="btn btn-outline"
-                      disabled={leadPage >= totalLeadPages}
-                      onClick={() => setLeadPage(leadPage + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
+                <Pager page={leadPage} pageSize={leadPageSize} total={leadTotal} onPage={setLeadPage} noun="unique mail IDs" />
               </>
             )}
           </div>
@@ -875,129 +536,60 @@ function PanelistManagement({ mode = "all" }) {
         {/* Panelist Approved Tab */}
         {activeTab === "panelist-approved" && (
           <div>
-            <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-              <form onSubmit={handleSearchPanelists} style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "250px" }}>
-                <input
-                  type="text"
-                  placeholder="Search approved panelists by email, name, country..."
-                  value={panelistSearch}
-                  onChange={(e) => setPanelistSearch(e.target.value)}
-                  style={{
-                    flex: 1, padding: "0.625rem 1rem", border: "1px solid #d4cec3",
-                    borderRadius: "6px", fontSize: "0.875rem",
-                  }}
-                />
-                <button type="submit" className="btn btn-primary">Search</button>
-              </form>
-              <select
-                value={countryFilter}
-                onChange={(e) => { setCountryFilter(e.target.value); setPanelistPage(1) }}
-                style={{
-                  padding: "0.625rem 1rem", border: "1px solid #d4cec3",
-                  borderRadius: "6px", fontSize: "0.875rem", minWidth: "180px",
-                  backgroundColor: "#fff",
-                }}
-              >
-                <option value="">All Countries</option>
-                {availableCountries.map((c) => (
-                  <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
-                ))}
-              </select>
-            </div>
+            <FilterBar
+              search={panelistSearch}
+              onSearch={(v) => { setPanelistSearch(v); setPanelistPage(1) }}
+              placeholder="Search approved panelists by email, name, country…"
+              country={panelistCountry}
+              onCountry={(c) => { setPanelistCountry(c); setPanelistPage(1) }}
+              countries={availableCountries}
+              countryLabel={(c) => COUNTRY_NAMES[c] || c}
+              pageSize={panelistPageSize}
+              onPageSize={(n) => { setPanelistPageSize(n); setPanelistPage(1) }}
+            />
 
-            {panelistLoading ? (
-              <p style={{ color: "#5c5c5c", padding: "1rem 0" }}>Loading approved panelists…</p>
+            {panelistLoading && panelists.length === 0 ? (
+              <p style={emptyText}>Loading approved panelists…</p>
             ) : panelists.length === 0 ? (
-              <p style={{ color: "#5c5c5c", padding: "1rem 0" }}>No approved panelists found.</p>
+              <p style={emptyText}>No approved panelists found.</p>
             ) : (
               <>
-                <div style={{ overflowX: "auto" }}>
+                <div style={{ overflowX: "auto", opacity: panelistLoading ? 0.5 : 1, transition: "opacity 0.15s" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
-                      <tr style={{ borderBottom: "2px solid #e8e4dc" }}>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "220px" }}>Email</th>
-                        <th style={{ ...thStyle, fontWeight: "700", color: "#1a1a1a", minWidth: "120px" }}>Country</th>
-                        <th style={thStyle}>Name</th>
-                        <th style={thStyle}>Status</th>
-                        <th style={thStyle}>Verified</th>
-                        <th style={thStyle}>Bounce Status</th>
-                        <th style={thStyle}>Joined</th>
-                        <th style={thStyle}>Email Sent Date</th>
-                        <th style={thStyle}>Email Status</th>
+                      <tr>
+                        <th style={{ ...th, minWidth: "220px" }}>Email</th>
+                        <th style={th}>Country</th>
+                        <th style={th}>Name</th>
+                        <th style={th}>Status</th>
+                        <th style={th}>Verified</th>
+                        <th style={th}>Deliverability</th>
+                        <th style={th}>Joined</th>
+                        <th style={th}>Email sent</th>
+                        <th style={th}>Email status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {panelists.map((panelist, index) => {
-                        const emailStatusBadge = getEmailStatusBadge(panelist.email_status)
+                        const mail = emailStatusBadge(panelist.email_status)
+                        const deliver = DELIVERABILITY[panelist.email_status] || { tone: "good", label: "✓ OK" }
                         return (
-                          <tr key={panelist._id || panelist.id || index} style={{ borderBottom: "1px solid #f5f3ef" }}>
-                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{panelist.email || "-"}</td>
-                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>
-                              {panelist.country ? (
-                                <span style={{
-                                  display: "inline-flex", alignItems: "center", gap: "0.25rem",
-                                  background: "#fdf4e7", color: "#d17f08", padding: "0.2rem 0.6rem",
-                                  borderRadius: "9999px", fontSize: "0.875rem", fontWeight: "600",
-                                }}>
-                                  {panelist.country}
-                                </span>
-                              ) : "-"}
+                          <tr key={panelist._id || panelist.id || index}>
+                            <td style={cellStrong}>{panelist.email || "—"}</td>
+                            <td style={td}>
+                              {panelist.country ? <Badge tone="accent" title={countryName(panelist.country)}>{panelist.country}</Badge> : "—"}
                             </td>
-                            <td style={tdStyle}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "-"}</td>
-                            <td style={tdStyle}>
-                              <span style={{
-                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                                backgroundColor: panelist.status === "active" ? "#dcfce7" : panelist.status === "pending" ? "#fef3c7" : "#fee2e2",
-                                color: panelist.status === "active" ? "#166534" : panelist.status === "pending" ? "#92400e" : "#991b1b",
-                              }}>
-                                {panelist.status || "active"}
-                              </span>
+                            <td style={td}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "—"}</td>
+                            <td style={td}>
+                              <Badge tone={PANELIST_STATUS_TONE[panelist.status || "active"] || "bad"}>{panelist.status || "active"}</Badge>
                             </td>
-                            <td style={tdStyle}>
-                              <span style={{
-                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                                backgroundColor: panelist.email_verified ? "#dcfce7" : "#f5f3ef",
-                                color: panelist.email_verified ? "#166534" : "#5c5c5c",
-                              }}>
-                                {panelist.email_verified ? "Verified" : "Unverified"}
-                              </span>
+                            <td style={td}>
+                              <Badge tone={panelist.email_verified ? "good" : "neutral"}>{panelist.email_verified ? "Verified" : "Unverified"}</Badge>
                             </td>
-                            <td style={tdStyle}>
-                              <span style={{
-                                fontSize: "0.875rem", padding: "0.25rem 0.65rem", borderRadius: "6px", fontWeight: "600",
-                                backgroundColor:
-                                  panelist.email_status === "bounced" ? "#fee2e2" :
-                                  panelist.email_status === "soft_bounced" ? "#fef3c7" :
-                                  panelist.email_status === "complained" ? "#fecaca" :
-                                  "#dcfce7",
-                                color:
-                                  panelist.email_status === "bounced" ? "#991b1b" :
-                                  panelist.email_status === "soft_bounced" ? "#92400e" :
-                                  panelist.email_status === "complained" ? "#7c2d12" :
-                                  "#166534",
-                              }}>
-                                {panelist.email_status === "bounced" ? "⚠ BOUNCED" :
-                                 panelist.email_status === "soft_bounced" ? "⚠ SOFT BOUNCE" :
-                                 panelist.email_status === "complained" ? "⚠ COMPLAINED" :
-                                 "✓ OK"}
-                              </span>
-                            </td>
-                            <td style={tdStyle}>
-                              {panelist.created_at ? formatDate(panelist.created_at) : "-"}
-                            </td>
-                            <td style={tdStyle}>
-                              {panelist.email_sent_date ? formatDate(panelist.email_sent_date) : "-"}
-                            </td>
-                            <td style={tdStyle}>
-                              <span style={{
-                                fontSize: "0.875rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                                backgroundColor: emailStatusBadge.bg,
-                                color: emailStatusBadge.text,
-                                fontWeight: "600",
-                              }}>
-                                {emailStatusBadge.label}
-                              </span>
-                            </td>
+                            <td style={td}><Badge tone={deliver.tone}>{deliver.label}</Badge></td>
+                            <td style={{ ...td, whiteSpace: "nowrap" }}>{panelist.created_at ? formatDate(panelist.created_at) : "—"}</td>
+                            <td style={{ ...td, whiteSpace: "nowrap" }}>{panelist.email_sent_date ? formatDate(panelist.email_sent_date) : "—"}</td>
+                            <td style={td}><Badge tone={mail.tone}>{mail.label}</Badge></td>
                           </tr>
                         )
                       })}
@@ -1005,28 +597,7 @@ function PanelistManagement({ mode = "all" }) {
                   </table>
                 </div>
 
-            {/* Pagination */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
-                  <span style={{ fontSize: "0.875rem", color: "#5c5c5c" }}>
-                    Total: {panelistTotal} approved panelists | Page {panelistPage} of {totalPanelistPages}
-                  </span>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      className="btn btn-outline"
-                      disabled={panelistPage <= 1}
-                      onClick={() => setPanelistPage(panelistPage - 1)}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      className="btn btn-outline"
-                      disabled={panelistPage >= totalPanelistPages}
-                      onClick={() => setPanelistPage(panelistPage + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
+                <Pager page={panelistPage} pageSize={panelistPageSize} total={panelistTotal} onPage={setPanelistPage} noun="approved panelists" />
               </>
             )}
           </div>
@@ -1150,166 +721,72 @@ function PanelistManagement({ mode = "all" }) {
 
       </div>
 
-      {/* Test Email Modal */}
-      {showTestEmailModal && (
-        <div
-          style={{
-            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.5)", display: "flex",
-            alignItems: "center", justifyContent: "center", zIndex: 1000,
-          }}
-          onClick={() => !testEmailLoading && setShowTestEmailModal(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff", borderRadius: "12px", padding: "2rem",
-              maxWidth: "440px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#1a1a1a" }}>
-              Send Test Invitation Email
-            </h3>
-            <p style={{ color: "#5c5c5c", fontSize: "0.875rem", marginBottom: "1.25rem", lineHeight: "1.5" }}>
-              Preview the invite email by sending it to any address. Sent from <strong>panel@surveyfieldwork.com</strong> via SES.
+      <Modal
+        open={showTestEmailModal}
+        title="Send a test invitation email"
+        width={460}
+        busy={testEmailLoading}
+        onClose={() => setShowTestEmailModal(false)}
+        footer={<>
+          <button type="button" className="btn btn-outline" onClick={() => setShowTestEmailModal(false)} disabled={testEmailLoading}>Close</button>
+          <button type="button" className="btn btn-primary" onClick={handleSendTestEmail} disabled={testEmailLoading || !testEmailAddress.includes("@")}>
+            {testEmailLoading ? "Sending…" : "Send test email"}
+          </button>
+        </>}
+      >
+        <p style={{ margin: "0 0 1rem", fontSize: "0.875rem", color: colors.muted, lineHeight: 1.5 }}>
+          Preview the invite email by sending it to any address. Sent from <strong>panel@surveyfieldwork.com</strong> via SES.
+        </p>
+        <Field label="Recipient email" htmlFor="test-email" required>
+          <input id="test-email" type="email" value={testEmailAddress} onChange={(e) => setTestEmailAddress(e.target.value)} placeholder="you@example.com" style={{ ...control, width: "100%" }} />
+        </Field>
+        <Field label="First name" hint="(optional)" htmlFor="test-name">
+          <input id="test-name" type="text" value={testEmailName} onChange={(e) => setTestEmailName(e.target.value)} placeholder="e.g. Alex" style={{ ...control, width: "100%" }} />
+        </Field>
+        {testEmailResult && <Notice tone={testEmailResult.success ? "good" : "bad"}>{testEmailResult.message}</Notice>}
+      </Modal>
+
+      <ImportPanelistsDialog open={showUpload} onClose={() => setShowUpload(false)} onImported={fetchPanelists} />
+
+      <Modal
+        open={showInviteModal}
+        title="Send invitation emails"
+        width={480}
+        busy={inviteLoading}
+        onClose={() => setShowInviteModal(false)}
+        footer={inviteResult ? (
+          <button type="button" className="btn btn-primary" onClick={() => setShowInviteModal(false)}>Close</button>
+        ) : (<>
+          <button type="button" className="btn btn-outline" onClick={() => setShowInviteModal(false)} disabled={inviteLoading}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={handleConfirmSendInvitations} disabled={inviteLoading || inviteCount === 0}>
+            {inviteLoading ? "Sending…" : `Send to ${inviteCount.toLocaleString()} panelists`}
+          </button>
+        </>)}
+      >
+        {!inviteResult ? (
+          <>
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: colors.text, lineHeight: 1.5 }}>
+              Send invitation emails to <strong>{inviteCount.toLocaleString()}</strong> eligible panelists{" "}
+              {inviteCountry ? <>in <strong>{countryName(inviteCountry)}</strong></> : "across all countries"}.
             </p>
-
-            <div style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#4a4a4a", marginBottom: "0.4rem" }}>
-                Recipient Email <span style={{ color: "#dc2626" }}>*</span>
-              </label>
-              <input
-                type="email"
-                value={testEmailAddress}
-                onChange={(e) => setTestEmailAddress(e.target.value)}
-                placeholder="you@example.com"
-                style={{
-                  width: "100%", padding: "0.5rem 0.75rem", border: "1px solid #d4cec3",
-                  borderRadius: "6px", fontSize: "0.9rem", boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "1.5rem" }}>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#4a4a4a", marginBottom: "0.4rem" }}>
-                First Name (optional)
-              </label>
-              <input
-                type="text"
-                value={testEmailName}
-                onChange={(e) => setTestEmailName(e.target.value)}
-                placeholder="e.g. Alex"
-                style={{
-                  width: "100%", padding: "0.5rem 0.75rem", border: "1px solid #d4cec3",
-                  borderRadius: "6px", fontSize: "0.9rem", boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            {testEmailResult && (
-              <div style={{
-                padding: "0.75rem 1rem", borderRadius: "8px", marginBottom: "1.25rem",
-                backgroundColor: testEmailResult.success ? "#dcfce7" : "#fee2e2",
-                color: testEmailResult.success ? "#166534" : "#991b1b",
-                fontSize: "0.875rem",
-              }}>
-                {testEmailResult.message}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
-              <button
-                className="btn btn-outline"
-                onClick={() => setShowTestEmailModal(false)}
-                disabled={testEmailLoading}
-              >
-                Close
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleSendTestEmail}
-                disabled={testEmailLoading || !testEmailAddress.includes("@")}
-                style={{ opacity: testEmailLoading || !testEmailAddress.includes("@") ? 0.5 : 1 }}
-              >
-                {testEmailLoading ? "Sending…" : "Send Test Email"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Send Invitations Modal */}
-      {showInviteModal && (
-        <div
-          style={{
-            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.5)", display: "flex",
-            alignItems: "center", justifyContent: "center", zIndex: 1000,
-          }}
-          onClick={() => !inviteLoading && setShowInviteModal(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff", borderRadius: "12px", padding: "2rem",
-              maxWidth: "480px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#1a1a1a" }}>
-              Send Invitation Emails
-            </h3>
-
-            {!inviteResult ? (
-              <>
-                <p style={{ color: "#5c5c5c", fontSize: "0.9rem", marginBottom: "1rem", lineHeight: "1.5" }}>
-                  {countryFilter
-                    ? `Send invitation emails to ${inviteCount} eligible panelists in ${countryFilter}.`
-                    : `Send invitation emails to ${inviteCount} eligible panelists across all countries.`}
-                </p>
-                <p style={{ color: "#6f6f6f", fontSize: "0.875rem", marginBottom: "1.5rem" }}>
-                  Suppressed (bounced/complained) and already-invited panelists will be skipped automatically.
-                </p>
-                <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
-                  <button
-                    className="btn btn-outline"
-                    onClick={() => setShowInviteModal(false)}
-                    disabled={inviteLoading}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleConfirmSendInvitations}
-                    disabled={inviteLoading || inviteCount === 0}
-                    style={{ background: "#15803d", borderColor: "#15803d", opacity: inviteLoading || inviteCount === 0 ? 0.5 : 1 }}
-                  >
-                    {inviteLoading ? "Sending…" : `Send to ${inviteCount} Panelists`}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{
-                  padding: "1rem",
-                  borderRadius: "8px",
-                  backgroundColor: inviteResult.success ? "#dcfce7" : "#fee2e2",
-                  color: inviteResult.success ? "#166534" : "#991b1b",
-                  fontSize: "0.9rem",
-                  marginBottom: "1.5rem",
-                  lineHeight: "1.5",
-                }}>
-                  {inviteResult.message}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button className="btn btn-primary" onClick={() => setShowInviteModal(false)}>
-                    Close
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+            <p style={{ margin: 0, fontSize: "0.85rem", color: colors.muted }}>
+              Suppressed (bounced/complained) and already-invited panelists will be skipped automatically.
+            </p>
+          </>
+        ) : inviteResult.success ? (
+          <>
+            <Notice tone="good">Invitations sent.</Notice>
+            <CountGrid items={[
+              { label: "Sent", value: inviteResult.sent, color: colors.good },
+              { label: "Skipped", value: inviteResult.skipped },
+              { label: "Failed", value: inviteResult.failed, color: inviteResult.failed ? colors.bad : colors.text },
+            ]} />
+            <p style={{ margin: 0, fontSize: "0.8rem", color: colors.muted }}>Skipped = suppressed or already invited.</p>
+          </>
+        ) : (
+          <Notice tone="bad">{inviteResult.message}</Notice>
+        )}
+      </Modal>
     </div>
   )
 }
