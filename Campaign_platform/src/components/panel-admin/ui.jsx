@@ -9,13 +9,15 @@ import { colors, card } from "./tokens"
 export function PageShell({ title, description, actions, children }) {
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", color: colors.text }}>{title}</h1>
-          {description && <p style={{ margin: "0.25rem 0 0", color: colors.muted, fontSize: "0.875rem" }}>{description}</p>}
+      {(title || description || actions) && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1.25rem" }}>
+          <div>
+            {title && <h1 style={{ margin: 0, fontSize: "1.5rem", color: colors.text }}>{title}</h1>}
+            {description && <p style={{ margin: "0.25rem 0 0", color: colors.muted, fontSize: "0.875rem" }}>{description}</p>}
+          </div>
+          {actions && <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>{actions}</div>}
         </div>
-        {actions && <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>{actions}</div>}
-      </div>
+      )}
       {/* wide tables scroll inside the section instead of pushing the page sideways */}
       <div style={{ overflowX: "auto" }}>{children}</div>
     </div>

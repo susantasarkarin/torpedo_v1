@@ -1609,11 +1609,23 @@ def get_sfwpanel_countries(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _with_attempts(data, attempts=None):
+    """Add `attempts` (Torpedo's survey attempts) to each panelist of a Panel page."""
+    rows = data.get("panelists") if isinstance(data, dict) else None
+    if not rows:
+        return data
+    if attempts is None:
+        attempts = _panel_attempts()
+    for row in rows:
+        row["attempts"] = int((attempts.get(row.get("panelistId")) or {}).get("attempts") or 0)
+    return data
+
+
 @router.get("/sfwpanel-panelists")
 def get_sfwpanel_panelists(
     request: Request,
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
     search: str = Query(""),
     country: str = Query(""),
     sort_by: str = Query("createdAt"),
@@ -1632,11 +1644,12 @@ def get_sfwpanel_panelists(
         if stage:
             # Members stopped at one journey stage (Overview action buttons): the
             # Panel needs Torpedo's survey attempts to place each member.
-            return _sfw_write("POST", "/member-funnel/members", {
-                "attempts": _panel_attempts(), "stage": stage[:20], "country": country, "days": days,
+            attempts = _panel_attempts()
+            return _with_attempts(_sfw_write("POST", "/member-funnel/members", {
+                "attempts": attempts, "stage": stage[:20], "country": country, "days": days,
                 "page": page, "limit": limit, "sortBy": sort_by, "order": order, "search": search,
-            })
-        return _sfw_get("/panelists", params=params)
+            }), attempts)
+        return _with_attempts(_sfw_get("/panelists", params=params))
     except Exception as e:
         logger.error(f"sfwpanel panelists error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

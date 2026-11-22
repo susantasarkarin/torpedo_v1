@@ -97,7 +97,7 @@ function PanelistManagement({ mode = "all" }) {
   // every page click was the bulk of the wait, so this is user-controlled and
   // defaults low; the table always loads one batch at a time from the server.
   const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500]
-  const [pageSize, setPageSize] = useState(25)
+  const [pageSize, setPageSize] = useState(mode === "members" ? 500 : 25)
 
   const handlePageSizeChange = (e) => {
     setPageSize(parseInt(e.target.value))
@@ -488,7 +488,7 @@ function PanelistManagement({ mode = "all" }) {
     const sr = overrides.search ?? sfwSearch
     const st = overrides.stage ?? urlStage
     try {
-      const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 100), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}), ...(st ? { stage: st } : {}) })
+      const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 500), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}), ...(st ? { stage: st } : {}) })
       const res = await authFetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
       if (res.ok) {
         const data = await res.json()
@@ -703,7 +703,7 @@ function PanelistManagement({ mode = "all" }) {
               </button>
             )}
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#5c5c5c", paddingBottom: "0.5rem" }}>
+          {mode !== "members" && <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#5c5c5c", paddingBottom: "0.5rem" }}>
             Rows per batch
             <select
               value={pageSize}
@@ -714,7 +714,7 @@ function PanelistManagement({ mode = "all" }) {
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
-          </label>
+          </label>}
         </div>
 
         {/* Panelist Lead Tab */}
@@ -1074,18 +1074,15 @@ function PanelistManagement({ mode = "all" }) {
                   <thead>
                     <tr style={{ background: "#faf9f7", borderBottom: "2px solid #e8e4dc" }}>
                       {[
-                        { label: "Panelist", field: null },
+                        { label: "Name", field: null },
+                        { label: "Email", field: null },
                         { label: "Country", field: null },
                         { label: "Joined ↕", field: "createdAt" },
-                        { label: "Total", field: null },
-                        { label: "Complete", field: null },
-                        { label: "Terminate", field: null },
-                        { label: "Quota", field: null },
-                        { label: "Rate", field: null },
-                        { label: "Earned ↕", field: "totalEarnedPaise" },
-                        { label: "Balance ↕", field: "balancePaise" },
-                        { label: "Redeemed", field: null },
-                        { label: "Last Active ↕", field: "lastActiveAt" },
+                        { label: "Attempts", field: null },
+                        { label: "Completes", field: null },
+                        { label: "Points accrued ↕", field: "totalEarnedPaise" },
+                        { label: "Source", field: null },
+                        { label: "Level", field: null },
                         { label: "", field: null },
                       ].map(({ label, field }) => (
                         <th key={label || "actions"} onClick={field ? () => sfwSort(field) : undefined}
@@ -1099,30 +1096,21 @@ function PanelistManagement({ mode = "all" }) {
                   <tbody>
                     {sfwPanelists.map((p) => {
                       const sv = p.surveys || {}
-                      const denom = (sv.complete || 0) + (sv.terminate || 0)
-                      const rate = denom ? Math.round((sv.complete / denom) * 100) + "%" : "—"
-                      const redeemed = (p.totalEarnedPaise || 0) - (p.balancePaise || 0)
+                      const fullName = [p.firstName, p.lastName].filter(Boolean).join(" ")
                       return (
                         <tr key={p._id} onClick={() => navigate(`/admin/panel-admin/members/${p._id}`)}
                           style={{ borderBottom: "1px solid #f5f3ef", cursor: "pointer" }}
                           onMouseEnter={(e) => e.currentTarget.style.background = "#fdf4e7"}
                           onMouseLeave={(e) => e.currentTarget.style.background = ""}>
-                          <td style={tdStyle}>
-                            <p style={{ fontWeight: "600", color: "#1a1a1a" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#6f6f6f" }}>unnamed</span>}</p>
-                            <p style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>{p.email}</p>
-                            <p style={{ color: "#d4cec3", fontFamily: "monospace", fontSize: "0.875rem" }}>{p.panelistId || "—"}</p>
-                          </td>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1a1a1a" }}>{fullName || "—"}</td>
+                          <td style={{ ...tdStyle, color: "#5c5c5c" }}>{p.email || "—"}</td>
                           <td style={tdStyle}>{cname(p.country)}</td>
                           <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#5c5c5c" }}>{fmtDate(p.createdAt)}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", fontWeight: "600" }}>{sv.total || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>{p.attempts || 0}</td>
                           <td style={{ ...tdStyle, textAlign: "center", color: "#15803d", fontWeight: "600" }}>{sv.complete || 0}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", color: "#dc2626" }}>{sv.terminate || 0}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", color: "#d97706" }}>{sv.quotafull || 0}</td>
-                          <td style={{ ...tdStyle, textAlign: "center", color: "#5c5c5c" }}>{rate}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a" }}>{points(p.totalEarnedPaise, p.country)}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{points(p.balancePaise, p.country)}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", color: "#5c5c5c" }}>{points(redeemed > 0 ? redeemed : 0, p.country)}</td>
-                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6f6f6f" }}>{fmtDate(p.lastActiveAt)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#1a1a1a", whiteSpace: "nowrap" }}>{points(p.totalEarnedPaise, p.country)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{p.source || "Direct"}</td>
+                          <td style={tdStyle}>{p.level ? p.level.charAt(0).toUpperCase() + p.level.slice(1) : "—"}</td>
                           <td style={{ ...tdStyle, textAlign: "right" }}>
                             <button type="button" title="Delete member" aria-label={`Delete ${p.email}`}
                               onClick={(e) => { e.stopPropagation(); setDeleting(p) }}
@@ -1144,7 +1132,7 @@ function PanelistManagement({ mode = "all" }) {
             )}
 
             {/* Pagination */}
-            {sfwPages > 1 && (
+            {(sfwPages > 1 || mode === "members") && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", fontSize: "0.875rem", color: "#5c5c5c" }}>
                 <span>Page {sfwPage} of {sfwPages} · {sfwTotal} panelists</span>
                 <div style={{ display: "flex", gap: "0.5rem" }}>

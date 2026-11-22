@@ -89,3 +89,27 @@ def test_member_funnel_cached_per_filter_and_fresh_skips_cache(monkeypatch, call
 
 def test_sfw_calls_reuse_one_session_per_thread():
     assert pa._sfw_session() is pa._sfw_session()
+
+
+def test_members_list_adds_attempts_and_allows_500(monkeypatch):
+    monkeypatch.setattr(pa, "verify_admin_session", lambda request: "admin")
+    monkeypatch.setattr(pa, "traffic_collection", FakeTraffic([{"_id": {"p": "SFW1", "s": "COMPLETE"}, "n": 3, "last": None}]))
+    rows = {"panelists": [{"panelistId": "SFW1"}, {"panelistId": "SFW9"}], "total": 2}
+    seen = {}
+    monkeypatch.setattr(pa, "_sfw_get", lambda path, params=None: seen.update(params=params) or {k: [dict(r) for r in v] if k == "panelists" else v for k, v in rows.items()})
+    out = pa.get_sfwpanel_panelists(request=None, page=1, limit=500, search="", country="", sort_by="createdAt", order="desc", stage="", days=0)
+    assert [r["attempts"] for r in out["panelists"]] == [3, 0] and seen["params"]["limit"] == 500
+
+
+def test_stage_members_list_adds_attempts(monkeypatch):
+    monkeypatch.setattr(pa, "verify_admin_session", lambda request: "admin")
+    monkeypatch.setattr(pa, "traffic_collection", FakeTraffic([{"_id": {"p": "SFW1", "s": "COMPLETE"}, "n": 2, "last": None}]))
+    monkeypatch.setattr(pa, "_sfw_write", lambda m, p, payload=None: {"panelists": [{"panelistId": "SFW1"}, {"panelistId": "X"}]})
+    out = pa.get_sfwpanel_panelists(request=None, page=1, limit=500, search="", country="", sort_by="createdAt", order="desc", stage="membership", days=0)
+    assert [r["attempts"] for r in out["panelists"]] == [2, 0]
+
+
+def test_limit_cap_is_500():
+    import inspect
+    limit = inspect.signature(pa.get_sfwpanel_panelists).parameters["limit"].default
+    assert any(getattr(m, "le", None) == 500 for m in limit.metadata)
