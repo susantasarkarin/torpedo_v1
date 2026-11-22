@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Link, useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
+import { countryName } from "../../components/panel-admin/tokens"
 
 const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 
@@ -166,41 +168,95 @@ function QualReview({ onChanged }) {
   )
 }
 
+const small = { ...btn, padding: "0.25rem 0.6rem", fontSize: "0.8rem" }
+const badge = (bg, fg) => ({ display: "inline-block", padding: "0.1rem 0.5rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 600, background: bg, color: fg })
+const colors = { muted: "#6f6f6f", bad: "#dc2626", accent: "#a15f06" }
+const post = (path, body) => call(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+const shortDate = (d) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "")
+const longDate = (d) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—")
+
+function flagLine(f) {
+  const where = [f.section, f.count > 1 ? `(×${f.count})` : ""].filter(Boolean).join(" ")
+  return `${f.label || f.rule}${where ? ` — ${where}` : ""}${f.at ? `, ${shortDate(f.at)}` : ""}`
+}
+
+// Members with a held redemption first, then the most flags.
+const sortMembers = (rows) => [...rows].sort((a, b) => (Number(b.redemptionHeld) - Number(a.redemptionHeld)) || (b.flags.length - a.flags.length))
+
 function FlagReview({ onChanged }) {
-  const [rows, setRows] = useState(null)
+  const [members, setMembers] = useState(null)
   const [error, setError] = useState("")
-  const load = useCallback(() => { call("/profiling/flags").then((d) => setRows(d.members)).catch((e) => setError(e.message)) }, [])
+  const [onlyHeld, setOnlyHeld] = useState(false)
+  const [busy, setBusy] = useState("")
+  const [menu, setMenu] = useState("")
+  const navigate = useNavigate()
+
+  const load = useCallback(() => {
+    call("/profiling/flags").then((d) => { setMembers(d.members || []); setError("") }).catch((e) => setError(e.message))
+  }, [])
   useEffect(() => { load() }, [load])
-  const clear = async (userId, rule) => {
-    try {
-      await call(`/profiling/flags/${userId}/${rule}/clear`, { method: "POST" })
-      load()
-      onChanged()
-    } catch (e) {
-      setError(e.message)
-    }
+
+  const rows = useMemo(() => sortMembers((members || []).filter((m) => !onlyHeld || m.redemptionHeld)), [members, onlyHeld])
+
+  const act = async (m, fn) => {
+    setBusy(m.userId)
+    try { await fn(); await load(); onChanged() } catch (e) { setError(e.message) } finally { setBusy("") }
   }
+  const clearAll = (m) => {
+    if (!window.confirm(`Clear all ${m.flags.length} flags for ${m.email}? Their held redemption will be released if nothing else holds it.`)) return
+    act(m, () => post(`/profiling/flags/${m.userId}/clear-all`))
+  }
+  const suspend = (m) => {
+    setMenu("")
+    const reason = (window.prompt(`Why are you suspending ${m.email}? (required)`) || "").trim()
+    if (!reason) return
+    act(m, () => post(`/members/${m.userId}/suspend`, { reason }))
+  }
+  const unsuspend = (m) => act(m, () => post(`/members/${m.userId}/unsuspend`))
+
   return (
     <div style={card}>
-      <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Quality flags to review</h3>
-      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#6f6f6f" }}>Open consistency flags keep a member out of Tier 1. Clear a flag once you have checked the answers are genuine.</p>
-      {error && <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>{error}</p>}
-      {!rows ? <p style={{ color: "#6f6f6f", fontSize: "0.875rem" }}>Loading…</p> : rows.length === 0 ? (
-        <p style={{ color: "#6f6f6f", fontSize: "0.875rem", margin: 0 }}>No open flags.</p>
-      ) : (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <h3 style={{ margin: 0, fontSize: "1rem" }}>Quality flags to review · {members ? rows.length : 0} members</h3>
+        <label style={{ fontSize: "0.85rem", display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <input type="checkbox" checked={onlyHeld} onChange={(e) => setOnlyHeld(e.target.checked)} />
+          Only members with a held redemption
+        </label>
+      </div>
+      {error && <p role="alert" style={{ color: colors.bad, fontSize: "0.85rem", margin: "0 0 0.6rem" }}>{error}</p>}
+      {members && rows.length === 0 && !error && <p style={{ color: colors.muted, margin: 0 }}>No flags to review.</p>}
+      {rows.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Member</th><th style={th}>Country</th><th style={th}>Flag</th><th style={th}>Raised</th><th style={th} /></tr></thead>
+            <thead>
+              <tr><th style={th}>Email</th><th style={th}>Country</th><th style={th}>Joined</th><th style={th}>What we noticed</th><th style={th}>Redemption</th><th style={th}>Actions</th></tr>
+            </thead>
             <tbody>
-              {rows.flatMap((m) => m.flags.map((f) => (
-                <tr key={`${m.userId}-${f.rule}-${f.at}`}>
-                  <td style={td}>{m.name || m.email}<div style={{ fontSize: "0.75rem", color: "#6f6f6f" }}>{m.email}</div></td>
-                  <td style={td}>{m.country}</td>
-                  <td style={td}>{f.rule} · {RULES[f.rule] || ""}{f.module ? ` (${f.module})` : ""}</td>
-                  <td style={td}>{f.at ? new Date(f.at).toLocaleDateString() : ""}</td>
-                  <td style={td}>{["QC_02", "QC_03"].includes(f.rule) ? <span style={{ color: "#6f6f6f", fontSize: "0.8rem" }}>answers were reset</span> : <button type="button" style={btn} onClick={() => clear(m.userId, f.rule)}>Clear</button>}</td>
+              {rows.map((m) => (
+                <tr key={m.userId} data-member={m.userId}>
+                  <td style={td}>
+                    <Link to={`/admin/panel-admin/members/${m.userId}`} style={{ color: colors.accent }}>{m.email}</Link>
+                    {m.suspended && <> <span style={badge("#fee2e2", "#b91c1c")}>Suspended</span></>}
+                  </td>
+                  <td style={td}>{countryName(m.country)}</td>
+                  <td style={{ ...td, whiteSpace: "nowrap" }}>{longDate(m.createdAt)}</td>
+                  <td style={td}>{m.flags.map((f, i) => <div key={`${f.rule}-${i}`}>{flagLine(f)}</div>)}</td>
+                  <td style={td}>{m.redemptionHeld ? <span style={badge("#fef3c7", "#92400e")}>On hold</span> : "—"}</td>
+                  <td style={{ ...td, whiteSpace: "nowrap", position: "relative" }}>
+                    <button type="button" style={small} disabled={busy === m.userId} onClick={() => clearAll(m)}>Clear</button>{" "}
+                    <button type="button" style={small} onClick={() => navigate(`/admin/panel-admin/members/${m.userId}`)}>Investigate</button>{" "}
+                    {m.suspended
+                      ? <button type="button" style={small} disabled={busy === m.userId} onClick={() => unsuspend(m)}>Unsuspend</button>
+                      : <button type="button" style={small} aria-expanded={menu === m.userId} onClick={() => setMenu(menu === m.userId ? "" : m.userId)}>Take action</button>}
+                    {menu === m.userId && (
+                      <div role="menu" style={{ marginTop: "0.35rem", display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "flex-start" }}>
+                        <button type="button" role="menuitem" style={small} onClick={() => suspend(m)}>Suspend member</button>
+                        <button type="button" role="menuitem" style={small} onClick={() => setMenu("")}>Keep redemption on hold</button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
-              )))}
+              ))}
             </tbody>
           </table>
         </div>
@@ -383,10 +439,10 @@ export default function ProfilingAdmin({ embedded = false }) {
         </>
       )}
       {error && <div style={{ ...card, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>}
+      <FlagReview onChanged={load} />
       {stats && <Stats stats={stats} />}
       <QualityReport />
       <QualReview onChanged={load} />
-      <FlagReview onChanged={load} />
       {lists && (
         <>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>

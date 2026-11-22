@@ -1553,6 +1553,29 @@ def clear_profiling_flag(request: Request, user_id: str, rule: str):
     return _sfw_write("POST", f"/profiling-flags/{user_id}/{rule}/clear", {"by": "torpedo-admin"})
 
 
+@router.post("/profiling/flags/{user_id}/clear-all")
+def clear_all_profiling_flags(request: Request, user_id: str):
+    admin = verify_admin_session(request)
+    return _sfw_write("POST", f"/profiling-flags/{user_id}/clear-all", {"by": admin})
+
+
+@router.post("/members/{user_id}/suspend")
+def suspend_member(request: Request, user_id: str, payload: Dict[str, Any] = Body(...)):
+    admin = verify_admin_session(request)
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reason is required")
+    if len(reason) > 300:
+        raise HTTPException(status_code=400, detail="Reason must be 300 characters or fewer")
+    return _sfw_write("POST", f"/members/{user_id}/suspend", {"reason": reason, "by": admin})
+
+
+@router.post("/members/{user_id}/unsuspend")
+def unsuspend_member(request: Request, user_id: str):
+    admin = verify_admin_session(request)
+    return _sfw_write("POST", f"/members/{user_id}/unsuspend", {"by": admin})
+
+
 @router.get("/dashboard/sfwpanel-overview")
 def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""

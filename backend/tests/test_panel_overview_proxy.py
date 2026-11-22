@@ -113,3 +113,23 @@ def test_limit_cap_is_500():
     import inspect
     limit = inspect.signature(pa.get_sfwpanel_panelists).parameters["limit"].default
     assert any(getattr(m, "le", None) == 500 for m in limit.metadata)
+
+
+def test_flag_review_proxies_pass_the_admin_username(calls):
+    pa.clear_all_profiling_flags(request=None, user_id="u1")
+    pa.suspend_member(request=None, user_id="u1", payload={"reason": "  Fake answers "})
+    pa.unsuspend_member(request=None, user_id="u1")
+    assert calls == [
+        ("POST", "/profiling-flags/u1/clear-all", {"by": "admin"}),
+        ("POST", "/members/u1/suspend", {"reason": "Fake answers", "by": "admin"}),
+        ("POST", "/members/u1/unsuspend", {"by": "admin"}),
+    ]
+
+
+def test_suspend_requires_a_reason(calls):
+    from fastapi import HTTPException
+    for bad in ({}, {"reason": "   "}, {"reason": "x" * 301}):
+        with pytest.raises(HTTPException) as e:
+            pa.suspend_member(request=None, user_id="u1", payload=bad)
+        assert e.value.status_code == 400
+    assert calls == []
