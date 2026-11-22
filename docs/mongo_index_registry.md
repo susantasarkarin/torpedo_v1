@@ -119,7 +119,7 @@ Unique rule: a field is `unique` in the registry only if its writers really enfo
 | `email_sync_log` | `started_at` | - |
 | `email_sync_log` | `account_email 1, started_at desc` | - |
 
-### `campaign_platform` (23 indexes in 4 collections)
+### `campaign_platform` (24 indexes in 5 collections)
 
 | collection | index keys | options |
 |---|---|---|
@@ -142,6 +142,7 @@ Unique rule: a field is `unique` in the registry only if its writers really enfo
 | `panel_invitation_log` | `type` | - |
 | `panel_invitation_log` | `ses_message_id` | sparse=True |
 | `panel_invitation_log` | `invite_token` | unique=True, sparse=True |
+| `panel_sessions` | `expires_at` | expireAfterSeconds=0 |
 | `panel_email_suppression` | `email` | unique=True |
 | `panel_email_suppression` | `reason` | - |
 | `panel_rewards` | `panelist_id` | - |

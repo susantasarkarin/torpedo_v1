@@ -86,10 +86,12 @@ def test_read_timeout_not_resent_when_gmail_already_has_it(gm):
     assert ok and f.send_calls == 1 and f.list_calls == 1
 
 
-def test_read_timeout_retried_only_when_not_in_sent(gm):
+def test_read_timeout_never_resent_even_when_not_found_in_sent(gm):
+    # Gmail may rewrite our Message-ID, so "not in SENT" doesn't prove it wasn't
+    # delivered: fail instead of risking a duplicate (owner decision 2026-11-22).
     f = gm([socket.timeout("timed out"), {"id": "m2"}], listing={})
-    ok, info = g.send_message(_msg())
-    assert ok and info["gmail_message_id"] == "m2" and f.send_calls == 2
+    ok, _ = g.send_message(_msg())
+    assert not ok and f.send_calls == 1 and f.list_calls == 1
 
 
 def test_read_timeout_check_failure_means_no_retry(gm):

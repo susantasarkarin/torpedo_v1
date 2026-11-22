@@ -46,9 +46,11 @@ def from_header() -> str:
 #     DNS errors: the request never went out.
 #   * HTTP 429 / 5xx from the Gmail API: a response came back saying it failed.
 #   * A read timeout is ambiguous (the request may have been delivered and only
-#     the reply lost), so before retrying we ask Gmail whether a message with our
-#     Message-ID is already in SENT. Found -> report success; not found -> retry;
-#     the lookup itself failing -> do not retry.
+#     the reply lost). We ask Gmail whether a message with our Message-ID is in
+#     SENT: found -> report success. Not found (or the lookup fails) -> report a
+#     failure and do NOT resend: Gmail may rewrite the Message-ID, so "not found"
+#     doesn't prove it wasn't delivered, and a missed invite beats a duplicate
+#     (owner decision, 2026-11-22). The next scheduled run can pick it up.
 # 4xx (other than 429) and anything else are never retried. Each retry rebuilds
 # the Gmail client so it uses a fresh HTTP connection.
 RETRY_BACKOFF_SECONDS = (2, 5)
@@ -118,6 +120,9 @@ def send_message(msg: Message) -> Tuple[bool, Dict[str, Any]]:
                 except Exception as ce:
                     logger.error(f"[panel-gmail] send to {msg.get('To')} failed, unsent-check failed too: {e} / {ce}")
                     return False, {"error": str(e)[:300]}
+                # Not found in SENT: may still have been delivered, so never resend.
+                logger.error(f"[panel-gmail] send to {msg.get('To')} timed out; not resent (may have been delivered): {e}")
+                return False, {"error": str(e)[:300]}
             logger.warning(f"[panel-gmail] transient error to {msg.get('To')}: {e}; retry {attempt + 1}")
             _sleep(RETRY_BACKOFF_SECONDS[attempt])
             attempt += 1
