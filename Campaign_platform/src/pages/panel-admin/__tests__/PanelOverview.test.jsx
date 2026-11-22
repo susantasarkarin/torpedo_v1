@@ -26,8 +26,7 @@ const fixture = (overrides = {}) => ({
   filters: { country: "", days: 0 },
   total: 495,
   kpis: {
-    members: 495, joinedThisWeek: 7, activeLast7d: 65, activeLast7dPct: 13.1, completed: 57, repeat: 10,
-    pointsOwed: { points: 75000, ledgerPoints: 75000, matches: true, membersWithBalance: 40 },
+    members: 495, joinedLast30d: 88, activeLast30d: 123, activeLast30dPct: 24.8, completedLast30d: 31,
   },
   stages: [
     stage("signup", "Signed up", 495, 0, 56, 0, { action: { label: "Check signup source", stage: "signup" } }),
@@ -50,9 +49,9 @@ const fixture = (overrides = {}) => ({
     { code: "IN", name: "India", members: 300, quickDone: 200, completed: 40 },
     { code: "GB", name: "United Kingdom", members: 120, quickDone: 50, completed: 10 },
     { code: "US", name: "United States", members: 30, quickDone: 20, completed: 5 },
+    { code: "", name: "Unknown", members: 40, quickDone: 14, completed: 2 },
     { code: "MG", name: "Madagascar", members: 3, quickDone: 1, completed: 0 },
     { code: "NG", name: "Nigeria", members: 2, quickDone: 1, completed: 0 },
-    { code: "", name: "Unknown", members: 40, quickDone: 14, completed: 2 },
   ],
   invariants: { stoppedTotal: 491, redeemed: 4, total: 495, ok: true, stageAgeOk: true, countriesOk: true },
   dataIssues: [],
@@ -88,16 +87,36 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(screen.getByText("491 stopped along the way + 4 redeemed = 495")).toBeInTheDocument()
   })
 
-  it("tags the result stage #1 and opens it by default", async () => {
+  it("opens the biggest roadblock by default, with no rank tags", async () => {
     await renderPage()
-    const row = stageRow("result")
-    expect(within(row).getByText("#1")).toBeInTheDocument()
-    expect(within(stageRow("membership")).getByText("#2")).toBeInTheDocument()
-    expect(within(stageRow("signup")).getByText("#3")).toBeInTheDocument()
+    expect(screen.queryByText("#1")).not.toBeInTheDocument()
     expect(stageButton("Got a survey result")).toHaveAttribute("aria-expanded", "true")
     expect(document.querySelectorAll("tr[data-detail]")).toHaveLength(1)
     expect(screen.getByText("Survey attempts by outcome")).toBeInTheDocument()
     expect(screen.getByText(/not members/)).toBeInTheDocument()
+  })
+
+  it("shows exactly four KPI cards with the new fields", async () => {
+    await renderPage()
+    for (const label of ["Total panel members", "New signups in the past 30 days", "Active in the last 30 days", "Completed a survey in the last 30 days"]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+    expect(screen.getByText("88")).toBeInTheDocument()
+    expect(screen.getByText("123")).toBeInTheDocument()
+    expect(screen.getByText("24.8% of members")).toBeInTheDocument()
+    expect(screen.getByText("31")).toBeInTheDocument()
+    expect(screen.queryByText("Points owed")).not.toBeInTheDocument()
+    expect(screen.queryByText(/this week/)).not.toBeInTheDocument()
+  })
+
+  it("has exactly the four journey columns and computes drop off", async () => {
+    await renderPage()
+    const table = stageRow("signup").closest("table")
+    expect([...table.querySelectorAll("thead th")].map((h) => h.textContent)).toEqual(["Stage", "Members reached", "Conversion", "Drop off (%)"])
+    expect(stageRow("membership").querySelector('[data-col="dropoff"]').textContent).toBe("31.6%") // 132 / 418
+    expect(stageRow("signup").querySelector('[data-col="dropoff"]').textContent).toBe("11.3%")    // 56 / 495
+    expect(stageRow("repeat").querySelector('[data-col="dropoff"]').textContent).toBe("60.0%")    // 6 / 10
+    expect(stageRow("redeemed").querySelector('[data-col="dropoff"]').textContent).toBe("—")
   })
 
   it("keeps only one expanded row at a time", async () => {
@@ -125,15 +144,13 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(row.textContent).not.toMatch(/%/)
   })
 
-  it("pins Unknown last and groups countries under 5 members as Other", async () => {
+  it("lists every country by panelists, Unknown last, with only two columns", async () => {
     await renderPage()
     const rows = [...document.querySelectorAll("tbody tr[data-country]")]
-    expect(rows.map((r) => r.getAttribute("data-country"))).toEqual(["IN", "GB", "US", "other", "unknown"])
-    const other = rows[3]
-    expect(other.textContent).toContain("Other")
-    expect(other.textContent).toContain("Madagascar, Nigeria")
-    expect(within(other).getByText("5")).toBeInTheDocument()
-    expect(rows[4].textContent).toContain("no country captured")
+    expect(rows.map((r) => r.getAttribute("data-country"))).toEqual(["IN", "GB", "US", "MG", "NG", "unknown"])
+    const table = rows[0].closest("table")
+    expect([...table.querySelectorAll("thead th")].map((h) => h.textContent)).toEqual(["Country", "Panelists"])
+    expect(screen.queryByText("Other")).not.toBeInTheDocument()
     const totalRow = document.querySelector('tr[data-country="total"]')
     expect(within(totalRow).getByText("495")).toBeInTheDocument()
   })
@@ -154,7 +171,7 @@ describe("PanelOverview", { timeout: 20000 }, () => {
 
   it("hides zero alerts and re-fetches with filters", async () => {
     await renderPage()
-    expect(screen.getByText(/2 profiles waiting for quality review/)).toBeInTheDocument()
+    expect(screen.queryByText(/quality review/)).not.toBeInTheDocument()
     expect(screen.queryByText(/security termination/)).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText("Members"), { target: { value: "30" } })
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2))

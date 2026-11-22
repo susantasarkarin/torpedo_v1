@@ -7,9 +7,7 @@ import { card, th, td, colors, countryName } from "../../components/panel-admin/
 
 const API = "/api/panel-admin"
 const FILL = "#e8910a"        // completed the stage
-const FILL_LIGHT = "#f6d49f"  // skipped it (legacy members)
 const UNKNOWN_BG = "#fdf4e7"
-const OTHER_MIN = 5           // countries with fewer members are grouped as "Other"
 
 const PERIODS = [
   { value: 0, label: "All members" },
@@ -25,8 +23,23 @@ const severityColor = { high: colors.bad, medium: colors.warn, low: colors.muted
 // Colour a stage-to-stage conversion: green healthy, amber weak, red roadblock.
 const tone = (pct) => (pct >= 70 ? colors.good : pct >= 40 ? colors.warn : colors.bad)
 const fmt = (n) => (typeof n === "number" ? n.toLocaleString("en-IN") : n ?? "—")
-const pct = (n, of) => (of > 0 ? Math.round((n / of) * 1000) / 10 : 0)
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`
+const dropOff = (s) => (s.reached > 0 ? `${(Math.round(((s.stoppedHere || 0) / s.reached) * 1000) / 10).toFixed(1)}%` : "—")
+
+// True when the viewport is at least `px` wide (re-evaluated on resize).
+function useWide(px) {
+  const query = `(min-width: ${px}px)`
+  const get = () => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : true)
+  const [wide, setWide] = useState(get)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined
+    const mq = window.matchMedia(query)
+    const on = () => setWide(mq.matches)
+    on()
+    mq.addEventListener?.("change", on)
+    return () => mq.removeEventListener?.("change", on)
+  }, [query])
+  return wide
+}
 
 /**
  * Overview — the Panel at a glance, from one filtered member-funnel response:
@@ -68,6 +81,7 @@ export default function PanelOverview() {
     return () => { cancelled = true }
   }, [country, days])
 
+  const wide = useWide(1000)
   const stages = useMemo(() => data?.stages || [], [data])
 
   // Top three roadblocks by members who stopped there.
@@ -120,8 +134,10 @@ export default function PanelOverview() {
         <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 0.15s" }}>
           <Alerts data={data} navigate={navigate} issuesOpen={issuesOpen} setIssuesOpen={setIssuesOpen} />
           <Kpis data={data} navigate={navigate} />
-          <Journey data={data} stages={stages} ranks={ranks} openKey={openKey} setOpenKey={setOpenKey} country={country} navigate={navigate} />
-          <Countries countries={data.countries || []} total={data.total} />
+          <div style={{ display: "grid", gridTemplateColumns: wide ? "minmax(0,2fr) minmax(260px,1fr)" : "minmax(0,1fr)", gap: "1rem", alignItems: "start" }}>
+            <Journey data={data} stages={stages} openKey={openKey} setOpenKey={setOpenKey} country={country} navigate={navigate} />
+            <Countries countries={data.countries || []} total={data.total} />
+          </div>
         </div>
       )}
     </PageShell>
@@ -130,20 +146,14 @@ export default function PanelOverview() {
 
 function Alerts({ data, navigate, issuesOpen, setIssuesOpen }) {
   const a = data.alerts || {}
-  const flagged = a.flaggedProfiles || 0
   const secToday = a.securityTermsToday || 0
   const secWeek = a.securityTermsWeek || 0
   const issues = data.dataIssues || []
-  if (!flagged && !secToday && issues.length === 0) return null
+  if (!secToday && issues.length === 0) return null
 
   return (
     <div style={{ ...card, padding: "0.75rem 1.25rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap" }}>
-        {flagged > 0 && (
-          <button type="button" style={linkBtn} onClick={() => navigate("/admin/panel-admin/profiling")}>
-            {plural(flagged, "profile")} waiting for quality review →
-          </button>
-        )}
         {secToday > 0 && (
           <button type="button" style={linkBtn} onClick={() => navigate("/admin/operations/traffic")}>
             {secToday} security termination{secToday === 1 ? "" : "s"} today ({secWeek} this week) →
@@ -177,29 +187,13 @@ function Alerts({ data, navigate, issuesOpen, setIssuesOpen }) {
 
 function Kpis({ data, navigate }) {
   const k = data.kpis || {}
-  const po = k.pointsOwed || {}
   return (
     <TileRow>
-      <StatTile label="Panel members" value={fmt(k.members ?? data.total)} sub={`+${fmt(k.joinedThisWeek ?? 0)} this week`}
-        onClick={() => navigate("/admin/panel-admin/members")} />
-      <StatTile label="Active in last 7 days" value={fmt(k.activeLast7d)} sub={`${k.activeLast7dPct ?? 0}% of members`} />
-      <StatTile label="Completed a survey" value={fmt(k.completed)} sub={`${fmt(k.repeat ?? 0)} with 2+ completes`} color={colors.good} />
-      <StatTile label="Points owed" value={fmt(po.points)}
-        sub={po.matches === false ? <span style={{ color: colors.bad }}>needs reconciling</span> : "in member balances"}
-        onClick={() => navigate("/admin/panel-admin/rewards")} />
+      <StatTile label="Total panel members" value={fmt(k.members ?? data.total)} onClick={() => navigate("/admin/panel-admin/members")} />
+      <StatTile label="New signups in the past 30 days" value={fmt(k.joinedLast30d)} />
+      <StatTile label="Active in the last 30 days" value={fmt(k.activeLast30d)} sub={`${k.activeLast30dPct ?? 0}% of members`} />
+      <StatTile label="Completed a survey in the last 30 days" value={fmt(k.completedLast30d)} color={colors.good} />
     </TileRow>
-  )
-}
-
-function Bar({ completed, skipped, of, label }) {
-  const solid = pct(completed, of)
-  const light = pct(skipped, of)
-  const text = `${label}: ${fmt(completed)} completed${skipped ? `, ${fmt(skipped)} skipped (legacy)` : ""} — ${Math.round((solid + light) * 10) / 10}% of signups`
-  return (
-    <div role="img" aria-label={text} title={text} style={{ display: "flex", width: "100%", minWidth: 90, height: 12, background: "#f5f3ef", borderRadius: 4, overflow: "hidden" }}>
-      <div style={{ width: `${solid}%`, background: FILL }} />
-      <div style={{ width: `${light}%`, background: FILL_LIGHT }} />
-    </div>
   )
 }
 
@@ -223,12 +217,11 @@ function Breakdown({ breakdown, stage }) {
   return <div><span style={{ fontWeight: 600 }}>Members: </span>{line}</div>
 }
 
-function Journey({ data, stages, ranks, openKey, setOpenKey, country, navigate }) {
+function Journey({ data, stages, openKey, setOpenKey, country, navigate }) {
   const total = data.total || stages[0]?.reached || 0
   const stoppedSum = stages.reduce((n, s) => n + (s.stoppedHere || 0), 0)
   const redeemed = data.redeemed || 0
-  const COLS = 7
-  const rankColor = { 1: colors.bad, 2: colors.warn, 3: colors.warn }
+  const COLS = 4
 
   const goToMembers = (stageKey) => {
     const qs = new URLSearchParams({ stage: stageKey })
@@ -243,24 +236,18 @@ function Journey({ data, stages, ranks, openKey, setOpenKey, country, navigate }
         Each member counts once, at the furthest step they reached. Open a stage to see why members stopped and what to do next.
       </p>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
           <thead>
             <tr>
               <th scope="col" style={th}>Stage</th>
-              <th scope="col" style={{ ...th, width: "18%" }}>Members reaching it</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Reached</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>Members reached</th>
               <th scope="col" style={{ ...th, textAlign: "right" }}>Conversion</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Stopped here</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Quiet &gt; 7 days</th>
-              <th scope="col" style={th}>Why they stopped</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>Drop off (%)</th>
             </tr>
           </thead>
           <tbody>
             {stages.map((s, i) => {
               const open = openKey === s.key
-              const quiet = s.stoppedByLastSeen?.quiet ?? 0
-              const quietBad = quiet >= 10 && quiet >= 0.5 * (s.stoppedHere || 0)
-              const rank = ranks[s.key]
               const seen = s.stoppedByLastSeen || {}
               return [
                 <tr key={s.key} data-stage={s.key} style={{ background: open ? "#fffaf2" : undefined }}>
@@ -271,19 +258,13 @@ function Journey({ data, stages, ranks, openKey, setOpenKey, country, navigate }
                       <span aria-hidden style={{ display: "inline-block", width: "1em", color: colors.muted }}>{open ? "▾" : "▸"}</span>{s.label}
                     </button>
                   </td>
-                  <td style={td}><Bar completed={s.completed ?? s.reached - (s.skipped || 0)} skipped={s.skipped || 0} of={total} label={s.label} /></td>
                   <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                     <strong>{fmt(s.reached)}</strong> <span style={{ color: colors.muted, fontSize: "0.75rem" }}>{s.pctOfSignups}%</span>
                   </td>
                   <td data-col="conversion" style={{ ...td, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600, color: i === 0 ? colors.muted : tone(s.pctOfPrevious) }}>
                     {i === 0 ? "—" : `${s.pctOfPrevious}%`}
                   </td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{fmt(s.stoppedHere)}</td>
-                  <td style={{ ...td, textAlign: "right", color: quietBad ? colors.bad : colors.text, fontWeight: quietBad ? 700 : 400 }}>{fmt(quiet)}</td>
-                  <td style={td}>
-                    {rank && <span style={{ marginRight: "0.4rem", padding: "0 0.4rem", borderRadius: 999, fontSize: "0.7rem", fontWeight: 700, color: "#fff", background: rankColor[rank] }}>#{rank}</span>}
-                    {s.missing}
-                  </td>
+                  <td data-col="dropoff" style={{ ...td, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{dropOff(s)}</td>
                 </tr>,
                 open && (
                   <tr key={`${s.key}-detail`} id={`stage-detail-${s.key}`} data-detail={s.key}>
@@ -311,12 +292,9 @@ function Journey({ data, stages, ranks, openKey, setOpenKey, country, navigate }
             })}
             <tr data-stage="redeemed">
               <td style={{ ...td, fontWeight: 600, paddingLeft: "1.6rem" }}>Redeemed points</td>
-              <td style={td}><Bar completed={redeemed} skipped={0} of={total} label="Redeemed points" /></td>
               <td style={{ ...td, textAlign: "right" }}><strong>{fmt(redeemed)}</strong></td>
               <td data-col="conversion" style={{ ...td, textAlign: "right", color: colors.muted }}>—</td>
-              <td style={{ ...td, textAlign: "right", color: colors.muted }}>—</td>
-              <td style={{ ...td, textAlign: "right", color: colors.muted }}>—</td>
-              <td style={{ ...td, color: colors.muted }}>Not a stage — members with a withdrawal</td>
+              <td data-col="dropoff" style={{ ...td, textAlign: "right", color: colors.muted }}>—</td>
             </tr>
           </tbody>
           <tfoot>
@@ -334,46 +312,30 @@ function Journey({ data, stages, ranks, openKey, setOpenKey, country, navigate }
 }
 
 function Countries({ countries, total }) {
-  const unknown = countries.filter((c) => !c.code)
   const known = countries.filter((c) => c.code).sort((a, b) => b.members - a.members)
-  const big = known.filter((c) => c.members >= OTHER_MIN)
-  const small = known.filter((c) => c.members < OTHER_MIN)
-  const sum = (list, f) => list.reduce((n, c) => n + (c[f] || 0), 0)
-  const unk = unknown.length ? { members: sum(unknown, "members"), quickDone: sum(unknown, "quickDone"), completed: sum(unknown, "completed") } : null
-
+  const unknown = countries.filter((c) => !c.code)
   const rows = [
-    ...big.map((c) => ({ key: c.code, name: countryName(c.code) || c.name, ...c })),
-    ...(small.length ? [{ key: "other", name: "Other", members: sum(small, "members"), quickDone: sum(small, "quickDone"), completed: sum(small, "completed"), note: small.map((c) => countryName(c.code) || c.name).join(", ") }] : []),
-    ...(unk ? [{ key: "unknown", name: "Unknown", ...unk, note: "no country captured", tint: true }] : []),
+    ...known.map((c) => ({ key: c.code, name: countryName(c.code) || c.name, members: c.members || 0 })),
+    ...(unknown.length ? [{ key: "unknown", name: "Unknown", members: unknown.reduce((n, c) => n + (c.members || 0), 0), tint: true }] : []),
   ]
-  const all = { members: sum(rows, "members"), quickDone: sum(rows, "quickDone"), completed: sum(rows, "completed") }
-  const cell = (n, of) => (
-    <><strong>{fmt(n)}</strong> <span style={{ color: colors.muted, fontSize: "0.75rem" }}>{pct(n, of)}%</span></>
-  )
+  const sum = rows.reduce((n, r) => n + r.members, 0)
 
   return (
     <div style={card}>
       <h2 style={{ margin: "0 0 0.75rem", fontSize: "1rem", color: colors.text }}>By country</h2>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               <th scope="col" style={th}>Country</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Members</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Quick start done</th>
-              <th scope="col" style={{ ...th, textAlign: "right" }}>Completed a survey</th>
+              <th scope="col" style={{ ...th, textAlign: "right" }}>Panelists</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.key} data-country={r.key} style={{ background: r.tint ? UNKNOWN_BG : undefined }}>
-                <td style={td}>
-                  {r.name}
-                  {r.note && <div style={{ fontSize: "0.72rem", color: colors.muted }}>{r.note}</div>}
-                </td>
+                <td style={td}>{r.name}</td>
                 <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{fmt(r.members)}</td>
-                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>{cell(r.quickDone, r.members)}</td>
-                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>{cell(r.completed, r.members)}</td>
               </tr>
             ))}
           </tbody>
@@ -381,11 +343,9 @@ function Countries({ countries, total }) {
             <tr data-country="total">
               <th scope="row" style={{ ...td, textAlign: "left", fontWeight: 700, borderBottom: "none" }}>
                 Total
-                {total != null && all.members !== total && <div style={{ fontSize: "0.72rem", color: colors.bad, fontWeight: 400 }}>{`rows add up to ${fmt(all.members)}, expected ${fmt(total)}`}</div>}
+                {total != null && sum !== total && <div style={{ fontSize: "0.72rem", color: colors.bad, fontWeight: 400 }}>{`rows add up to ${fmt(sum)}, expected ${fmt(total)}`}</div>}
               </th>
-              <td style={{ ...td, textAlign: "right", fontWeight: 700, borderBottom: "none" }}>{fmt(all.members)}</td>
-              <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap", borderBottom: "none" }}>{cell(all.quickDone, all.members)}</td>
-              <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap", borderBottom: "none" }}>{cell(all.completed, all.members)}</td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, borderBottom: "none" }}>{fmt(sum)}</td>
             </tr>
           </tfoot>
         </table>
