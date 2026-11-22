@@ -232,6 +232,9 @@ INDEXES = {
             ('ses_message_id', {'sparse': True}),
             ('invite_token', {'unique': True, 'sparse': True}),
         ],
+        "panel_sessions": [
+            ('expires_at', {'expireAfterSeconds': 0}),   # TTL: member sessions are purged once expired
+        ],
         "panel_email_suppression": [
             ('email', {'unique': True}),
             ('reason', {}),

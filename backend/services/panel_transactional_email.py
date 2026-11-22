@@ -2,10 +2,8 @@
 Panel transactional email — double opt-in verification and password reset.
 
 These are the two mails a panelist expects to arrive within seconds of an
-action they just took, and until now neither was ever sent by this backend:
-`/panel/signup` created the account without any verification mail, and
-`/panel/forgot-password` generated a reset token and then dropped it on the
-floor behind a `# TODO: Send email` comment. Both are wired up here.
+action they just took: `/panel/signup` sends the verification mail and
+`/panel/forgot-password` sends the password reset link, both via `_send()`.
 
 Transactional mail deliberately does NOT go through the bulk-invite path:
   - no suppression-list check (a hard bounce on a marketing blast must not
@@ -14,7 +12,7 @@ Transactional mail deliberately does NOT go through the bulk-invite path:
   - no SES budget gate — ses_budget_for_bulk() exists to hold quota back FOR
     this traffic, so gating it on the same budget would be circular
 
-Sends reuse the cached SES client from panel_email_service.
+Messages are sent through the Gmail API (services.panel_gmail_sender).
 """
 
 import logging

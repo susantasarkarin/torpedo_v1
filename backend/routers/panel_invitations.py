@@ -23,12 +23,7 @@ router = APIRouter(prefix="/panel-admin/invitations", tags=["Panel Invitations"]
 
 # ============== HELPERS ==============
 
-def verify_admin_session(request: Request):
-    """Verify admin session from Authorization header (a real signed login
-    session, not just any header value)."""
-    from session_state import verify_session_sync
-    verify_session_sync(request)
-    return request.headers.get("Authorization", "").strip()
+from routers.panel_admin import verify_admin_session  # noqa: E402  (one shared admin check)
 
 
 # ============== ENDPOINTS ==============

@@ -223,6 +223,18 @@ class RewardsBalance(BaseModel):
     pending: float = 0.0
 
 
+_COUNTRY_CURRENCY = {
+    "GB": "GBP", "UK": "GBP", "UNITED KINGDOM": "GBP", "GREAT BRITAIN": "GBP", "ENGLAND": "GBP",
+    "US": "USD", "USA": "USD", "UNITED STATES": "USD", "UNITED STATES OF AMERICA": "USD",
+    "IN": "INR", "INDIA": "INR",
+}
+
+
+def currency_for_country(country: Optional[str]) -> str:
+    """Reward currency for a member's country (GB->GBP, US->USD, IN->INR); INR otherwise."""
+    return _COUNTRY_CURRENCY.get(str(country or "").strip().upper(), "INR")
+
+
 class RewardsTransaction(BaseModel):
     id: str
     type: str  # "earned" or "redeemed"
@@ -596,8 +608,8 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
         }}
     )
 
-    # This used to stop at a `# TODO: Send email` comment — the token was
-    # stored and the user was told a link was on its way that never existed.
+    # The token is stored above, then the reset mail is sent via
+    # send_password_reset_email (Gmail API, panel_transactional_email).
     # SECURITY: never log the token itself.
     ok, details = send_password_reset_email(
         panelist["email"], panelist.get("first_name", ""), reset_token
@@ -731,6 +743,34 @@ async def get_available_surveys(panelist: dict = Depends(get_current_panelist)):
     return result
 
 
+@router.post("/surveys/{survey_id}/start")
+async def start_survey(survey_id: str, panelist: dict = Depends(get_current_panelist)):
+    """Send the member into a survey through /takesurvey, the same entry every
+    Torpedo respondent uses, carrying the Panel vendor id, a fresh rid and the
+    member's panel id so the outcome is attributed to them."""
+    from urllib.parse import urlencode
+    try:
+        oid = ObjectId(survey_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = surveys_collection.find_one({"_id": oid, "status": "active"})
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    vendor_ids = [v.strip() for v in os.getenv("SFW_PANEL_VENDOR_IDS", "2656").split(",") if v.strip()]
+    country = str(panelist.get("country") or "")
+    params = {
+        "api": "false",
+        "pid": str(survey.get("project_number") or survey.get("surveyNo") or survey_id),
+        "vid": vendor_ids[0] if vendor_ids else "2656",
+        "cc": country.upper() if len(country) == 2 else "",
+        "rid": secrets.token_urlsafe(12),
+        "panel": str(panelist["_id"]),
+    }
+    base = os.getenv("FRONTEND_URL", "https://torpedo.cogentixresearch.com").rstrip("/")
+    url = f"{base}/takesurvey?{urlencode({k: v for k, v in params.items() if v})}"
+    return {"url": url, "redirect_url": url}
+
+
 # ============== REWARDS ENDPOINTS ==============
 
 @router.get("/rewards/balance", response_model=RewardsBalance)
@@ -752,7 +792,7 @@ async def get_rewards_balance(panelist: dict = Depends(get_current_panelist)):
     
     return RewardsBalance(
         balance=panelist.get("rewards_balance", 0.0),
-        currency="INR",
+        currency=currency_for_country(panelist.get("country")),
         pending=pending_amount
     )
 
