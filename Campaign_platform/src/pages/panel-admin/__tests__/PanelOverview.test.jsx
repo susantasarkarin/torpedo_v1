@@ -1,4 +1,4 @@
-import { render, screen, within, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { vi, describe, it, expect, beforeEach } from "vitest"
 import { authFetch } from "../../../utils/api"
@@ -149,11 +149,13 @@ describe("PanelOverview", { timeout: 20000 }, () => {
     expect(screen.queryByText(/quality review/)).not.toBeInTheDocument()
   })
 
-  it("re-fetches with filters", async () => {
+  it("has no header: no title, updated time or filters", async () => {
     await renderPage()
-    fireEvent.change(screen.getByLabelText("Members"), { target: { value: "30" } })
-    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2))
-    expect(authFetch.mock.calls[1][0]).toContain("days=30")
+    expect(screen.queryByText("Panel overview")).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Updated /)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Country")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Members")).not.toBeInTheDocument()
+    expect(authFetch.mock.calls[0][0]).toMatch(/\/member-funnel$/)
   })
 
   it("shows one error box when the fetch fails", async () => {

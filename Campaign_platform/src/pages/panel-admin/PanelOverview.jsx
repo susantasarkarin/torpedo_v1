@@ -2,20 +2,11 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
-import { PageShell, StatTile, TileRow } from "../../components/panel-admin/ui"
+import { StatTile, TileRow } from "../../components/panel-admin/ui"
 import { card, th, td, colors, countryName } from "../../components/panel-admin/tokens"
 
 const API = "/api/panel-admin"
 const UNKNOWN_BG = "#fdf4e7"
-
-const PERIODS = [
-  { value: 0, label: "All members" },
-  { value: 7, label: "Joined in the last 7 days" },
-  { value: 30, label: "Joined in the last 30 days" },
-  { value: 90, label: "Joined in the last 90 days" },
-]
-
-const select = { padding: "0.45rem 0.6rem", borderRadius: "8px", border: `1px solid #d4cec3`, fontSize: "0.85rem", background: "#fff", color: colors.text }
 
 // Colour a stage-to-stage conversion: green healthy, amber weak, red roadblock.
 const tone = (pct) => (pct >= 70 ? colors.good : pct >= 40 ? colors.warn : colors.bad)
@@ -44,22 +35,16 @@ function useWide(px) {
  */
 export default function PanelOverview() {
   const navigate = useNavigate()
-  const [country, setCountry] = useState("")
-  const [days, setDays] = useState(0)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [knownCountries, setKnownCountries] = useState([])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams()
-    if (country) params.set("country", country)
-    if (days) params.set("days", String(days))
-    const qs = params.toString()
-    authFetch(buildApiUrl(`${API}/member-funnel${qs ? `?${qs}` : ""}`), { headers: { Authorization: localStorage.getItem("session_id") } })
+    // No header or filters (owner, 2026-11-22): the overview always covers every member.
+    authFetch(buildApiUrl(`${API}/member-funnel`), { headers: { Authorization: localStorage.getItem("session_id") } })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load the overview (HTTP ${res.status})`)
         return res.json()
@@ -67,45 +52,17 @@ export default function PanelOverview() {
       .then((json) => {
         if (cancelled) return
         setData(json)
-        // Keep every country seen so the filter list doesn't shrink once filtered.
-        const codes = (json.countries || []).map((c) => c.code).filter(Boolean)
-        setKnownCountries((prev) => [...new Set([...prev, ...codes])])
       })
       .catch((e) => { if (!cancelled) setError(e.message || "Could not load the overview") })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [country, days])
+  }, [])
 
   const wide = useWide(1000)
   const stages = useMemo(() => data?.stages || [], [data])
 
-  const filters = (
-    <>
-      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: colors.muted }}>
-        Country
-        <select aria-label="Country" value={country} onChange={(e) => setCountry(e.target.value)} style={select}>
-          <option value="">All countries</option>
-          {[...knownCountries].sort((a, b) => countryName(a).localeCompare(countryName(b))).map((c) => (
-            <option key={c} value={c}>{countryName(c)}</option>
-          ))}
-          <option value="??">Unknown</option>
-        </select>
-      </label>
-      <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: colors.muted }}>
-        Members
-        <select aria-label="Members" value={days} onChange={(e) => setDays(Number(e.target.value))} style={select}>
-          {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </select>
-      </label>
-    </>
-  )
-
-  const updated = data?.generatedAt
-    ? `Updated ${new Date(data.generatedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
-    : loading ? "Loading…" : ""
-
   return (
-    <PageShell title="Panel overview" description={updated} actions={filters}>
+    <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       {error && (
         <div role="alert" style={{ ...card, color: colors.bad, fontSize: "0.875rem", borderColor: "#f3c4c4", background: "#fff7f7" }}>
           {error}
@@ -122,7 +79,7 @@ export default function PanelOverview() {
           </div>
         </div>
       )}
-    </PageShell>
+    </div>
   )
 }
 
