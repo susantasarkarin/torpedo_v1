@@ -51,7 +51,7 @@ export function QualitySection() {
 
 export function RewardsSection() {
   return (
-    <PageShell title="Rewards" description="Live from the SurveyFieldwork Panel: points earned and on hold, gift cards to send, and points by reason. 100 points = ₹10 / £1 / $1.">
+    <PageShell>
       <RewardsPoints embedded />
     </PageShell>
   )
