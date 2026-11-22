@@ -684,8 +684,8 @@ function PanelistManagement({ mode = "all" }) {
           </div>
         )}
 
-        {/* Tabs */}
-        <div style={{ borderBottom: "1px solid #e8e4dc", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        {/* Tabs (the Members section has a single list, so no tab bar there) */}
+        {mode !== "members" && <div style={{ borderBottom: "1px solid #e8e4dc", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
             {mode !== "members" && (
               <>
@@ -715,7 +715,7 @@ function PanelistManagement({ mode = "all" }) {
               ))}
             </select>
           </label>}
-        </div>
+        </div>}
 
         {/* Panelist Lead Tab */}
         {activeTab === "panelist-leads" && (
