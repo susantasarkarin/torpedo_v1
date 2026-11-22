@@ -4677,7 +4677,7 @@ def export_traffic_csv(
     columns = [
         ("SFWID", "_id"), ("Status", "status"), ("Vendor ID", "vendorId"),
         ("Country Code", "countryCode"), ("Respondent ID", "respondentId"),
-        ("Survey ID", "assignedSurveyId"), ("Survey Source", "surveySource"),
+        ("Panelist ID", "panelId"), ("Survey ID", "assignedSurveyId"), ("Survey Source", "surveySource"),
         ("Redirect URL", "redirectUrl"), ("Client URL (Out URL)", "outUrl"),
         ("Return URL", "projectCallbackUrl"), ("CPX Callback URL", "cpxCallbackUrl"),
         ("Cint Entry Link", "currentCintLink"), ("Cint Callback URL", "cintCallbackUrl"),

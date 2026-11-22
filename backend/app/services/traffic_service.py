@@ -36,6 +36,15 @@ def raw_statuses_for(display_status: Optional[str]) -> List[str]:
     return []
 
 
+def _panel_param(record: Dict[str, Any]) -> str:
+    """The panelist ID from the entry link's `panel` parameter (older records)."""
+    value = (record.get("params") or {}).get("panel") or ""
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    value = str(value).strip()
+    return "" if value.upper() in {"{PANEL}", "[PANEL]", "[%PANEL%]", "%PANEL%", "{PANELIST}", "[PANELIST]"} else value[:50]
+
+
 def traffic_filter_query(status: Optional[str] = None, search: Optional[str] = None,
                          survey_id: Optional[str] = None) -> Dict[str, Any]:
     """Mongo filter for the traffic list and its CSV export."""
@@ -49,6 +58,7 @@ def traffic_filter_query(status: Optional[str] = None, search: Optional[str] = N
         query["$or"] = [
             {"vendorId": {"$regex": search, "$options": "i"}},
             {"respondentId": {"$regex": search, "$options": "i"}},
+            {"panelId": {"$regex": search, "$options": "i"}},
             {"countryCode": {"$regex": search, "$options": "i"}},
             {"assignedSurveyId": {"$regex": search, "$options": "i"}},
         ]
@@ -1144,6 +1154,8 @@ class TrafficService:
                     "vendorId": record.get("vendorId", ""),
                     "countryCode": record.get("countryCode", ""),
                     "respondentId": record.get("respondentId", ""),
+                    # SurveyFieldwork Panel member (SFW…); the rid on panel links is random
+                    "panelId": record.get("panelId") or _panel_param(record),
                     "status": self._normalize_status(raw_status),
                     "assignedSurveyId": record.get("assignedSurveyId"),
                     "redirectUrl": record.get("redirectUrl"),

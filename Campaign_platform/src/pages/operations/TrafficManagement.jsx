@@ -331,7 +331,7 @@ export default function TrafficManagement({ embedded = false }) {
         <input
           type="search"
           className="traffic-toolbar__search"
-          placeholder="Search vendor ID, respondent ID, country or survey ID"
+          placeholder="Search vendor ID, respondent ID, panelist ID, country or survey ID"
           aria-label="Search traffic"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -428,6 +428,7 @@ export default function TrafficManagement({ embedded = false }) {
                   <th>Vendor ID</th>
                   <th>Country</th>
                   <th>Respondent ID</th>
+                  <th>Panelist ID</th>
                   <th>Survey ID</th>
                   <th>Status</th>
                   <th>Updated At</th>
@@ -450,6 +451,7 @@ export default function TrafficManagement({ embedded = false }) {
                       <td>{record.vendorId || "N/A"}</td>
                       <td>{record.countryCode || "N/A"}</td>
                       <td className="respondent-id">{record.respondentId || "N/A"}</td>
+                      <td className="respondent-id">{record.panelId || "—"}</td>
                       <td>{record.assignedSurveyId || "—"}</td>
                       <td>
                         <span
@@ -466,7 +468,7 @@ export default function TrafficManagement({ embedded = false }) {
                     </tr>
                     {expandedRow === record._id && (
                       <tr className="expanded-row">
-                        <td colSpan="10">
+                        <td colSpan="11">
                           <div className="expanded-content">
                             <div className="expanded-section">
                               <h4>📋 Record Details</h4>
