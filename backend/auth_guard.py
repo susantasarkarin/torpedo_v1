@@ -47,6 +47,7 @@ PUBLIC = [re.compile(p) for p in (
     r"^/surveycomplete", r"^/surveyterminate", r"^/surveyquotafull", r"^/surveysecurity",
     r"^/login", r"^/logout", r"^/auth/", r"^/token", r"^/register",
     r"^/cold-outreach/unsubscribe/", r"^/unsubscribe", r"^/sales-outreach/event$",
+    r"^/marketing/newsletter/(unsubscribe|img)/",
     r"^/campaigns/automation/tracking/", r"^/track",
     r"^/gmail/oauth/callback", r"^/mystery-shopping/public/",
 )]

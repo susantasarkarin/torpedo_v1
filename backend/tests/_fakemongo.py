@@ -39,6 +39,9 @@ def _match(doc, q):
                     return False
                 if op == "$exists" and (v is not None) != arg:
                     return False
+        elif isinstance(v, list) and not isinstance(cond, list):
+            if cond not in v:                  # Mongo: equality on an array field matches any element
+                return False
         elif v != cond:
             return False
     return True

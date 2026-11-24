@@ -46,6 +46,14 @@ DEFAULTS: Dict[str, Any] = {
     "approved_panel_stats": [],                        # panel sizes allowed in copy, e.g. ["1.2 lakh", "120,000"] (panel book)
     "report_recipients": [],                           # weekly report mail (owner); empty = in-app only
     "content_auto": {},                                # {"linkedin": "L2"} only by explicit owner choice (3.6.3)
+    # Marketing > Newsletter (marketing/newsletter.py). Sends go through the Workspace mailboxes (Gmail API),
+    # one minute tick at a time, so a large list spreads over hours instead of bursting from one mailbox.
+    "newsletter": {
+        "daily_cap_per_mailbox": 300,                  # newsletter mails per mailbox per UTC day (all newsletters)
+        "per_tick_per_mailbox": 5,                     # mails per mailbox per minute
+        "max_attempts": 2,                             # a failed send is retried once on a later tick
+        "brands": {},                                  # per-BU overrides of newsletter.BRANDS, e.g. {"SFW": {"color": "#c2410c"}}
+    },
 }
 
 

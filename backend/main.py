@@ -1491,6 +1491,9 @@ from routers import marketing_decisions as marketing_decisions_router
 app.include_router(marketing_decisions_router.router)
 from routers import marketing_seo as marketing_seo_router
 app.include_router(marketing_seo_router.router)
+from routers import marketing_newsletter as marketing_newsletter_router
+app.include_router(marketing_newsletter_router.router)
+app.include_router(marketing_newsletter_router.public_router)
 print("✅ Marketing websites/media router included")
 
 # --- Support/Tickets Router ---
@@ -2501,6 +2504,29 @@ async def startup_event():
             scheduler.add_job(_audience_job, CronTrigger(hour=1, minute=15), id="marketing_audiences",  # 06:45 IST
                               name="Marketing: customer-list audiences (exclusions, lookalike seeds; shadow until live)",
                               max_instances=1, coalesce=True, replace_existing=True)
+
+            def _newsletter_tick_job():
+                try:
+                    from marketing import newsletter as mnl
+                    r = mnl.tick()
+                    if r["started"] or r["sent"] or r["failed"] or r["finished"] or r.get("blocked"):
+                        print(f"[Newsletter] {r}")
+                except Exception as e:
+                    print(f"[Newsletter] Error: {e}")
+
+            def _newsletter_harvest_job():
+                try:
+                    from marketing import newsletter as mnl
+                    print(f"[NewsletterContacts] {mnl.harvest()}")
+                except Exception as e:
+                    print(f"[NewsletterContacts] Error: {e}")
+
+            scheduler.add_job(_newsletter_tick_job, IntervalTrigger(minutes=1), id="marketing_newsletter_tick",
+                              name="Marketing: newsletter sends (paced per mailbox, daily cap)", max_instances=1,
+                              coalesce=True, replace_existing=True)
+            scheduler.add_job(_newsletter_harvest_job, CronTrigger(hour=20, minute=45), id="marketing_newsletter_contacts",  # 02:15 IST
+                              name="Marketing: newsletter contacts from the attached mailboxes", max_instances=1,
+                              coalesce=True, replace_existing=True)
 
             def _offline_conv_job():
                 try:

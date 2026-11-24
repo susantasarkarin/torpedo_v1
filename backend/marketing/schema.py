@@ -73,6 +73,13 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
     # content (3.6)
     "content_items": ([([("bu", 1), ("channel", 1), ("status", 1)], {}), ("scheduled_for", {"sparse": True})], None),
     "brand_voice": ([("bu", {"unique": True})], None),
+    # newsletter (marketing/newsletter.py)
+    "newsletters": ([([("status", 1), ("scheduled_for", 1)], {}), ("updated_at", {})], None),
+    "newsletter_recipients": ([([("newsletter_id", 1), ("bu", 1), ("email", 1)], {"unique": True}),
+                               ([("newsletter_id", 1), ("status", 1)], {}),
+                               ([("mailbox", 1), ("status", 1), ("sent_at", 1)], {}),
+                               ([("status", 1), ("claimed_at", 1)], {})], None),
+    "newsletter_contacts": ([("email", {"unique": True}), ("bus", {}), ("last_seen", {})], None),
     # decision engine (Section 4)
     "experiments": ([([("bu", 1), ("status", 1)], {})], None),
     "decision_candidates": ([([("decision_type", 1), ("status", 1)], {}), ([("entity_key", 1), ("created_at", -1)], {})], None),
