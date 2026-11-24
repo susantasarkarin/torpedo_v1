@@ -123,8 +123,15 @@ def test_switch_off_keeps_cpx_first(env, monkeypatch):
     assert _panel_store(client)["source"] == "CPX"
 
 
-def test_projects_without_qualifications_never_get_panel_members(env, monkeypatch):
+def test_projects_without_qualifications_get_panel_members(env, monkeypatch):
+    # 2026-11-24: any live routing-enabled project is offered, qualifications or not
     client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("207", routing=True)])
+    out = _panel_store(client)
+    assert out["source"] == "PROJECT" and out["survey_id"] == "207" and cpx.calls == 0
+
+
+def test_routing_disabled_project_never_gets_panel_members(env, monkeypatch):
+    client, url_col, db, cpx = _member_env(env, monkeypatch, [_project("208", routing=False)])
     assert _panel_store(client)["source"] == "CPX"
 
 

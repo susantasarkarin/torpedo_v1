@@ -3485,13 +3485,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 try:
                     candidates = await asyncio.wait_for(survey_routing.eligible_projects(
                         async_url_collection, projects_col, record, ip_country,
-                        [str(project_number)] if project_number else []), timeout=5.0)
+                        [str(project_number)] if project_number else [],
+                        # Panel members: highest chance of completing first (2026-11-24);
+                        # live routing-enabled projects without qualifications are included
+                        objective="conversion" if route_reason == "panel_first" else "value"), timeout=5.0)
                 except Exception as r_err:
                     candidates = []
                     print(f"[warn] routing lookup failed for {traffic_id}: {r_err}")
-                if route_reason == "panel_first":
-                    # only projects the team has set qualifications on (who fits is defined)
-                    candidates = [c for c in candidates if survey_routing.project_qualification(c, bank)["enabled"]]
                 if candidates:
                     target = candidates[0]
                 elif route_reason == "panel_first":

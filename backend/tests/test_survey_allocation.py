@@ -120,6 +120,23 @@ def test_manual_priority_still_wins():
     assert [p["surveyNo"] for p in out] == ["A", "B"]
 
 
+def test_conversion_objective_ignores_cpi_and_priority():
+    # A: high CPI, prio 1, converts 2/20; B: low CPI, converts 10/20
+    rows = [row("A", "COMPLETE", 2), row("A", "TERMINATED", 18), row("B", "COMPLETE", 10), row("B", "TERMINATED", 10)]
+    ps = [proj("A", 500, prio=1), proj("B", 50)]
+    man = {"gender": "m", "birthday_year": 1995}
+    assert [p["surveyNo"] for p in run(sa.rank(FakeCol(rows), list(ps), man))] == ["A", "B"]
+    sa._CACHE.clear()
+    out = run(sa.rank(FakeCol(rows), [proj("A", 500, prio=1), proj("B", 50)], man, objective="conversion"))
+    assert [p["surveyNo"] for p in out] == ["B", "A"] and out[0]["_alloc"]["objective"] == "conversion"
+
+
+def test_conversion_objective_still_skips_closed_quota():
+    rows = [row("A", "OVERQUOTA", 3, recent=True), row("B", "TERMINATED", 5)]
+    out = run(sa.rank(FakeCol(rows), [proj("A", 150), proj("B", 150)], {}, objective="conversion"))
+    assert [p["surveyNo"] for p in out] == ["B"]
+
+
 def test_missing_cpi_uses_median_and_prior_from_client_ir():
     out = run(sa.rank(FakeCol([]), [proj("A", None, ir=80), proj("B", 100, ir=20), proj("C", 300, ir=20)], {}))
     a = next(p for p in out if p["surveyNo"] == "A")["_alloc"]

@@ -210,8 +210,13 @@ def _priority(project: Dict[str, Any]) -> int:
         return 1000
 
 
-async def rank(url_col, projects: List[Dict[str, Any]], profile: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Eligible projects best-first; quota-closed ones dropped. Each gets project["_alloc"]."""
+async def rank(url_col, projects: List[Dict[str, Any]], profile: Dict[str, Any],
+               objective: str = "value") -> List[Dict[str, Any]]:
+    """Eligible projects best-first; quota-closed ones dropped. Each gets project["_alloc"].
+
+    objective "value" (default): routingPriority, then CPI x P(complete).
+    objective "conversion" (SurveyFieldwork Panel members, 2026-11-24): P(complete)
+    for this person's segment only -- no CPI, no routingPriority."""
     if len(projects) == 0 or mode() == "priority":
         return projects
     now = datetime.utcnow()
@@ -238,8 +243,12 @@ async def rank(url_col, projects: List[Dict[str, Any]], profile: Dict[str, Any])
             continue
         p["_alloc"] = score(p, s, segment, _num(p.get("cpi")) or fallback_cpi)
         p["_alloc"]["cell"] = cell
+        p["_alloc"]["objective"] = objective
         ranked.append(p)
-    ranked.sort(key=lambda p: (_priority(p), -p["_alloc"]["value"]))
+    if objective == "conversion":
+        ranked.sort(key=lambda p: -p["_alloc"]["pSegment"])
+    else:
+        ranked.sort(key=lambda p: (_priority(p), -p["_alloc"]["value"]))
     for i, p in enumerate(ranked):
         p["_alloc"]["rank"] = i + 1
         p["_alloc"]["of"] = len(ranked)

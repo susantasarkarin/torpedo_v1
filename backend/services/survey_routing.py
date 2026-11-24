@@ -468,8 +468,10 @@ async def _already_in(url_col, record: Dict[str, Any], survey_no: str) -> bool:
 
 async def eligible_projects(
     url_col, projects_col, record: Dict[str, Any], country: str, exclude: List[str],
+    objective: str = "value",
 ) -> List[Tuple[Dict[str, Any], List[str]]]:
-    """Eligible routable projects for this respondent, best first (services/survey_allocation.py)."""
+    """Eligible routable projects for this respondent, best first (services/survey_allocation.py).
+    objective="conversion" ranks by chance of completing alone (Panel members)."""
     from services import survey_allocation
     answers = record.get("qualificationAnswers") or {}
     profile = record.get("profilingData") or {}
@@ -483,7 +485,7 @@ async def eligible_projects(
         if not ok or await is_full(url_col, project) or await _already_in(url_col, record, survey_no):
             continue
         out.append(project)
-    return await survey_allocation.rank(url_col, out, profile)
+    return await survey_allocation.rank(url_col, out, profile, objective)
 
 
 # ---------------------------------------------------------------------------
