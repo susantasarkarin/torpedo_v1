@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import ads_common, credentials, schema
 
 API_VERSION = os.getenv("GOOGLE_ADS_API_VERSION", "v19")
@@ -39,11 +40,11 @@ class Client:
         self._tok, self._exp = None, datetime.min
 
     def token(self) -> str:
-        if not self._tok or datetime.utcnow() >= self._exp:
+        if not self._tok or utcnow() >= self._exp:
             r = self.http.post(TOKEN_URL, data={"grant_type": "refresh_token", "refresh_token": self.c["refresh_token"],
                                                 "client_id": self.s["client_id"], "client_secret": self.c["client_secret"]}, timeout=30)
             d = _ok(r)
-            self._tok, self._exp = d["access_token"], datetime.utcnow() + timedelta(seconds=int(d.get("expires_in", 3600)) - 120)
+            self._tok, self._exp = d["access_token"], utcnow() + timedelta(seconds=int(d.get("expires_in", 3600)) - 120)
         return self._tok
 
     def headers(self) -> Dict[str, str]:
@@ -102,7 +103,7 @@ def import_daily(gd: Optional[Callable] = None, *, days: int = 3, today_only: bo
     """days: re-read the last N full days (conversions settle late). today_only: the hourly spend / pacing pass."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         cl = cl or client(gd)
     except NotConfigured as e:
@@ -184,7 +185,7 @@ def upload_conversions(gd: Optional[Callable] = None, *, cfg: Optional[Dict[str,
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     pend = ads_common.pending_conversions(gd, "google", id_keys=["gclid", "gbraid", "wbraid"], now=now)
     live = ads_common.conversions_live(cfg, "google")
     rep = {"pending": len(pend), "sent": 0, "shadow": 0, "errors": []}

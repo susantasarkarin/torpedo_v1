@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
+from marketing.schema import utcnow
 from marketing import schema
 
 SEED_KEYWORDS = {
@@ -44,7 +45,7 @@ _PII = [re.compile(p) for p in (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
 
 
 def seed_keywords(gd: Callable, now: Optional[datetime] = None) -> int:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col, n = gd(schema.DB)["keywords"], 0
     for bu, kws in SEED_KEYWORDS.items():
         for k in kws:
@@ -69,7 +70,7 @@ def _queries(ea, since: str) -> Dict[tuple, Dict[str, float]]:
 def track_positions(gd: Callable, *, now: Optional[datetime] = None, top_n: int = 50, add_top_queries: int = 15) -> Dict[str, Any]:
     """Daily: impression-weighted position for each tracked keyword (approved first, then proposed, then the BU's
     biggest GSC queries) over the last 7 days."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea = gd(schema.DB)
     seed_keywords(gd, now)
     agg = _queries(ea, (now - timedelta(days=7)).strftime("%Y-%m-%d"))
@@ -95,7 +96,7 @@ def track_positions(gd: Callable, *, now: Optional[datetime] = None, top_n: int 
 
 
 def opportunities(gd: Callable, *, now: Optional[datetime] = None, min_impr: int = 100, low_ctr: float = 0.02) -> List[Dict[str, Any]]:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     out = []
     for (bu, q), a in _queries(gd(schema.DB), (now - timedelta(days=28)).strftime("%Y-%m-%d")).items():
         if a["impressions"] < min_impr:
@@ -116,7 +117,7 @@ def anonymise(text: str) -> str:
 
 
 def content_gaps(gd: Callable, *, now: Optional[datetime] = None, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
@@ -181,7 +182,7 @@ def _title(page: Dict[str, Any], bu: str) -> str:
 
 def fix_plan(gd: Callable, site: str, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Concrete changes for the open crawl issues of one site; each with the reason and expected effect."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea = gd(schema.DB)
     audit = ea["seo_audits"].find_one({"site": site}, sort=[("started_at", -1)]) or {}
     bu = audit.get("bu")

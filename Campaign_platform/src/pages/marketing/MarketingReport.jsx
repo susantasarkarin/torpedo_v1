@@ -1,19 +1,17 @@
 import { useEffect, useState } from "react"
 import { RefreshCw } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi } from "./api"
+
+const api = marketingApi("/api/marketing/inbox")
 
 // Marketing > Weekly report (MARKETING_PLAN 6.4). The HTML is built and escaped on the server.
 export default function MarketingReport() {
   const [r, setR] = useState(null)
   const load = async (rebuild = false) => {
     try {
-      const res = await authFetch(buildApiUrl(`/api/marketing/inbox/weekly-report${rebuild ? "?rebuild=true" : ""}`))
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-      setR(data)
+      setR(await api(`/weekly-report${rebuild ? "?rebuild=true" : ""}`))
     } catch (e) {
       notify(e.message, "error")
     }

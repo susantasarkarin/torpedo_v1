@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import credentials, inbox, schema
 
 VERSION = os.getenv("META_GRAPH_VERSION", "v21.0")
@@ -87,7 +88,7 @@ def _gd():
 def send_template(gd: Optional[Callable], *, phone: str, template: str, bu: str, params: List[str], lead_id: Optional[str] = None,
                   language: str = "en", cfg: Optional[Dict[str, Any]] = None, http=None, now: Optional[datetime] = None) -> Dict[str, Any]:
     gd = gd or _gd()
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
@@ -119,7 +120,7 @@ def send_template(gd: Optional[Callable], *, phone: str, template: str, bu: str,
 
 def seed_templates(gd: Optional[Callable] = None, now: Optional[datetime] = None) -> int:
     gd = gd or _gd()
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col, n = gd(schema.DB)["whatsapp_templates"], 0
     for bu, brand in BRAND.items():
         for name, cat, body, ex in DRAFTS:
@@ -135,7 +136,7 @@ def seed_templates(gd: Optional[Callable] = None, now: Optional[datetime] = None
 def submit_templates(gd: Optional[Callable] = None, *, http=None, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Only templates the owner approved (status owner_approved) go to Meta for review."""
     gd = gd or _gd()
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col = gd(schema.DB)["whatsapp_templates"]
     todo = list(col.find({"status": "owner_approved"}))
     if not todo:
@@ -162,7 +163,7 @@ def submit_templates(gd: Optional[Callable] = None, *, http=None, now: Optional[
 
 def sync_templates(gd: Optional[Callable] = None, *, http=None, now: Optional[datetime] = None) -> Dict[str, Any]:
     gd = gd or _gd()
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         c = _cred(gd)
     except NotConfigured as e:
@@ -176,8 +177,8 @@ def sync_templates(gd: Optional[Callable] = None, *, http=None, now: Optional[da
     col, n = gd(schema.DB)["whatsapp_templates"], 0
     for t in (r.json() or {}).get("data") or []:
         st = (t.get("status") or "").lower()            # approved / rejected / pending / paused / disabled
-        res = col.update_one({"meta_name": t.get("name"), "language": t.get("language")},
-                             {"$set": {"status": st, "rejected_reason": t.get("rejected_reason"), "synced_at": now, "updated_at": now}})
+        col.update_one({"meta_name": t.get("name"), "language": t.get("language")},
+                       {"$set": {"status": st, "rejected_reason": t.get("rejected_reason"), "synced_at": now, "updated_at": now}})
         n += 1
     return {"synced": n}
 

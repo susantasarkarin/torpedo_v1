@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urldefrag, urljoin, urlparse
 
+from marketing.schema import utcnow
 from bs4 import BeautifulSoup
 
 from marketing import schema
@@ -328,7 +329,7 @@ def run(gd: Optional[Callable] = None, *, apply: bool = True, sites: Optional[Li
     if sites is None:
         from platform_core import config_store
         sites = config_store.get("web").get("sites") or []
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     fetch, head = fetchers or _http()
     ea = gd(schema.DB)
     rep = {}
@@ -401,7 +402,7 @@ def pagespeed_run(gd: Optional[Callable] = None, *, now: Optional[datetime] = No
         from database import get_database as gd
     from marketing import credentials
     from platform_core import config_store
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         cred = credentials.secrets("pagespeed", gd)
     except Exception:

@@ -1,8 +1,8 @@
 """Marketing > SEO: keywords (approve), opportunities, content gaps, fix plans and packages (MARKETING_PLAN 3.3.4-3.3.6)."""
 import os
-from datetime import datetime
 from typing import Any, Dict
 
+from marketing.schema import utcnow
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException
 
@@ -46,7 +46,7 @@ async def keyword_action(kid: str, action: str, user: str = Depends(require_appr
     if action not in ("approve", "reject") or not ObjectId.is_valid(kid):
         raise HTTPException(400, "approve | reject")
     _gd(schema.DB)["keywords"].update_one({"_id": ObjectId(kid)}, {"$set": {"status": "approved" if action == "approve" else "rejected",
-                                                                           "decided_by": user, "updated_at": datetime.utcnow()}})
+                                                                           "decided_by": user, "updated_at": utcnow()}})
     return {"ok": True}
 
 
@@ -84,5 +84,5 @@ async def build_package(site: str, user: str = Depends(require_approve)):
     root = os.path.join(SITES_DIR, site)
     if not os.path.isdir(root):
         raise HTTPException(400, f"upload and unzip the site's files to {root} first (MARKETING_AUDIT §4.2)")
-    out = seo_plan.apply_package(seo_plan.fix_plan(_gd, site), root, os.path.join(PACKAGES_DIR, site, datetime.utcnow().strftime("%Y%m%d%H%M")))
+    out = seo_plan.apply_package(seo_plan.fix_plan(_gd, site), root, os.path.join(PACKAGES_DIR, site, utcnow().strftime("%Y%m%d%H%M")))
     return out

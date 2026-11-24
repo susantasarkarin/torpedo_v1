@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { RefreshCw, Undo2 } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi } from "./api"
 
 // Marketing > Decisions: what the engine proposed, what ran (shadow or live) with undo, and how each type scores.
-const api = async (path, opts = {}) => {
-  const res = await authFetch(buildApiUrl(`/api/marketing/decisions${path}`), { headers: { "Content-Type": "application/json" }, ...opts })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const api = marketingApi("/api/marketing/decisions")
 
 function Row({ d, onUndo }) {
   const [open, setOpen] = useState(false)

@@ -17,7 +17,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from marketing import config as mcfg, engine, rules, schema
+from marketing.schema import utcnow
+from marketing import engine, rules, schema
 
 
 def _c(t, action, ev, **kw):
@@ -113,7 +114,7 @@ def seed(gd: Optional[Callable] = None, now: Optional[datetime] = None) -> int:
     """Write the synthetic cases as 'proposed' (owner agrees or corrects each at M-CP2). Idempotent."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col = gd(schema.DB)["marketing_eval_cases"]
     n = 0
     for i, c in enumerate(CASES):
@@ -131,7 +132,7 @@ def run_eval(gd: Optional[Callable] = None, *, qwen: Optional[Callable] = None, 
              only_agreed: bool = False, cfg: Optional[Dict[str, Any]] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     cfg = copy.deepcopy(cfg or engine._cfg())
     # measure the model, not the missing owner config: placeholder caps so D1 cases are not all "no cap set"
     caps = cfg["budget"].setdefault("monthly_cap_inr", {})
@@ -181,7 +182,7 @@ def user_agreement(gd: Optional[Callable] = None, *, days: int = 14, now: Option
     """Per type: share of the owner's Review Queue verdicts (last `days`) that approved the engine's proposal unchanged."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     out: Dict[str, Dict[str, Any]] = {}
     for d in gd(schema.DB)["decisions"].find({"human": {"$in": ["approved", "rejected"]},
                                                "created_at": {"$gte": now - timedelta(days=days)}}):

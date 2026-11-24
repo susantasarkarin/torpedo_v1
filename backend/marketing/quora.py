@@ -13,6 +13,7 @@ import shutil
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import ads_common, schema
 
 ALIASES = {
@@ -92,7 +93,7 @@ def parse(text: str, *, bu: Optional[str], rates: Dict[str, float], default_curr
 def run(gd: Optional[Callable] = None, *, root: Optional[str] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if root is None:
         try:
             from marketing import credentials

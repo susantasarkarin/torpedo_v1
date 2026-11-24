@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 
+from marketing.schema import utcnow
 from marketing import schema
 
 CHANNELS = ("linkedin", "facebook", "instagram", "blog", "newsletter", "quora")
@@ -61,7 +62,7 @@ def transition(item: Dict[str, Any], to: str, actor: str, now: Optional[datetime
         raise ValueError("set scheduled_for before scheduling")
     if to in ("in_review", "approved") and (item.get("claim_problems") or []):
         raise ValueError("fix the flagged claims first: " + "; ".join(item["claim_problems"][:3]))
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     hist = list(item.get("history") or []) + [{"from": cur, "to": to, "by": actor, "at": now}]
     return {"status": to, "history": hist, "updated_at": now, **({"approved_by": actor, "approved_at": now} if to == "approved" else {})}
 
@@ -134,11 +135,11 @@ def draft(item: Dict[str, Any], gd: Callable, *, qwen: Optional[Callable] = None
     res = qwen()
     data = res.get("data") if isinstance(res, dict) else None
     if not isinstance(data, dict) or not data.get("body"):
-        return {"draft_error": f"no draft ({(res or {}).get('status')})", "updated_at": datetime.utcnow()}
+        return {"draft_error": f"no draft ({(res or {}).get('status')})", "updated_at": utcnow()}
     body = data["body"].strip()
     tags = [h for h in (data.get("hashtags") or []) if isinstance(h, str)][:5]
     return {"body": body, "title": data.get("title") or item.get("title"), "hashtags": tags, "drafted_by": res.get("tier") or "ai",
-            "voice_status": voice.get("status"), "updated_at": datetime.utcnow()}
+            "voice_status": voice.get("status"), "updated_at": utcnow()}
 
 
 def register_publisher(channel: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
@@ -152,7 +153,7 @@ def publish_due(gd: Optional[Callable] = None, *, now: Optional[datetime] = None
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col = gd(schema.DB)["content_items"]
     rep = {"published": 0, "would_publish": 0, "errors": []}
     from marketing import config as mcfg
@@ -181,7 +182,7 @@ def publish_due(gd: Optional[Callable] = None, *, now: Optional[datetime] = None
 
 def performance(gd: Callable, *, days: int = 90, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """3.6.4 per piece: reach, engagement, clicks (social metrics) + leads / RFQs from touchpoints carrying its utm_content."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea = gd(schema.DB)
     out = []
     for it in ea["content_items"].find({"status": "published", "published_at": {"$gte": now - timedelta(days=days)}}):
@@ -201,7 +202,7 @@ def seed_brand_voice(gd: Optional[Callable] = None, now: Optional[datetime] = No
     """Claude's drafts as 'proposed' brand_voice rows (owner approves / edits). Never overwrites an existing row."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col, n = gd(schema.DB)["brand_voice"], 0
     for bu, v in BRAND_VOICE_DRAFTS.items():
         if not col.find_one({"bu": bu}):
@@ -229,7 +230,7 @@ def suggest_quora(gd: Callable, questions: List[str], bu: str, *, top: int = 5, 
     """Rank pasted questions by overlap with the BU's keywords + services (code), draft answers for the best (Qwen),
     store them as quora content items (status draft) with a tagged link. Nothing is posted automatically: no API."""
     from marketing import seo_plan
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     terms = {w for k in gd(schema.DB)["keywords"].find({"bu": bu, "status": {"$in": ["approved", "proposed"]}})
              for w in re.findall(r"[a-z0-9]{3,}", k["keyword"].lower()) if w not in ("india", "services", "company")}
     terms |= {w for s in seo_plan.SERVICES.get(bu, []) for w in s.split()}

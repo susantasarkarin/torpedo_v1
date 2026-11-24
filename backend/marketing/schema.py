@@ -7,11 +7,16 @@ stamp() fills them. ensure_indexes() is a dry run unless apply=True.
 marketing_config is not a collection: it is the "marketing" section of
 platform_core.config_store (marketing/config.py).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 DB = "email_automation"
 BUS = ("SFW", "COGENTIX", "BIM")
+
+def utcnow() -> datetime:
+    """Naive UTC now, the form every marketing record stores (datetime.utcnow() is deprecated)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 D = [("date", 1), ("bu", 1)]          # the "date + bu" index on every daily table
 
@@ -75,7 +80,7 @@ COLLECTIONS: Dict[str, Tuple[List[Tuple[Any, Dict[str, Any]]], Optional[str]]] =
                    ("candidate_id", {})], None),
     "decision_outcomes": ([("decision_id", {"unique": True}), ([("decision_type", 1), ("measured_at", -1)], {})], None),
     "marketing_eval_cases": ([("key", {"unique": True}), ("decision_type", {})], None),
-    "marketing_eval_runs": ([("at", -1)], None),
+    "marketing_eval_runs": ([([("at", -1)], {})], None),
     "marketing_reports": ([("week", {"unique": True})], None),
     "marketing_kpi_snapshots": ([([("kpi", 1), ("date", 1), ("bu", 1)], {"unique": True}), (D, {})], None),
 }
@@ -88,7 +93,7 @@ def stamp(doc: Dict[str, Any], *, bu: Optional[str], source: str, now: Optional[
         raise ValueError(f"unknown bu {bu!r}")
     if not source:
         raise ValueError("source is required")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     out = dict(doc, bu=bu, source=source, updated_at=now)
     if new:
         out.setdefault("created_at", now)
@@ -98,7 +103,7 @@ def stamp(doc: Dict[str, Any], *, bu: Optional[str], source: str, now: Optional[
 def upsert_ops(doc: Dict[str, Any], key_fields: List[str], *, bu: Optional[str], source: str,
                now: Optional[datetime] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """(filter, update) for an idempotent import row: created_at is set on insert only."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     body = stamp(doc, bu=bu, source=source, now=now, new=False)
     return {k: doc[k] for k in key_fields}, {"$set": body, "$setOnInsert": {"created_at": now}}
 

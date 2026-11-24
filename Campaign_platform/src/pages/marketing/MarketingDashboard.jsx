@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { RefreshCw } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { BUS, marketingApi } from "./api"
 
 // Marketing dashboard (module 13): KPI tiles + sections (website, SEO, paid, social, content, attribution).
-const get = async (path) => {
-  const res = await authFetch(buildApiUrl(path))
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const get = marketingApi("")
 
 const fmt = (v, unit) => {
   if (v == null) return "—"
@@ -70,7 +64,7 @@ export default function MarketingDashboard() {
             <p className="card-description">Marketing-sourced = last non-direct touch outside outreach email; revenue is the CRM's won / invoiced ₹.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="form-input" value={bu} onChange={(e) => setBu(e.target.value)}>{["ALL", "SFW", "COGENTIX", "BIM"].map((b) => <option key={b}>{b}</option>)}</select>
+            <select className="form-input" value={bu} onChange={(e) => setBu(e.target.value)}>{["ALL", ...BUS].map((b) => <option key={b}>{b}</option>)}</select>
             <select className="form-input" value={period} onChange={(e) => setPeriod(e.target.value)}>{["today", "week", "mtd", "qtd", "ytd"].map((p) => <option key={p}>{p}</option>)}</select>
             <button type="button" className="btn btn-secondary flex items-center gap-1" onClick={load}><RefreshCw size={16} /> Refresh</button>
           </div>

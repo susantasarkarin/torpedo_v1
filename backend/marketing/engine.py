@@ -25,6 +25,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from marketing.schema import utcnow
 from marketing import config as mcfg, schema
 
 DECISION_SCHEMA = {"type": "object", "required": ["decision_type", "action", "parameters", "reasoning", "expected_impact",
@@ -204,7 +205,7 @@ def decide(c: Dict[str, Any], *, gd: Optional[Callable] = None, qwen: Optional[C
     if gd is None:
         from database import get_database as gd
     cfg = cfg or _cfg()
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     c = dict(c, created_at=now)
     t = c["decision_type"]
     col = gd(schema.DB)["decisions"]
@@ -329,7 +330,7 @@ def sync_rejections(gd: Optional[Callable] = None) -> int:
         if did and ObjectId.is_valid(did):
             ea["decisions"].update_one({"_id": ObjectId(did), "status": "in_review"},
                                        {"$set": {"status": "rejected", "human": "rejected",
-                                                 "rejected_by": it.get("resolved_by"), "updated_at": datetime.utcnow()}})
+                                                 "rejected_by": it.get("resolved_by"), "updated_at": utcnow()}})
             n += 1
         ea["review_queue_items"].update_one({"_id": it["_id"]}, {"$set": {"synced": True}})
     return n
@@ -337,7 +338,7 @@ def sync_rejections(gd: Optional[Callable] = None) -> int:
 
 def _execute(d: Dict[str, Any], gd, cfg: Dict[str, Any], notify: bool) -> Dict[str, Any]:
     col = gd(schema.DB)["decisions"]
-    now = datetime.utcnow()
+    now = utcnow()
     act = d["final_action"]
     live = cfg.get("mode") == "live" and (cfg.get("action_modes") or {}).get(f"{d['decision_type']}:{act}") == "live"
     ex = _EXECUTORS.get((d.get("platform") or "", act))
@@ -374,14 +375,14 @@ def undo(decision_id: str, actor: str, gd: Optional[Callable] = None) -> Dict[st
     d = col.find_one({"_id": ObjectId(decision_id)})
     if not d or d.get("status") not in ("executed", "shadow_executed"):
         return {"ok": False, "error": "nothing to undo"}
-    if d.get("undo_until") and datetime.utcnow() > d["undo_until"]:
+    if d.get("undo_until") and utcnow() > d["undo_until"]:
         return {"ok": False, "error": "undo window (30 days) has passed"}
     if d["status"] == "executed":
         ex = _EXECUTORS.get((d.get("platform") or "", d["final_action"]))
         if not ex:
             return {"ok": False, "error": "executor no longer registered"}
         ex["undo"](d.get("undo_payload") or {}, d)
-    col.update_one({"_id": d["_id"]}, {"$set": {"status": "undone", "undone_by": actor, "undone_at": datetime.utcnow()}})
+    col.update_one({"_id": d["_id"]}, {"$set": {"status": "undone", "undone_by": actor, "undone_at": utcnow()}})
     return {"ok": True}
 
 
@@ -391,7 +392,7 @@ def measure_due(gd: Optional[Callable] = None, metric: Optional[Callable[[Dict[s
     """metric(decision) -> {"baseline": x, "actual": y, "higher_is_better": bool} or None (not measurable yet)."""
     if gd is None:
         from database import get_database as gd
-    now, cfg = now or datetime.utcnow(), cfg or _cfg()
+    now, cfg = now or utcnow(), cfg or _cfg()
     ea = gd(schema.DB)
     col = ea["decisions"]
     rep = {"measured": 0, "downgraded": []}
@@ -436,7 +437,7 @@ def stop_loss(gd, cfg: Dict[str, Any]) -> List[str]:
                 levels[t] = "L1"
                 config_store.set("marketing", {"autonomy": levels}, actor="stop_loss")
                 review_queue.enqueue(type="marketing_stop_loss", module="marketing",
-                                     ref={"collection": "marketing.autonomy", "id": f"{t}:{datetime.utcnow():%Y%m%d}"},
+                                     ref={"collection": "marketing.autonomy", "id": f"{t}:{utcnow():%Y%m%d}"},
                                      reason=f"{t} {mcfg.DECISION_TYPES[t]} dropped to L1: {sum(not r['outcome']['better_than_baseline'] for r in last)}"
                                             f" of the last {n} executed decisions did worse than baseline")
             except Exception:

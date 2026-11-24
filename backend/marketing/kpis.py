@@ -7,7 +7,7 @@ CRM's won / invoiced INR (attribution_results), never platform-reported conversi
 A KPI whose source is not connected yet returns None and the tile says so.
 """
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict
 
 MARKETING_CHANNELS = ("paid_search", "paid_social", "organic_search", "social", "referral", "whatsapp", "direct")
 

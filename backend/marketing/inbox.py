@@ -18,6 +18,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from marketing.schema import utcnow
 from marketing import schema
 
 CHANNELS = ("web_form", "linkedin_comment", "linkedin_dm", "linkedin_lead_form", "facebook_comment", "messenger",
@@ -90,7 +91,7 @@ def classify(text: str, *, sender_type: str = "other", channel: str = "", model=
         return {"category": "neutral", "subtype": "thanks", "sender_type": sender_type, "source": "rule"}
     try:
         from mail_pipeline import pipeline
-        cat = pipeline.categorize({"subject": subject, "body_plain": t, "from_email": "", "timestamp": datetime.utcnow()},
+        cat = pipeline.categorize({"subject": subject, "body_plain": t, "from_email": "", "timestamp": utcnow()},
                                   {"type": "client" if sender_type == "client" else "other"}, model=model,
                                   bounce_patterns=(re.compile(r"$^"), re.compile(r"$^"), re.compile(r"$^")))
     except Exception as e:
@@ -129,7 +130,7 @@ def ingest(gd: Callable, *, channel: str, external_id: str, bu: Optional[str], t
     """Idempotent per (channel, external_id). Returns the stored item."""
     if channel not in CHANNELS:
         raise ValueError(f"unknown channel {channel!r}")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     at = at or now
     if cfg is None:
         from platform_core import config_store
@@ -193,7 +194,7 @@ def draft_reply(item: Dict[str, Any]) -> Optional[str]:
 
 def mark_replied(gd: Callable, inbox_id: str, *, by: str, now: Optional[datetime] = None) -> None:
     from bson import ObjectId
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     col = gd(schema.DB)["inbox_items"]
     it = col.find_one({"_id": ObjectId(inbox_id)})
     if it:
@@ -203,14 +204,14 @@ def mark_replied(gd: Callable, inbox_id: str, *, by: str, now: Optional[datetime
 
 
 def sla_breaches(gd: Callable, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     return list(gd(schema.DB)["inbox_items"].find({"status": "open", "due_at": {"$lt": now}}))
 
 
 # ------------------------------------------------------------------ WhatsApp send gate (3.5.3) + contact cap (4.3)
 def whatsapp_can_send(gd: Callable, phone: str, *, template: Optional[str] = None, bu: Optional[str] = None,
                       now: Optional[datetime] = None) -> Tuple[bool, str]:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ph = phone_hash(phone)
     if not ph:
         return False, "no valid phone number"
@@ -235,7 +236,7 @@ def whatsapp_can_send(gd: Callable, phone: str, *, template: Optional[str] = Non
 def contact_cap_ok(gd: Callable, *, lead_id: Optional[str] = None, email: Optional[str] = None,
                    phone: Optional[str] = None, now: Optional[datetime] = None, cfg: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
     """At most N automated touches per person per day across mail, WhatsApp and social DMs."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
@@ -267,7 +268,7 @@ def send_approved(gd: Callable, inbox_id: str, text: str, *, by: str, cfg: Optio
     """An approved reply: sent by the channel's sender when live (mode + action_modes['reply:<channel>']),
     otherwise kept as approved_waiting_sender (the person replies on the platform and marks it replied)."""
     from bson import ObjectId
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
@@ -327,6 +328,6 @@ def sync_review_status(gd: Optional[Callable] = None, now: Optional[datetime] = 
             out["replied"] += 1
         elif ri["status"] == "rejected":
             ea["inbox_items"].update_one({"_id": it["_id"]}, {"$set": {"status": "closed", "closed_reason": "review rejected",
-                                                                      "updated_at": now or datetime.utcnow()}})
+                                                                      "updated_at": now or utcnow()}})
             out["closed"] += 1
     return out

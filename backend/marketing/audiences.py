@@ -13,6 +13,7 @@ LinkedIn Matched Audiences needs its own API permission: listed, not synced.
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from bson import ObjectId
 
 from marketing import ads_common, schema
@@ -79,7 +80,7 @@ def sync(gd: Optional[Callable] = None, *, cfg: Optional[Dict[str, Any]] = None,
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     lists = build_lists(gd)
     ea = gd(schema.DB)
     rep: Dict[str, Any] = {"lists": {bu: {k: len(v) for k, v in l.items()} for bu, l in lists.items()}, "synced": [], "errors": []}
@@ -116,7 +117,7 @@ def _meta_sync(bu, name, hashes, platform_id, meta_cl, google_cl):
     if not platform_id:
         platform_id = cl.post(f"{act}/customaudiences", name=f"Torpedo {bu} {name}", subtype="CUSTOM",
                               customer_file_source="USER_PROVIDED_ONLY", description="Synced daily by Torpedo (hashed emails)")["id"]
-    sid = int(datetime.utcnow().timestamp())
+    sid = int(utcnow().timestamp())
     for i in range(0, len(hashes), 10000):
         batch = hashes[i:i + 10000]
         cl.post(f"{platform_id}/usersreplace", session=json.dumps({"session_id": sid, "batch_seq": i // 10000 + 1,

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
+from marketing.schema import utcnow
 from marketing import ads_common, credentials, schema
 
 VERSION = os.getenv("LINKEDIN_API_VERSION", "202410")
@@ -89,7 +90,7 @@ def _urn_id(urn: str) -> str:
 def import_daily(gd: Optional[Callable] = None, *, days: int = 3, now: Optional[datetime] = None, cl: Optional[Client] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         cl = cl or client(gd)
     except NotConfigured as e:
@@ -156,7 +157,7 @@ def upload_conversions(gd: Optional[Callable] = None, *, cfg: Optional[Dict[str,
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     pend = ads_common.pending_conversions(gd, "linkedin", id_keys=["li_fat_id"], now=now)
     rep = {"pending": len(pend), "sent": 0, "shadow": 0, "errors": []}
     if not pend:
@@ -198,7 +199,7 @@ def fetch_lead_forms(gd: Optional[Callable] = None, *, now: Optional[datetime] =
     """Lead Sync: sponsored lead form responses -> CRM lead (dedupe by email) + inbox (idempotent per response id)."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         cl = cl or client(gd)
     except NotConfigured as e:

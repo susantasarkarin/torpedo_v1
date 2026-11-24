@@ -17,6 +17,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import ads_common, credentials, schema
 
 VERSION = os.getenv("META_GRAPH_VERSION", "v21.0")
@@ -97,7 +98,7 @@ def import_daily(gd: Optional[Callable] = None, *, days: int = 3, today_only: bo
                  cl: Optional[Client] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         cl = cl or client(gd)
     except NotConfigured as e:
@@ -155,7 +156,7 @@ def upload_conversions(gd: Optional[Callable] = None, *, cfg: Optional[Dict[str,
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     pend = ads_common.pending_conversions(gd, "meta", id_keys=["fbclid"], now=now)
     rep = {"pending": len(pend), "sent": 0, "shadow": 0, "errors": []}
     if not pend:
@@ -199,7 +200,7 @@ def fetch_lead_ads(gd: Optional[Callable] = None, *, now: Optional[datetime] = N
     """Pending Lead Ads ids (from the webhook) -> form answers -> CRM lead (dedupe by email) + inbox item."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea = gd(schema.DB)
     pend = list(ea["lead_form_pending"].find({"status": "pending"}).limit(100))
     if not pend:
@@ -283,7 +284,7 @@ def _reply(item: Dict[str, Any], text: str) -> Dict[str, Any]:
     if ch == "instagram_comment":
         return cl.post(f"{item['external_id']}/replies", token=tok, message=text)
     if ch in ("messenger", "instagram_dm"):
-        if datetime.utcnow() - item["at"] > timedelta(hours=24):
+        if utcnow() - item["at"] > timedelta(hours=24):
             raise RuntimeError("outside Meta's 24-hour messaging window: reply on the platform")
         return cl.post(f"{pid}/messages", token=tok, recipient=json.dumps({"id": item.get("thread_id")}), messaging_type="RESPONSE",
                        message=json.dumps({"text": text}))

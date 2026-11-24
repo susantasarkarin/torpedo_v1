@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
+from marketing.schema import utcnow
 from marketing import credentials, schema
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly", "https://www.googleapis.com/auth/analytics.readonly"]
@@ -110,7 +111,7 @@ def run(gd: Optional[Callable] = None, *, days: int = 5, apply: bool = True, ins
     from pymongo import UpdateOne
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     try:
         if http is None:
             http, settings = session_from_credentials(gd)
@@ -192,7 +193,7 @@ def tracker_vs_ga4(gd: Optional[Callable] = None, *, days: int = 7, now: Optiona
     """3.2.2: per BU, sessions in GA4 vs consented tracker sessions; flag a gap > 20%."""
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     since = now - timedelta(days=days)
     ea = gd(schema.DB)
     ga = {}

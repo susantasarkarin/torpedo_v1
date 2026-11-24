@@ -9,6 +9,7 @@ import html
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import kpis as K, schema
 
 
@@ -21,7 +22,7 @@ def _week(now: datetime):
 def build(gd: Optional[Callable] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     s, u, ps = _week(now)
     ea = gd(schema.DB)
     lines = []

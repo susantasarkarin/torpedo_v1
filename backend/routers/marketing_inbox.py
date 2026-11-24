@@ -1,7 +1,8 @@
 """Marketing > Inbox (MARKETING_PLAN 3.7, 6.3): every inbound message across channels, with SLA."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
+from marketing.schema import utcnow
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
@@ -21,7 +22,7 @@ def _ea():
 @router.get("")
 async def list_inbox(status: Optional[str] = "open", channel: Optional[str] = None, bu: Optional[str] = None,
                      limit: int = Query(200, le=1000), user: str = Depends(verify_session)) -> Dict[str, Any]:
-    now = datetime.utcnow()
+    now = utcnow()
     q: Dict[str, Any] = {}
     if status:
         q["status"] = status
@@ -39,7 +40,7 @@ async def list_inbox(status: Optional[str] = "open", channel: Optional[str] = No
 
 def stats(days: int = 30) -> Dict[str, Any]:
     """Response time vs SLA per channel (6.1 overview tile 6)."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = utcnow() - timedelta(days=days)
     out: Dict[str, Dict[str, Any]] = {}
     for r in _ea()["inbox_items"].find({"at": {"$gte": since}, "status": {"$ne": "spam"}}):
         o = out.setdefault(r["channel"], {"received": 0, "replied": 0, "met": 0, "open_breached": 0, "minutes": []})
@@ -49,7 +50,7 @@ def stats(days: int = 30) -> Dict[str, Any]:
             o["met"] += 1 if r.get("sla_met") else 0
             if r.get("response_minutes") is not None:
                 o["minutes"].append(r["response_minutes"])
-        elif r.get("status") == "open" and r.get("due_at") and r["due_at"] < datetime.utcnow():
+        elif r.get("status") == "open" and r.get("due_at") and r["due_at"] < utcnow():
             o["open_breached"] += 1
     for o in out.values():
         m = sorted(o.pop("minutes"))
@@ -67,7 +68,7 @@ async def act(item_id: str, action: str, user: str = Depends(verify_session)):
         I.mark_replied(get_database, item_id, by=user)
     else:
         _ea()["inbox_items"].update_one({"_id": ObjectId(item_id)}, {"$set": {
-            "status": {"close": "closed", "spam": "spam", "reopen": "open"}[action], "updated_at": datetime.utcnow(), "updated_by": user}})
+            "status": {"close": "closed", "spam": "spam", "reopen": "open"}[action], "updated_at": utcnow(), "updated_by": user}})
     try:
         from platform_core.audit import log_action
         log_action(actor=user, action="update", entity_type="inbox_item", entity_id=item_id, reason=action, source="marketing_inbox")
@@ -110,7 +111,7 @@ async def wa_template_approve(template_id: str, body: Dict[str, Any] = Body(defa
     t = col.find_one({"_id": ObjectId(template_id)})
     if not t or t.get("status") not in ("draft", "owner_approved", "rejected"):
         raise HTTPException(400, "only a draft or rejected template can be approved here")
-    upd = {"status": "owner_approved", "owner_approved_by": user, "updated_at": datetime.utcnow()}
+    upd = {"status": "owner_approved", "owner_approved_by": user, "updated_at": utcnow()}
     if body.get("body"):
         upd["body"] = str(body["body"])[:1024]
     col.update_one({"_id": t["_id"]}, {"$set": upd})

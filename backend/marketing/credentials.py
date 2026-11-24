@@ -15,6 +15,8 @@ import os
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
+from marketing.schema import utcnow
+
 KEY_ENV = "MARKETING_SECRETS_KEY"
 COLLECTION = "integration_credentials"
 
@@ -85,7 +87,7 @@ def save(platform: str, *, secrets: Optional[Dict[str, str]] = None, settings: O
     bad = [k for k in secrets if k not in spec["secrets"]] + [k for k in (settings or {}) if k not in spec["settings"]]
     if bad:
         raise ValueError(f"unknown field(s) for {platform}: {', '.join(sorted(bad))}")
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     upd: Dict[str, Any] = {"updated_at": now, "updated_by": actor, "last_error": None}
     if secrets:
         f = _fernet()
@@ -110,7 +112,7 @@ def clear(platform: str, field: Optional[str], *, actor: str, gd: Optional[Calla
         if field not in PLATFORMS[platform]["secrets"]:
             raise ValueError(field)
         col.update_one({"_id": platform}, {"$unset": {f"secrets.{field}": ""},
-                                           "$set": {"updated_at": datetime.utcnow(), "updated_by": actor}})
+                                           "$set": {"updated_at": utcnow(), "updated_by": actor}})
     _audit(actor, "delete", platform, f"cleared {field or 'all'}")
     return status(gd)[platform]
 
@@ -129,7 +131,7 @@ def secrets(platform: str, gd: Optional[Callable] = None) -> Dict[str, Any]:
 
 def mark(platform: str, *, ok: bool, error: Optional[str] = None, gd: Optional[Callable] = None) -> None:
     """An API client records its last successful call / last error (error text must not contain a secret)."""
-    now = datetime.utcnow()
+    now = utcnow()
     _col(gd).update_one({"_id": platform}, {"$set": {"last_ok_at": now, "last_error": None} if ok else
                                             {"last_error": (error or "error")[:300], "last_error_at": now}})
 

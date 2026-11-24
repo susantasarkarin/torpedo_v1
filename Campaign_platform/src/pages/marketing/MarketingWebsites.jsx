@@ -1,19 +1,11 @@
 import { useEffect, useState } from "react"
 import { RefreshCw, Plus, Trash2, Globe, Pencil, Send, Copy } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi } from "./api"
 
 // Marketing > Websites: the company sites' health, and blog posts.
-const api = async (path, opts = {}) => {
-  const res = await authFetch(buildApiUrl(`/api/marketing${path}`), {
-    headers: { "Content-Type": "application/json" }, ...opts,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const api = marketingApi("/api/marketing")
 
 const EMPTY_POST = { title: "", site_id: "", excerpt: "", body: "", meta_title: "", meta_description: "", status: "draft" }
 

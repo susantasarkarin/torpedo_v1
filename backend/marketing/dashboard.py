@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional
 
+from marketing.schema import utcnow
 from marketing import attribution, schema
 
 
@@ -189,7 +190,7 @@ def attribution_mix(gd, since, until, bu=None, model: str = attribution.DEFAULT_
 
 def all_sections(gd: Callable, *, days: int = 30, bu: Optional[str] = None, model: str = attribution.DEFAULT_MODEL,
                  now: Optional[datetime] = None, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     since = now - timedelta(days=days)
     out = {"period_days": days, "bu": bu or "ALL", "built_at": now}
     for name, fn in (("website", website), ("seo", seo), ("social", social), ("content", content)):

@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { Clock, RefreshCw } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi, BUS } from "./api"
 
 // Marketing > Inbox: website forms, social comments and DMs, WhatsApp, lead forms -- one list, with SLA.
-const api = async (path, opts = {}) => {
-  const res = await authFetch(buildApiUrl(`/api/marketing/inbox${path}`), { headers: { "Content-Type": "application/json" }, ...opts })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const api = marketingApi("/api/marketing/inbox")
 
 const label = (c) => c.replace(/_/g, " ")
 
@@ -57,7 +51,7 @@ export default function MarketingInbox() {
             <option value="">All channels</option>{data.channels.map((c) => <option key={c} value={c}>{label(c)}</option>)}
           </select>
           <select className="form-input" value={f.bu} onChange={(e) => setF({ ...f, bu: e.target.value })}>
-            <option value="">All BUs</option>{["SFW", "COGENTIX", "BIM"].map((b) => <option key={b}>{b}</option>)}
+            <option value="">All BUs</option>{BUS.map((b) => <option key={b}>{b}</option>)}
           </select>
         </div>
       </div>

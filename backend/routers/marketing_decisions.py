@@ -1,8 +1,9 @@
 """Marketing > Decisions (MARKETING_PLAN 6.1 Decisions section): open recommendations, executed actions with
 undo, outcome scorecard per decision type, current autonomy levels. Approve / reject happen in the Review Queue."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, Optional
 
+from marketing.schema import utcnow
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -32,7 +33,7 @@ def _row(d):
 @router.get("")
 async def list_decisions(status: Optional[str] = None, decision_type: Optional[str] = None, days: int = Query(30, le=365),
                          user: str = Depends(verify_session)) -> Dict[str, Any]:
-    q: Dict[str, Any] = {"created_at": {"$gte": datetime.utcnow() - timedelta(days=days)}}
+    q: Dict[str, Any] = {"created_at": {"$gte": utcnow() - timedelta(days=days)}}
     if status:
         q["status"] = {"$in": status.split(",")}
     if decision_type:

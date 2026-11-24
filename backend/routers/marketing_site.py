@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
+from marketing.schema import utcnow
 import requests
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
@@ -56,7 +57,7 @@ def _ser(d: Dict[str, Any]) -> Dict[str, Any]:
 def _sites():
     col = _db()["websites"]
     if col.estimated_document_count() == 0:
-        now = datetime.utcnow()
+        now = utcnow()
         col.insert_many([{**s, "created_at": now} for s in DEFAULT_SITES])
     return col
 
@@ -67,14 +68,14 @@ def _ssl_days(host: str) -> Optional[int]:
         with socket.create_connection((host, 443), timeout=8) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as s:
                 exp = datetime.strptime(s.getpeercert()["notAfter"], "%b %d %H:%M:%S %Y %Z")
-        return (exp - datetime.utcnow()).days
+        return (exp - utcnow()).days
     except Exception:
         return None
 
 
 def check_site(url: str) -> Dict[str, Any]:
     host = urlparse(url).hostname or ""
-    out: Dict[str, Any] = {"checked_at": datetime.utcnow()}
+    out: Dict[str, Any] = {"checked_at": utcnow()}
     t = time.time()
     try:
         r = requests.get(url, timeout=15, headers={"User-Agent": "CogentixSiteMonitor/1.0"})
@@ -105,7 +106,7 @@ def add_website(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Enter a full address, e.g. https://example.com")
     name = (payload.get("name") or urlparse(url).hostname or url).strip()
     key = re.sub(r"[^A-Z0-9]", "", (payload.get("key") or name).upper())[:20] or "SITE"
-    doc = {"name": name, "url": url, "key": key, "created_at": datetime.utcnow()}
+    doc = {"name": name, "url": url, "key": key, "created_at": utcnow()}
     doc["_id"] = _sites().insert_one(doc).inserted_id
     return _ser(doc)
 
@@ -145,7 +146,7 @@ _POST_FIELDS = ("title", "slug", "site_id", "excerpt", "body", "meta_title", "me
 def create_post(payload: Dict[str, Any] = Body(...)):
     if not (payload.get("title") or "").strip():
         raise HTTPException(status_code=400, detail="A post needs a title")
-    now = datetime.utcnow()
+    now = utcnow()
     doc = {k: payload.get(k) for k in _POST_FIELDS if k in payload}
     doc.setdefault("slug", _slug(doc["title"]))
     doc.setdefault("status", "draft")
@@ -157,7 +158,7 @@ def create_post(payload: Dict[str, Any] = Body(...)):
 @router.put("/posts/{post_id}")
 def update_post(post_id: str, payload: Dict[str, Any] = Body(...)):
     upd = {k: payload.get(k) for k in _POST_FIELDS if k in payload}
-    upd["updated_at"] = datetime.utcnow()
+    upd["updated_at"] = utcnow()
     res = _db()["posts"].update_one({"_id": ObjectId(post_id)}, {"$set": upd})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -201,7 +202,7 @@ def publish_post(post_id: str):
     data = r.json()
     _db()["posts"].update_one({"_id": post["_id"]}, {"$set": {
         "wp_id": data.get("id"), "published_url": data.get("link"), "status": "sent_to_site",
-        "sent_at": datetime.utcnow(), "updated_at": datetime.utcnow()}})
+        "sent_at": utcnow(), "updated_at": utcnow()}})
     return {"ok": True, "wp_id": data.get("id"), "link": data.get("link")}
 
 
@@ -225,7 +226,7 @@ async def upload_media(file: UploadFile = File(...)):
     with open(os.path.join(MEDIA_DIR, stored), "wb") as fh:
         fh.write(data)
     doc = {"filename": file.filename or safe, "stored_name": stored, "path": os.path.join(MEDIA_DIR, stored),
-           "mime_type": mime, "size_bytes": len(data), "uploaded_at": datetime.utcnow()}
+           "mime_type": mime, "size_bytes": len(data), "uploaded_at": utcnow()}
     doc["_id"] = _db()["media"].insert_one(doc).inserted_id
     doc.pop("path")
     return _ser(doc)

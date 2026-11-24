@@ -15,6 +15,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from marketing.schema import utcnow
 from marketing import schema
 
 EVENTS = ("lead", "qualified_lead", "rfq", "won")
@@ -81,7 +82,7 @@ def pending_conversions(gd: Callable, platform: str, *, id_keys: List[str], sinc
     """Events not yet uploaded for leads that carry one of the platform's click IDs (or an email for hashed matching)."""
     from bson import ObjectId
     from marketing import touchpoints
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea, crm = gd(schema.DB), gd("crm_db")
     # only rows actually accepted by the platform count as done: shadow rows are re-offered once live, failures are retried
     done = {(u["lead_id"], u["event"]) for u in ea["offline_conversion_uploads"].find({"platform": platform, "status": "sent"},
@@ -115,7 +116,7 @@ def pending_conversions(gd: Callable, platform: str, *, id_keys: List[str], sinc
 
 
 def record_upload(gd: Callable, conv: Dict[str, Any], *, status: str, response: Any = None, now: Optional[datetime] = None) -> None:
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     doc = {k: conv.get(k) for k in ("platform", "lead_id", "event", "at", "value_inr", "click_type", "click_id")}
     doc.update(status=status, response=str(response)[:500] if response is not None else None)
     f, u = schema.upsert_ops(doc, ["platform", "lead_id", "event"], bu=conv.get("bu") if conv.get("bu") in schema.BUS else None,
@@ -133,7 +134,7 @@ def attach_crm_outcomes(gd: Callable, platform: str, *, since: datetime, now: Op
     campaign rows of ad_metrics_daily so the rules and dashboard use CRM outcomes, not platform conversions."""
     from bson import ObjectId
     from marketing import touchpoints as tpm
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     ea = gd(schema.DB)
     camps = {c["campaign_id"]: c for c in ea["ad_campaigns"].find({"platform": platform})}
     by_name = {str(c.get("name") or "").strip().lower(): cid for cid, c in camps.items()}

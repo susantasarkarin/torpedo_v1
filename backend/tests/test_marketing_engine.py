@@ -200,8 +200,6 @@ def test_marketing_decision_tasks_registered_in_ladder_without_dropping_existing
     assert {"marketing_decision_p1", "marketing_decision_p2", "marketing_decision_p3"} <= set(tasks)
     assert tasks["marketing_decision_p3"]["max_input_chars"] <= 2500
     assert set(E.QWEN_TASK.values()) <= set(tasks)
-    mcfg.register_qwen_tasks()                         # legacy call from engine/content: must be a harmless no-op
-    mcfg.register_qwen_tasks()
 
 
 def test_brief_fits_the_small_model_context():

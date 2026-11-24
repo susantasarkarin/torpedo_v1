@@ -17,6 +17,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from marketing.schema import utcnow
 from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse, Response
 
@@ -60,9 +61,9 @@ def _handshake(request: Request, token: Optional[str]):
 
 def _ts(v) -> datetime:
     try:
-        return datetime.utcfromtimestamp(int(v)) if v is not None else datetime.utcnow()
+        return datetime.utcfromtimestamp(int(v)) if v is not None else utcnow()
     except (TypeError, ValueError):
-        return datetime.utcnow()
+        return utcnow()
 
 
 def parse_meta(body: Dict[str, Any], settings: Dict[str, Any]):
@@ -134,7 +135,7 @@ async def meta_receive(request: Request):
     ea = _gd(schema.DB)
     for l in leads:
         ea["lead_form_pending"].update_one({"leadgen_id": l["leadgen_id"]}, {"$setOnInsert": {**l, "status": "pending",
-                                                                                             "received_at": datetime.utcnow()}}, upsert=True)
+                                                                                             "received_at": utcnow()}}, upsert=True)
     return {"ok": True, "items": len(items), "leads": len(leads)}
 
 

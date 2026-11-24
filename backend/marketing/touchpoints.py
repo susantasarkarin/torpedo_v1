@@ -17,6 +17,7 @@ import hashlib
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from bson import ObjectId
 
 from marketing import attribution, schema
@@ -119,7 +120,7 @@ def run(gd: Callable, *, apply: bool = False, since: Optional[datetime] = None, 
         now: Optional[datetime] = None) -> Dict[str, Any]:
     """Leads that have a web link, a form, or an RFQ contact. `since` = leads updated since (incremental)."""
     from pymongo import UpdateOne
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     crm, ea = gd("crm_db"), gd(schema.DB)
     q: Dict[str, Any] = {"$or": [{"web_submissions.0": {"$exists": True}}, {"contact_id": {"$nin": [None, ""]}}]}
     if since:

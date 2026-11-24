@@ -1,19 +1,11 @@
 import { useEffect, useState } from "react"
 import { CheckCircle2, Circle, KeyRound, RefreshCw, Trash2 } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi } from "./api"
 
 // Marketing > Integrations: platform tokens (stored encrypted, never shown again) and their IDs.
-const api = async (path, opts = {}) => {
-  const res = await authFetch(buildApiUrl(`/api/marketing/integrations${path}`), {
-    headers: { "Content-Type": "application/json" }, ...opts,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const api = marketingApi("/api/marketing/integrations")
 
 const label = (f) => f.replace(/_/g, " ").replace(/\bids\b/, "IDs").replace(/\bid\b/, "ID").replace(/json/, "JSON")
 

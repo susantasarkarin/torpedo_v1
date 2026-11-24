@@ -9,6 +9,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional
 
+from marketing.schema import utcnow
 from marketing import config as mcfg, evaluation, schema
 
 # source -> (collection, time field, max hours before it counts as stale)
@@ -24,7 +25,7 @@ SOURCES = {
 def build(gd: Optional[Callable] = None, *, days: int = 14, now: Optional[datetime] = None, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if gd is None:
         from database import get_database as gd
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     if cfg is None:
         from platform_core import config_store
         cfg = config_store.get("marketing")

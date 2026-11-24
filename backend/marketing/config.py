@@ -49,12 +49,6 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 
-def register_qwen_tasks() -> None:
-    """Retired: the marketing decision tasks (marketing_decision_p1..p3) are registered in
-    platform_core/ladder.py DEFAULTS["task_cfg"]. Kept as a no-op for old callers."""
-    return None
-
-
 def autonomy(cfg: Dict[str, Any], decision: str) -> str:
     """Effective autonomy for a decision type: unknown -> L1, L3 capped at L2 where L3 is not allowed."""
     lvl = (cfg.get("autonomy") or {}).get(decision, "L1")

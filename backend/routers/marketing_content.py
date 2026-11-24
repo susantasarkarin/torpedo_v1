@@ -6,6 +6,7 @@ need the approve capability. Every change is logged on the item and audit-logged
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+from marketing.schema import utcnow
 from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
@@ -51,7 +52,7 @@ async def list_items(bu: Optional[str] = None, channel: Optional[str] = None, st
     if status:
         q["status"] = status
     rows = [_out(r) for r in _ea()["content_items"].find(q).sort("updated_at", -1).limit(500)]
-    horizon = datetime.utcnow() + timedelta(weeks=weeks)
+    horizon = utcnow() + timedelta(weeks=weeks)
     counts: Dict[str, int] = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -90,7 +91,7 @@ async def edit_item(item_id: str, body: Dict[str, Any] = Body(...), user: str = 
     upd["claim_problems"] = C.claims_for(_gd, merged)
     if it["status"] == "idea" and (merged.get("body") or "").strip():
         upd["status"] = "draft"
-    upd["updated_at"] = datetime.utcnow()
+    upd["updated_at"] = utcnow()
     col.update_one({"_id": it["_id"]}, {"$set": upd})
     _audit(user, item_id, "edited")
     return _out(col.find_one({"_id": it["_id"]}))
@@ -152,7 +153,7 @@ async def save_brand_voice(bu: str, body: Dict[str, Any] = Body(...), user: str 
     if bu not in schema.BUS:
         raise HTTPException(404, bu)
     upd = {k: body[k] for k in ("voice", "tone", "do", "dont", "banned_claims") if k in body}
-    upd.update(status="approved" if body.get("approve") else "proposed", updated_at=datetime.utcnow(), updated_by=user)
+    upd.update(status="approved" if body.get("approve") else "proposed", updated_at=utcnow(), updated_by=user)
     _ea()["brand_voice"].update_one({"bu": bu}, {"$set": upd}, upsert=True)
     _audit(user, f"brand_voice:{bu}", f"saved ({upd['status']})")
     return _out(_ea()["brand_voice"].find_one({"bu": bu}))

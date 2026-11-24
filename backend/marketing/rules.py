@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from marketing.schema import utcnow
 from marketing import schema
 
 RULES = {
@@ -437,7 +438,7 @@ def run(lane: str, gd: Optional[Callable] = None, *, now: Optional[datetime] = N
         from database import get_database as gd
     from marketing import engine
     from platform_core import config_store
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     mc = config_store.get("marketing")
     R = {**RULES, **(mc.get("rules") or {})}
     sites = config_store.get("web").get("sites") or []

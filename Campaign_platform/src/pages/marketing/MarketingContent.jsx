@@ -1,21 +1,12 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Link2, Plus, RefreshCw, Sparkles } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
 import { notify } from "../../utils/notify"
 import { formatDateTime } from "../../utils/format"
+import { marketingApi, BUS } from "./api"
 
 // Marketing > Content: calendar per BU and channel, Qwen drafts, claim checks, approval, brand voice, UTM links.
-const api = async (path, opts = {}) => {
-  const res = await authFetch(buildApiUrl(`/api/marketing/content${path}`), {
-    headers: { "Content-Type": "application/json" }, ...opts,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`)
-  return data
-}
+const api = marketingApi("/api/marketing/content")
 
-const BUS = ["SFW", "COGENTIX", "BIM"]
 const STATUS_ORDER = ["idea", "draft", "in_review", "approved", "scheduled", "published"]
 const EMPTY = { bu: "SFW", channel: "linkedin", title: "", body: "", scheduled_for: "" }
 
