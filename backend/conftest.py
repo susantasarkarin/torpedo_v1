@@ -47,6 +47,13 @@ def _no_live_send_state(monkeypatch, request):
         return
     monkeypatch.setattr(facade, "_throttle_block", lambda addr, channel: None, raising=False)
     monkeypatch.setattr(facade, "outreach_paused", lambda: False, raising=False)
+    # the live bulk-sender allow-list is not read in tests (no restriction);
+    # tests of the allow-list pass their own list
+    try:
+        from messaging import deliverability
+        monkeypatch.setattr(deliverability, "bulk_senders", lambda: frozenset(), raising=False)
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)

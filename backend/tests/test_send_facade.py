@@ -535,3 +535,32 @@ def test_gate_can_skip_the_budget_without_skipping_suppression():
                                        allow_free_webmail=True, transactional=True)
     assert category == "suppressed"
     allows.assert_not_called()
+
+
+@pytest.mark.parametrize("channel", ["outreach", "cold_outreach", "nurture", "campaign", "sales_outreach"])
+def test_bulk_channels_only_from_approved_senders(monkeypatch, channel):
+    from messaging import deliverability
+    monkeypatch.setattr(deliverability, "bulk_senders", lambda: frozenset({"info@cogentixresearch.com"}))
+    blocked = facade.gate("lead@bigco.com", identity="susanta@cogentixresearch.com", channel=channel, preview=False)
+    assert blocked and blocked[1] == "config" and "not an approved bulk sender" in blocked[0]
+    ok = facade.gate("lead@bigco.com", identity="info@cogentixresearch.com", channel=channel, preview=False)
+    assert not ok or "approved bulk sender" not in ok[0]
+
+
+def test_non_bulk_mail_keeps_its_sender(monkeypatch):
+    from messaging import deliverability
+    monkeypatch.setattr(deliverability, "bulk_senders", lambda: frozenset({"info@cogentixresearch.com"}))
+    for channel, transactional in (("finance", False), ("manual", False), ("outreach", True)):
+        r = facade.gate("client@bigco.com", identity="susanta@cogentixresearch.com", channel=channel,
+                        transactional=transactional, preview=False)
+        assert not r or "approved bulk sender" not in r[0]
+
+
+def test_bulk_sender_problem_rules():
+    from messaging.deliverability import bulk_sender_problem, DEFAULTS
+    allowed = frozenset(DEFAULTS["bulk_senders"])
+    assert "susanta@cogentixresearch.com" not in allowed and len(allowed) == 4
+    assert bulk_sender_problem("Meera@CogentixResearch.com", allowed) is None
+    assert bulk_sender_problem("susanta@cogentixresearch.com", allowed)
+    assert bulk_sender_problem("legacy_smtp", allowed) is None          # not an address: cannot check
+    assert bulk_sender_problem("anyone@x.com", frozenset()) is None     # empty list: no restriction

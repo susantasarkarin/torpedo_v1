@@ -316,6 +316,22 @@ def mailboxes(gd) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda m: (m["bu"] or "~", m["email"]))
 
 
+def _bulk_senders() -> frozenset:
+    from messaging import deliverability
+    return deliverability.bulk_senders()
+
+
+def _sender_problem(mailbox: str, allowed: frozenset) -> Optional[str]:
+    from messaging import deliverability
+    return deliverability.bulk_sender_problem(mailbox, allowed)
+
+
+def sender_mailboxes(gd) -> List[Dict[str, Any]]:
+    """The mailboxes a newsletter may be sent from: active and an approved bulk sender."""
+    allowed = _bulk_senders()
+    return [m for m in mailboxes(gd) if not _sender_problem(m["email"], allowed)]
+
+
 def sent_today(gd, mailbox: str, now: datetime) -> int:
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return gd(DB)[RECIPIENTS].count_documents({"mailbox": mailbox, "status": "sent", "sent_at": {"$gte": start}})
@@ -504,10 +520,13 @@ def problems(nl: Dict[str, Any], gd=None) -> List[str]:
             p.append(f"pick who receives the {BRANDS[bu]['name']} edition")
     if gd is not None:
         active = {m["email"] for m in mailboxes(gd)}
+        allowed = _bulk_senders()
         for bu, ms in (nl.get("senders") or {}).items():
             for m in ms:
                 if bu in (nl.get("bus") or []) and m not in active:
                     p.append(f"{m} is not an active attached mailbox")
+                elif bu in (nl.get("bus") or []) and _sender_problem(m, allowed):
+                    p.append(f"{m} is not an approved bulk sender")
     b = send_blocker()
     if b:
         p.append(b)
@@ -643,11 +662,16 @@ def tick(gd=None, *, now: Optional[datetime] = None, sender: Optional[Callable[.
     max_attempts = int(cfg.get("max_attempts") or 2)
     rc = ea[RECIPIENTS]
     budget: Dict[str, int] = {}
+    allowed = _bulk_senders()
     for nl in active:
         for bu in nl.get("bus") or []:
             for box in (nl.get("senders") or {}).get(bu) or []:
                 if box not in budget:
-                    budget[box] = max(0, min(per_tick, cap - sent_today(gd, box, now)))
+                    if _sender_problem(box, allowed):          # not an approved bulk sender: never sends
+                        budget[box] = 0
+                        report.setdefault("sender_blocked", []).append(box)
+                    else:
+                        budget[box] = max(0, min(per_tick, cap - sent_today(gd, box, now)))
                 while budget[box] > 0:
                     r = rc.find_one({"newsletter_id": nl["_id"], "bu": bu, "status": "queued"})
                     if not r:

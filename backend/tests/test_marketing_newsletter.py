@@ -200,3 +200,20 @@ def test_subject_is_one_line_even_if_a_name_has_a_newline(world):
     nl = {"subject": "Hi {{name}}\nBcc: x@evil.com", "blocks": []}
     subject, _, _ = N.render(nl, "SFW", {"name": "A\r\nB"})
     assert "\n" not in subject and "\r" not in subject
+
+
+def test_only_approved_bulk_senders_send(world, monkeypatch):
+    """2026-11-26: newsletters go out only from the approved bulk senders."""
+    from messaging import deliverability
+    monkeypatch.setattr(deliverability, "bulk_senders", lambda: frozenset({"hello@cogentixresearch.com"}))
+    gd = world
+    nl = nl_doc(gd, status="sending", bus=["COGENTIX"],
+                senders={"COGENTIX": ["news@surveyfieldwork.com", "hello@cogentixresearch.com"]},
+                audience={"COGENTIX": {"sources": [], "extra_emails": ["a@client.com", "b@client.com"]}})
+    N.start(gd, nl, now=NOW, is_suppressed=lambda e: False)
+    s = Sender()
+    r = N.tick(gd, now=NOW, sender=s, is_suppressed=lambda e: False, cfg=CFG)
+    assert {m["from_email"] for m in s.sent} == {"hello@cogentixresearch.com"}
+    assert r["sender_blocked"] == ["news@surveyfieldwork.com"]
+    assert [m["email"] for m in N.sender_mailboxes(gd)] == ["hello@cogentixresearch.com"]
+    assert "news@surveyfieldwork.com is not an approved bulk sender" in N.problems(nl, gd)

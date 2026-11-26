@@ -42,7 +42,34 @@ DEFAULTS: Dict[str, Any] = {
     "subject_ref_tag": True,
     "first_mail_max_links": 1,
     "sequence_day_offsets": [0, 3, 7, 12, 18, 25],
+    # The only mailboxes that may send bulk / automated mail (newsletter, outreach, nurture,
+    # campaigns) -- owner decision 2026-11-26. Staff replies, finance and Panel member mail are
+    # not bulk and keep their own sender. An empty list lifts the restriction.
+    "bulk_senders": ["info@cogentixresearch.com", "meera@cogentixresearch.com",
+                     "indira@cogentixresearch.com", "sandhya@cogentixresearch.com"],
 }
+
+BULK_CHANNELS = frozenset({"newsletter", "outreach", "cold_outreach", "sales_outreach", "nurture", "campaign"})
+
+
+def bulk_senders() -> frozenset:
+    """The approved bulk senders: the stored setting, else the default list."""
+    try:
+        from platform_core import config_store
+        values = config_store.get("deliverability").get("bulk_senders")
+    except Exception:
+        values = DEFAULTS["bulk_senders"]
+    return frozenset(str(v).strip().lower() for v in (values or []) if str(v).strip())
+
+
+def bulk_sender_problem(identity: Optional[str], allowed: Optional[frozenset] = None) -> Optional[str]:
+    """Why this mailbox may not send bulk mail, or None. Identities that are not an address
+    (a legacy SMTP label) cannot be checked here and pass."""
+    allowed = bulk_senders() if allowed is None else allowed
+    ident = (identity or "").strip().lower()
+    if not allowed or "@" not in ident or ident in allowed:
+        return None
+    return f"{ident} is not an approved bulk sender (Settings > deliverability > bulk_senders)"
 
 COUNTRY_TZ = {
     "IN": "Asia/Kolkata", "US": "America/New_York", "CA": "America/Toronto", "GB": "Europe/London",

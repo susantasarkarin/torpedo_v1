@@ -46,6 +46,7 @@ from email.mime.text import MIMEText
 from typing import Any, Callable, Dict, Optional
 
 from . import budget as _budget
+from . import deliverability as _deliv
 from . import log as _log
 from . import suppression as _suppression
 
@@ -271,6 +272,14 @@ def gate(addr: str, *, identity: str, channel: str,
         reason = "outreach kill switch paused (torpedo.outreach_kill_switch)"
         _audit_block(addr=addr, identity=identity, channel=channel, reason=reason, category="disabled")
         return (reason, "disabled")
+
+    # Bulk / automated mail only from the approved mailboxes (2026-11-26). "config": a
+    # sender problem says nothing about the lead, so the lead is held, never retired.
+    if not transactional and channel in _deliv.BULK_CHANNELS:
+        problem = _deliv.bulk_sender_problem(identity)
+        if problem:
+            _audit_block(addr=addr, identity=identity, channel=channel, reason=problem, category="config")
+            return (problem, "config")
 
     # "config", not "compliance": a missing setting says nothing about THIS
     # address, and callers must be able to tell the two apart. "compliance" is a

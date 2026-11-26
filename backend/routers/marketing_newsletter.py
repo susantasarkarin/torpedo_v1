@@ -65,7 +65,7 @@ def _bad(e: ValueError):
 @router.get("/meta")
 async def meta(user: str = Depends(verify_session)):
     cfg = N._cfg()
-    boxes = N.mailboxes(_gd)
+    boxes = N.sender_mailboxes(_gd)   # approved bulk senders only (2026-11-26)
     today = utcnow()
     for m in boxes:
         m["sent_today"] = N.sent_today(_gd, m["email"], today)
