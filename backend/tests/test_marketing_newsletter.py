@@ -158,8 +158,12 @@ def test_tick_paces_caps_retries_and_finishes(world):
     nl = gd(N.DB)[N.NEWSLETTERS].find_one({"_id": nl["_id"]})
     assert nl["status"] == "sending"
     late = lambda e: e == "p4@client4.com"                                  # unsubscribed after the list was built
-    N.tick(gd, now=NOW + timedelta(days=1), sender=s, is_suppressed=late, cfg=CFG)
-    N.tick(gd, now=NOW + timedelta(days=1, minutes=1), sender=s, is_suppressed=late, cfg=CFG)
+    # the cap is a rolling 24 h (Google's window): still capped just before 24 h after the first sends
+    before = len(s.sent)
+    N.tick(gd, now=NOW + timedelta(hours=23, minutes=59), sender=s, is_suppressed=late, cfg=CFG)
+    assert len(s.sent) == before
+    N.tick(gd, now=NOW + timedelta(days=1, minutes=10), sender=s, is_suppressed=late, cfg=CFG)
+    N.tick(gd, now=NOW + timedelta(days=1, minutes=11), sender=s, is_suppressed=late, cfg=CFG)
     st = N.stats(gd, nl["_id"])
     assert st["queued"] == 0 and st["failed"] == 1 and st["sent"] == 3 and st["skipped"] == 1
     assert "p4@client4.com" not in [m["to"][0] for m in s.sent]
@@ -217,3 +221,36 @@ def test_only_approved_bulk_senders_send(world, monkeypatch):
     assert r["sender_blocked"] == ["news@surveyfieldwork.com"]
     assert [m["email"] for m in N.sender_mailboxes(gd)] == ["hello@cogentixresearch.com"]
     assert "news@surveyfieldwork.com is not an approved bulk sender" in N.problems(nl, gd)
+
+
+def test_google_throttle_requeues_and_rests_the_mailbox(world):
+    """2026-11-26: a 429 'User-rate limit exceeded' is not a bad recipient. The row goes back to the
+    queue without using an attempt and the mailbox rests until Google's retry time."""
+    gd = world
+    nl = nl_doc(gd, status="sending", audience={"SFW": {"sources": [], "extra_emails": ["a@c1.com", "b@c2.com"]}})
+    N.start(gd, nl, now=NOW, is_suppressed=lambda e: False)
+    err = ('Gmail API error: <HttpError 429 when requesting https://gmail.googleapis.com/... returned '
+           '"User-rate limit exceeded.  Retry after 2026-11-23T06:20:00.123Z (Mail sending)"')
+
+    class Throttled(Sender):
+        def __call__(self, **kw):
+            self.sent.append(kw)
+            return {"success": False, "error": err}
+
+    s = Throttled()
+    r = N.tick(gd, now=NOW, sender=s, is_suppressed=lambda e: False, cfg=CFG)
+    assert len(s.sent) == 1 and r["held"] == ["news@surveyfieldwork.com"]          # stops at the first 429
+    st = N.stats(gd, nl["_id"])
+    assert st["queued"] == 2 and st["failed"] == 0
+    assert all(int(x.get("attempts") or 0) == 0 for x in gd(N.DB)[N.RECIPIENTS].find({}))
+    N.tick(gd, now=NOW + timedelta(minutes=10), sender=s, is_suppressed=lambda e: False, cfg=CFG)
+    assert len(s.sent) == 1                                                          # resting until 06:21
+    ok = Sender()
+    N.tick(gd, now=NOW + timedelta(minutes=22), sender=ok, is_suppressed=lambda e: False, cfg=CFG)
+    assert len(ok.sent) == 2 and N.stats(gd, nl["_id"])["sent"] == 2
+
+
+def test_rate_limited_detection():
+    assert N.rate_limited('HttpError 429 ... "User-rate limit exceeded.  Retry after 2026-11-26T07:46:42.635Z (Mail sending)"')
+    assert not N.rate_limited("HttpError 400 Invalid To header")
+    assert not N.rate_limited(None)

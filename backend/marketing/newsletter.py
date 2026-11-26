@@ -25,6 +25,7 @@ Functions take gd (database name -> db), like the rest of marketing/, so tests r
 import hashlib
 import html as _html
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -32,6 +33,8 @@ from urllib.parse import quote
 
 from marketing import schema
 from marketing.schema import utcnow
+
+logger = logging.getLogger(__name__)
 
 DB = schema.DB                                   # email_automation: newsletters, newsletter_recipients, newsletter_contacts
 NEWSLETTERS, RECIPIENTS, CONTACTS, META = "newsletters", "newsletter_recipients", "newsletter_contacts", "newsletter_meta"
@@ -333,8 +336,40 @@ def sender_mailboxes(gd) -> List[Dict[str, Any]]:
 
 
 def sent_today(gd, mailbox: str, now: datetime) -> int:
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return gd(DB)[RECIPIENTS].count_documents({"mailbox": mailbox, "status": "sent", "sent_at": {"$gte": start}})
+    """Sent in the last 24 hours. Google's per-mailbox sending limit is a rolling 24 h window, not a
+    calendar day: a UTC-midnight reset sent 1,905 from one mailbox in 24 h and got it throttled (2026-11-26)."""
+    return gd(DB)[RECIPIENTS].count_documents({"mailbox": mailbox, "status": "sent",
+                                               "sent_at": {"$gte": now - timedelta(hours=24)}})
+
+
+HOLDS = "newsletter_mailbox_holds"
+_RETRY_AFTER = re.compile(r"Retry after (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)")
+
+
+def rate_limited(error: Any) -> bool:
+    """Google refused because the mailbox is over its sending limit: nothing was sent."""
+    e = str(error or "")
+    return "429" in e and ("rate limit" in e.lower() or "Mail sending" in e)
+
+
+def hold_mailbox(gd, mailbox: str, error: Any, now: datetime) -> datetime:
+    """Rest a throttled mailbox until Google's retry time (+1 min); trying earlier extends the block."""
+    m = _RETRY_AFTER.search(str(error or ""))
+    until = None
+    if m:
+        try:
+            until = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S") + timedelta(minutes=1)
+        except ValueError:
+            until = None
+    until = until if until and until > now else now + timedelta(minutes=15)
+    gd(DB)[HOLDS].update_one({"_id": mailbox}, {"$set": {"until": until, "error": str(error)[:300], "updated_at": now}},
+                             upsert=True)
+    return until
+
+
+def held(gd, mailbox: str, now: datetime) -> bool:
+    h = gd(DB)[HOLDS].find_one({"_id": mailbox})
+    return bool(h and h.get("until") and h["until"] > now)
 
 
 # ----------------------------------------------------------------------------- mailbox contacts
@@ -670,6 +705,9 @@ def tick(gd=None, *, now: Optional[datetime] = None, sender: Optional[Callable[.
                     if _sender_problem(box, allowed):          # not an approved bulk sender: never sends
                         budget[box] = 0
                         report.setdefault("sender_blocked", []).append(box)
+                    elif held(gd, box, now):                   # Google throttled it: wait for its retry time
+                        budget[box] = 0
+                        report.setdefault("held", []).append(box)
                     else:
                         budget[box] = max(0, min(per_tick, cap - sent_today(gd, box, now)))
                 while budget[box] > 0:
@@ -681,7 +719,8 @@ def tick(gd=None, *, now: Optional[datetime] = None, sender: Optional[Callable[.
                     if getattr(res, "modified_count", 1) == 0:          # another worker took it
                         continue
                     budget[box] -= 1
-                    _send_one(gd, nl, bu, box, r, sender, is_suppressed, now, max_attempts, report, cfg)
+                    if _send_one(gd, nl, bu, box, r, sender, is_suppressed, now, max_attempts, report, cfg) == "held":
+                        budget[box] = 0
         if rc.count_documents({"newsletter_id": nl["_id"], "status": {"$in": ["queued", "sending"]}}) == 0:
             ea[NEWSLETTERS].update_one({"_id": nl["_id"]}, {"$set": {"status": "sent", "finished_at": now,
                                                                      "stats": stats(gd, nl["_id"]), "updated_at": now}})
@@ -703,6 +742,16 @@ def _send_one(gd, nl, bu, box, r, sender, is_suppressed, now, max_attempts, repo
                      list_unsubscribe_url=one_click)
     except Exception as e:                                   # a crash must not lose the row
         res = {"success": False, "error": str(e)[:300]}
+    if not res.get("success") and rate_limited(res.get("error")):
+        # Google's sending limit, not a bad recipient: nothing went out, so the row goes back to the
+        # queue without using an attempt (another mailbox or a later tick sends it)
+        until = hold_mailbox(gd, box, res.get("error"), now)
+        rc.update_one({"_id": r["_id"]}, {"$set": {"status": "queued", "last_error": str(res.get("error"))[:300],
+                                                   "updated_at": now},
+                                          "$unset": {"mailbox": "", "claimed_at": ""}})
+        report.setdefault("held", []).append(box)
+        logger.warning("newsletter: %s throttled by Google until %s", box, until)
+        return "held"
     attempts = int(r.get("attempts") or 0) + 1
     if res.get("success"):
         rc.update_one({"_id": r["_id"]}, {"$set": {"status": "sent", "sent_at": now, "attempts": attempts,
