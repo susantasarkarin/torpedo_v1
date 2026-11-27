@@ -149,3 +149,10 @@ def test_website_enquiry_is_never_cold_outreach():
     n = normalize_payload({"email": "a@example.com", "name": "A B", "cold_outreach_blocked": True}, "website_form", "cogentixresearch.com")
     assert n["source"] == "website_form" and n["cold_outreach_blocked"] is True
     assert normalize_payload({"email": "b@example.com"}, "csv", "x")["cold_outreach_blocked"] is None
+
+
+def test_raw_insert_doc_leaves_out_null_linkedin_url():
+    """leads_raw.linkedin_url is sparse-unique: an explicit null collides with every other email-only lead."""
+    from leads.canonical_ingestion import _raw_insert_doc
+    assert "linkedin_url" not in _raw_insert_doc({"email": "a@example.com", "linkedin_url": None})
+    assert _raw_insert_doc({"email": "a@example.com", "linkedin_url": "https://linkedin.com/in/a"})["linkedin_url"]

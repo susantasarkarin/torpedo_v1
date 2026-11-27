@@ -11,6 +11,7 @@ import re
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
+from bson import ObjectId
 from pymongo import ASCENDING, UpdateOne
 from pymongo.errors import DuplicateKeyError, BulkWriteError
 from dotenv import load_dotenv
@@ -1023,6 +1024,15 @@ def _reject_non_person_email(normalized: Dict[str, Any]) -> Optional[str]:
     return reason
 
 
+def _raw_insert_doc(normalized: Dict[str, Any]) -> Dict[str, Any]:
+    """The leads_raw document to insert. leads_raw has a sparse UNIQUE index on
+    linkedin_url: a sparse index skips documents WITHOUT the field but still
+    indexes an explicit null, so after one email-only lead every further one hit
+    E11000 and was dropped as a "race condition" (1,705 Gmail leads since
+    2026-08-29). Leave the field out instead of storing null."""
+    return {k: v for k, v in normalized.items() if not (k == 'linkedin_url' and v is None)}
+
+
 def ingest_lead(
     payload: Dict[str, Any],
     source: str,
@@ -1167,7 +1177,7 @@ def ingest_lead(
             normalized['lead_bracket'] = determine_lead_bracket(normalized)
             
             # Step 6: Insert into leads_raw
-            insert_result = leads_raw.insert_one(normalized)
+            insert_result = leads_raw.insert_one(_raw_insert_doc(normalized))
 
             # Step 7: ALWAYS sync to leads_enriched with ICP basket (rule-based, no AI)
             enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
@@ -1619,7 +1629,9 @@ def ingest_leads_bulk(
 
     ok_docs = []
     try:
-        result = leads_raw.insert_many(docs, ordered=False)
+        for d in docs:   # ids set here so the inserted copies and docs share them (used below)
+            d.setdefault('_id', ObjectId())
+        result = leads_raw.insert_many([_raw_insert_doc(d) for d in docs], ordered=False)
         ok_docs = docs
     except BulkWriteError as e:
         failed_idx = {we['index'] for we in (e.details or {}).get('writeErrors', [])}
