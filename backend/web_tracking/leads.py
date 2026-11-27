@@ -137,13 +137,39 @@ def capture(gd: Callable, body: Dict[str, Any], *, site: Dict[str, Any], ip: str
                      sender_type="client", review_item=item)
     except Exception:
         pass
+    sales_lead_id = _to_sales_leads(gd, email=email, name=name, company=company, phone=_clean(f.get("phone"), 40),
+                                    message=message, interest=interest, site=site, bu=bu, now=now)
     try:
         from platform_core.audit import log_action
         log_action(actor="website", action="create", entity_type="lead", entity_id=lead_id,
                    reason=f"website enquiry via {site['domain']} ({dedupe})", source="web_form")
     except Exception:
         pass
-    return {"ok": True, "lead_id": lead_id, "dedupe": dedupe, "review_item": item}
+    return {"ok": True, "lead_id": lead_id, "dedupe": dedupe, "review_item": item, "sales_lead_id": sales_lead_id}
+
+
+def _to_sales_leads(gd: Callable, *, email, name, company, phone, message, interest, site, bu, now) -> Optional[str]:
+    """Show the enquiry on Sales > Leads (leads_enriched), through the canonical
+    ingestion every lead source uses. A website enquirer is inbound: never cold
+    outreach. Any failure here must not fail the visitor's form."""
+    try:
+        from leads.canonical_ingestion import ingest_lead
+        out = ingest_lead({"email": email, "name": name, "company": company, "phone": phone,
+                           "subject": f"Website enquiry ({site['domain']})" + (f": {interest}" if interest else ""),
+                           "notes": message[:2000], "cold_outreach_blocked": True},
+                          source="website_form", source_detail=site["domain"])
+        raw = gd("email_automation")["leads_raw"].find_one({"email": email}, {"enriched_lead_id": 1}) or {}
+        enriched_id = raw.get("enriched_lead_id")
+        if enriched_id:
+            gd("email_automation")["leads_enriched"].update_one(
+                {"_id": ObjectId(enriched_id)},
+                {"$set": {"cold_outreach_blocked": True, "website_enquiry_at": now, "website_enquiry_site": site["domain"],
+                          "website_enquiry_bu": bu, "updated_at": now}})
+        return enriched_id or out.get("lead_id")
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("website enquiry not added to Sales > Leads (%s)", email)
+        return None
 
 
 def _yes(v) -> bool:

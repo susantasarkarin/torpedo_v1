@@ -63,7 +63,7 @@ def log_ingestion_event(email: str, source: str, action: str, lead_id: str = Non
 REQUIRED_FIELDS = {'email'}
 ENRICHMENT_REQUIRED_FIELDS = {'first_name', 'company'}  # If missing, trigger enrichment
 
-VALID_SOURCES = {'gmail', 'websearch', 'csv'}
+VALID_SOURCES = {'gmail', 'websearch', 'csv', 'website_form'}   # website_form: contact forms on the company sites (web_tracking/leads.py)
 VALID_CLASSIFICATIONS = {'client', 'vendor', 'irrelevant', 'unknown', 'pending'}
 VALID_BRACKETS = {'lead', 'contact', 'account'}
 UNKNOWN_COMPANY_VALUES = {'unknown', 'n/a', 'na', '-', '--', 'not available', 'none'}
@@ -178,6 +178,8 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, 
         'stage': 'already_contacted' if source == 'gmail' else None,
         # Email content fields (from mail_pool_extractor)
         'subject': (payload.get('subject') or '').strip() or None,
+        # inbound correspondents (website enquiries) are never cold-outreach targets (_auto_enroll_in_outreach)
+        'cold_outreach_blocked': True if payload.get('cold_outreach_blocked') else None,
         'notes': (payload.get('notes') or '').strip() or None,
         'created_at': now,
         'updated_at': now,

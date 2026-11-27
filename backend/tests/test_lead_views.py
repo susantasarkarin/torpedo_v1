@@ -135,3 +135,17 @@ def test_blanks_sort_last_both_ways(monkeypatch):
 
 def test_unknown_sort_key_falls_back_safely():
     assert ids(view="leads", sort_by="$where") == {"2", "3", "6"}
+
+
+def test_website_enquiries_are_inbound_leads():
+    """Contact-form enquiries (web_tracking/leads.py) belong on Sales > Leads."""
+    from leads.service import lead_view_clause
+    assert "website_form" in str(lead_view_clause("leads"))
+
+
+def test_website_enquiry_is_never_cold_outreach():
+    from leads.canonical_ingestion import VALID_SOURCES, normalize_payload
+    assert "website_form" in VALID_SOURCES
+    n = normalize_payload({"email": "a@example.com", "name": "A B", "cold_outreach_blocked": True}, "website_form", "cogentixresearch.com")
+    assert n["source"] == "website_form" and n["cold_outreach_blocked"] is True
+    assert normalize_payload({"email": "b@example.com"}, "csv", "x")["cold_outreach_blocked"] is None

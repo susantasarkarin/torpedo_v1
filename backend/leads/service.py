@@ -603,7 +603,7 @@ def lead_view_clause(view: str) -> dict:
       leads       — not a contact, and two-way mail: Gmail-sourced or replied
       ai_database — everything else (prospects we have not heard from)
     """
-    two_way_sources = GMAIL_SOURCES + ["gmail_contact", "gmail_calendar", "gmail_reply", "outreach_reply"]
+    two_way_sources = GMAIL_SOURCES + ["gmail_contact", "gmail_calendar", "gmail_reply", "outreach_reply", "website_form"]
     qualified = {"$or": [{"source": {"$in": two_way_sources}},
                          {"outreach_replied_at": {"$exists": True}}]}
     not_contact = {"stage": {"$nin": CONTACT_STAGES}}
