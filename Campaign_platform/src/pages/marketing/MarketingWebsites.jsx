@@ -90,6 +90,17 @@ export default function MarketingWebsites() {
     } catch (e) { notify(e.message, "error") }
   }
 
+  const [syncing, setSyncing] = useState(false)
+  const syncPosts = async () => {
+    setSyncing(true)
+    try {
+      const r = await api("/posts/sync", { method: "POST" })
+      notify(r.new?.length ? `${r.new.length} new post(s) found and sent to search engines` : "Posts and visits are up to date", "success")
+      load()
+    } catch (e) { notify(e.message, "error") }
+    finally { setSyncing(false) }
+  }
+
   const removePost = async (p) => {
     if (!(await confirmAction(`Delete the post "${p.title}"?`, { confirmText: "Delete" }))) return
     await api(`/posts/${p._id}`, { method: "DELETE" }).catch((e) => notify(e.message, "error"))
@@ -138,35 +149,49 @@ export default function MarketingWebsites() {
             ))}
           </div>
 
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-cogentix-navy">Blog posts</h2>
-            <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY_POST, site_id: sites[0]?._id || "" })}>
-              <Plus size={16} /> New post
-            </button>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-bold text-cogentix-navy">Blog posts</h2>
+              <p className="text-gray-600">Every post on the websites appears here automatically (checked every 30 minutes and after each website deploy). Visits come from the website tracker.</p>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-secondary" onClick={syncPosts} disabled={syncing} title="Read every site's sitemap, refresh visits, tell search engines about new posts">
+                <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync posts"}
+              </button>
+              <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY_POST, site_id: sites[0]?._id || "" })}>
+                <Plus size={16} /> New post
+              </button>
+            </div>
           </div>
           {posts.length === 0 ? (
             <div className="empty-state py-10"><h3>No posts yet</h3><p>Write one with "New post".</p></div>
           ) : (
             <table className="w-full text-left">
               <thead><tr><th className="py-2">Title</th><th className="py-2">Website</th><th className="py-2">Status</th>
-                <th className="py-2">Updated</th><th className="py-2" /></tr></thead>
+                <th className="py-2">Published</th><th className="py-2 text-right">Visits 30 days</th><th className="py-2 text-right">Visits total</th><th className="py-2" /></tr></thead>
               <tbody>
                 {posts.map((p) => (
                   <tr key={p._id} className="border-t border-gray-100">
                     <td className="py-2 font-semibold">{p.title}</td>
                     <td className="py-2">{siteName(p.site_id)}</td>
-                    <td className="py-2"><span className="status-badge" style={{ background: "#fdf4e7" }}>
-                      {p.status === "sent_to_site" ? "Sent to site" : p.status === "ready" ? "Ready" : "Draft"}</span>
-                      {p.published_url && <> · <a href={p.published_url} target="_blank" rel="noreferrer">open</a></>}
+                    <td className="py-2"><span className="status-badge" style={{ background: p.status === "published" ? (p.live === false ? "#f3f4f6" : "#e7f6ec") : "#fdf4e7" }}>
+                      {p.status === "published" ? (p.live === false ? "Removed from site" : "Live") : p.status === "sent_to_site" ? "Sent to site" : p.status === "ready" ? "Ready" : "Draft"}</span>
+                      {p.published_url && p.source !== "site" && <> · <a href={p.published_url} target="_blank" rel="noreferrer">open</a></>}
                     </td>
-                    <td className="py-2">{formatDateTime(p.updated_at)}</td>
+                    <td className="py-2">{formatDateTime(p.published_at || p.updated_at)}</td>
+                    <td className="py-2 text-right">{p.views_30d ?? "—"}</td>
+                    <td className="py-2 text-right">{p.views_total ?? "—"}</td>
                     <td className="py-2">
+                      {p.source === "site" ? (
+                        <div className="flex justify-end"><a href={p.published_url} target="_blank" rel="noreferrer">Open post</a></div>
+                      ) : (
                       <div className="flex justify-end gap-2">
                         <button className="action-btn" title="Edit" aria-label="Edit" onClick={() => setEditing(p)}><Pencil size={16} /></button>
                         <button className="action-btn" title="Copy HTML" aria-label="Copy HTML" onClick={() => copyHtml(p)}><Copy size={16} /></button>
                         <button className="action-btn" title="Send to the website (WordPress)" aria-label="Send to website" onClick={() => publish(p)}><Send size={16} /></button>
                         <button className="action-btn" title="Delete" aria-label="Delete" onClick={() => removePost(p)}><Trash2 size={16} /></button>
                       </div>
+                      )}
                     </td>
                   </tr>
                 ))}

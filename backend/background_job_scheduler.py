@@ -916,6 +916,23 @@ def initialize_scheduler(loop=None):
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add email classification job: {e}")
 
+        # Company-site blog posts -> Marketing > Websites, with visits; new posts to search engines.
+        try:
+            def _run_site_posts_sync():
+                try:
+                    from marketing import site_posts
+                    rep = site_posts.sync()
+                    if rep.get("new"):
+                        logger.info(f"[Scheduler/SitePosts] new posts: {rep['new']}")
+                except Exception as _e:
+                    logger.error(f"[Scheduler/SitePosts] Error: {_e}")
+
+            scheduler.add_job(_run_site_posts_sync, "interval", minutes=30, id="site_posts_sync",
+                              name="Website blog posts + visits sync", max_instances=1)
+            logger.info("[Scheduler] Added website blog posts sync (every 30 min)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add website blog posts sync: {e}")
+
         # Mail pool backfill — drain unprocessed inbound emails via rule-based extraction.
         # Runs every 15 minutes, processes 1000 records per run.
         # Uses ai_is_sales_lead pre-filter (no new AI calls) to skip non-leads cheaply.

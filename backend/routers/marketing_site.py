@@ -136,7 +136,16 @@ def _slug(title: str) -> str:
 
 @router.get("/posts")
 def list_posts():
-    return {"posts": [_ser(p) for p in _db()["posts"].find().sort("updated_at", -1)]}
+    return {"posts": [_ser(p) for p in _db()["posts"].find().sort([("published_at", -1), ("updated_at", -1)])]}
+
+
+@router.post("/posts/sync")
+def sync_posts():
+    """Pull every blog post from the company sites' sitemaps, refresh visit counts,
+    and tell search engines about new posts (marketing/site_posts.py)."""
+    from marketing import site_posts
+    rep = site_posts.sync()
+    return {"ok": True, "new": rep["new"], "sites": rep["sites"]}
 
 
 _POST_FIELDS = ("title", "slug", "site_id", "excerpt", "body", "meta_title", "meta_description", "status")
