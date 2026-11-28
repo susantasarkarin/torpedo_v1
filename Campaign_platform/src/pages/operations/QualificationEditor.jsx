@@ -435,6 +435,7 @@ export default function QualificationEditor({ formData, setFormData }) {
               placeholder="1 = offered first"
               onChange={(e) => setFormData((prev) => ({ ...prev, routingPriority: e.target.value }))}
             />
+            <small className="pp-hint">Blank = offered after numbered projects. Panel members ignore this: they get the project they are most likely to complete.</small>
           </div>
         )}
         {library && !library.routingEnabled && (
