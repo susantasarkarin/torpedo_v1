@@ -5,19 +5,15 @@ import {
   updateSurveySupplier,
   deleteSurveySupplier,
   downloadTrafficReport,
-  getSurveyTrend,
   saveBlob,
   OpsApiError,
 } from "../../../services/opsProjectsService";
 import { notify as notifyToast, confirmAction } from "../../../utils/notify";
 import AddSupplierModal from "./AddSupplierModal";
 import AttachLinkModal from "./AttachLinkModal";
-import { Metric, StatusBadge, Breadcrumbs, WindowToggle, StateMessage } from "./opsShared";
-import { canSeePricing, fmtInt, fmtPct, fmtLoi, fmtMoney, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
+import { Metric, StatusBadge, Breadcrumbs, StateMessage } from "./opsShared";
+import { canSeePricing, fmtInt, fmtPct, fmtLoi, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
 import "./opsProjects.css";
-
-const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AUD", "CAD", "SGD", "AED"];
-const TREND_DAYS = [7, 14, 30];
 
 // Supplier (survey source) statuses the backend accepts: live, paused, completed.
 const SOURCE_STATUS_OPTIONS = [
@@ -27,9 +23,7 @@ const SOURCE_STATUS_OPTIONS = [
 ];
 
 // One supplier row. It owns its own edit state, so rows save independently.
-function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved, onAttach }) {
-  const [editingPrice, setEditingPrice] = useState(false);
-  const [priceDraft, setPriceDraft] = useState({ buyPrice: "", currency: "USD" });
+function SupplierRow({ row, onChange, onRemove, onAttach }) {
   const [busy, setBusy] = useState(false);
 
   const save = async (body, successMsg) => {
@@ -46,25 +40,6 @@ function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved, onAttach
       return false;
     } finally {
       setBusy(false);
-    }
-  };
-
-  const startPriceEdit = () => {
-    setPriceDraft({ buyPrice: row.buyPrice ?? "", currency: row.currency || "USD" });
-    setEditingPrice(true);
-  };
-
-  const savePrice = async (e) => {
-    e.preventDefault();
-    const n = priceDraft.buyPrice === "" ? null : Number(priceDraft.buyPrice);
-    if (n !== null && (Number.isNaN(n) || n < 0)) {
-      notifyToast("Buy price must be 0 or more.", "warning");
-      return;
-    }
-    const ok = await save({ buyPrice: n, currency: priceDraft.currency }, "Buy price saved.");
-    if (ok) {
-      setEditingPrice(false);
-      onPriceSaved(); // expense depends on price, so the list is re-read
     }
   };
 
@@ -103,59 +78,12 @@ function SupplierRow({ row, canPrice, onChange, onRemove, onPriceSaved, onAttach
       <td className="ops-td">{row.sourceName || "—"}</td>
       {metric("entrants", fmtInt)}
       {metric("terms", fmtInt)}
-      {metric("oqs", fmtInt)}
       {metric("abandons", fmtInt)}
-      {metric("inFlights", fmtInt)}
       {metric("completes", fmtInt)}
-      {metric("completesWindow", fmtInt)}
       {metric("ir", fmtPct)}
       {metric("conversion", fmtPct)}
       {metric("loi", fmtLoi)}
 
-      {canPrice && (
-        <td className="ops-td ops-td--num">
-          {editingPrice ? (
-            <form className="ops-inline-edit" onSubmit={savePrice}>
-              <label className="ops-visually-hidden" htmlFor={`bp-${row.id}`}>Buy price for {row.vendorName}</label>
-              <input
-                id={`bp-${row.id}`}
-                type="number"
-                min="0"
-                step="0.01"
-                className="ops-input ops-input--sm"
-                value={priceDraft.buyPrice}
-                onChange={(e) => setPriceDraft((d) => ({ ...d, buyPrice: e.target.value }))}
-              />
-              <label className="ops-visually-hidden" htmlFor={`cur-${row.id}`}>Currency for {row.vendorName}</label>
-              <select
-                id={`cur-${row.id}`}
-                className="ops-input ops-input--sm"
-                value={priceDraft.currency}
-                onChange={(e) => setPriceDraft((d) => ({ ...d, currency: e.target.value }))}
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <button type="submit" className="ops-btn ops-btn--primary ops-btn--sm" disabled={busy}>Save</button>
-              <button type="button" className="ops-btn ops-btn--ghost ops-btn--sm" onClick={() => setEditingPrice(false)} disabled={busy}>Cancel</button>
-            </form>
-          ) : (
-            <span className="ops-inline-value">
-              <Metric value={row.buyPrice} format={(v) => fmtMoney(v, row.currency)} />
-              <button type="button" className="ops-icon-btn ops-icon-btn--sm" onClick={startPriceEdit} aria-label={`Edit buy price for ${row.vendorName}`} disabled={busy}>
-                ✎
-              </button>
-            </span>
-          )}
-        </td>
-      )}
-      {canPrice && (
-        <td className="ops-td ops-td--num">
-          <Metric value={row.expense} format={(v) => fmtMoney(v, row.currency)} />
-        </td>
-      )}
-      {canPrice && <td className="ops-td">{row.expenseBasis || "—"}</td>}
 
       <td className="ops-td">
         <label className="ops-visually-hidden" htmlFor={`st-${row.id}`}>Status for {row.vendorName}</label>
@@ -200,7 +128,6 @@ export default function OpsSurveySources() {
   const { projectId, surveyId } = useParams();
   const canPrice = canSeePricing();
 
-  const [windowKey, setWindowKey] = useState("p24h");
   const [data, setData] = useState({ project: null, survey: null, items: [] });
   const [unverified, setUnverified] = useState([]);
   const [inflightMinutes, setInflightMinutes] = useState(null);
@@ -210,17 +137,12 @@ export default function OpsSurveySources() {
   const [adding, setAdding] = useState(false);
   const [linkRow, setLinkRow] = useState(null);
   const [reporting, setReporting] = useState(false);
-  const [trendDays, setTrendDays] = useState(14);
-  const [trend, setTrend] = useState(null);
-  const [trendLoading, setTrendLoading] = useState(true);
-  const [trendError, setTrendError] = useState(null);
-  const [trendReloadKey, setTrendReloadKey] = useState(0);
 
   useEffect(() => {
     let ignore = false;
     setLoading(true);
     setError(null);
-    listSurveySuppliers(surveyId, { window: windowKey })
+    listSurveySuppliers(surveyId)
       .then((res) => {
         if (ignore) return;
         setData({ project: res.project || null, survey: res.survey || null, items: res.items || [] });
@@ -236,32 +158,9 @@ export default function OpsSurveySources() {
     return () => {
       ignore = true;
     };
-  }, [surveyId, windowKey, reloadKey]);
+  }, [surveyId, reloadKey]);
 
-  useEffect(() => {
-    let ignore = false;
-    setTrendLoading(true);
-    setTrendError(null);
-    getSurveyTrend(surveyId, trendDays)
-      .then((res) => {
-        if (!ignore) setTrend(res || {});
-      })
-      .catch((e) => {
-        if (!ignore) setTrendError(e instanceof OpsApiError ? e.message : "Could not load the trend.");
-      })
-      .finally(() => {
-        if (!ignore) setTrendLoading(false);
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [surveyId, trendDays, trendReloadKey]);
-
-  const windowLabel = windowKey === "p14d" ? "P14D" : "P24H";
   const { project, survey, items } = data;
-  const trendDates = Array.isArray(trend?.days) ? trend.days : [];
-  const trendSeries = Array.isArray(trend?.series) ? trend.series : [];
-  const trendTotal = Array.isArray(trend?.total?.completes) ? trend.total.completes : [];
 
   const updateRow = (next) =>
     setData((d) => ({ ...d, items: d.items.map((r) => (r.id === next.id ? next : r)) }));
@@ -319,10 +218,6 @@ export default function OpsSurveySources() {
         </div>
       </header>
 
-      <div className="ops-toolbar ops-toolbar--end">
-        <WindowToggle value={windowKey} onChange={setWindowKey} />
-      </div>
-
       {unverified.length > 0 && (
         <p className="ops-notice" role="note">
           Some metrics are not yet verified and show “—”: {unverified.join(", ")}.
@@ -346,17 +241,11 @@ export default function OpsSurveySources() {
                   <th scope="col" className="ops-th">Source</th>
                   {metricHeader("Entrants", "entrants")}
                   {metricHeader("Terms", "terms")}
-                  {metricHeader("OQs", "oqs")}
                   {metricHeader("Abandons", "abandons")}
-                  {metricHeader("In-flights", "inFlights")}
                   {metricHeader("Completes", "completes")}
-                  {metricHeader(`Completes (${windowLabel})`, "completesWindow")}
                   {metricHeader("IR", "ir")}
                   {metricHeader("Conversion", "conversion")}
                   {metricHeader("LOI", "loi")}
-                  {canPrice && <th scope="col" className="ops-th ops-th--right">Buy price</th>}
-                  {canPrice && <th scope="col" className="ops-th ops-th--right">Expense</th>}
-                  {canPrice && <th scope="col" className="ops-th">Expense basis</th>}
                   <th scope="col" className="ops-th">Status</th>
                   <th scope="col" className="ops-th ops-th--center"><span className="ops-visually-hidden">Actions</span></th>
                 </tr>
@@ -366,10 +255,8 @@ export default function OpsSurveySources() {
                   <SupplierRow
                     key={row.id}
                     row={row}
-                    canPrice={canPrice}
                     onChange={updateRow}
                     onRemove={removeRow}
-                    onPriceSaved={() => setReloadKey((k) => k + 1)}
                     onAttach={setLinkRow}
                   />
                 ))}
@@ -379,65 +266,11 @@ export default function OpsSurveySources() {
         )}
         {!error && items.length > 0 && inflightMinutes != null && (
           <p className="ops-subtle">
-            In-Flights = started in the last {inflightMinutes} min without a final status; Abandons = older than that.
+            Abandons = started more than {inflightMinutes} min ago without a final status.
           </p>
         )}
       </div>
 
-      <section className="ops-section" aria-labelledby="ops-trend-title">
-        <div className="ops-section__head">
-          <h2 id="ops-trend-title" className="ops-section__title">Completes trend</h2>
-          <label className="ops-pagination__size">
-            Days
-            <select value={trendDays} onChange={(e) => setTrendDays(Number(e.target.value))}>
-              {TREND_DAYS.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {trendLoading && !trend && <StateMessage kind="loading" title="Loading trend…" />}
-        {trendError && (
-          <StateMessage kind="error" title="Could not load the trend" message={trendError} onRetry={() => setTrendReloadKey((k) => k + 1)} />
-        )}
-        {!trendError && trend && trendDates.length === 0 && (
-          <StateMessage kind="empty" title="No trend data for this period" message="Completes appear here once traffic arrives." />
-        )}
-        {!trendError && trendDates.length > 0 && (
-          <div className="ops-card" aria-busy={trendLoading}>
-            <div className="ops-table-wrap">
-              <table className="ops-table ops-trend-table">
-                <caption className="ops-visually-hidden">Completes per day for the last {trendDays} days, by supplier, with total</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className="ops-th">Date</th>
-                    {trendSeries.map((s, j) => (
-                      <th key={s.vendorId || j} scope="col" className="ops-th ops-th--right">{s.vendorName || s.vendorId || "—"}</th>
-                    ))}
-                    <th scope="col" className="ops-th ops-th--right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trendDates.map((day, i) => (
-                    <tr key={`${day}-${i}`}>
-                      <th scope="row" className="ops-td">{String(day)}</th>
-                      {trendSeries.map((s, j) => (
-                        <td key={s.vendorId || j} className="ops-td ops-td--num">
-                          <Metric value={Array.isArray(s.completes) ? s.completes[i] : null} format={fmtInt} />
-                        </td>
-                      ))}
-                      <td className="ops-td ops-td--num">
-                        <Metric value={trendTotal[i]} format={fmtInt} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </section>
 
       {adding && (
         <AddSupplierModal

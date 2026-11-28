@@ -27,7 +27,6 @@ import {
   RowMenu,
   StateMessage,
   Breadcrumbs,
-  WindowToggle,
 } from "./opsShared";
 import { fmtInt, fmtPct, fmtLoi, NOT_CONFIRMED_TIP, openSurveyTestLink, TEST_LINK_TIP } from "./opsUtils";
 import "./opsProjects.css";
@@ -65,12 +64,9 @@ const METRIC_COLUMNS = [
   { key: "entrants", label: "Entrants", fmt: fmtInt },
   { key: "defenderTerms", label: "Defender terms", fmt: fmtInt, gated: true },
   { key: "terms", label: "Terms", fmt: fmtInt },
-  { key: "oqs", label: "OQs", fmt: fmtInt },
   { key: "sqTerms", label: "SQ terms", fmt: fmtInt, tip: SQ_TERMS_TIP },
   { key: "abandons", label: "Abandons", fmt: fmtInt, gated: true },
-  { key: "inFlights", label: "In-flights", fmt: fmtInt, gated: true },
   { key: "completes", label: "Completes", fmt: fmtInt },
-  { key: "completesWindow", label: "Completes", fmt: fmtInt, windowed: true },
   { key: "ir", label: "IR", fmt: fmtPct },
   { key: "conversion", label: "Conversion", fmt: fmtPct },
   { key: "loi", label: "LOI", fmt: fmtLoi },
@@ -86,7 +82,7 @@ export default function OpsProjectSurveys() {
   const [order, setOrder] = useState("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [windowKey, setWindowKey] = useState("p24h");
+  const windowKey = "p24h";
 
   const [project, setProject] = useState(null);
   const [data, setData] = useState({ items: [], total: 0, counts: EMPTY_COUNTS });
@@ -227,10 +223,8 @@ export default function OpsProjectSurveys() {
   };
 
   const hasFilter = Boolean(q) || tab !== "all";
-  const isWindowed = (col) => Boolean(col.windowed);
   // A gated column is sortable only when the response does not mark it unverified.
   const isSortable = (col) => !(col.gated && unverified.includes(col.key));
-  const windowLabel = windowKey === "p14d" ? "P14D" : "P24H";
 
   return (
     <div className="ops-page">
@@ -287,13 +281,6 @@ export default function OpsProjectSurveys() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <WindowToggle
-          value={windowKey}
-          onChange={(v) => {
-            setWindowKey(v);
-            setPage(1);
-          }}
-        />
       </div>
 
       <div className="ops-tabs ops-tabs--wrap" role="tablist" aria-label="Filter surveys by status">
@@ -342,7 +329,7 @@ export default function OpsProjectSurveys() {
                     <SortHeader label="No." sortKey="surveyNo" sort={sort} order={order} onSort={onSort} />
                     <SortHeader label="Status" sortKey="status" sort={sort} order={order} onSort={onSort} />
                     {METRIC_COLUMNS.map((col) => {
-                      const label = isWindowed(col) ? `${col.label} (${windowLabel})` : col.label;
+                      const label = col.label;
                       const tip = unverified.includes(col.key) ? NOT_CONFIRMED_TIP : col.tip;
                       if (!isSortable(col)) {
                         return (
@@ -414,7 +401,7 @@ export default function OpsProjectSurveys() {
             </div>
             {inflightMinutes != null && (
               <p className="ops-subtle">
-                In-Flights = started in the last {inflightMinutes} min without a final status; Abandons = older than that.
+                Abandons = started more than {inflightMinutes} min ago without a final status.
               </p>
             )}
             <Pagination
