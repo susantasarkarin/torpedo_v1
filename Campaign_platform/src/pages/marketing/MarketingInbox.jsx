@@ -28,83 +28,103 @@ export default function MarketingInbox() {
     try { await api(`/${id}/${action}`, { method: "POST" }); load() } catch (e) { notify(e.message, "error") }
   }
 
-  if (!data) return <div className="card">Loading…</div>
+  if (!data) return <div className="loading-spinner" />
   const stats = Object.entries(data.stats || {})
+  const STATUS_PILL = { open: "warn", replied: "ok", closed: "", spam: "bad" }
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="card-title">Inbox</h2>
-            <p className="card-description">
-              Every inbound message across channels. Replies are drafted into the Review Queue; an item counts as answered
-              when its draft is approved. SLA: leads 1 working hour, comments 4 working hours.
-            </p>
-          </div>
-          <button type="button" className="btn btn-secondary flex items-center gap-1" onClick={load}><RefreshCw size={16} /> Refresh</button>
+    <div className="space-y-5">
+      <div className="mk-section-head">
+        <div>
+          <h1 className="cx-page-title">Inbox</h1>
+          <p>
+            Every inbound message across channels. Replies are drafted into the Review Queue; an item counts as answered
+            when its draft is approved. SLA: leads 1 working hour, comments 4 working hours.
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <select className="form-input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
-            {["open", "replied", "closed", "spam", ""].map((s) => <option key={s} value={s}>{s || "all"}</option>)}
+        <button type="button" className="btn btn-secondary" onClick={load}><RefreshCw size={16} /> Refresh</button>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <label>
+          <span className="mk-label">Status</span>
+          <select className="form-input mk-auto" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            {["open", "replied", "closed", "spam", ""].map((s) => <option key={s} value={s}>{s ? s[0].toUpperCase() + s.slice(1) : "All"}</option>)}
           </select>
-          <select className="form-input" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
+        </label>
+        <label>
+          <span className="mk-label">Channel</span>
+          <select className="form-input mk-auto" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
             <option value="">All channels</option>{data.channels.map((c) => <option key={c} value={c}>{label(c)}</option>)}
           </select>
-          <select className="form-input" value={f.bu} onChange={(e) => setF({ ...f, bu: e.target.value })}>
+        </label>
+        <label>
+          <span className="mk-label">Business unit</span>
+          <select className="form-input mk-auto" value={f.bu} onChange={(e) => setF({ ...f, bu: e.target.value })}>
             <option value="">All BUs</option>{BUS.map((b) => <option key={b}>{b}</option>)}
           </select>
-        </div>
+        </label>
       </div>
 
       {stats.length > 0 && (
-        <div className="card overflow-x-auto">
-          <h3 className="card-title">Last 30 days</h3>
-          <table className="mt-2 w-full text-sm">
-            <thead><tr className="text-left"><th>Channel</th><th>Received</th><th>Answered</th><th>Within SLA</th><th>Median response</th><th>Open past SLA</th></tr></thead>
-            <tbody>
-              {stats.map(([c, s]) => (
-                <tr key={c}>
-                  <td>{label(c)}</td><td>{s.received}</td><td>{s.replied}</td>
-                  <td>{s.sla_met_pct == null ? "—" : `${s.sla_met_pct}%`}</td>
-                  <td>{s.median_response_minutes == null ? "—" : `${s.median_response_minutes} min`}</td>
-                  <td className={s.open_breached ? "font-semibold text-red-700" : ""}>{s.open_breached}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          <h2 className="mb-2 text-lg font-bold">Last 30 days</h2>
+          <div className="mk-table-wrap">
+            <table>
+              <thead><tr><th>Channel</th><th className="num">Received</th><th className="num">Answered</th><th className="num">Within SLA</th><th className="num">Median response</th><th className="num">Open past SLA</th></tr></thead>
+              <tbody>
+                {stats.map(([c, s]) => (
+                  <tr key={c}>
+                    <td className="font-semibold capitalize">{label(c)}</td><td className="num">{s.received}</td><td className="num">{s.replied}</td>
+                    <td className="num">{s.sla_met_pct == null ? <span className="mk-muted">—</span> : `${s.sla_met_pct}%`}</td>
+                    <td className="num">{s.median_response_minutes == null ? <span className="mk-muted">—</span> : `${s.median_response_minutes} min`}</td>
+                    <td className={`num ${s.open_breached ? "font-semibold text-red-700" : ""}`}>{s.open_breached}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {data.items.length === 0 && <div className="card text-gray-700">Nothing here.</div>}
-      {data.items.map((it) => (
-        <div key={it._id} className="card">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <p className="font-semibold">
-                {label(it.channel)} · {it.bu || "—"} · {it.category}{it.sender_type && it.sender_type !== "other" ? ` (${it.sender_type})` : ""}
-              </p>
-              <p className="text-sm text-gray-700">
-                {(it.author && (it.author.name || it.author.handle)) || "Unknown"} · {formatDateTime(it.at)}
-                {it.url && <> · <a href={it.url} target="_blank" rel="noreferrer" className="underline">open</a></>}
-              </p>
-            </div>
-            {it.status === "open" && it.due_at && (
-              <span className={`flex items-center gap-1 text-sm font-semibold ${it.breached ? "text-red-700" : "text-gray-800"}`}>
-                <Clock size={14} /> {it.breached ? "Past SLA since" : "Reply by"} {formatDateTime(it.due_at)}
-              </span>
-            )}
+      <div>
+        <h2 className="mb-2 text-lg font-bold">Messages <span className="mk-muted font-normal">({data.items.length})</span></h2>
+        {data.items.length === 0 ? (
+          <div className="empty-state py-10"><h3>Nothing here</h3><p>No messages match these filters.</p></div>
+        ) : (
+          <div className="mk-table-wrap divide-y divide-gray-100">
+            {data.items.map((it) => (
+              <div key={it._id} className="space-y-2 px-5 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="mk-pill capitalize">{label(it.channel)}</span>
+                    {it.bu && <span className="mk-pill info">{it.bu}</span>}
+                    <span className="mk-pill">{it.category}{it.sender_type && it.sender_type !== "other" ? ` · ${it.sender_type}` : ""}</span>
+                    {it.status !== "open" && <span className={`mk-pill ${STATUS_PILL[it.status] || ""}`}>{it.status}</span>}
+                  </div>
+                  {it.status === "open" && it.due_at && (
+                    <span className={`mk-pill ${it.breached ? "bad" : "warn"}`}>
+                      <Clock size={14} /> {it.breached ? "Past SLA since" : "Reply by"} {formatDateTime(it.due_at)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-600">
+                  <span className="font-semibold text-gray-900">{(it.author && (it.author.name || it.author.handle)) || "Unknown"}</span> · {formatDateTime(it.at)}
+                  {it.url && <> · <a href={it.url} target="_blank" rel="noreferrer" className="mk-link">View source</a></>}
+                </p>
+                <p className="whitespace-pre-wrap">{it.text}</p>
+                {it.draft && <p className="mk-notice"><span><strong>Draft:</strong> {it.draft}</span></p>}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {it.review_item && <Link className="btn btn-primary btn-sm" to="/admin/review-queue">Open in Review Queue</Link>}
+                  {it.status === "open" && <button type="button" className={`btn ${it.review_item ? "btn-secondary" : "btn-primary"} btn-sm`} onClick={() => act(it._id, "replied")}>Mark replied</button>}
+                  {it.status === "open" && <button type="button" className="btn btn-secondary btn-sm" onClick={() => act(it._id, "close")}>Close</button>}
+                  {it.status !== "open" && <button type="button" className="btn btn-secondary btn-sm" onClick={() => act(it._id, "reopen")}>Reopen</button>}
+                  {it.status !== "spam" && <button type="button" className="btn btn-secondary btn-sm ml-auto" onClick={() => act(it._id, "spam")}>Mark as spam</button>}
+                </div>
+              </div>
+            ))}
           </div>
-          <p className="mt-2 whitespace-pre-wrap text-sm">{it.text}</p>
-          {it.draft && <p className="mt-2 rounded bg-gray-50 p-2 text-sm"><strong>Draft:</strong> {it.draft}</p>}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {it.review_item && <Link className="btn btn-secondary" to="/admin/review-queue">Open in Review Queue</Link>}
-            {it.status === "open" && <button type="button" className="btn btn-secondary" onClick={() => act(it._id, "replied")}>Mark replied</button>}
-            {it.status === "open" && <button type="button" className="btn btn-secondary" onClick={() => act(it._id, "close")}>Close</button>}
-            {it.status !== "spam" && <button type="button" className="btn btn-secondary" onClick={() => act(it._id, "spam")}>Spam</button>}
-            {it.status !== "open" && <button type="button" className="btn btn-secondary" onClick={() => act(it._id, "reopen")}>Reopen</button>}
-          </div>
-        </div>
-      ))}
+        )}
+      </div>
     </div>
   )
 }

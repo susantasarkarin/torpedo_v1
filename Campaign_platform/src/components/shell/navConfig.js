@@ -44,9 +44,26 @@ export const MODULES = [
         label: "Marketing",
         items: [
           { label: "Overview", icon: "🏠", to: "/admin/marketing", exact: true },
+          { label: "Dashboard", icon: "📊", to: "/admin/marketing/dashboard" },
+          { label: "Inbox", icon: "📥", to: "/admin/marketing/inbox" },
+          { label: "Weekly report", icon: "🗒️", to: "/admin/marketing/report" },
+        ],
+      },
+      {
+        label: "Publish",
+        items: [
           { label: "Website CMS", icon: "🌐", to: "/admin/marketing/websites" },
+          { label: "Content calendar", icon: "📅", to: "/admin/marketing/content" },
+          { label: "Newsletter", icon: "✉️", to: "/admin/marketing/newsletter" },
           { label: "LinkedIn", icon: "💼", to: "/admin/marketing/linkedin" },
           { label: "Media Library", icon: "🖼️", to: "/admin/marketing/media" },
+        ],
+      },
+      {
+        label: "Automation",
+        items: [
+          { label: "Decision Engine", icon: "🧠", to: "/admin/marketing/decisions" },
+          { label: "Integrations", icon: "🔌", to: "/admin/marketing/integrations" },
         ],
       },
     ],

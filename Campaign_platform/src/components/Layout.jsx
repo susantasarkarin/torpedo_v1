@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import Sidebar from "./shell/Sidebar"
 import Topbar from "./shell/Topbar"
 import { moduleKeyFromPath } from "./shell/navConfig"
+import "../pages/marketing/MarketingPages.css"
 
 // App shell: one white sidebar on the left (a drawer on phones), a sticky top
 // bar, and the page. Pages outside a module (dashboard, settings, profile)
@@ -41,7 +42,7 @@ function Layout() {
 
       <div className="cx-main">
         <Topbar onMenu={() => setDrawerOpen(true)} />
-        <main className="cx-content">
+        <main className={`cx-content${location.pathname.startsWith("/admin/marketing") ? " mk-page" : ""}`}>
           <Outlet />
         </main>
       </div>

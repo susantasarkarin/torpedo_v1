@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { AlertTriangle, ArrowLeft, Image as ImageIcon, Monitor, Plus, RefreshCw, Save, Search, Smartphone, Users } from "lucide-react"
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Copy, Image as ImageIcon, Lock, Monitor, Plus, RefreshCw, Save, Search, Smartphone, Trash2, Users } from "lucide-react"
 import { buildApiUrl } from "../../config"
 import { authFetch } from "../../utils/api"
 import { confirmAction, notify } from "../../utils/notify"
@@ -12,12 +12,12 @@ const mediaApi = marketingApi("/api/marketing")
 
 const TABS = [["newsletters", "Newsletters"], ["contacts", "Mailbox contacts"]]
 const STATUS_CLASS = {
-  draft: "bg-gray-200 text-gray-800",
-  scheduled: "bg-blue-100 text-blue-800",
-  sending: "bg-amber-100 text-amber-800",
-  paused: "bg-amber-100 text-amber-800",
-  sent: "bg-green-100 text-green-800",
-  cancelled: "bg-red-100 text-red-800",
+  draft: "",
+  scheduled: "info",
+  sending: "warn",
+  paused: "warn",
+  sent: "ok",
+  cancelled: "bad",
 }
 const RECIPIENT_STATUSES = ["queued", "sending", "sent", "failed", "skipped"]
 const TOKEN_HINT = "Tokens: {{first_name}} {{name}} {{company}} {{company_name}}"
@@ -73,15 +73,15 @@ function toPayload(d) {
 }
 
 function StatusBadge({ status }) {
-  return <span className={`rounded px-2 py-0.5 text-xs font-semibold ${STATUS_CLASS[status] || ""}`}>{status}</span>
+  return <span className={`mk-pill ${STATUS_CLASS[status] || ""}`}>{status}</span>
 }
 
-function Field({ label, hint, children }) {
+function Field({ label, hint, className = "", children }) {
   return (
-    <label className="block text-sm font-semibold">
-      <span>{label}</span>
-      <span className="mt-1 block font-normal">{children}</span>
-      {hint && <span className="mt-1 block text-xs font-normal text-gray-600">{hint}</span>}
+    <label className={`block ${className}`}>
+      <span className="mk-label">{label}</span>
+      {children}
+      {hint && <span className="mk-hint">{hint}</span>}
     </label>
   )
 }
@@ -152,16 +152,19 @@ function BlockCard({ block, index, count, editable, onChange, onMove, onDuplicat
   )
 
   return (
-    <div className="space-y-2 rounded border border-gray-200 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold">{index + 1}. {BLOCK_LABEL[block.type]}</span>
-        <div className="flex flex-wrap gap-1">
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!editable || index === 0} onClick={() => onMove(-1)}>Move up</button>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!editable || index === count - 1} onClick={() => onMove(1)}>Move down</button>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!editable} onClick={onDuplicate}>Duplicate</button>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!editable} onClick={onDelete}>Delete</button>
-        </div>
+    <div className="mk-block">
+      <div className="mk-block-head">
+        <span className="mk-block-title"><span className="mk-block-num">{index + 1}</span>{BLOCK_LABEL[block.type]}</span>
+        {editable && (
+          <div className="mk-block-tools">
+            <button type="button" className="mk-icon-btn" title="Move up" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}><ArrowUp size={16} /></button>
+            <button type="button" className="mk-icon-btn" title="Move down" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}><ArrowDown size={16} /></button>
+            <button type="button" className="mk-icon-btn" title="Duplicate" aria-label="Duplicate" onClick={onDuplicate}><Copy size={16} /></button>
+            <button type="button" className="mk-icon-btn danger" title="Delete" aria-label="Delete" onClick={onDelete}><Trash2 size={16} /></button>
+          </div>
+        )}
       </div>
+      <div className="mk-block-body">
       <fieldset disabled={!editable} className="space-y-2">
         {block.type === "heading" && (
           <div className="grid gap-2 md:grid-cols-4">
@@ -177,7 +180,7 @@ function BlockCard({ block, index, count, editable, onChange, onMove, onDuplicat
             <textarea className="form-input md:col-span-3" rows={4} placeholder="Paragraphs are separated by a blank line. Use **bold** and [label](https://url)."
               value={block.text || ""} onChange={set("text")} />
             {alignSelect}
-            <p className="text-xs text-gray-600 md:col-span-3">{TOKEN_HINT}</p>
+            <p className="mk-hint md:col-span-3">{TOKEN_HINT}</p>
           </div>
         )}
         {block.type === "image" && (
@@ -195,7 +198,7 @@ function BlockCard({ block, index, count, editable, onChange, onMove, onDuplicat
               <input className="form-input" placeholder="Link on click (optional, https://)" value={block.link || ""} onChange={set("link")} />
               <label className="flex items-center gap-2 text-sm">
                 Width (80–536 px)
-                <input type="number" min={80} max={536} className="form-input w-28" value={block.width ?? ""} onChange={setNum("width")} />
+                <input type="number" min={80} max={536} className="form-input mk-num" value={block.width ?? ""} onChange={setNum("width")} />
               </label>
             </div>
           </div>
@@ -211,10 +214,11 @@ function BlockCard({ block, index, count, editable, onChange, onMove, onDuplicat
         {block.type === "spacer" && (
           <label className="flex items-center gap-2 text-sm">
             Height (8–80 px)
-            <input type="number" min={8} max={80} className="form-input w-28" value={block.height ?? ""} onChange={setNum("height")} />
+            <input type="number" min={8} max={80} className="form-input mk-num" value={block.height ?? ""} onChange={setNum("height")} />
           </label>
         )}
       </fieldset>
+      </div>
     </div>
   )
 }
@@ -238,8 +242,8 @@ function BlockEditor({ blocks, editable, onChange }) {
 
   return (
     <section className="card space-y-4">
-      <h3 className="card-title">2. Content</h3>
-      {blocks.length === 0 && <p className="text-sm text-gray-600">No blocks yet. Add one below.</p>}
+      <h3 className="card-title mk-section-title"><span className="mk-step">2</span>Content</h3>
+      {blocks.length === 0 && <p className="text-sm text-gray-600">{editable ? "No blocks yet. Add one below." : "No content."}</p>}
       {blocks.map((b, i) => (
         <BlockCard
           key={i}
@@ -253,13 +257,15 @@ function BlockEditor({ blocks, editable, onChange }) {
           onDelete={() => remove(i)}
         />
       ))}
-      <div className="flex flex-wrap gap-2">
-        {BLOCK_TYPES.map((t) => (
-          <button key={t} type="button" className="btn btn-secondary btn-sm flex items-center gap-1" disabled={!editable} onClick={() => add(t)}>
-            <Plus size={14} /> Add {BLOCK_LABEL[t].toLowerCase()}
-          </button>
-        ))}
-      </div>
+      {editable && (
+        <div className="flex flex-wrap gap-2">
+          {BLOCK_TYPES.map((t) => (
+            <button key={t} type="button" className="mk-add-btn" onClick={() => add(t)}>
+              <Plus size={14} /> {BLOCK_LABEL[t]}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -301,13 +307,13 @@ function Preview({ id, content, bu, bus, onBu }) {
 
   return (
     <section className="card space-y-3">
-      <h3 className="card-title">3. Preview</h3>
+      <h3 className="card-title mk-section-title"><span className="mk-step">3</span>Preview</h3>
       {bus.length === 0 ? (
         <p className="text-sm text-gray-600">Tick a business unit in section 4 to preview its edition.</p>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <select className="form-input" value={bu} onChange={(e) => onBu(e.target.value)} aria-label="Preview business unit">
+            <select className="form-input mk-auto" value={bu} onChange={(e) => onBu(e.target.value)} aria-label="Preview business unit">
               {bus.map((b) => <option key={b} value={b}>{BU_NAMES[b]}</option>)}
             </select>
             <button type="button" className="btn btn-secondary btn-sm flex items-center gap-1" onClick={refresh} disabled={loading}>
@@ -355,7 +361,7 @@ function SendersSection({ meta, draft, editable, update }) {
 
   return (
     <section className="card space-y-4">
-      <h3 className="card-title">4. Business units &amp; senders</h3>
+      <h3 className="card-title mk-section-title"><span className="mk-step">4</span>Business units &amp; senders</h3>
       <div className="flex flex-wrap gap-4">
         {BUS.map((bu) => (
           <label key={bu} className="flex items-center gap-2 font-semibold">
@@ -493,7 +499,7 @@ function AudienceSection({ id, meta, draft, editable, update, ensureSaved }) {
   }
   return (
     <section className="card space-y-4">
-      <h3 className="card-title">5. Audience</h3>
+      <h3 className="card-title mk-section-title"><span className="mk-step">5</span>Audience</h3>
       <p className="text-sm text-gray-600">
         Panel members, unsubscribed / bounced addresses, our own domains and no-reply addresses are always left out.
       </p>
@@ -590,7 +596,7 @@ function SendSection({ id, doc, editable, ensureSaved, applyDoc, onBack, onOpen 
 
   return (
     <section className="card space-y-4">
-      <h3 className="card-title">6. Test &amp; send</h3>
+      <h3 className="card-title mk-section-title"><span className="mk-step">6</span>Test &amp; send</h3>
 
       <div className="space-y-2">
         <Field label="Test addresses (comma separated)">
@@ -619,7 +625,7 @@ function SendSection({ id, doc, editable, ensureSaved, applyDoc, onBack, onOpen 
           <label className="flex items-center gap-2">
             <input type="radio" name={`send-mode-${id}`} checked={mode === "schedule"} disabled={!canApprove} onChange={() => setMode("schedule")} /> Schedule
           </label>
-          <input type="datetime-local" className="form-input" value={when} disabled={!canApprove || mode !== "schedule"} onChange={(e) => setWhen(e.target.value)} />
+          <input type="datetime-local" className="form-input mk-auto" value={when} disabled={!canApprove || mode !== "schedule"} onChange={(e) => setWhen(e.target.value)} />
         </div>
         <button type="button" className="btn btn-primary" disabled={!canApprove || busy} onClick={approve}>
           {mode === "schedule" ? "Approve & schedule" : "Approve & send"}
@@ -692,7 +698,7 @@ function Delivery({ id, status, onDoc }) {
   const stats = data?.stats || {}
   return (
     <section className="card space-y-4">
-      <h3 className="card-title">7. Delivery</h3>
+      <h3 className="card-title mk-section-title"><span className="mk-step">7</span>Delivery</h3>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {["total", "queued", "sent", "failed", "skipped"].map((k) => (
           <div key={k} className="stat-card p-3">
@@ -702,11 +708,11 @@ function Delivery({ id, status, onDoc }) {
         ))}
       </div>
       <div className="flex flex-wrap gap-2">
-        <select className="form-input" value={bu} onChange={(e) => setBu(e.target.value)} aria-label="Filter by business unit">
+        <select className="form-input mk-auto" value={bu} onChange={(e) => setBu(e.target.value)} aria-label="Filter by business unit">
           <option value="">All BUs</option>
           {BUS.map((b) => <option key={b} value={b}>{BU_NAMES[b]}</option>)}
         </select>
-        <select className="form-input" value={recipientStatus} onChange={(e) => setRecipientStatus(e.target.value)} aria-label="Filter by status">
+        <select className="form-input mk-auto" value={recipientStatus} onChange={(e) => setRecipientStatus(e.target.value)} aria-label="Filter by status">
           <option value="">All statuses</option>
           {RECIPIENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -792,33 +798,48 @@ function Editor({ id, meta, onBack, onOpen }) {
 
   return (
     <div className="space-y-4">
-      <div className="card">
-        <div className="card-header flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <button type="button" className="btn btn-secondary btn-sm mb-2 flex items-center gap-1" onClick={onBack}>
-              <ArrowLeft size={14} /> Back to list
+      <div className="card mk-sticky">
+        <div className="card-header flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <button type="button" className="mk-icon-btn" title="Back to list" aria-label="Back to list" onClick={onBack}>
+              <ArrowLeft size={18} />
             </button>
-            <h2 className="card-title flex flex-wrap items-center gap-2">{doc.name || "Untitled"} <StatusBadge status={doc.status} /></h2>
-            {doc.scheduled_for && <p className="card-description">Scheduled for {formatDateTime(doc.scheduled_for)}</p>}
+            <div className="min-w-0">
+              <h2 className="card-title flex flex-wrap items-center gap-2">{doc.name || "Untitled"} <StatusBadge status={doc.status} /></h2>
+              {doc.scheduled_for && <p className="text-sm text-gray-600">Scheduled for {formatDateTime(doc.scheduled_for)}</p>}
+            </div>
           </div>
           {editable && (
-            <button type="button" className="btn btn-primary flex items-center gap-1" onClick={save}>
-              <Save size={16} /> Save
-            </button>
+            <div className="flex items-center gap-3">
+              {dirty && <span className="mk-dirty">Unsaved changes</span>}
+              <button type="button" className="btn btn-primary" onClick={save} disabled={!dirty}>
+                <Save size={16} /> Save
+              </button>
+            </div>
           )}
         </div>
-        {(doc.problems || []).length > 0 && (
-          <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            <p className="flex items-center gap-1 font-semibold"><AlertTriangle size={14} /> Fix these before sending</p>
+      </div>
+
+      {!editable && (
+        <div className="mk-notice">
+          <Lock size={16} className="mt-0.5 shrink-0" />
+          <span>This newsletter is {doc.status}, so its content is locked. Use <strong>Duplicate</strong> in section 6 to start a new version.</span>
+        </div>
+      )}
+      {(doc.problems || []).length > 0 && (
+        <div className="mk-notice warn">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold">Fix these before sending</p>
             <ul className="mt-1 list-disc pl-5">
               {doc.problems.map((p, i) => <li key={i}>{p}</li>)}
             </ul>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <section className="card space-y-3">
-        <h3 className="card-title">1. Details</h3>
+        <h3 className="card-title mk-section-title"><span className="mk-step">1</span>Details</h3>
         <fieldset disabled={!editable} className="grid gap-3 md:grid-cols-2">
           <Field label="Name">
             <input className="form-input w-full" value={draft.name} onChange={(e) => update({ name: e.target.value })} />
@@ -826,7 +847,7 @@ function Editor({ id, meta, onBack, onOpen }) {
           <Field label="Subject" hint={TOKEN_HINT}>
             <input className="form-input w-full" value={draft.subject} onChange={(e) => update({ subject: e.target.value })} />
           </Field>
-          <Field label="Preheader (preview text shown in inboxes)">
+          <Field label="Preheader (preview text shown in inboxes)" className="md:col-span-2">
             <input className="form-input w-full" value={draft.preheader} onChange={(e) => update({ preheader: e.target.value })} />
           </Field>
         </fieldset>
@@ -859,7 +880,7 @@ function Editor({ id, meta, onBack, onOpen }) {
       {doc.status !== "draft" && <Delivery id={id} status={doc.status} onDoc={syncDoc} />}
 
       <section className="card">
-        <h3 className="card-title">History</h3>
+        <h3 className="card-title mk-section-title">History</h3>
         <ul className="mt-2 space-y-1 text-sm">
           {[...(doc.history || [])].reverse().slice(0, 15).map((h, i) => (
             <li key={i}>{formatDateTime(h.at)} · {h.by || "system"} · {h.action}</li>
@@ -924,7 +945,7 @@ function NewsletterList({ meta, onOpen }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
+            <select className="form-input mk-auto" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
               <option value="">All statuses</option>
               {Object.keys(STATUS_CLASS).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -1049,7 +1070,7 @@ function ContactsTab() {
           }}
         >
           <input className="form-input flex-1" placeholder="Search email or name" value={text} onChange={(e) => setText(e.target.value)} />
-          <select className="form-input" value={filter.bu} onChange={(e) => setFilter((f) => ({ ...f, bu: e.target.value }))} aria-label="Filter by business unit">
+          <select className="form-input mk-auto" value={filter.bu} onChange={(e) => setFilter((f) => ({ ...f, bu: e.target.value }))} aria-label="Filter by business unit">
             <option value="">All BUs</option>
             {BUS.map((b) => <option key={b} value={b}>{BU_NAMES[b]}</option>)}
           </select>
