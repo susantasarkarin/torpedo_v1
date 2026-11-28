@@ -96,7 +96,7 @@ export const createLegacyLink = async (form, vendor) => {
     vendorCompleteRD: asList(vendor.completeRD),
     vendorTerminateRD: asList(vendor.terminateRD),
     vendorQuotaFullRD: asList(vendor.quotaRD || vendor.quotaFullRD),
-    routingEnabled: false,
+    routingEnabled: true, // on by default: routed respondents and Panel members (only while Live)
     qualification: { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], custom: [] },
   };
   const data = await call("/projects/", { method: "POST", body: JSON.stringify(payload) });

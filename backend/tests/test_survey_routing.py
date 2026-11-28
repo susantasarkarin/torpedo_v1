@@ -197,6 +197,19 @@ def test_router_link_priority_full_and_already_entered(env, monkeypatch):
     assert (rec["entryType"], rec["routedFrom"], rec["vendorId"], rec["respondentId"]) == ("router_link", "router", "5068", "v-1")
 
 
+def test_routing_on_unless_switched_off_and_only_live(env, monkeypatch):
+    """No routingEnabled field = on (2026-11-28); false = never; only Live studies get traffic."""
+    client, _, projects, _ = env
+    monkeypatch.setenv("SURVEY_ROUTING_ENABLED", "true")
+    unset = _project("2", priority=2)
+    unset.pop("routingEnabled")
+    projects.docs += [_project("1", routing=False, priority=1), unset,
+                      _project("3", routing=True, priority=3, projectStatus="close")]
+    assert _store(client, route=True).json()["survey_id"] == "2"
+    projects.docs.remove(unset)
+    assert _store(client, route=True, rid="v-2", visitor="visitor-0002").json()["allocation_success"] is False
+
+
 def test_router_link_off_without_switch(env):
     client, _, projects, _ = env
     projects.docs.append(_project("1", routing=True))

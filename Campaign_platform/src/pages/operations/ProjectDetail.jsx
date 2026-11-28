@@ -292,7 +292,7 @@ function ProjectDetail() {
                   {q.enabled && rows.map(([k, v]) => (
                     <div key={k} className="pd-kv"><span className="pd-k">{k}</span><span className="pd-v">{v}</span></div>
                   ))}
-                  <div className="pd-kv"><span className="pd-k">Routed respondents &amp; panel members</span><span className="pd-v">{project.routingEnabled ? "Accepted" : "Not accepted"}</span></div>
+                  <div className="pd-kv"><span className="pd-k">Routed respondents &amp; panel members</span><span className="pd-v">{project.routingEnabled !== false ? "Accepted (while Live)" : "Not accepted"}</span></div>
                 </div>
                 <button type="button"
                   style={{ marginTop: 10, padding: "6px 14px", width: "auto", whiteSpace: "nowrap", border: "1px solid #123056",

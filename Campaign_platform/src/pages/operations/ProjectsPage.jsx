@@ -59,7 +59,7 @@ function ProjectsPage() {
     securityTerminatePage: "",
     countryCode: "",
     qualification: { enabled: false, ageMin: "", ageMax: "", genders: [], employment: [], occupation: [], custom: [] },
-    routingEnabled: false,
+    routingEnabled: true, // on by default: routed respondents and Panel members (only while Live)
     routingPriority: "",
     vendorName: "",
     vendorId: "",

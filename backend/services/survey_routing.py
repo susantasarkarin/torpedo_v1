@@ -27,7 +27,7 @@ Project fields (email_automation.projects), all optional; absent = today's behav
                   code -- see services/panel_questions.py
   states[], cities[], zipPrefixes[], childrenMin/Max, childAgeMin/Max, nccs[]
                   targeting profile -- see services/respondent_profile.py
-  routingEnabled: bool     may receive routed respondents
+  routingEnabled: bool     may receive routed respondents (default on; false = never)
   routingPriority: int     lower = offered first
 
 Question bank (email_automation.qualification_questions): reusable study questions
@@ -441,7 +441,8 @@ async def is_full(url_col, project: Dict[str, Any]) -> bool:
 
 async def routable_projects(projects_col, country: str) -> List[Dict[str, Any]]:
     """Live, routing-enabled projects with a live link for this country, in priority order."""
-    query: Dict[str, Any] = {"is_deleted": {"$ne": True}, "routingEnabled": True}
+    # on unless switched off: older and imported projects have no routingEnabled field (2026-11-28)
+    query: Dict[str, Any] = {"is_deleted": {"$ne": True}, "routingEnabled": {"$ne": False}}
     docs = await projects_col.find(query).to_list(length=500)
     out = []
     for p in docs:

@@ -419,12 +419,12 @@ export default function QualificationEditor({ formData, setFormData }) {
         <label className="qe-toggle">
           <input
             type="checkbox"
-            checked={Boolean(formData.routingEnabled)}
+            checked={formData.routingEnabled !== false}
             onChange={(e) => setFormData((prev) => ({ ...prev, routingEnabled: e.target.checked }))}
           />
-          Accept routed respondents and panel members (router links, other surveys' screen-outs, and SurveyFieldwork Panel members before CPX / Cint)
+          Accept routed respondents and panel members (router links, other surveys' screen-outs, and SurveyFieldwork Panel members before CPX / Cint). On by default; traffic only goes to the study while it is Live.
         </label>
-        {formData.routingEnabled && (
+        {formData.routingEnabled !== false && (
           <div className="pp-field qe-priority">
             <label>Routing priority</label>
             <input

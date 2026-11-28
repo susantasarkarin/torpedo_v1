@@ -21,9 +21,9 @@ function panelChecks(p, savedRouting) {
     { ok: Boolean(p.liveLink || p.clientLink), label: "Live link is set", fix: "Add the client's live link on the project." },
     { ok: Boolean(p.countryCode), label: `Country is set${p.countryCode ? ` (${String(p.countryCode).toUpperCase()})` : ""}`, fix: "Pick a country below; members are matched by IP country." },
     {
-      ok: Boolean(p.routingEnabled) && savedRouting,
+      ok: p.routingEnabled !== false && savedRouting,
       label: "Accepts routed respondents and panel members",
-      fix: p.routingEnabled ? "Ticked but not saved yet: click Save qualifications." : "Tick it in Qualification & routing below.",
+      fix: p.routingEnabled !== false ? "Ticked but not saved yet: click Save qualifications." : "Tick it in Qualification & routing below.",
     },
   ];
 }
@@ -57,7 +57,7 @@ export default function ProjectQualifications() {
       const body = {
         countryCode: formData.countryCode || "",
         qualification: formData.qualification || {},
-        routingEnabled: Boolean(formData.routingEnabled),
+        routingEnabled: formData.routingEnabled !== false,
         routingPriority: formData.routingPriority ?? "",
         loi: formData.loi ?? "",
         clientIR: formData.clientIR ?? "",
@@ -83,7 +83,7 @@ export default function ProjectQualifications() {
 
   const country = String(formData.countryCode || "").toUpperCase();
   const dirty = snapshot(formData) !== snapshot(saved);
-  const checks = panelChecks(formData, Boolean(saved?.routingEnabled));
+  const checks = panelChecks(formData, saved?.routingEnabled !== false);
   const ready = checks.every((c) => c.ok);
 
   return (
