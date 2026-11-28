@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { createProject, updateProject, listManagers, OpsApiError } from "../../../services/opsProjectsService";
+import { createProject, updateProject, listManagers, lookupRfq, OpsApiError } from "../../../services/opsProjectsService";
 import { ModalShell } from "./opsShared";
-import { splitFieldErrors } from "./opsUtils";
+import { splitFieldErrors, rfqStageLabel, rfqStageTone } from "./opsUtils";
 
 // API field name -> form key, and the form keys that have an input here.
 const FIELD_MAP = { fieldworkDatetime: "outOfFieldAt" };
-const FORM_FIELDS = ["projectName", "managerId", "outOfFieldAt"];
+const FORM_FIELDS = ["projectName", "managerId", "outOfFieldAt", "rfqId"];
+const RFQ_SHOWN = 6;
 
 // Manager is stored by username (backend looks managers up by username).
 // New projects default to the admin user.
@@ -39,6 +40,40 @@ export default function ProjectModal({ project, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const busy = useRef(false);
+  // RFQ picker (create only): search follows the project name until the user types in it.
+  const [rfq, setRfq] = useState(null);
+  const [rfqQuery, setRfqQuery] = useState("");
+  const [rfqTouched, setRfqTouched] = useState(false);
+  const [rfqTerm, setRfqTerm] = useState("");
+  const [rfqHits, setRfqHits] = useState({ items: [], loading: false, error: null });
+
+  const rfqText = rfqTouched ? rfqQuery : form.projectName;
+  useEffect(() => {
+    const t = setTimeout(() => setRfqTerm(rfqText.trim()), 300);
+    return () => clearTimeout(t);
+  }, [rfqText]);
+
+  useEffect(() => {
+    if (isEdit || rfq || rfqTerm.length < 2) {
+      setRfqHits({ items: [], loading: false, error: null });
+      return undefined;
+    }
+    let ignore = false;
+    setRfqHits((h) => ({ ...h, loading: true, error: null }));
+    lookupRfq(rfqTerm)
+      .then((items) => !ignore && setRfqHits({ items, loading: false, error: null }))
+      .catch((e) => !ignore && setRfqHits({ items: [], loading: false, error: e.message || "RFQ search failed." }));
+    return () => {
+      ignore = true;
+    };
+  }, [rfqTerm, rfq, isEdit]);
+
+  const pickRfq = (item) => {
+    setRfq(item);
+    if (errors.rfqId) setErrors((er) => ({ ...er, rfqId: undefined }));
+    // An empty name takes the RFQ title, so the two match and stay easy to find.
+    if (!form.projectName.trim() && item.title) setForm((f) => ({ ...f, projectName: item.title }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +123,7 @@ export default function ProjectModal({ project, onClose, onSaved }) {
           projectName: form.projectName.trim(),
           managerId: form.managerId,
           fieldworkDatetime: form.outOfFieldAt,
+          ...(rfq ? { rfqId: rfq.id } : {}),
         };
 
     busy.current = true;
@@ -192,6 +228,55 @@ export default function ProjectModal({ project, onClose, onSaved }) {
           />
           {invalid("outOfFieldAt") && <span className="ops-field__error">{errors.outOfFieldAt}</span>}
         </div>
+
+        {!isEdit && (
+          <div className="ops-field">
+            <label htmlFor="op-rfq">RFQ</label>
+            {rfq ? (
+              <div className="ops-rfq-current">
+                <span className="ops-rfq-option__title">{rfq.title || rfq.id}</span>
+                <span className={`ops-rfq-chip ops-rfq-chip--${rfqStageTone(rfq.stage)}`}>{rfqStageLabel(rfq.stage)}</span>
+                <button type="button" className="ops-btn ops-btn--ghost ops-btn--sm" onClick={() => setRfq(null)} disabled={saving}>
+                  Change
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  id="op-rfq"
+                  type="search"
+                  className={`ops-input ${invalid("rfqId") ? "ops-input--error" : ""}`}
+                  value={rfqText}
+                  onChange={(e) => {
+                    setRfqTouched(true);
+                    setRfqQuery(e.target.value);
+                  }}
+                  autoComplete="off"
+                  placeholder="Search RFQs by title"
+                />
+                {rfqTerm.length >= 2 && rfqHits.loading && <span className="ops-field__hint" role="status">Searching…</span>}
+                {rfqHits.error && <span className="ops-field__error">{rfqHits.error}</span>}
+                {rfqTerm.length >= 2 && !rfqHits.loading && !rfqHits.error && rfqHits.items.length === 0 && (
+                  <span className="ops-field__hint">No RFQs match “{rfqTerm}”. You can link one later.</span>
+                )}
+                {rfqHits.items.length > 0 && (
+                  <ul className="ops-rfq-options" aria-label="Matching RFQs">
+                    {rfqHits.items.slice(0, RFQ_SHOWN).map((item) => (
+                      <li key={item.id}>
+                        <button type="button" className="ops-rfq-option" onClick={() => pickRfq(item)} disabled={saving}>
+                          <span className="ops-rfq-option__title">{item.title || item.id}</span>
+                          <span className={`ops-rfq-chip ops-rfq-chip--${rfqStageTone(item.stage)}`}>{rfqStageLabel(item.stage)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <span className="ops-field__hint">Optional. Unlinked projects are matched to their RFQ automatically every 15 minutes.</span>
+              </>
+            )}
+            {invalid("rfqId") && <span className="ops-field__error">{errors.rfqId}</span>}
+          </div>
+        )}
       </form>
     </ModalShell>
   );

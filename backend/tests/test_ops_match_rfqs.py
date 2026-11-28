@@ -92,7 +92,7 @@ def test_ambiguous_left_unmatched_with_candidates_on_apply(tmp_path):
     _account(ctx, "a1", "Other Co")
     _account(ctx, "a2", "Beta")
     _opp(ctx, "o1", "Study X", account_id="a1")
-    _opp(ctx, "o2", "Study X", account_id="a2", stage="won")
+    _opp(ctx, "o2", "Study X", account_id="a2", stage="proposal")
     pid = _project(ctx, "Study X", "P-1", client="Acme")
     report = m.run(ctx, apply=True, backup_dir=str(tmp_path), now=NOW)
     assert report["matches"] == []
@@ -133,7 +133,7 @@ def test_legacy_ambiguity_stops_cascade_instead_of_falling_to_title():
 def test_candidates_capped_at_five():
     ctx = _ctx()
     for i in range(7):
-        _opp(ctx, f"o{i}", "Same Name")
+        _opp(ctx, f"o{i}", "Same Name", account_id=f"a{i}")
     _project(ctx, "Same Name", "P-1", client="Nobody")
     report = m.run(ctx, now=NOW)
     assert len(report["ambiguous"][0]["candidates"]) == 5
@@ -220,3 +220,55 @@ def test_cli_dry_run_writes_report(tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["mode"] == "dry-run" and data["matches"][0]["rfqId"] == "o1"
     assert ctx["log"].docs == []
+
+
+def test_same_rfq_recorded_twice_links_the_furthest_stage():
+    ctx = _ctx()
+    _opp(ctx, "o1", "RFQ Diary Danone", account_id="a1")
+    _opp(ctx, "o2", "RFQ Diary Danone", account_id="a1", stage="proposal")
+    _project(ctx, "RFQ Diary Danone", "P-1")
+    report = m.run(ctx, now=NOW)
+    assert [(x["rfqId"], x["method"]) for x in report["matches"]] == [("o2", "title-exact")]
+
+
+def test_tr_prefix_is_stripped():
+    ctx = _ctx()
+    _opp(ctx, "o1", "TR: Cotation RAM")
+    _project(ctx, "Cotation RAM", "P-1")
+    report = m.run(ctx, now=NOW)
+    assert [(x["rfqId"], x["method"]) for x in report["matches"]] == [("o1", "title-normalized")]
+
+
+def test_title_contains_needs_three_words_and_one_rfq():
+    ctx = _ctx()
+    _opp(ctx, "o1", "RFQ_Launch Pad_Investors_B2B study_HRG_SFW")
+    _opp(ctx, "o2", "Germany panel")
+    _project(ctx, "Investors_B2B study_HRG_SFW", "P-1")
+    _project(ctx, "Germany", "P-2")
+    report = m.run(ctx, now=NOW)
+    assert [(x["projectNumber"], x["rfqId"], x["method"]) for x in report["matches"]] == [
+        ("P-1", "o1", "title-contains")]
+
+
+def test_auto_link_fills_empty_links_without_backup():
+    ctx = _ctx()
+    _opp(ctx, "o1", "Study X")
+    pid = _project(ctx, "Study X", "P-1")
+    out = m.auto_link(ctx, now=NOW)
+    assert out["matched"] == 1
+    assert _proj(ctx, pid)["rfqId"] == "o1"
+    assert m.auto_link(ctx, now=NOW)["matched"] == 0
+
+
+def test_loose_client_name_and_single_won_resolve_vendor_copies():
+    ctx = _ctx()
+    _account(ctx, "a1", "Mihaela Petre (Ipsos)")
+    _account(ctx, "a2", "Jyoti Halder (Luc)")
+    _opp(ctx, "o1", "RFQ needed Iceland", account_id="a1", stage="won")
+    _opp(ctx, "o2", "RFQ needed Iceland", account_id="a2")
+    _project(ctx, "RFQ needed Iceland", "P-1", client="Ipsos")
+    _opp(ctx, "o3", "Focus group", account_id="a1")
+    _opp(ctx, "o4", "Focus group", account_id="a2", stage="won")
+    _project(ctx, "Focus group", "P-2", client="Nobody")
+    report = m.run(ctx, now=NOW)
+    assert sorted((x["projectNumber"], x["rfqId"]) for x in report["matches"]) == [("P-1", "o1"), ("P-2", "o4")]

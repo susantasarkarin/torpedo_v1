@@ -2346,6 +2346,20 @@ async def startup_event():
                               max_instances=1, coalesce=True, replace_existing=True)
             print("✅ RFQ flow scheduled (every 10 min, mode from config rfq.mode)")
 
+            def _ops_rfq_link_job():
+                try:
+                    from scripts.ops_match_rfqs import auto_link
+                    out = auto_link()
+                    if out["matched"]:
+                        print(f"[OpsRfqLink] linked {out['matched']} project(s) to RFQs")
+                except Exception as e:
+                    print(f"[OpsRfqLink] Error: {e}")
+
+            scheduler.add_job(_ops_rfq_link_job, IntervalTrigger(minutes=15),
+                              id="ops_rfq_link", name="Ops: link unlinked projects to their sales RFQ",
+                              max_instances=1, coalesce=True, replace_existing=True)
+            print("✅ Ops project RFQ linking scheduled (every 15 min)")
+
             def _ops_daily_job():
                 try:
                     from ops.runner import run

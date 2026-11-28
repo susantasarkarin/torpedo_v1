@@ -741,6 +741,23 @@ def test_rfq_unknown_id_is_422(rfq_env):
     assert r.json()["detail"] == "rfqId is not a known RFQ"
 
 
+def test_create_project_with_rfq_links_it_manually(rfq_env):
+    c, db, crm = rfq_env["client"], rfq_env["db"], rfq_env["crm"]
+    _opp(crm, "o1", "RFQ_Grooming W2_HRG_SFW", stage="proposal")
+    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "rfqId": "o1"})
+    assert r.status_code == 200, r.text
+    assert r.json()["project"]["rfq"] == {"id": "o1", "title": "RFQ_Grooming W2_HRG_SFW",
+                                          "stage": "proposal", "method": "manual"}
+    assert [d["new"] for d in db["ops_change_log"].docs if d["action"] == "project.rfq_match"] == ["o1"]
+
+
+def test_create_project_with_unknown_rfq_is_422_and_saves_nothing(rfq_env):
+    c, db = rfq_env["client"], rfq_env["db"]
+    r = c.post("/api/ops/projects", json={**PROJECT_BODY, "rfqId": "missing"})
+    assert r.status_code == 422
+    assert db["ops_projects"].docs == []
+
+
 def test_project_list_rfq_filter(rfq_env):
     c, db = rfq_env["client"], rfq_env["db"]
     p1 = _project(c)

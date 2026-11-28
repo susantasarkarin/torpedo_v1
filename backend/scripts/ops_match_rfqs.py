@@ -8,10 +8,16 @@ Usage (repo root):
 Tiers, first tier that yields exactly one opportunity wins:
   legacy-link      legacy traffic docs behind the project's suppliers carry rfqId/opportunity_id
   title-exact      projectName == opportunity title (case-insensitive, whitespace collapsed)
-  title-normalized same, after stripping RE:/FW:/Fwd: prefixes, ' - <vendor>' suffixes and punctuation
-A tier yielding >1 opportunities is disambiguated only by account name (project clientName ==
-account name). If still >1, the project is left unmatched with rfqCandidates (max 5) and the
-cascade stops there (a later, looser tier must not silently pick one of them).
+  title-normalized same, after stripping RE:/FW:/Fwd:/TR: prefixes, ' - <vendor>' suffixes and punctuation
+  title-contains   the normalized project name (3+ words) appears inside one normalized RFQ title
+A tier yielding >1 opportunities is disambiguated by account name (project clientName ==
+account name, then one name's words all inside the other's), then, when every remaining candidate is the same RFQ recorded more than once
+(same normalized title, same account), by the furthest stage and then the newest record, then by the only Won candidate.
+If still >1, the project is left unmatched with rfqCandidates (max 5) and the cascade stops
+there (a later, looser tier must not silently pick one of them).
+
+auto_link(ctx) is the background form (scheduled in main.py): same decisions, written without
+the full backup, because it only fills empty links and every write goes to ops_change_log.
 
 Never touches a project that already has rfqId or a rfqMatch.method of 'manual'.
 """
@@ -32,10 +38,12 @@ from bson import ObjectId  # noqa: E402
 
 SCRIPT_USER = "ops_match_rfqs"
 ACTION = "project.rfq_match"
-TIERS = ("legacy-link", "title-exact", "title-normalized")
+TIERS = ("legacy-link", "title-exact", "title-normalized", "title-contains")
+STAGE_RANK = {"won": 3, "proposal": 2, "rfq": 1}
+CONTAINS_MIN_WORDS = 3
 CANDIDATE_LIMIT = 5
 
-_PREFIX = re.compile(r"^\s*(re|fw|fwd)\s*:\s*", re.I)
+_PREFIX = re.compile(r"^\s*(re|fw|fwd|tr)\s*:\s*", re.I)
 _VENDOR_SUFFIX = re.compile(r"\s+-\s+(research\s+desk|lucid[\s_]*new|lucid|sfw)\s*$", re.I)
 _PUNCT = re.compile(r"[\W_]+")
 _WS = re.compile(r"\s+")
@@ -85,6 +93,7 @@ def _index(ctx) -> Dict[str, Any]:
             idx["exact"][e].append(o)
         if n:
             idx["norm"][n].append(o)
+    idx["norm_titles"] = [(f" {n} ", o) for n, os_ in idx["norm"].items() for o in os_]
     # project id -> legacy traffic doc ids (via live surveys -> live supplier links)
     survey_project = {str(s["_id"]): str(s.get("projectId"))
                       for s in ctx["surveys"].find({"is_deleted": {"$ne": True}})}
@@ -119,12 +128,37 @@ def _resolve(ctx, idx, project, cands: List[Dict[str, Any]], accounts) -> Tuple[
         return cands[0], []
     client = collapse(project.get("clientName"))
     if client:
-        narrowed = [o for o in cands if _account_name(ctx, accounts, o.get("account_id")) == client]
-        if len(narrowed) == 1:
-            return narrowed[0], []
-        if narrowed:
-            cands = narrowed
+        for same_client in (lambda n: n == client, lambda n: _loose_same(n, client)):
+            narrowed = [o for o in cands if same_client(_account_name(ctx, accounts, o.get("account_id")))]
+            if len(narrowed) == 1:
+                return narrowed[0], []
+            if narrowed:
+                cands = narrowed
+                break
+    same = _same_rfq(cands)
+    if same:
+        return same, []
+    won = [o for o in cands if o.get("stage") == "won"]
+    if len(won) == 1:  # the RFQ that became this job; the rest are copies sent to sub-vendors
+        return won[0], []
     return None, cands
+
+
+def _loose_same(account: str, client: str) -> bool:
+    """'hansa research group' vs 'hansa research', 'mihaela petre (ipsos)' vs 'ipsos'."""
+    a, c = set(normalize_title(account).split()), set(normalize_title(client).split())
+    return bool(a and c) and (a <= c or c <= a)
+
+
+def _same_rfq(cands: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The same RFQ recorded more than once (one normalized title, one account): pick the
+    furthest stage, then the newest record. Different accounts stay ambiguous."""
+    if len({normalize_title(o.get("title")) for o in cands}) != 1:
+        return None
+    if len({str(o.get("account_id")) for o in cands}) != 1:
+        return None
+    return max(cands, key=lambda o: (STAGE_RANK.get(o.get("stage"), 0),
+                                     str(o.get("created_at") or ""), str(o["_id"])))
 
 
 def _decide(ctx, idx, project, accounts) -> Dict[str, Any]:
@@ -144,6 +178,7 @@ def _decide(ctx, idx, project, accounts) -> Dict[str, Any]:
         ("title-exact", idx["exact"].get(pname, []) if pname else []),
         ("title-normalized", idx["norm"].get(normalize_title(project.get("projectName")), [])
          if pname else []),
+        ("title-contains", _contains(idx, project.get("projectName"))),
     ]
     for method, cands in tiers:
         if not cands:
@@ -154,6 +189,15 @@ def _decide(ctx, idx, project, accounts) -> Dict[str, Any]:
         return {"state": "ambiguous", "method": method,
                 "candidates": [_ref(o) for o in narrowed[:CANDIDATE_LIMIT]]}
     return {"state": "unmatched", "method": None, "candidates": []}
+
+
+def _contains(idx, name: Any) -> List[Dict[str, Any]]:
+    """RFQs whose normalized title contains the whole normalized project name (word-bounded)."""
+    n = normalize_title(name)
+    if len(n.split()) < CONTAINS_MIN_WORDS:
+        return []
+    needle = f" {n} "
+    return [o for padded, o in idx["norm_titles"] if needle in padded]
 
 
 def plan(ctx) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -254,6 +298,16 @@ def run(ctx, apply: bool = False, backup_dir: Optional[str] = None,
         report["backup"] = {"path": path, "projects": n}
         report["applied"] = apply_decisions(ctx, decisions, now)
     return report
+
+
+def auto_link(ctx=None, now: Optional[datetime] = None) -> Dict[str, int]:
+    """Background pass: link every unlinked, non-manual project that has a clear match."""
+    ctx = ctx or real_ctx()
+    now = now or datetime.utcnow()
+    decisions, counts = plan(ctx)
+    done = apply_decisions(ctx, decisions, now)
+    return {"matched": done["matched"], "candidates_updated": done["candidates_updated"],
+            "ambiguous": counts["ambiguous"], "unmatched": counts["unmatched"]}
 
 
 def real_ctx() -> Dict[str, Any]:

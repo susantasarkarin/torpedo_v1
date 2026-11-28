@@ -943,6 +943,7 @@ class ProjectCreate(BaseModel):
     fieldworkDatetime: Optional[str] = None  # default: now (India time)
     timezone: Optional[str] = None           # default: Asia/Kolkata
     clientName: Optional[str] = None
+    rfqId: Optional[str] = None              # sales RFQ picked in the New project form
 
 
 class ProjectUpdate(BaseModel):
@@ -1056,6 +1057,14 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
     client = (body.clientName or "").strip()
     if len(client) > 200:
         _bad("clientName is too long")
+    rid = (body.rfqId or "").strip()
+    opp = _opp_by_id(rid) if rid else None
+    if rid and not opp:
+        _bad("rfqId is not a known RFQ")
+    # Picked by a person, so 'manual': the background matcher never overrides it.
+    rfq_fields = {"rfqId": str(opp["_id"]), "rfqTitle": opp.get("title"), "rfqStage": opp.get("stage"),
+                  "rfqMatch": {"method": "manual", "matchedAt": _now(), "by": user},
+                  "rfqCandidates": []} if opp else {}
 
     col = _col(COL_OPS_PROJECTS)
     for _ in range(PROJECT_NUMBER_ATTEMPTS):
@@ -1067,6 +1076,7 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
             "fieldworkDatetime": fieldwork, "timezone": tz, "status": "live",
             "favoriteBy": [], "is_deleted": False,
             "createdAt": _now(), "updatedAt": _now(), "createdBy": user,
+            **rfq_fields,
         }
         try:
             inserted = col.insert_one(doc)
@@ -1074,6 +1084,9 @@ def create_project(request: Request, body: ProjectCreate, user: str = Depends(ve
             continue  # number already taken (counter behind the data): allocate again
         pid = str(inserted.inserted_id)
         _log(user=user, action="project.create", project_id=pid, new=number)
+        if opp:
+            _log(user=user, action="project.rfq_match", project_id=pid, field="rfqId",
+                 old=None, new=rfq_fields["rfqId"], extra={"method": "manual"})
         return {"project": _project_view({**doc, "_id": inserted.inserted_id}, user)}
     raise HTTPException(status_code=409, detail="Could not allocate a project number, try again")
 
